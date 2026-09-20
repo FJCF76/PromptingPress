@@ -20,55 +20,195 @@
       "default": "",
       "description": "Optional exact substring of title to render in an accent color. Must match title exactly (case-sensitive) or it is ignored."
     },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
-    },
-    "background_image": {
-      "type": "string",
-      "required": false,
-      "default": "",
-      "format": "image_url",
-      "description": "Optional background image URL. When set, renders as a CSS background-image with a dark overlay for text readability."
-    },
     "items": {
       "type": "array",
       "item_type": "object",
       "required": true,
       "description": "Array of stat items. Each: { number: string, label: string }.",
       "items": {
-        "number": { "type": "string", "required": true,  "description": "The metric value, e.g. '+30' or '100+'. Plain text — HTML is escaped." },
-        "label":  { "type": "string", "required": true,  "description": "The metric label, e.g. 'Years of experience'. Plain text — HTML is escaped." }
+        "number": {
+          "type": "string",
+          "required": true,
+          "description": "The metric value, e.g. '+30' or '100+'. Plain text — HTML is escaped."
+        },
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "The metric label, e.g. 'Years of experience'. Plain text — HTML is escaped."
+        }
       }
     }
   },
   "styling": {
     "root_class": "stats",
-    "variant_classes": ["stats--dark", "stats--inverted", "stats--has-bg-image"],
-    "tokens": ["--space-xl", "--color-bg", "--color-bg-inverted", "--overlay-bg"],
-    "style_slots": {
-      "--stats-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--stats-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--stats-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
-      "--stats-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading (title) font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--stats-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading text color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--stats-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the stats section heading (title). Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--stats-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the stats heading, before the number row (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the number row always renders after the heading, so the seam with the band below is closed with --stats-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] },
-      "--stats-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
-      "--stats-number-color": { "type": "color", "default": "var(--color-accent)", "description": "Stat number (large metric value) text color", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-number-size": { "type": "length", "default": "2.5rem", "description": "Stat number (large metric value) font size", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-number-font": { "type": "font-family", "default": "inherit", "description": "Stat number (large metric value) font family. Defaults to inherit, so the number keeps the page body font exactly as before. Set to var(--font-heading) to make the display figures follow the heading system (a serif/display brand face), or give any comma-separated font stack.", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-number-weight": { "type": "number", "default": "700", "description": "Stat number (large metric value) font weight, as a unitless number (e.g. 600). Defaults to 700. Pair with --stats-number-font when the heading face needs a different weight than the bold body default.", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-label-color": { "type": "color", "default": "var(--color-muted)", "description": "Stat label text color. Ink only — the label's SIZE (0.875rem) is a stated default with no slot: the number is the band's display element, which is why --stats-number-* carries four slots, and the label is deliberately a fixed secondary caption beneath it. Worth knowing before you raise --stats-number-size: the label does not follow it, so a much larger number leaves the caption proportionally smaller. See components/stats/README.md, 'Stated defaults'", "applies_when": [{"prop": "items", "present": true}] },
-      "--stats-bg-position": { "type": "position", "default": "center", "description": "background_image focal point", "applies_when": [{"prop": "background_image", "present": true}] },
-      "--stats-overlay-bg": { "type": "gradient", "default": "var(--overlay-bg)", "description": "Scrim laid over background_image on this band. Defaults to the shared --overlay-bg; darken or lighten it per instance to tune legibility over a particular photo. The ONLY background-image component left with this slot: hero's went at #986, section's at #1023 and cta's at #1026, because a v2 band background is the `_band` role's `background.image` with `background.overlay` for the scrim.", "applies_when": [{"prop": "background_image", "present": true}] },
-      "--stats-radius": { "type": "length", "default": "0", "description": "Border radius of the stats band. VISIBLE ONLY IN COMBINATION WITH A BACKGROUND PAINT: on the default theme --stats-bg is unset, so the band is transparent and a radius rounds nothing you can see. Set --stats-bg (or use the muted/inverted theme, or a background_image) first, then pair with --stats-max-width for a contained, rounded metrics card." },
-      "--stats-max-width": { "type": "length-or-none", "default": "none", "description": "Maximum width of the stats band. When set, the band is capped to this width and centered (auto side margins), producing a contained card; the default 'none' spans full width unchanged." }
-    }
+    "variant_classes": [],
+    "tokens": [
+      "--color-accent",
+      "--color-muted",
+      "--measure-heading",
+      "--space-lg",
+      "--space-xl",
+      "--space-xs"
+    ]
   },
-  "safe_to_edit": ["stats.php", "../../assets/css/components.css (COMPONENT: stats section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "stats.php",
+    "../../assets/css/components.css (COMPONENT: stats section)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ],
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1066). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role, and it takes THREE groups rather than one. MEASURED, every value, at 375/768/1280 before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`) with no border on any edge, which is why `_band` declares no `background.fill`; `muted` painted `@color-surface` plus a 1px solid `@color-border` rule top and bottom; `inverted` painted `@color-bg-inverted`, re-coloured the heading to `@color-bg` and re-routed the NUMBER to `@color-accent-on-inverted` (the light-surface accent measures only 3.23:1 there). So: the tone is `background.fill`; the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\"; the `inverted` ink is `typography.color` on `_band`, which `heading` follows through `currentColor`. WHAT THE ROUTE DOES NOT REACH: `number` and `label` pin their own colours as direct declarations, so a band ink write does not move them — a dark stats band is four writes, not two. v1's inverted label also carried `opacity: 0.75`, which has no UDC group; it ports as the measured composite `rgb(192, 195, 201)`. `dark` was never an accepted input (removed at #605, clamped to `default`).",
+    "background_image": "the `_band` role's `background.image` — a Media Library attachment id, NOT a url string — with its scrim on `background.overlay` and its focal point on `background.position`. Two v1 behaviours are explicit now: write `background.size: \"cover\"` and `background.repeat: \"no-repeat\"`. AND SETTING A BACKGROUND NO LONGER RE-INKS THE BAND: v1 keyed three contrast corrections on `.stats--has-bg-image` (#461 number, #463 heading-accent, #577 label) and they retire with the class, exactly as hero's, section's and cta's did. In the SAME write, put `typography.color` on `heading` (`@color-bg`), on `heading-accent` and `number` (`@color-accent-on-overlay`) and on `label` (`@color-muted-on-overlay`). The overlay <div> is gone too — the scrim composes into the band's own background layer list. Full reasoning in components/stats/README.md and docs/howto-migrate-a-stats-band-to-v2.md."
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself - the <section>. THE DEFAULTS ARE WHAT v1'S UNTHEMED BAND RENDERED, measured in Chromium at 375/768/1280 rather than read off the stylesheet: the shared band rhythm and nothing else. NO `background.fill`, because v1's `.stats` measured `rgba(0, 0, 0, 0)`; NO border, because it measured 0px/none on all four edges, so the issue-332 border-immunity baseline in `pp-v1` has nothing of stats' to erase. Both the fill and the framing belonged to `.stats--dark` / `.stats--inverted`, the retired `theme` variants. `@pp-band-padding` is a fluid clamp, which is why the padding needs no breakpoint map even though Chromium measured three different values (53.6 / 68 / 76.8px) - a literal here would have frozen the band at one tier. THE AUTO SIDE MARGINS ARE NOT DECORATION: issue 383's contained rounded metrics card is `sizing.max-width` plus `border.radius` on this role, and a capped block only CENTRES because these margins are auto. They are inert at the default `max-width: none` (auto computes to 0 on a full-bleed band, measured), so declaring them changes nothing until an author caps the band - and omitting them would silently pin every contained card to the container's left edge. `background.position: center` is declared for CONSISTENCY with section, cta, faq, table and embed rather than as the thing that prevents a top-left crop: the engine's image companions already append `background-position: center` into the AUTHORED block whenever an image is present, and that block is unlayered, so this pp-zero default is unreachable in exactly the scenario it appears to guard. SETTING `typography.color` HERE REACHES THE HEADING AND NOTHING ELSE YOU PROBABLY MEAN: `heading` follows it through `currentColor`, but `number` and `label` PIN their own colours as direct declarations on the element, and a direct declaration always beats an inherited value regardless of cascade layer. A dark stats band is therefore FOUR writes, not two - this role's fill and ink, plus `number` and `label` ink. THE FILL AND THE INK ARE TWO WRITES, AND SETTING ONLY THE FIRST IS THE COMMON MISTAKE: a band given a dark fill and no ink keeps the inherited `@color-text` and renders its heading at 1.006:1.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding",
+          "margin-left": "auto",
+          "margin-right": "auto"
+        },
+        "background": {
+          "position": "center"
+        }
+      }
+    },
+    "heading": {
+      "selector": ".stats__heading",
+      "description": "The band heading (an <h2>), and the one heading in the theme whose BOX is centred rather than only its text. ITS `typography.color` IS `currentColor`, a deliberate divergence from the literal v1 declaration: v1 pinned `var(--stats-heading-color, var(--color-text))` and then re-pointed it to `@color-bg` from `.stats--inverted`. Both of those retire with the `theme` prop, and `currentColor` is what reproduces BOTH on v2 - it renders `@color-text` on an unauthored band (measured rgb(16, 24, 40), byte-identical) and follows `_band`'s ink on a dark one, which is exactly what the two v1 rules did between them. Carrying the literal would strand the heading at 1.006:1 on the band shape v2 newly makes easy, which is the defect #1026 shipped. THE AUTO MARGINS ARE THE WHOLE OF ISSUE 367 AND MUST BE PORTED AS `auto`, NOT AS A NUMBER. The 40rem cap gives this h2 a box narrower than `.container`; without auto side margins the box pins to the container's left edge and `text-align: center` only centres text WITHIN that left-pinned box, so the heading sits left of page centre for any title. Measured at 1280: box x=320 w=640 inside a container at x=64 w=1152 - both centred on 640. `margin-left` COMPUTES to 224px there and to 0 at 375 where the cap is not reached, so porting the computed number would freeze the centring at one viewport and break it at the others. NO `font-weight` AND NO `line-height` DEFAULT: measured 650 and 46.08px, both of which come from base.css's `h2` rule rather than from stats' own block, and restating a global value as a role default moves it to the unlayered tier where it would beat that rule in every state (rule 2, the global-value cascade lesson).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "currentColor",
+          "align": "center"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg",
+          "margin-left": "auto",
+          "margin-right": "auto"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "heading-accent": {
+      "selector": ".stats__heading-accent",
+      "description": "The accented substring inside the heading, the <span> `title_accent` produces. IT EARNS A DEFAULT WHERE THE HEADING'S WEIGHT DOES NOT, and the difference is the whole of rule 2: `@color-accent` here was a declaration in stats' OWN block (`.stats__heading-accent { color: var(--stats-heading-accent-color, var(--color-accent)) }`), not a value inherited from a global rule, so porting it is transcription rather than promotion. Measured rgb(49, 87, 244) on every band v1 could render. IT DOES NOT FOLLOW THE HEADING, which is the thing that surprises people: the accent paints its own colour at (0,1,0) and does NOT inherit a colour set on the <h2> above it, so re-inking `heading` for a dark band leaves this span on the light-surface accent. On an authored `@color-bg-inverted` band that measures 3.23:1 - which clears the 3:1 large-text bar at this size and fails it at any smaller one. Over a background image it was 1.16:1, which is why v1 carried a `.stats--has-bg-image` correction (#463) that retires with the class: write `typography.color: \"@color-accent-on-overlay\"` here in the same map as the image.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent"
+        }
+      }
+    },
+    "list": {
+      "selector": ".stats__list",
+      "description": "The metrics row - the <ul>. ONLY ITS TWO GAPS ARE DESIGN; the rest of this rule is structural and stays in the stylesheet, because `display: flex`, `flex-wrap: wrap`, `justify-content: center` and the zeroed list `padding`/`margin`/`list-style` are the layout affordance rather than values an author retunes. The gaps are declared as the ASYMMETRIC PAIR v1 rendered (`gap: var(--space-lg) var(--space-xl)`, measured 32px row / 64px column) and are split into `row-gap` and `column-gap` rather than written as the `gap` shorthand, so an author who wants to tighten a wrapped two-row strip can do it without also pulling the columns together.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "row-gap": "@space-lg",
+          "column-gap": "@space-xl"
+        }
+      }
+    },
+    "item": {
+      "selector": ".stats__item",
+      "description": "One metric - the <li> that stacks a number over its label. Its `gap` is the number-to-label nudge (measured 4px, `@space-xs`) and its `min-width` is what keeps a short metric from collapsing narrower than its neighbours (measured 128px, 8rem); both are design. `display: flex`, `flex-direction: column` and `align-items: center` stay structural. NOTE the min-width is also the component's known overflow hazard: a single unbroken token longer than the item can push the flex row wider than the viewport, which is the #1043 class filed for this component as #1067 - a role makes it AUTHORABLE, it does not fix it.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "border",
+        "background",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-xs"
+        },
+        "sizing": {
+          "min-width": "8rem"
+        }
+      }
+    },
+    "number": {
+      "selector": ".stats__number",
+      "description": "The large figure. ITS COLOUR IS A DIRECT DECLARATION ON THE ELEMENT, so `_band` -> `typography.color` never reaches it: a dark band needs this role written too, and v1 agreed - `.stats--inverted .stats__number` re-routed the default to `@color-accent-on-inverted` (8.33:1) precisely because the light-surface `@color-accent` measures only 3.23:1 on that band. That rule retires with the `theme` class, so the write is the author's now. NO `family` DEFAULT, AND THE ABSENCE IS MEASURED, NOT ASSUMED: v1 declared `font-family: var(--stats-number-font, inherit)`, and an explicit `inherit` IS a declaration - but nothing in this theme declares `font-family` on a <span>, so the inherited body face already lands and silence is byte-identical (measured `system-ui, sans-serif` either way). The `typography` group is still declared, so an author who wants a distinct numeral face has the address. `line-height: 1` is a real literal from stats' own block (measured 40px against a 40px font-size) and is carried as one. The 2.5rem size and 700 weight are likewise stats' own, and deliberately do NOT route `@font-weight-heading`, which is 650: a site with a distinct heading face is precisely the site whose numbers would move.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "2.5rem",
+          "weight": "700",
+          "color": "@color-accent",
+          "line-height": "1"
+        }
+      }
+    },
+    "label": {
+      "selector": ".stats__label",
+      "description": "The caption under a figure. The label's SIZE (0.875rem) is a stated default rather than a token: it is 14px, small enough to sit under the figure without competing with it and large enough to clear the 4.5:1 floor at `@color-muted`. Reopening it needs a named incident — a measured legibility complaint at 375px, or a band using the caption as primary content. LIKE `number`, ITS COLOUR IS A DIRECT DECLARATION AND A BAND INK WRITE DOES NOT REACH IT. `@color-muted` measures 5.66:1 on the default band and about 3.1:1 on an authored `@color-bg-inverted` one, under the 4.5:1 floor for 14px text - so a dark band owes this role a write. THE v1 DARK-BAND TREATMENT WAS `@color-bg` AT `opacity: 0.75` AND CANNOT BE PORTED AS WRITTEN: `opacity` is in none of the seven UDC groups. It ports as the MEASURED COMPOSITE instead - pixel-sampled at rgb(192, 195, 201) on `@color-bg-inverted`, measuring 10.11:1 (the arithmetic composite is 192.75/195.5/201.75 and Chromium floors each channel, so it is one step darker than a round-half-up guess), which is the number to write as `typography.color` for the v1 look. That is not a workaround but the standing rule: the theme retired this family's earlier `opacity: 0.85` for the same reason at #577, measured it at 3.87:1, replaced it with `--color-muted-on-overlay`, and recorded `do NOT re-introduce an opacity literal` beside the token. v1 also carved this rule out of combined bands (`:not(.stats--has-bg-image)`) so a band with BOTH an inverted theme and an image kept full opacity; measured, and the carve-out is moot on v2 because neither class exists.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.875rem",
+          "color": "@color-muted",
+          "align": "center"
+        }
+      }
+    }
+  }
 }

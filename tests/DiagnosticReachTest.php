@@ -28,6 +28,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 // ── WP_CLI stub (shared shape with CliGateTest/ReadinessFindingsTest) ──────────
 if (!class_exists('WpCliExitException')) {
@@ -65,6 +66,11 @@ class DiagnosticReachTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
@@ -75,6 +81,7 @@ class DiagnosticReachTest extends TestCase
 
     protected function tearDown(): void
     {
+        FixtureTheme::deactivate();
         unset($GLOBALS['_pp_test_store']);
         parent::tearDown();
     }
@@ -634,7 +641,7 @@ class DiagnosticReachTest extends TestCase
     {
         foreach ([['a' => 1], new \stdClass()] as $bad) {
             $errors = pp_validate_composition_errors([
-                ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--stats-bg' => $bad]]]);
+                ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--ppfixture-bg' => $bad]]]);
 
             $this->assertCount(1, $errors);
             $this->assertSame('invalid_style_value', $errors[0]->get_error_code());
@@ -646,7 +653,7 @@ class DiagnosticReachTest extends TestCase
     public function testCheckPageSurvivesANonScalarStyleSlotValue(): void
     {
         $this->seedPage(311, [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--stats-bg' => ['a' => 1]]]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--ppfixture-bg' => ['a' => 1]]]]);
 
         (new PP_Check_Command())->page([], ['post_id' => 311]);
 

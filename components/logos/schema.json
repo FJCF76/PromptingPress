@@ -14,42 +14,208 @@
       "default": "",
       "description": "Optional section heading above the grid."
     },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
-    },
     "items": {
       "type": "array",
       "item_type": "object",
       "required": true,
       "description": "Array of image items. Each: { image_url: string, image_alt: string, image_id?: number, label?: string }. Omit label for pure logo display; include label for icon+category tiles.",
       "items": {
-        "image_url": { "type": "string", "required": true,  "format": "image_url", "description": "Image or icon URL." },
-        "image_alt": { "type": "string", "required": true,  "description": "Alt text. Use the logo or category name; empty string only for decorative images." },
-        "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." },
-        "label":     { "type": "string", "required": false, "description": "Text label below the image. Omit for logo-only rows." }
+        "image_url": {
+          "type": "string",
+          "required": true,
+          "format": "image_url",
+          "description": "Image or icon URL."
+        },
+        "image_alt": {
+          "type": "string",
+          "required": true,
+          "description": "Alt text. Use the logo or category name; empty string only for decorative images."
+        },
+        "image_id": {
+          "type": "number",
+          "required": false,
+          "default": 0,
+          "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+        },
+        "label": {
+          "type": "string",
+          "required": false,
+          "description": "Text label below the image. Omit for logo-only rows."
+        }
       },
-      "conditionality_note": "the height cap applied to a logo image is chosen by that item's `label` — 2.5rem labelled, 3rem unlabelled, and --logos-image-size overrides both — an item-level condition the clause grammar, which reaches component props only, cannot express"
+      "conditionality_note": "the height cap applied to a logo image is chosen by that item's `label` — 2.5rem labelled, 3rem unlabelled — an item-level condition the clause grammar, which reaches component props only, cannot express. Since #1066 the two caps are two ROLES (`image` and `image-labeled`), each with its own `sizing.max-height`: write both for a flat strip. `--logos-image-size`, which overrode both, is retired"
     }
   },
   "styling": {
     "root_class": "logos",
-    "variant_classes": ["logos--dark", "logos--inverted"],
-    "tokens": ["--color-bg", "--color-bg-inverted"],
-    "style_slots": {
-      "--logos-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--logos-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--logos-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Section heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--logos-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Section heading color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--logos-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the logos section heading. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--logos-heading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space below the logos section heading, before the strip (header rhythm). Lower it to tighten the header, raise it for more separation. Not a band-fusing lever: the strip always renders after the heading, so the seam with the band below is closed with --logos-padding-bottom.", "applies_when": [{"prop": "title", "present": true}] },
-      "--logos-image-size": { "type": "length", "default": "3rem (2.5rem on a labelled tile)", "description": "Maximum height of every logo image in the strip (the images keep their aspect ratio and are never cropped). Unset, the shipped label-driven switch applies: 3rem for an item with no label, 2.5rem for a labelled tile. SET, it caps BOTH at the one value and that switch stops applying — one knob for one visual job, matching --grid-item-icon-size. Raise it for a sparse strip of wordmarks, lower it for a dense wall. On a MIXED strip the shipped switch exists so an image+label tile totals about the same height as a bare mark; with this slot set, labelled tiles become taller than their neighbours by the label height, so prefer it on strips that are all-labelled or all-unlabelled. It changes SIZE only: it is not a fix for dark-ink logo artwork on a dark band.", "applies_when": [{"prop": "items", "present": true}] },
-      "--logos-gap": { "type": "length", "default": "var(--space-lg)", "description": "Space between logo items, both across a row and between wrapped rows. Tighten it for a dense logo wall, open it out for a few large marks. This is the strip's rhythm; the small gap between a tile's image and its label is not authorable.", "applies_when": [{"prop": "items", "present": true}] }
-    }
+    "variant_classes": [],
+    "tokens": [
+      "--color-muted",
+      "--measure-heading",
+      "--space-lg",
+      "--space-sm"
+    ]
   },
-  "safe_to_edit": ["logos.php", "../../assets/css/components.css (COMPONENT: logos section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "logos.php",
+    "../../assets/css/components.css (COMPONENT: logos section)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ],
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1066). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role, and it takes three groups rather than one. MEASURED at 375/768/1280 before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`, no border on any edge); `muted` painted `@color-surface` plus a 1px solid `@color-border` rule top and bottom; `inverted` painted `@color-bg-inverted` and re-coloured the heading to `@color-bg`. So the tone is `background.fill`, the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\", and the `inverted` ink is `typography.color` on `_band`, which `heading` follows through `currentColor`. WHAT THE ROUTE DOES NOT REACH: `label` pins `@color-muted` as a direct declaration, so a band ink write does not move it — v1's inverted label was `@color-bg` at `opacity: 0.75`, and `opacity` has no UDC group, so it ports as the measured composite `rgb(192, 195, 201)`. The logo images were never re-inked and still are not. `dark` was never an accepted input (removed at #605). Full reasoning in components/logos/README.md."
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself - the <section>. THE DEFAULTS ARE WHAT v1'S UNTHEMED BAND RENDERED, measured in Chromium at 375/768/1280: the shared band rhythm and nothing else. NO `background.fill` (measured `rgba(0, 0, 0, 0)`) and NO border (0px/none on all four edges) - both belonged to `.logos--dark` / `.logos--inverted`, the retired `theme` variants. `@pp-band-padding` is a fluid clamp, so the padding needs no breakpoint map even though three different values were measured (53.6 / 68 / 76.8px). `background.position: center` is declared for CONSISTENCY with the other v2 bands rather than as the thing that prevents a top-left crop - the engine's image companions already append `background-position: center` into the AUTHORED block whenever an image is present, and that block is unlayered, so this pp-zero default is unreachable in exactly the scenario it appears to guard. SETTING `typography.color` HERE REACHES THE HEADING AND NOT THE LABELS: `heading` follows it through `currentColor`, but `label` pins `@color-muted` as a direct declaration on the element, and a direct declaration always beats an inherited value regardless of cascade layer. A dark logos band is therefore THREE writes - this role's fill and ink, plus `label` ink - and the images are not one of them, because nothing ever re-inked them.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "position": "center"
+        }
+      }
+    },
+    "heading": {
+      "selector": ".logos__heading",
+      "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor` for the reason table's and embed's are: v1 pinned `var(--logos-heading-color, var(--color-text))` and re-pointed it to `@color-bg` from `.logos--inverted`, both of which retire with the `theme` prop, and `currentColor` reproduces BOTH - `@color-text` on an unauthored band (measured rgb(16, 24, 40), byte-identical) and the band's own ink on a dark one. IT IS NOT CENTRED, AND THAT IS MEASURED RATHER THAN INHERITED FROM ITS SIBLING: stats' heading carries `text-align: center` plus auto side margins (issue 367); logos' measured `text-align: start` with `margin-left: 0` at every tier, so this role declares NEITHER. The two components look like twins and differ here, so the asymmetry is stated rather than quietly flattened - an author who wants the stats treatment writes `typography.align` and the two `spacing.margin-*: auto` values, and gets exactly it. NO `font-weight` AND NO `line-height` DEFAULT: measured 650 and 46.08px, both from base.css's `h2` rule rather than logos' own block (rule 2, the global-value cascade lesson).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "currentColor"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      }
+    },
+    "list": {
+      "selector": ".logos__list",
+      "description": "The strip - the <ul>. ONLY ITS GAP IS DESIGN: `display: flex`, `flex-wrap: wrap`, `align-items: center`, `justify-content: center` and the zeroed list `padding`/`margin`/`list-style` are the layout affordance and stay in the stylesheet. The gap is the ONE band-level rhythm knob this component has (measured 32px, `@space-lg`), and it is the strip's rhythm rather than the intra-tile nudge - that one belongs to `item-labeled`.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-lg"
+        }
+      }
+    },
+    "item": {
+      "selector": ".logos__item",
+      "description": "One logo cell. IT DECLARES NO DEFAULTS, and the empty block is measurement rather than oversight: v1's `.logos__item` rule is `display: flex; align-items: center; justify-content: center` and nothing else - three structural properties, no design value at all. The role exists so an author can reach a cell (a border, a padded tile, a hover) without the schema pretending it ships a look it does not.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {}
+    },
+    "item-labeled": {
+      "selector": ".logos__item--labeled",
+      "description": "A logo cell that carries a text label under the image - the `--labeled` modifier logos.php emits per item when that item has a `label`. Its `gap` is the image-to-label nudge (measured 8px, `@space-sm`) and its `min-width` keeps a labelled tile from collapsing narrower than its caption (measured 96px, 6rem); `flex-direction: column` is what makes it a tile rather than a cell and stays structural. THIS ROLE IS HOW A MIXED STRIP STAYS MIXED: the modifier is per item, so a strip holding both shapes renders both, and a value written here reaches only the labelled half.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "border",
+        "background",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": "@space-sm"
+        },
+        "sizing": {
+          "min-width": "6rem"
+        }
+      }
+    },
+    "image": {
+      "selector": ".logos__image",
+      "description": "The logo image in an UNLABELLED cell. Its cap is the measured 3rem (48px rendered). `width: auto` and `object-fit: contain` stay structural - they are what stops a logo distorting, not a value to retune. READ `image-labeled` BEFORE SETTING THIS: v1 routed ONE slot at BOTH cap sites with different fallbacks, so setting it collapsed the label-driven switch on purpose. A role carries one default, so the two caps are two roles now and the switch survives by construction - which also means setting THIS one no longer changes the labelled tiles. That is a capability change, stated here rather than discovered.",
+      "groups": [
+        "sizing",
+        "spacing",
+        "border",
+        "background",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "sizing": {
+          "max-height": "3rem"
+        }
+      }
+    },
+    "image-labeled": {
+      "selector": ".logos__item--labeled .logos__image",
+      "description": "The logo image in a LABELLED tile, which v1 capped lower than its unlabelled twin so the image and its caption read as one unit (measured 2.5rem / 40px against the plain cell's 3rem / 48px). THE TWO CAPS ARE INDEPENDENT NOW AND v1'S WERE NOT: `--logos-image-size` was one slot read at both sites, so an author who set it flattened the switch deliberately - the schema called two knobs for one visual job a family it was completing rather than extending. The UDC gives a role exactly one default, so preserving the measured switch requires two roles, and `max-height` is a sizing value that the fail-closed structural-CSS lint will not let stay in the stylesheet. The rendered default is byte-identical to v1; what changed is that `make the logos bigger` is now two writes rather than one.",
+      "groups": [
+        "sizing",
+        "spacing",
+        "border",
+        "background",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "sizing": {
+          "max-height": "2.5rem"
+        }
+      }
+    },
+    "label": {
+      "selector": ".logos__label",
+      "description": "The caption under a labelled logo. ITS COLOUR IS A DIRECT DECLARATION ON THE ELEMENT, so a `_band` ink write does not reach it - `@color-muted` measures 5.66:1 on the default band and about 3.1:1 on an authored `@color-bg-inverted` one, under the 4.5:1 floor at this 13px size, so a dark band owes this role a write. THE v1 DARK-BAND TREATMENT WAS `@color-bg` AT `opacity: 0.75` AND CANNOT BE PORTED AS WRITTEN: `opacity` is in none of the seven UDC groups. It ports as the MEASURED COMPOSITE instead - pixel-sampled at rgb(192, 195, 201) on `@color-bg-inverted`. WHY THAT EXACT VALUE: the composite is (192.75, 195.5, 201.75) and Chromium FLOORS each channel, which is why the measured pixel is 192/195/201 rather than the 193/196/202 that round-half-up predicts — measured 10.11:1 on the inverted band. AND THE SUBSTITUTION IS NOT UNIVERSAL, which matters if the label ever holds more than text: `opacity` dimmed the whole BOX including any descendant and any text decoration, while a colour reaches only the text it is set on. For this label they are equivalent because it renders plain text and nothing else; a caption that later carries a link or an icon would need that child re-inked too. This is the same retirement stats' label takes, and the two were ONE assertion until this rebuild (the #577 A-36 row covered both components); they retire together here, which is why the two rebuilds share a PR.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.8125rem",
+          "color": "@color-muted",
+          "align": "center"
+        }
+      }
+    }
+  }
 }

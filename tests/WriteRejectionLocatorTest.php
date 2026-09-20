@@ -33,12 +33,18 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class WriteRejectionLocatorTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
         ];
@@ -50,6 +56,7 @@ class WriteRejectionLocatorTest extends TestCase
 
     protected function tearDown(): void
     {
+        FixtureTheme::deactivate();
         unset($GLOBALS['_pp_test_store'], $GLOBALS['wpdb']);
         parent::tearDown();
     }
@@ -291,9 +298,13 @@ class WriteRejectionLocatorTest extends TestCase
                 'Component 1 ("logos") prop "items" must be an array',
                 'invalid_prop_value',
             ],
+            // HOST MOVED TO grid AT #1066 PR2. logos retired `theme`, so a bogus value
+            // there is refused as a RETIRED prop — which locates the band correctly but
+            // proves nothing about ENUM rejection, the case this row exists for. grid is
+            // the last component that declares the enum at all.
             'strict enum' => [
-                ['component' => 'logos', 'props' => ['theme' => 'bogus', 'items' => [['image_url' => '/a.png', 'image_alt' => 'A']]]],
-                'Component 1 ("logos") prop "theme" must be one of',
+                ['component' => 'grid', 'props' => ['theme' => 'bogus', 'items' => [['title' => 'One', 'text' => 'a']]]],
+                'Component 1 ("grid") prop "theme" must be one of',
                 'invalid_prop_value',
             ],
             'missing required prop' => [

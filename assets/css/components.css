@@ -2283,62 +2283,34 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 }
 
 /* ==========================================================================
-   COMPONENT: stats
+   COMPONENT: stats  —  A v2 COMPONENT
    Horizontal row of large-number metrics with labels.
    ========================================================================== */
 
-.stats {
-  padding-top: var(--stats-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--stats-padding-bottom, var(--pp-band-padding));
-  background: var(--stats-bg, transparent);
-  /* Contained rounded metrics card (issue 383). max-width caps the band and the
-     auto side-margins center it; the radius rounds the band's own background box.
-     Defaults ('none' / '0') are inert — with max-width: none the block fills its
-     container, so margin-inline: auto computes to 0, and an unset band renders
-     byte-identically to the pre-383 full-bleed. */
-  max-width: var(--stats-max-width, none);
-  margin-inline: auto;
-  border-radius: var(--stats-radius, 0);
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   NO colour, type, size, spacing, border, shadow or aspect-ratio value may be added: every
+   one of those belongs to a role in components/stats/schema.json and is emitted by the UDC
+   engine as a band-scoped block in the document head.
 
-.stats__heading {
-  /* Route the heading size through the slot (issue 304). stats has no premium
-     typography rule, so the fallback is the h2 base size (base.css) — unset
-     output is byte-identical, and an operator can now tune the scale. */
-  font-size: var(--stats-heading-size, var(--pp-band-heading-size));
-  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
-     The fallback is this rule's own prior literal — byte-identical unset. */
-  margin-bottom: var(--stats-heading-margin-bottom, var(--space-lg));
-  /* stats' own heading measure (issue 578), severed from the shared six-selector rule
-     that read --cta-heading-measure from inside the section block. */
-  max-width: var(--stats-heading-measure, var(--measure-heading));
-  /* Center the heading BOX, not just its text (issue 367 — same class as issue 354).
-     The cap above gives this h2 a 40rem box by default;
-     a block h2 fills to that cap inside the wider .container, so without auto
-     inline margins the 40rem box pins to the container's left edge (measured
-     x 96-736 at 1280px) and text-align: center only centers WITHIN that
-     left-pinned box — the heading sits left of page center for any title.
-     Auto side-margins center the box under the already-centered stats list
-     (.stats__list is justify-content: center, spanning the full container).
-     Both sides auto so it centers regardless of writing direction; collapses to
-     0 when the heading is as wide as the container (narrow viewports), so no
-     band is introduced. Physical margins mirror the landed issue-354 fix
-     (.section--centered .section__content) and the file's centering convention. */
-  margin-left: auto;
-  margin-right: auto;
-  text-align: center;
-  color: var(--stats-heading-color, var(--color-text));
-}
+   WHAT LEFT, because the shrink is the headline: the band rule itself is GONE. `.stats`
+   declared padding, background, max-width, margin-inline and border-radius, and every one
+   of those is a `_band` role parameter now — including the auto side margins, which are
+   what let issue 383's contained rounded card CENTRE once an author caps the band. The
+   three `theme` variants and the four `--has-bg-image` rules went with the props that
+   built them (#1066). The overlay <div> went too: a scrim is `_band` -> `background.overlay`
+   composed into the band's own background layer list, exactly as it is for hero, section
+   and cta, so there is no absolutely-positioned child left to lift `.container` above.
 
-.stats__heading-accent {
-  color: var(--stats-heading-accent-color, var(--color-accent));
-}
+   THE ZEROED LIST RESET STAYS, and it is not an exception being smuggled through: the lint
+   admits a SPACING_FAMILY property whose value is geometry-only (`0`, `auto`, a negative
+   pull), because `padding: 0` on a <ul> undoes UA chrome rather than expressing rhythm.
+   The rhythm is `list` -> `spacing.row-gap` / `column-gap`, measured as the asymmetric pair
+   v1 rendered (32px row, 64px column). */
 
 .stats__list {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--space-lg) var(--space-xl);
   list-style: none;
   padding: 0;
   margin: 0;
@@ -2348,160 +2320,36 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-xs);
-  min-width: 8rem;
-}
-
-.stats__number {
-  /* Typography is slot-driven (issue 472). The fallbacks reproduce the pre-472
-     output exactly: `inherit` is what an absent font-family declaration already
-     did (the number took the page body font), and 700 was the literal. The
-     fallbacks deliberately do NOT route through var(--font-heading) /
-     var(--font-weight-heading): --font-weight-heading is 650, not 700, and a
-     site that sets a distinct heading face is precisely the site whose rendered
-     numbers would move — so heading-system parity is opt-in, never a default. */
-  font-family: var(--stats-number-font, inherit);
-  font-size: var(--stats-number-size, 2.5rem);
-  font-weight: var(--stats-number-weight, 700);
-  color: var(--stats-number-color, var(--color-accent));
-  line-height: 1;
-}
-
-.stats__label {
-  font-size: 0.875rem;
-  color: var(--stats-label-color, var(--color-muted));
-  text-align: center;
-}
-
-/* Stats variants */
-.stats--dark {
-  background: var(--stats-bg, var(--color-surface));
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.stats--inverted {
-  background: var(--stats-bg, var(--color-bg-inverted));
-}
-
-.stats--inverted .stats__heading {
-  color: var(--stats-heading-color, var(--color-bg));
-}
-
-.stats--inverted .stats__number {
-  /* Accent-colored large text on the dark band: the light-surface accent is only
-     3.23:1 here (dim). Route the fallback through the on-inverted accent role so
-     the default clears the 3:1 large-text bar (8.33:1); an explicit
-     --stats-number-color slot still wins (issue 437). */
-  color: var(--stats-number-color, var(--color-accent-on-inverted));
-}
-
-/* `:not(.stats--has-bg-image)` for the reason issue 577 recorded. cta carried the twin
-   of this carve-out until #1026 retired its `theme` and `background_image` props, so
-   this is now the only one left and the reasoning is restated here rather than
-   cross-referenced: stats.php emits the theme class and the bg-image class
-   independently, and this rule
-   is the EARLIER of the two, so before the carve-out a combined band inherited this
-   0.75 while the --has-bg-image rule supplied only `color` — dimmer than the 0.85 it
-   replaced, i.e. a contrast REGRESSION on the exact band row 7 is correcting. */
-.stats--inverted:not(.stats--has-bg-image) .stats__label {
-  color: var(--stats-label-color, var(--color-bg));
-  /* Deliberate de-emphasis; measured at 10.22:1 against a 4.5:1 bar. Reopen if the
-     inverted band token moves such that the measured ratio falls below 7:1. */
-  opacity: 0.75;
-}
-
-/* Stats with background image */
-.stats--has-bg-image {
-  position: relative;
-  background-size: cover;
-  background-position: var(--stats-bg-position, center);
-  background-repeat: no-repeat;
-}
-
-/* stats is one of the four background-image components and was the only one reading the
-   raw --overlay-bg token with no per-instance slot in front of it — hero, section and
-   cta all have theirs. Route it (issue 577); unset is byte-identical. */
-.stats__overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--stats-overlay-bg, var(--overlay-bg));
-}
-
-.stats--has-bg-image > .container {
-  position: relative;
-  z-index: 1;
-}
-
-.stats--has-bg-image .stats__heading {
-  color: var(--stats-heading-color, var(--color-bg));
-}
-
-.stats--has-bg-image .stats__number {
-  /* Accent-colored number on the dark overlay-over-image band: the light-surface
-     accent is only 1.16:1 over the overlay-over-white worst case. Route the default
-     through the overlay accent role (#461, ≥4.5:1); an explicit --stats-number-color
-     slot still wins. on-inverted is tuned to the solid inverted bg, not this overlay. */
-  color: var(--stats-number-color, var(--color-accent-on-overlay));
-}
-
-/* MEASURED CONTRAST CORRECTION (issue 577). It was the twin of a `.cta--has-bg-image
-   .cta__body` correction that retired with cta's classes at #1026, so this is the last
-   member of that family rather than one of a pair. The measurement is unchanged and is
-   restated here because the sibling that used to carry it is gone: same band shape, same
-   worst case rgb(115,115,115), rgb(231,232,234) at 3.87:1 against a 4.5:1 bar. Same remedy:
-   the de-emphasis moves to the --color-muted-on-overlay role token, never a literal.
-   A v2 band expresses this as `typography.color` on the role over the scrim; stats keeps the
-   class-triggered form because stats still has the `background_image` prop that derives it. */
-.stats--has-bg-image .stats__label {
-  color: var(--stats-label-color, var(--color-muted-on-overlay));
-}
-
-/* The accented heading substring paints its OWN color (0,1,0) and does NOT inherit
-   the near-white .stats--has-bg-image .stats__heading above, so on the dark overlay-
-   over-image band it renders bare --color-accent at 1.16:1. Route the default through
-   the overlay accent role (#463, mirroring the stats-number fix from #461); the
-   per-instance --stats-heading-accent-color slot still wins. */
-.stats--has-bg-image .stats__heading-accent {
-  color: var(--stats-heading-accent-color, var(--color-accent-on-overlay));
 }
 
 /* ==========================================================================
-   COMPONENT: logos
+   COMPONENT: logos  —  A v2 COMPONENT
    Flex-wrap image grid. Works for logo strips (no labels) and icon-category
    tiles (with labels). Items are always image-based.
    ========================================================================== */
 
-.logos {
-  /* Band padding joins the shared symmetric rhythm (issue 438); see .table-section. */
-  padding-top: var(--logos-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--logos-padding-bottom, var(--pp-band-padding));
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   NO colour, type, size, spacing, border, shadow or aspect-ratio value may be added: every
+   one of those belongs to a role in components/logos/schema.json.
 
-.logos__heading {
-  /* Band heading joins the shared responsive scale (issue 436); color slot (issue
-     438) falls back to the h2 default var(--color-text) so unset output is unchanged. */
-  font-size: var(--logos-heading-size, var(--pp-band-heading-size));
-  color: var(--logos-heading-color, var(--color-text));
-  /* Heading rhythm (issue 584): band fusing needs this gap zeroable per instance.
-     The fallback is this rule's own prior literal — byte-identical unset. */
-  margin-bottom: var(--logos-heading-margin-bottom, var(--space-lg));
-  /* logos' own heading measure (issue 578), severed from the shared six-selector rule
-     that read --cta-heading-measure from inside the section block. */
-  max-width: var(--logos-heading-measure, var(--measure-heading));
-}
+   THE TWO IMAGE CAPS ARE THE THING THAT CHANGED SHAPE HERE. v1 routed ONE slot
+   (`--logos-image-size`) at BOTH cap sites with different fallbacks — 3rem unlabelled,
+   2.5rem labelled — so setting it deliberately collapsed the label-driven switch. A role
+   carries exactly one default, and `max-height` is a sizing value the fail-closed boundary
+   lint will not let stay here, so the two caps are two roles now (`image`, `image-labeled`)
+   and the switch survives by SPECIFICITY rather than by fallback: the labelled selector is
+   (0,2,0) against the plain one's (0,1,0). Rendered default byte-identical; what changed is
+   that the two caps are independently authorable. Recorded because it contradicts the v1
+   schema's stated intent that two knobs for one visual job was a family being completed.
+
+   `width: auto` and `object-fit: contain` stay: they are what stops a logo distorting
+   inside its cap, not a value anyone retunes per band. */
 
 .logos__list {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  /* Strip rhythm (issue 584): the ONE band-level gap on this component, routed so an
-     operator can tighten a dense logo wall or open out a four-tile category strip
-     without a global --space-lg retune. The fallback is this rule's own prior literal
-     — byte-identical unset. The intra-item gap on .logos__item--labeled below stays a
-     token literal: it is the image-to-label nudge, not the strip's rhythm. */
-  gap: var(--logos-gap, var(--space-lg));
   list-style: none;
   padding: 0;
   margin: 0;
@@ -2515,58 +2363,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 .logos__item--labeled {
   flex-direction: column;
-  gap: var(--space-sm);
-  min-width: 6rem;
 }
 
-/* Logo image height (issue 584), mirroring --grid-item-icon-size's shape: ONE slot
-   routed at BOTH cap sites, each keeping its own current literal as the fallback.
-   Unset, the label-driven switch survives exactly as shipped — 3rem unlabelled here,
-   2.5rem labelled below (verified rendered: 48px / 40px, tests/e2e/style-render.spec.ts
-   "#583 logos mixed labeled/unlabeled strip"). SET, both caps collapse to the one
-   authored value and the label-driven switch stops applying; that is deliberate and is
-   stated in the slot description, because an operator asking for "make the logos
-   bigger" means the strip, not one half of it. There is no separate labelled-only
-   slot: two knobs for one visual job is the family this gate is completing, not
-   extending. NOT a dark-band unblocker — see the schema note. */
 .logos__image {
-  max-height: var(--logos-image-size, 3rem);
   width: auto;
   object-fit: contain;
-}
-
-.logos__item--labeled .logos__image {
-  max-height: var(--logos-image-size, 2.5rem);
-}
-
-.logos__label {
-  font-size: 0.8125rem;
-  color: var(--color-muted);
-  text-align: center;
-}
-
-/* Logos variants */
-.logos--dark {
-  background-color: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.logos--inverted {
-  background-color: var(--color-bg-inverted);
-}
-
-.logos--inverted .logos__heading {
-  /* Route the inverted heading through the same slot (issue 438) so an explicit
-     --logos-heading-color still wins here; unset falls back to var(--color-bg). */
-  color: var(--logos-heading-color, var(--color-bg));
-}
-
-.logos--inverted .logos__label {
-  color: var(--color-bg);
-  /* Deliberate de-emphasis; measured at 10.22:1 against a 4.5:1 bar. Reopen if the
-     inverted band token moves such that the measured ratio falls below 7:1. */
-  opacity: 0.75;
 }
 
 /* ==========================================================================

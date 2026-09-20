@@ -208,6 +208,16 @@ reads correctly is to open it.
 - **The band cannot style a plugin's own classes.** It never could; inheritance is the whole reach,
   and a shortcode that sets its own colours wins. That is expected — `embed` is the sanctioned
   escape hatch for plugin-rendered content, not a styling surface for it.
+- **There is no aspect-ratio or responsive-video handling, and there never was.** This is worth
+  stating rather than leaving as an absence, because `embed` is the band most likely to hold an
+  iframe and a reader could reasonably assume the rebuild dropped something. It did not:
+  #1066's plan (§5(b)) asked for v1 to be checked before any such parameter was invented, and the
+  check was run — v1's entire `.embed` block was band padding, the heading's size/colour/rhythm/
+  measure, and the content column's measure and ink. No `aspect-ratio`, no `object-fit`, no iframe
+  wrapper, no percentage-padding ratio hack, nothing positioned. So the v2 roles carry none either,
+  and **nothing was invented to fill the gap** — which is the rule a rebuild lives by. An embedded
+  iframe sizes itself exactly as it did before. If you need a responsive video frame, it comes from
+  the plugin or the embedded markup, as it always has.
 
 ## Related
 

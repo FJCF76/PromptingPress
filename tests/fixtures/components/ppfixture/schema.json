@@ -1,0 +1,207 @@
+{
+  "component": "ppfixture",
+  "description": "TEST FIXTURE ONLY - never registered in production. A component that exists so the SLOT-ENGINE suites have a stable host: pp_render_style_vars(), style_component, invalid_style_slot, the friendly-error slot context and the envelope findings are all about the ENGINE, not about any particular component, but each test has to name a real component as its fixture. See tests/fixtures/components/ppfixture/README.md for why this exists and when it is deleted.",
+  "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "description": "Stable band id, so the fixture behaves like any other band at the write path.",
+      "default": ""
+    },
+    "title": {
+      "type": "string",
+      "required": false,
+      "description": "Gates the heading slots' `applies_when`, so the conditional-slot suites keep a real condition to exercise.",
+      "default": ""
+    },
+    "theme": {
+      "type": "enum",
+      "options": [
+        "default",
+        "muted",
+        "inverted"
+      ],
+      "default": "default",
+      "required": false,
+      "description": "A tone prop, kept because the theme-variant and friendly-error suites exercise enum coercion and the legacy `--dark` output name."
+    },
+    "background_image": {
+      "type": "string",
+      "required": false,
+      "description": "Gates the background slots' `applies_when`. Declares `format: image_url` because the registry invariant requires every canonical image-shaped prop to (ActionsTest::testEveryImageShapedSchemaPropDeclaresImageUrlFormat) - a fixture that broke a registry invariant would fail the very suites it hosts. Kept as a TEXT url rather than an attachment id on purpose: this fixture stands in for a v1 component, and v1 is what the slot engine serves.",
+      "format": "image_url",
+      "default": ""
+    },
+    "items": {
+      "type": "array",
+      "required": true,
+      "description": "Gates the item slots' `applies_when`, and makes the component composable (every composable component must declare a required prop - SchemaValidationTest pins that invariant).",
+      "item_fields": {
+        "number": {
+          "type": "text",
+          "required": false,
+          "description": "A figure."
+        },
+        "label": {
+          "type": "text",
+          "required": false,
+          "description": "Its caption."
+        }
+      }
+    }
+  },
+  "styling": {
+    "root_class": "ppfixture",
+    "variant_classes": [
+      "ppfixture--dark",
+      "ppfixture--inverted"
+    ],
+    "tokens": [
+      "--pp-band-padding",
+      "--color-text",
+      "--color-muted",
+      "--color-accent"
+    ],
+    "style_slots": {
+      "--ppfixture-padding-top": {
+        "type": "length",
+        "default": "var(--pp-band-padding)",
+        "description": "Band padding above. An UNCONDITIONAL slot, so the suites always have one that applies."
+      },
+      "--ppfixture-padding-bottom": {
+        "type": "length",
+        "default": "var(--pp-band-padding)",
+        "description": "Band padding below."
+      },
+      "--ppfixture-bg": {
+        "type": "gradient",
+        "default": "transparent",
+        "description": "Band background. TYPED `gradient` deliberately: the gradient type has exactly two consumers left in the theme and the friendly-error suites exercise its rejection messages."
+      },
+      "--ppfixture-radius": {
+        "type": "length",
+        "default": "0",
+        "description": "Band corner radius. An inert default, so an unset fixture band renders square."
+      },
+      "--ppfixture-max-width": {
+        "type": "length-or-none",
+        "default": "none",
+        "description": "Band cap. TYPED `length-or-none` deliberately: it is the only slot type with a keyword alternative, and the type-rejection suites need one."
+      },
+      "--ppfixture-heading-size": {
+        "type": "length",
+        "default": "var(--pp-band-heading-size)",
+        "description": "Heading size. CONDITIONAL on `title`, so the inert-slot advisory has a condition to report.",
+        "applies_when": [
+          {
+            "prop": "title",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-heading-color": {
+        "type": "color",
+        "default": "var(--color-text)",
+        "description": "Heading ink. CONDITIONAL on `title`.",
+        "applies_when": [
+          {
+            "prop": "title",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-number-color": {
+        "type": "color",
+        "default": "var(--color-accent)",
+        "description": "Figure ink. CONDITIONAL on `items`.",
+        "applies_when": [
+          {
+            "prop": "items",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-label-color": {
+        "type": "color",
+        "default": "var(--color-muted)",
+        "description": "Caption ink. CONDITIONAL on `items`.",
+        "applies_when": [
+          {
+            "prop": "items",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-bg-position": {
+        "type": "position",
+        "default": "center",
+        "description": "Background focal point. CONDITIONAL on `background_image`, which is the shape that lets a suite store a slot whose condition is UNMET and read the advisory back.",
+        "applies_when": [
+          {
+            "prop": "background_image",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-heading-margin-bottom": {
+        "type": "length",
+        "default": "var(--space-lg)",
+        "description": "Heading rhythm. The BAND-FUSING knob (#584): a suite asserts style_component accepts it and rejects a non-length value, so the fixture needs a length slot whose job is spacing rather than size.",
+        "applies_when": [
+          {
+            "prop": "title",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-heading-accent-color": {
+        "type": "color",
+        "default": "var(--color-accent)",
+        "description": "Accent ink. A SECOND colour slot, because the engine suites exercise accepting `transparent` and a var() reference on one colour slot while rejecting an unknown token on another.",
+        "applies_when": [
+          {
+            "prop": "title",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-image-size": {
+        "type": "length",
+        "default": "3rem",
+        "description": "A SIZING length slot with a bare literal default (not a token). The suites assert a token reference is REJECTED here - that rejection only has meaning on a slot whose default is a literal, which is why this is not folded into the padding slots."
+      },
+      "--ppfixture-gap": {
+        "type": "length",
+        "default": "var(--space-lg)",
+        "description": "A strip-rhythm gap. Kept distinct from the padding slots because the persistence suites write a gap and a padding in the same call and assert both survive the merge."
+      },
+      "--ppfixture-overlay-bg": {
+        "type": "gradient",
+        "default": "var(--overlay-bg)",
+        "description": "The scrim over a background image. THE INERT-SLOT WORKHORSE: its condition (`background_image` present) is the one a suite deliberately leaves UNMET so the accepted write carries an `inert_slot` advisory naming the dead slot and the unmet clause. That shape needs a slot whose condition can be false while the band still renders, which is why this is separate from the bg-position slot.",
+        "applies_when": [
+          {
+            "prop": "background_image",
+            "present": true
+          }
+        ]
+      },
+      "--ppfixture-number-font": {
+        "type": "font-family",
+        "default": "inherit",
+        "description": "A font-family slot. THE ONLY `font-family`-TYPED SLOT LEFT once stats retired: the grammar suites need one to exercise quoted stacks, var() token references, and the CSS-comment-opener rejection (a value like `serif /*` must be refused as invalid_style_value and must still RESTORE without blocking, per ruling 2). Defaults to `inherit`, which is what the retired --stats-number-font declared.",
+        "applies_when": [
+          {
+            "prop": "items",
+            "present": true
+          }
+        ]
+      }
+    }
+  },
+  "safe_to_edit": [
+    "props",
+    "styling.style_slots"
+  ],
+  "do_not_touch": []
+}

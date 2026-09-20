@@ -32,6 +32,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class FriendlyErrorSlotContextTest extends TestCase
 {
@@ -41,6 +42,12 @@ class FriendlyErrorSlotContextTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). Every test in this file is
+        // about the slot-engine error path — which component hosts the slots is
+        // incidental, which is exactly why the whole set was re-homed hero -> section ->
+        // stats over three rebuilds. It targets `ppfixture` now, so stats' rebuild is the
+        // last one that had to move it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [],
             'posts'     => [],
@@ -51,6 +58,7 @@ class FriendlyErrorSlotContextTest extends TestCase
 
     protected function tearDown(): void
     {
+        FixtureTheme::deactivate();
         if ($this->fixtureRoot !== null) {
             unset($GLOBALS['_pp_test_template_dir']);
             $this->deleteTree($this->fixtureRoot);
@@ -147,22 +155,22 @@ class FriendlyErrorSlotContextTest extends TestCase
     public function testRejectionCarriesTheComponentAndSlotsItWasJudgedAgainst(): void
     {
         $post_id = $this->authorPage('Judged context', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         [$error] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--stats-bgs' => '#1a1a2e']]);
+            'style'           => ['--ppfixture-bgs' => '#1a1a2e']]);
 
         $data = $error->get_error_data();
         $this->assertIsArray($data, 'The rejection must carry its context as error data.');
-        $this->assertSame('stats', $data['component_name']);
+        $this->assertSame('ppfixture', $data['component_name']);
         $this->assertSame(
-            pp_get_style_slots('stats'),
+            pp_get_style_slots('ppfixture'),
             $data['available_slots'],
             'The declared slot map travels with the error, descriptions and all.'
         );
-        $this->assertSame(['--stats-bgs'], $data['candidate_slots']);
+        $this->assertSame(['--ppfixture-bgs'], $data['candidate_slots']);
     }
 
     public function testCandidateSlotsAreRecipeExpandedAndSkipTheTrackingKeyAndRemovals(): void
@@ -205,7 +213,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         // declare. Answering from a second read would tell the author the setting
         // is available on a component that never saw their proposal.
         $post_id = $this->authorPage('Retyped target', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $params = [
             'post_id'         => $post_id,
@@ -220,18 +228,18 @@ class FriendlyErrorSlotContextTest extends TestCase
         // the very slot the hero rejected.
         $swapped = pp_execute_action('update_composition', [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Swapped']]]]);
+            'composition' => [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Swapped']]]]);
         $this->assertTrue($swapped['ok']);
-        $this->assertArrayHasKey('--stats-bg', pp_get_style_slots('stats'));
+        $this->assertArrayHasKey('--ppfixture-bg', pp_get_style_slots('ppfixture'));
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertSame(
-            array_keys(pp_get_style_slots('stats')),
+            array_keys(pp_get_style_slots('ppfixture')),
             $friendly['alternatives'],
             'The alternatives are the rejecting component\'s slots, not the current occupant\'s.'
         );
-        $this->assertStringContainsString('stats', $friendly['user_message']);
+        $this->assertStringContainsString('ppfixture', $friendly['user_message']);
         // The hint itself is the proof that the rejected name was still judged as
         // unknown: judged against `section` it is a declared slot and would have
         // produced no hint at all. Which component the scan names first is registry
@@ -240,20 +248,20 @@ class FriendlyErrorSlotContextTest extends TestCase
         $hints = (array) $friendly['cross_component_hints'];
         $this->assertArrayHasKey('--grid-item-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
         $hint = $hints['--grid-item-bg'];
-        $this->assertNotSame('stats', $hint['component'], 'A hint points away from the component that rejected.');
+        $this->assertNotSame('ppfixture', $hint['component'], 'A hint points away from the component that rejected.');
         $this->assertArrayHasKey($hint['slot'], pp_get_style_slots($hint['component']));
     }
 
     public function testReportSurvivesTheTargetBeingRemovedBetweenValidateAndReport(): void
     {
         $post_id = $this->authorPage('Removed target', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Second']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Second']]]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--stats-bgs' => '#1a1a2e']];
+            'style'           => ['--ppfixture-bgs' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
@@ -265,11 +273,11 @@ class FriendlyErrorSlotContextTest extends TestCase
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertSame(
-            array_keys(pp_get_style_slots('stats')),
+            array_keys(pp_get_style_slots('ppfixture')),
             $friendly['alternatives'],
             'A component that is gone by report time still gets its own slot list reported.'
         );
-        $this->assertStringContainsString('stats', $friendly['user_message']);
+        $this->assertStringContainsString('ppfixture', $friendly['user_message']);
         $this->assertStringNotContainsString('(none)', $friendly['user_message']);
     }
 
@@ -279,26 +287,26 @@ class FriendlyErrorSlotContextTest extends TestCase
         // removes that id used to flip a real slot rejection into "I couldn't find
         // that component" — an answer that contradicts the rejection in hand.
         $post_id = $this->authorPage('Id target', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hi']]]);
 
         $params = [
             'post_id'      => $post_id,
             'component_id' => 'pp-aabb1122',
-            'style'        => ['--stats-bgs' => '#1a1a2e']];
+            'style'        => ['--ppfixture-bgs' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
 
         $replaced = pp_execute_action('update_composition', [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-ccdd3344', 'title' => 'Replaced']]]]);
+            'composition' => [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-ccdd3344', 'title' => 'Replaced']]]]);
         $this->assertTrue($replaced['ok']);
         $this->assertSame(-1, _pp_resolve_component_index_for_error($params), 'The targeted id is gone by report time.');
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertStringNotContainsString('couldn\'t find that component', $friendly['user_message']);
-        $this->assertSame(array_keys(pp_get_style_slots('stats')), $friendly['alternatives']);
-        $this->assertStringContainsString('--stats-bgs', $friendly['raw_error']);
+        $this->assertSame(array_keys(pp_get_style_slots('ppfixture')), $friendly['alternatives']);
+        $this->assertStringContainsString('--ppfixture-bgs', $friendly['raw_error']);
     }
 
     public function testPhantomKeysNeverReachTheCrossComponentScan(): void
@@ -308,7 +316,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         // will examine, they are visible in the one place that counts what the scan
         // did not reach: a phantom key would push the count above zero.
         $post_id = $this->authorPage('Phantom keys', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $style = ['__recipe' => 'dark-spacious', '--section-removed-thing' => null];
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
@@ -341,7 +349,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         // against a rejection the validator actually produced, not a hand-built one.
         $overflow = 7;
         $post_id  = $this->authorPage('Scan bound', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         $style = ['__recipe' => 'dark-spacious'];
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX + $overflow; $i++) {
@@ -371,13 +379,14 @@ class FriendlyErrorSlotContextTest extends TestCase
         // The hint mechanism itself, exercised through the path production takes:
         // the pre-#626 hint tests all hand-build the rejection, so they now cover
         // the fallback branch only.
-        // The BAND is a `stats` since #1023. The mechanism under test is the
+        // The BAND is the `ppfixture` fixture since #1066 PR2 (it was a `stats` from
+        // #1023, and a `section` before that). The mechanism under test is the
         // cross-component hint — "that slot lives on cta, not here" — and it only fires
         // for a component that HAS slots to judge the name against. A v2 band refuses
         // earlier and differently (`no_style_slots`), which is a different message and is
         // covered by its own pins.
         $post_id = $this->authorPage('Hint on the real path', [
-            ['component' => 'stats', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
         [, $friendly] = $this->rejectThenReport([
@@ -398,7 +407,7 @@ class FriendlyErrorSlotContextTest extends TestCase
         $this->assertArrayHasKey('--grid-item-bar-color', $hints);
         $this->assertSame('grid', $hints['--grid-item-bar-color']['component']);
         $this->assertSame('exact', $hints['--grid-item-bar-color']['match']);
-        $this->assertStringContainsString('stats', $friendly['user_message']);
+        $this->assertStringContainsString('ppfixture', $friendly['user_message']);
     }
 
     // ── A recipe that drifts out of its component's declared slots ─────────
@@ -571,17 +580,17 @@ class FriendlyErrorSlotContextTest extends TestCase
         // Half a context is worse than none: an empty available_slots would render
         // as "It has no style settings" on a component declaring dozens.
         $post_id = $this->authorPage('Malformed context', [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
-        $error = new WP_Error('invalid_style_slot', 'Component "stats" has no style slot "--stats-bgs".', $data);
+        $error = new WP_Error('invalid_style_slot', 'Component "ppfixture" has no style slot "--ppfixture-bgs".', $data);
         $this->assertNull(pp_rejected_slot_context($error), 'A partial payload is not a context.');
 
         $friendly = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--stats-bgs' => '#111']]);
+            'style'           => ['--ppfixture-bgs' => '#111']]);
 
-        $this->assertSame(array_keys(pp_get_style_slots('stats')), $friendly['alternatives']);
+        $this->assertSame(array_keys(pp_get_style_slots('ppfixture')), $friendly['alternatives']);
         $this->assertNotEmpty($friendly['alternatives']);
     }
 

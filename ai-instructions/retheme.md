@@ -45,9 +45,13 @@ Check at https://webaim.org/resources/contrastchecker/
 surfaces; on the dark `--color-bg-inverted` it drops to ~3.2:1 and fails AA for body
 text. Links (and dim accent text like inverted stats numbers) on inverted bands
 therefore route through `--color-accent-on-inverted` (default `#9dafee`, 8.33:1 on the
-default inverted bg) with `--color-accent-on-inverted-hover` for hover. What still routes
-this way automatically is narrow, so it is worth naming exactly: the inverted **stats**
-number. (The inverted **embed** body link was the other member until #1066 retired embed's `theme`; a dark embed band's links are the `content-link` role now, which the author writes.) A section's `panel_cta` is NOT included: it
+default inverted bg) with `--color-accent-on-inverted-hover` for hover. **NOTHING ROUTES
+THIS WAY AUTOMATICALLY ANY MORE.** The inverted **stats** number was the last member and
+it left at #1066 with stats' `theme` prop (the inverted **embed** body link left in the
+same issue's first half). On a v2 band the author writes the token BY NAME —
+`@color-accent-on-inverted` in the role's `typography.color`, on `number` for stats and on
+`content-link` for embed — which is the same pixel and a decision you can see in the
+composition. A section's `panel_cta` is NOT included: it
 sits inside the light panel, not on the band (see the panel exclusion below).
 
 **NO BUTTON ROUTES THIS AUTOMATICALLY ANY MORE.** An `outline` or `ghost` button on an
@@ -65,23 +69,26 @@ leave it unpinned; a pinned on-inverted override that diverges from that derivat
 surfaced by the same `stale_warnings` / `masked_derived_override` machinery as every
 other derived token (see below), so you are told when a base change may not reach it.
 
-**Surface-paired accent (the bg-image band).** A **stats** band WITH a
-`background_image` — and a v2 **hero, section or cta** whose `_band` `udc` map sets
+**Surface-paired accent (the bg-image band).** Any band whose `_band` `udc` map sets
 `background.image` plus `background.overlay` (on v2 a `cover` hero carrying `image_url`
-or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) — lays a
-dark `rgba(0,0,0,.55)` overlay over an ARBITRARY image.
-**THE INK ROUTING BELOW IS v1 ONLY.** It works by band CLASS, and a v2 band has no class:
-on hero, section and cta YOU own the contrast, setting a `typography.color` on each text
-role over the image (see this file's v2 note further down). So the accent surfaces that
-still route automatically are the **stats** ones — its numbers and its `title_accent`
-substring — plus, from #986, the `.hero--cover` FOCUS RING. The focus ring is the one
-exception that is not class-bound in spirit: since #986 it also routes from
+or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) lays a
+dark `rgba(0,0,0,.55)` scrim over an ARBITRARY image.
+**NO INK ROUTES AUTOMATICALLY ON A SCRIM BAND ANY MORE.** The v1 routing worked by band
+CLASS, and a v2 band has no class — **stats was the last component that had one**, and its
+three corrections (the number, the `title_accent` substring and the label) retired with
+`.stats--has-bg-image` at #1066. YOU own the contrast on every band: set a
+`typography.color` on each text role over the image, reaching for
+`@color-accent-on-overlay` and `@color-muted-on-overlay` by name. Note especially that an
+accented heading SUBSTRING does not inherit the heading's ink — it paints its own colour —
+so `heading` and `heading-accent` are two writes, not one.
+
+THE ONE EXCEPTION IS THE FOCUS RING, and it is not class-bound: since #986 it routes from
 `[data-pp-band-overlay]`, which the ENGINE emits on any v2 band painting both an image and
-an overlay, so it reaches a v2 hero, section or cta without the author switching it on. It
+an overlay, so it reaches such a band without the author switching it on. It
 is drawn outside the button, so it lands on the scrim rather than the button's own fill.
 (`.hero--cover` is still a term in that selector, so a `cover` hero gets it whether or not
-it has an image, because the scrim is painted either way.) All of these route through a
-SEPARATE role,
+it has an image, because the scrim is painted either way.) The ring and both authored
+tokens route through a SEPARATE role,
 `--color-accent-on-overlay` (default `#fafbff`), with `--color-accent-on-overlay-hover`
 (default `#ffffff`) for hover. A section's `panel_cta` is NOT included here either — it
 sits inside the light panel, not on the scrim (see the panel exclusion below). This is NOT the same as `--color-accent-on-inverted`:
@@ -98,10 +105,11 @@ that diverges is surfaced by the same `stale_warnings` / `masked_derived_overrid
 machinery as every other derived token.
 
 **De-emphasised ink on the same band uses its own role, `--color-muted-on-overlay`
-(default `#fafbff`).** A stats `label` on a `background_image` band is deliberately quieter
-than the heading beside it. (A cta `body` was the other one until #1026 retired cta's
-`background_image` prop; on a v2 band you reach this token BY NAME — `@color-muted-on-overlay`
-in the role's `typography.color` — instead of getting it from a class.) That used to be spelled
+(default `#fafbff`).** A stats `label` on a scrim band is deliberately quieter than the
+heading beside it — and since #1066 you reach this token BY NAME on every component
+(`@color-muted-on-overlay` in the `label` role's `typography.color`) instead of getting it
+from a class. stats was the last band that got it automatically; cta's went at #1026.
+That used to be spelled
 `opacity: 0.85`, which composited the ink to `rgb(231,232,234)` and measured **3.87:1**
 against the worst-case composite — a WCAG AA failure on normal-size text. The de-emphasis
 now lands as this role token instead of a literal, so it is tunable, measurable, and in
@@ -110,13 +118,16 @@ one place. Be aware of how little room there is: with no opacity at all, full
 `#f9f9f9`. **The entire de-emphasis budget on an overlay band is roughly 0.07:1**, which
 is why the shipped value is near-white and why re-introducing an opacity literal on that
 band will fail the rendered contrast pins. On the SOLID inverted band there is real
-headroom, so the `opacity` literals there (stats label 10.22:1, logos label 10.22:1) are
-deliberate and stay — and the stats one is scoped `:not(.stats--has-bg-image)`, because a
-band can carry `theme: "inverted"` AND a `background_image` at once, and on that combined
-band the inverted measurement does not hold. (A cta body at 12.76:1 was the third until
-#1026: both classes it was keyed on came from retired props, so the literal and its
-carve-out went together. A dark v2 band expresses de-emphasis as a role
-`typography.color`, never as an opacity — see the note above.) This role is NOT auto-derived from
+headroom — and THE THEME NO LONGER SPENDS IT WITH AN `opacity` LITERAL. The last two were
+the inverted stats and logos labels at `0.75`, and both left at #1066 with the `theme` prop
+whose class they were keyed on (a cta body at 12.76:1 was the third until #1026). `opacity`
+has no UDC group at all, so on a dark v2 band the de-emphasis is a real colour: write the
+PIXEL-MEASURED COMPOSITE of v1's paint, **`rgb(192, 195, 201)`**, on `label` ->
+`typography.color`. It measures **10.11:1** on `--color-bg-inverted` — the composite is
+192.75 / 195.5 / 201.75 and Chromium floors each channel, which is why it is not the 10.2:1
+an idealised calculation gives. The `:not(.stats--has-bg-image)` carve-out that used to
+protect the combined inverted-plus-image band went with the classes: a v2 band writes ONE
+colour per role, so there is no second rule to carve out of. This role is NOT auto-derived from
 `--color-accent`: it is a contrast floor tied to the overlay, not an accent tint, so a
 retheme cannot move it below the bar.
 
@@ -177,8 +188,9 @@ made `--section-bg` win over the `muted` / `inverted` theme paint (before, the t
 literal silently defeated it), which meant an `inverted` section painted light by
 `--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
 body and link routing — light-on-light. Both the slot and the class retired with #1023.
-The same trap is still live on `grid`, `stats` and `logos` until their own
-rebuilds. `cta` left that list at #1026, the same way and for the same reason.
+The same trap is still live on `grid` until its own rebuild — it is the last v1 component
+in the theme. `cta` left that list at #1026 and `stats` and `logos` at #1066, each the same
+way and for the same reason.
 
 Example retheme — warm neutral:
 ```css
@@ -213,10 +225,13 @@ Replace `system-ui, sans-serif` with your chosen web font name, e.g.:
 ```
 
 **A distinct heading face does not reach the `stats` display numbers.** They are the
-largest text on the band but they are not headings: they take `--font-body` at weight
-700 unless you say otherwise. After swapping `--font-heading` to a display face, bring
-the figures with it per instance via `--stats-number-font` / `--stats-number-weight`
-(`style-component.md`), the same way per-component button slots are set for buttons.
+largest text on the band but they are not headings: they take `--font-body` at weight 700
+unless you say otherwise, and that is DELIBERATE — the `number` role declares the
+`typography` group and defaults no `family`, because v1 rendered the inherited body face
+and shipping an explicit default would put an unlayered declaration in your way. After
+swapping `--font-heading` to a display face, bring the figures with it per instance:
+`number` -> `typography.family` (and `weight`, if the display face needs a different one)
+in the band's `udc` map, the same way any other v2 role value is set.
 
 ---
 
@@ -264,8 +279,9 @@ it rounds every card and panel too, and no longer reaches the button at all.
 ### The global button color tokens (the site-wide button surface)
 
 > **HERO, SECTION, CTA, FAQ, TABLE AND EMBED ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046, #1066).**
-> Everything in this section describes the v1 per-instance STYLE SLOT cascade, which still
-> governs grid, stats and logos. `hero`, `section`, `testimonials`, `faq`, `table`, `embed` and
+> Everything in this section describes the v1 per-instance STYLE SLOT cascade, which now
+> governs `grid` ALONE — the last v1 component in the theme (`stats` and `logos` left at
+> #1066). `hero`, `section`, `testimonials`, `faq`, `table`, `embed` and
 > `cta` are v2 components with no style slots: their buttons and text are ROLES, styled
 > through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with
@@ -372,10 +388,12 @@ pair moves together under a site-wide retheme. On a `cover` hero none of those f
 either button's BORDER chain any more (ring knobs removed in #564, fill knobs in #565), so a
 site-wide retheme does not move that pair's RINGS there — but it does not split them either,
 since both buttons lost each knob together. Their FILLS still follow the global tokens as
-everywhere else; it is only the separation ring that holds the measured role. You no
-longer need to set `--hero-button2-bg` /
-`--hero-button2-hover-bg` merely to keep the pair consistent — set them when you want that button
-to DIFFER.
+everywhere else; it is only the separation ring that holds the measured role. The v1
+advice here was that you no longer need to set `--hero-button2-bg` /
+`--hero-button2-hover-bg` merely to keep the pair consistent — and BOTH NAMES ARE HISTORY
+since #986 (hero declares no style slots; writing either is refused with `no_style_slots`).
+The surviving instruction is the same one in role vocabulary: set `background.fill` on the
+`cta-secondary` role, with its `':hover'`, only when you want that button to DIFFER.
 
 **Watch hover contrast: there is no global hover INK token.** `--btn-text` sets label ink at
 rest, but the bare `.btn` and the premium primary hard-code hover ink to `--color-bg`. So if

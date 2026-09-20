@@ -3680,7 +3680,10 @@ test.describe('Safe-surface rendered proof', () => {
 
   // Strand 2. .stats__number had a color slot but no size slot at all, so the
   // headline figure's scale was simply not authorable.
-  test('#336 stats number size is slot-driven and defaults to the documented 2.5rem @smoke', async ({
+  // AUTHORED THROUGH THE ROLE SINCE #1066 PR2. `--stats-number-size` is the `number`
+  // role's `typography.size`; the documented 2.5rem default and the rendered override are
+  // the same claims, at the address they live at now.
+  test('#336 the stats number size is role-driven and defaults to the documented 2.5rem @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Stats Number Size Slot');
@@ -3702,7 +3705,13 @@ test.describe('Safe-surface rendered proof', () => {
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-number-size': '73px' });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { number: { typography: { size: '73px' } } },
+      },
+    ]);
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -3719,7 +3728,13 @@ test.describe('Safe-surface rendered proof', () => {
   // proves the two new slots are consumed; only the browser proves they WIN the
   // cascade, that the unset band is unmoved, and that the sibling label does not
   // follow the number's face.
-  test('#472 stats number font and weight are slot-driven; unset is unmoved and the label never follows @smoke', async ({
+  // AUTHORED THROUGH THE ROLE SINCE #1066 PR2, and the UNSET half is the interesting one:
+  // v1 declared `font-family: var(--stats-number-font, inherit)` and the role declares NO
+  // family default at all, because nothing in this theme declares font-family on a <span>
+  // so the inherited body face already lands. The assertion below — the unset number's
+  // family equals the BODY's — is what proves that silence is byte-identical rather than a
+  // dropped capability, and it is why the default was left out rather than transcribed.
+  test('#472 the stats number font and weight are role-driven; unset is unmoved and the label never follows @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Stats Number Typography Slots');
@@ -3764,10 +3779,13 @@ test.describe('Safe-surface rendered proof', () => {
     // A literal stack, not var(--font-heading): the token resolves to the same
     // system stack the body already uses on a default install, so a token value
     // could not distinguish "the slot won" from "nothing happened".
-    const res = await styleComponent(page, pageId, {
-      '--stats-number-font': 'Georgia, serif',
-      '--stats-number-weight': '600',
-    });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'stats',
+        props: { id: 'pp-stats02', items: [{ number: '1,250,000+', label: 'Documents processed' }] },
+        udc: { number: { typography: { family: 'Georgia, serif', weight: '600' } } },
+      },
+    ]);
     expect(res.success).toBe(true);
 
     // Both breakpoints, deliberately: .stats__number carries no media query today,
@@ -3843,18 +3861,24 @@ test.describe('#383 stats contained rounded card renders', () => {
     expect(metrics.docScroll).toBeLessThanOrEqual(metrics.docClient + 1);
   });
 
-  test('#383 --stats-radius rounds the band at 375 and 1280 @smoke', async ({ page }) => {
+  // #383's CONTAINED CARD, AUTHORED THROUGH THE ROLE SINCE #1066 PR2. The capability did
+  // not move: `--stats-radius` is `_band` -> `border.radius` and `--stats-max-width` is
+  // `_band` -> `sizing.max-width`. The RENDERED claim below is unchanged, which is the
+  // point — a role default is a claim about emitted CSS, and this is where it is proved.
+  test('#383 the band radius rounds the band at 375 and 1280 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Radius');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    // Authored through the REAL path, not raw meta: a `udc` map only scopes to a band whose
+    // id the engine minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { _band: { border: { radius: '24px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-radius': '24px' });
     expect(res.success).toBe(true);
 
     for (const width of [375, 1280]) {
@@ -3867,18 +3891,18 @@ test.describe('#383 stats contained rounded card renders', () => {
     }
   });
 
-  test('#383 --stats-max-width caps and centers the band at 1280 @smoke', async ({ page }) => {
+  test('#383 the band cap caps and centers the band at 1280 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Max Width');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: { id: 'pp-stats01', items: [{ number: '98%', label: 'Uptime' }] },
+        udc: { _band: { sizing: { 'max-width': '640px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -3895,9 +3919,15 @@ test.describe('#383 stats contained rounded card renders', () => {
         right: document.documentElement.clientWidth - rect.right,
       };
     });
-    // The slot reaches the band, the band is capped to 640, and auto side-margins
-    // center it (equal gutters within a rounding tolerance) — a contained card, not
-    // a full-bleed band pinned to the left edge.
+    // The ROLE reaches the band, the band is capped to 640, and the `_band` role's own
+    // auto side-margin DEFAULTS center it (equal gutters within a rounding tolerance) — a
+    // contained card, not a full-bleed band pinned to the left edge.
+    //
+    // THIS IS THE TEST THAT PROVES THE AUTO MARGINS ARE LOAD-BEARING. They are inert at
+    // the default `max-width: none` (auto computes to 0 on a full-bleed band), which makes
+    // them look deletable; the moment a cap is authored they are the only thing standing
+    // between a centred card and one pinned to the container's left edge. Same defect
+    // class as #367 one element down.
     expect(geo.maxWidth).toBe('640px');
     expect(geo.width).toBeLessThanOrEqual(641);
     expect(geo.width).toBeGreaterThan(600);
@@ -3905,9 +3935,12 @@ test.describe('#383 stats contained rounded card renders', () => {
     expect(geo.left).toBeGreaterThan(100); // real gutters exist (not left-pinned)
   });
 
-  test('#383 --stats-max-width never overflows at 375 @smoke', async ({ page }) => {
+  test('#383 the band cap never overflows at 375 @smoke', async ({ page }) => {
     pageId = createPage('E2E Stats Card Max Width Mobile');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'Seed' }] } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'stats',
         props: {
@@ -3917,14 +3950,11 @@ test.describe('#383 stats contained rounded card renders', () => {
             { number: '+30', label: 'Years' },
           ],
         },
+        // 640px cap is wider than the 375px viewport, so the band must fall back to the
+        // viewport width with no horizontal scroll (acceptance: no overflow at 375px).
+        udc: { _band: { sizing: { 'max-width': '640px' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    // 640px cap is wider than the 375px viewport, so the band must fall back to the
-    // viewport width with no horizontal scroll (acceptance: no overflow at 375px).
-    const res = await styleComponent(page, pageId, { '--stats-max-width': '640px' });
     expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 375, height: 900 });
@@ -7824,36 +7854,13 @@ test.describe('Shared section-band rhythm (#431)', () => {
   // adjacent-sibling rhythm is a ZERO-SPECIFICITY baseline, so an authored band block has
   // to beat it on the unlayered tier alone, which is exactly the cascade #1023 measured
   // going wrong (authored 5px rendering 76.8px).
-  const NEW_BAND_SLOTS = [
-    { comp: 'logos', sel: '.logos', slot: '--logos-padding-top', px: '6px',
-      props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-  ];
-
-  for (const { comp, sel, slot, px, props } of NEW_BAND_SLOTS) {
-    test(`#438 ${slot} wins on an adjacent ${comp} band at 1280 and 375`, async ({ page }) => {
-      pageId = createPage(`E2E Adjacent Slot ${comp}`);
-      setComposition(pageId, [
-        { component: 'section', props: { id: 'pp-sec01', body: '<p>Body.</p>' } },
-        { component: comp, props },
-      ]);
-
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-      // component_index 1 = the target band (index 0 is the leading section).
-      const res = await styleComponent(page, pageId, { [slot]: px }, undefined, 1);
-      expect(res.success, `${slot} set: ${JSON.stringify(res)}`).toBe(true);
-
-      for (const width of [1280, 375]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?page_id=${pageId}`);
-        const band = page.locator(`main > ${sel}`);
-        await expect(band).toBeVisible({ timeout: 10000 });
-        const paddingTop = await band.evaluate((el) => getComputedStyle(el).paddingTop);
-        expect(paddingTop, `${slot} adjacent-top override @${width}`).toBe(px);
-      }
-    });
-  }
+  // logos' row left at #1066 PR2 with stats', and the slot-shaped loop that stood here
+  // retired with it rather than being narrowed to nothing: every component it covered is
+  // on the design contract now, and grid — the last slot-bearing component — has its own
+  // adjacent pin above (the `main > .cta` case leads this describe). The claim is carried
+  // in its STRONGER form by the v2 block immediately below, which drives the same
+  // adjacent-top edge through an authored `_band` -> `spacing.padding-top` and therefore
+  // has to beat a zero-specificity baseline on the unlayered tier alone.
 
   /**
    * THE v2 HALF OF THE SAME CLAIM (#1066), and it is the harder one.
@@ -7876,6 +7883,13 @@ test.describe('Shared section-band rhythm (#431)', () => {
       props: { id: 'pp-t1b2c3d4', title: 'Table', headers: ['A', 'B'], rows: [['1', '2']] } },
     { comp: 'embed', sel: '.embed', px: '7px',
       props: { id: 'pp-e1b2c3d4', title: 'Embed', content: '<p>Embedded.</p>' } },
+    // stats and logos joined at #1066 PR2, which is what makes this roster the whole
+    // claim rather than a sample: every band whose per-component padding rule was deleted
+    // is now pinned here, at both tiers.
+    { comp: 'stats', sel: '.stats', px: '9px',
+      props: { id: 'pp-s1b2c3d4', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+    { comp: 'logos', sel: '.logos', px: '11px',
+      props: { id: 'pp-l1b2c3d4', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
   ]) {
     test(`#1066 an authored ${comp} _band padding-top wins on the adjacent edge at 1280 and 375`, async ({
       page,
@@ -8290,7 +8304,10 @@ test.describe('Band heading scale (#436)', () => {
     { band: 'section', sel: '.section__title', slot: '--section-heading-size' },
     { band: 'grid', sel: '.grid__heading', slot: '--grid-heading-size' },
     { band: 'cta', sel: '.cta__title', slot: '--cta-heading-size' },
-    { band: 'stats', sel: '.stats__heading', slot: '--stats-heading-size' },
+    // No `slot`: stats joined the UDC contract at #1066 PR2. It still joins the equality
+    // test below — its heading resolves the same shared --pp-band-heading-size scale, now
+    // as the `heading` role's default.
+    { band: 'stats', sel: '.stats__heading' },
     // No `slot`: table is on the UDC contract since #1066 and has none. It still joins
     // the equality test below, which is the point — its heading resolves the same shared
     // --pp-band-heading-size scale, now as the `heading` role's default.
@@ -8299,7 +8316,11 @@ test.describe('Band heading scale (#436)', () => {
     // and `sel` are read by the equality test below, which it still joins —
     // its heading resolves the same shared --pp-band-heading-size scale.
     { band: 'testimonials', sel: '.testimonials__heading' },
-    { band: 'logos', sel: '.logos__heading', slot: '--logos-heading-size' },
+    // No `slot`: logos joined at #1066 PR2 with stats. GRID IS THE LAST BAND IN THIS
+    // ROSTER THAT STILL CARRIES ONE, which makes the override half of this test a
+    // one-component claim and the EQUALITY half — every band resolving the same shared
+    // scale — the part that still spans the theme.
+    { band: 'logos', sel: '.logos__heading' },
     // No `slot`: embed joined the UDC contract at #1066 alongside table, same reasoning.
     { band: 'embed', sel: '.embed__heading' },
     // No `slot`: faq is on the UDC contract since #1046 and has none. It still joins
@@ -8388,46 +8409,61 @@ test.describe('Band heading scale (#436)', () => {
   // the correct component-name string — a typo there would validate but never
   // reach the DOM. Pixel values no scale step resolves to, so a fallback leak is
   // unmistakable.
-  test('#436 existing and all newly-minted heading slots override the shared scale at 375 and 1280', async ({
+  /**
+   * THE SLOT-OVERRIDE HALF RETIRED AT #1066 PR2, which is what this test's own note asked
+   * for rather than another narrowing: "when the last of the three goes this test retires
+   * rather than narrowing to zero." logos was the last of them here — grid still declares
+   * `--grid-heading-size`, and grid's override is independently driven by the #305
+   * premium-rule pin earlier in this file, so nothing is left uncovered.
+   *
+   * THE CLAIM IS REPLACED, NOT DROPPED. What #436 protects is that a band can override the
+   * shared responsive scale per instance. On v2 that is the `heading` role's
+   * `typography.size`, and the v2 version is the harder proof: an authored value has to beat
+   * a role default that is itself emitted unlayered, at both tiers, on every band at once.
+   * The equality roster above — every band resolving the SAME shared scale when unauthored —
+   * is untouched and still spans the theme.
+   */
+  test('#436 an authored heading size overrides the shared scale on every v2 band at 375 and 1280', async ({
     page,
   }) => {
-    pageId = createPage('E2E Band Heading Slot Override');
-    // cta's row left at #1026 with its slot map. Its heading size is the `heading` role's
-    // `typography.size`, defaulting to the same `@pp-band-heading-size` this block pins for
-    // every component still on slots — so the shared SCALE is unchanged; only the override
-    // address moved, and the emitted default is asserted in CtaRoleDefaultsEmitTest.
-    // table's and embed's rows left at #1066, the way cta's left at #1026. Each heading
-    // size is the `heading` role's `typography.size`, defaulting to the same
-    // `@pp-band-heading-size` this block pins for every component still on slots — so the
-    // shared SCALE is unchanged and both still join the equality roster above; only the
-    // override ADDRESS moved. logos is the row kept here; grid and stats still declare
-    // `--grid-heading-size` and `--stats-heading-size` too, and grid's is driven in its
-    // own premium-rule pin earlier in this file. When the last of the three goes this
-    // test retires rather than narrowing to zero.
-    setComposition(pageId, [
-      { component: 'logos', props: { id: 'pp-logo01', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo' }] } },
-    ]);
+    // Distinct px per band so a cross-wired value is caught rather than masked.
+    const BANDS = [
+      { comp: 'stats', sel: '.stats__heading', px: '62px',
+        props: { id: 'pp-s2b2c3d4', title: 'Stats', items: [{ number: '10', label: 'Ten' }] } },
+      { comp: 'logos', sel: '.logos__heading', px: '58px',
+        props: { id: 'pp-l2b2c3d4', title: 'Logos', items: [{ image_url: 'https://example.com/l.png', image_alt: 'L' }] } },
+      { comp: 'table', sel: '.table-section__heading', px: '54px',
+        props: { id: 'pp-t2b2c3d4', title: 'Table', headers: ['A'], rows: [['1']] } },
+      { comp: 'embed', sel: '.embed__heading', px: '50px',
+        props: { id: 'pp-e2b2c3d4', title: 'Embed', content: '<p>E.</p>' } },
+    ];
 
+    pageId = createPage('E2E Band Heading Role Override');
+    setComposition(pageId, [{ component: 'stats', props: { id: 'pp-seed', items: [{ number: '1', label: 'S' }] } }]);
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // The three slots minted in #436 that are still slots. Distinct px per component so a
-    // cross-wired value would be caught.
-    const overrides = [
-      { idx: 0, slot: '--logos-heading-size', px: '62px', sel: '.logos__heading' },
-    ];
-    for (const o of overrides) {
-      const r = await styleComponent(page, pageId, { [o.slot]: o.px }, undefined, o.idx);
-      expect(r.success, `${o.slot} set: ${JSON.stringify(r)}`).toBe(true);
-    }
+    // Through the REAL write path: a `udc` map only scopes to a band whose id the engine
+    // minted, and raw meta mints nothing (Section 14.1).
+    const res = await updateComposition(
+      page,
+      pageId,
+      BANDS.map(({ comp, px, props }) => ({
+        component: comp,
+        props,
+        udc: { heading: { typography: { size: px } } },
+      })),
+    );
+    expect(res.success, `authored heading sizes: ${JSON.stringify(res)}`).toBe(true);
 
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      for (const o of overrides) {
-        const h = page.locator(`main ${o.sel}`).first();
-        await expect(h).toBeVisible({ timeout: 10000 });
-        expect(await h.evaluate((el) => getComputedStyle(el).fontSize), `${o.slot} @${width}`).toBe(o.px);
+      for (const { comp, sel, px } of BANDS) {
+        const heading = page.locator(sel).first();
+        await expect(heading, `${comp} heading renders`).toBeVisible({ timeout: 10000 });
+        const size = await heading.evaluate((el) => getComputedStyle(el).fontSize);
+        expect(size, `${comp} authored heading size @${width}`).toBe(px);
       }
     }
   });
@@ -8692,20 +8728,36 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     // exactly as #986 ruled for hero and #1026 for cta. The measured fact the row
     // recorded is preserved in components/faq/README.md — the accordion panels keep
     // their light fill, so the ink inside them does not follow the band.
+    // REBUILT AT #1066 PR2 RATHER THAN RETIRED, and the distinction is worth stating.
+    // The cta and testimonials cases below were retired because their truth had no
+    // rendered DEFAULT left to pin — the band and the ink both became authored values.
+    // stats is different: components/stats/README.md and the migration how-to both make a
+    // SPECIFIC NUMERIC PROMISE about the replacement write, naming
+    // `@color-accent-on-inverted` and 8.33:1. A documented number nobody renders is exactly
+    // the kind of claim that rots, so the case is reconstructed as the DOCUMENTED RECIPE
+    // instead of deleted: the same band shape, authored the way the docs tell an author to
+    // author it, asserted against the same 3:1 large-text bar it always was.
+    //
+    // It is also the rendered proof of the four-write rule: `number` is re-inked
+    // EXPLICITLY here because a `_band` ink write does not reach it — the colour is a
+    // direct declaration on the element, and an inherited value can never beat one.
     {
-      name: 'stats number on the dark band clears the 3:1 large-text bar',
+      name: 'the documented dark-band stats write clears the 3:1 large-text bar',
       composition: [
         {
           component: 'stats',
           props: {
-            id: 'pp-stats01',
-            theme: 'inverted',
+            id: 'pp-s3b2c3d4',
             title: 'Inverted stats',
             items: [{ number: '42', label: 'Metric' }],
           },
+          udc: {
+            _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+            number: { typography: { color: '@color-accent-on-inverted' } },
+          },
         },
       ],
-      linkSelector: '.stats--inverted .stats__number',
+      linkSelector: '.stats__number',
       mode: 'contrast',
       minRatio: 3.0,
     },
@@ -9055,28 +9107,61 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
   // narrowing the fixture is what preserves that rather than deleting it. The lists below
   // are keyed by component name precisely so a departure removes one entry and cannot
   // silently re-point a slot at the wrong band.
-  const bands = () => [
+  // REBUILT ON THE AUTHORED ROUTE AT #1066 PR2. stats was this block's last member: its
+  // `background_image` prop, its `.stats--has-bg-image` class and its `.stats__overlay`
+  // <div> all retired, so the AUTOMATIC guarantee this block measured no longer exists
+  // anywhere in the theme.
+  //
+  // DELETING IT WOULD HAVE DROPPED THE STRICTEST CLAIM IN THIS FILE, which is why it is
+  // rebuilt instead. The surface it measures is the hardest one the theme has: a scrim over
+  // a pure-WHITE image, where the effective background is about rgb(115,115,115) and the
+  // contrast CEILING for any foreground is 4.74:1 — AA passes with roughly 0.07:1 to spare.
+  // A disclosure ("you own the contrast") is the right replacement for a guarantee, but it
+  // is not a replacement for MEASURING that the documented write actually clears the bar on
+  // the worst surface. So the case is reconstructed exactly as components/stats/README.md
+  // and the migration how-to tell an author to write it.
+  //
+  // The scrim is read from the BAND's own composited background layers rather than from an
+  // overlay element, because there is no overlay element any more — `background.overlay`
+  // composes into the band's background-image list as a gradient. The alpha guard below
+  // still applies, and still fails if a refactor made the scrim opaque or dropped it.
+  const bands = (mediaId: number) => [
     {
       component: 'stats',
       props: {
-        id: 'pp-ov-stats',
-        background_image: WHITE_PNG,
+        id: 'pp-ov1b2c3d',
         title: 'Overlay stats',
         items: [{ number: '42', label: 'Metric' }],
+      },
+      udc: {
+        _band: {
+          background: { image: String(mediaId), overlay: '@overlay-bg', size: 'cover', repeat: 'no-repeat' },
+          typography: { color: '@color-bg' },
+        },
+        heading: { typography: { color: '@color-bg' } },
+        'heading-accent': { typography: { color: '@color-accent-on-overlay' } },
+        number: { typography: { color: '@color-accent-on-overlay' } },
+        label: { typography: { color: '@color-muted-on-overlay' } },
       },
     },
   ];
 
-  // Each accent surface + the overlay element whose rendered rgba() sits behind it.
+  // Each accent surface. The scrim now lives on the band itself.
   const SURFACES = [
-    { name: 'stats number', accent: '.stats--has-bg-image .stats__number', overlay: '.stats--has-bg-image .stats__overlay' },
+    { name: 'stats number', accent: '.stats__number', band: '.stats' },
+    { name: 'stats label', accent: '.stats__label', band: '.stats' },
   ];
 
   test('every remaining bg-image accent surface clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
     page,
   }) => {
     pageId = createPage('E2E 461 overlay accent contrast');
-    setComposition(pageId, bands());
+    const mediaId = importTestImage('pp461-white');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const wrote = await updateComposition(page, pageId, bands(mediaId));
+    expect(wrote.success, `authored overlay band: ${JSON.stringify(wrote)}`).toBe(true);
 
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -9086,7 +9171,7 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
         await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
 
         const res = await page.evaluate(
-          ({ accentSel, overlaySel }) => {
+          ({ accentSel, overlaySel }: { accentSel: string; overlaySel: string }) => {
             const parseRgb = (str: string): number[] => (str.match(/[\d.]+/g) || []).map(Number);
             const lum = (rgb: number[]): number => {
               const f = (v: number) => {
@@ -9099,7 +9184,12 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
             const ov = document.querySelector(overlaySel);
             if (!el || !ov) return { found: false, fg: [] as number[], comp: [] as number[], alpha: -1, ratio: 0 };
             const fg = parseRgb(getComputedStyle(el).color);
-            const o = parseRgb(getComputedStyle(ov).backgroundColor); // rgba(r,g,b,a)
+            // THE SCRIM IS A BACKGROUND LAYER NOW, not an element: `background.overlay`
+            // composes into the band's own background-image list as a gradient, so the
+            // rgba() is read out of that declaration rather than off a child <div>.
+            const layers = getComputedStyle(ov).backgroundImage;
+            const rgbaMatch = layers.match(/rgba?\(([^)]+)\)/);
+            const o = rgbaMatch ? rgbaMatch[1].split(',').map((v) => Number(v.trim())) : [];
             const alpha = o.length >= 4 ? o[3] : 1;
             // Composite the rendered overlay over a pure-white image (the worst case).
             const comp = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
@@ -9108,12 +9198,12 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
             const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
             return { found: true, fg, comp, alpha, ratio };
           },
-          { accentSel: s.accent, overlaySel: s.overlay },
+          { accentSel: s.accent, overlaySel: s.band },
         );
 
-        expect(res.found, `${s.name} or its overlay not found @${width}`).toBe(true);
-        // The overlay must actually be a translucent scrim (guards a vacuous pass if a
-        // refactor made the overlay opaque or dropped its alpha).
+        expect(res.found, `${s.name} or its band not found @${width}`).toBe(true);
+        // The scrim must actually be a translucent layer (guards a vacuous pass if a
+        // refactor made it opaque, dropped its alpha, or stopped compositing it at all).
         expect(res.alpha, `${s.name} @${width}: overlay alpha ${res.alpha} is not the expected translucent scrim`).toBeGreaterThan(0);
         expect(res.alpha).toBeLessThan(1);
         expect(
@@ -9124,25 +9214,31 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
     }
   });
 
-  test('a per-instance slot wins over the on-overlay default on every band @375 + @1280', async ({
+  // THE OVERRIDE HALF, ON THE AUTHORED ROUTE SINCE #1066 PR2. The claim was that a
+  // per-instance value beats the automatic on-overlay DEFAULT. There is no automatic
+  // default any more — which makes this the stronger version of the same question: does an
+  // authored role value actually reach the rendered element on a scrim band, or is it
+  // silently lost to the role's own default? A vivid cyan no token uses makes a leak or a
+  // clobber obvious either way.
+  test('an authored role colour wins on a scrim band @375 + @1280', async ({
     page,
   }) => {
-    pageId = createPage('E2E 461 overlay slot wins');
-    const SLOT = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
-    const b = bands();
-    // Attach the per-instance style slot that each band's accent rule reads first.
-    // Indices moved when section's band left this fixture in #1023 — bound to the
-    // component name rather than the position so the next departure cannot silently
-    // attach a slot to the wrong band (which is what a positional edit would do).
-    const SLOTS: Record<string, string> = {
-      stats: '--stats-number-color',
-    };
-    for (const band of b) {
-      const slot = SLOTS[band.component as string];
-      expect(slot, `no per-instance slot mapped for "${band.component}"`).toBeTruthy();
-      (band.props as Record<string, unknown>).__pp_style = { [slot]: SLOT };
-    }
-    setComposition(pageId, b);
+    pageId = createPage('E2E 461 overlay authored wins');
+    const AUTHORED = '#00e5ff'; // vivid cyan no token uses — a leak or clobber is obvious
+    const mediaId = importTestImage('pp461-white-override');
+    const b = bands(mediaId).map((band) => ({
+      ...band,
+      udc: {
+        ...band.udc,
+        number: { typography: { color: AUTHORED } },
+        label: { typography: { color: AUTHORED } },
+      },
+    }));
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const wrote = await updateComposition(page, pageId, b);
+    expect(wrote.success, `authored override: ${JSON.stringify(wrote)}`).toBe(true);
 
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -9151,7 +9247,7 @@ test.describe('#461 bg-image band accent contrast (rendered)', () => {
       for (const s of SURFACES) {
         await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
         const color = await page.evaluate((sel) => getComputedStyle(document.querySelector(sel)!).color, s.accent);
-        expect(color, `${s.name} @${width}: per-instance slot must win over the on-overlay default`).toBe('rgb(0, 229, 255)');
+        expect(color, `${s.name} @${width}: the authored role colour must reach the rendered element`).toBe('rgb(0, 229, 255)');
       }
     }
   });
@@ -9177,10 +9273,8 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // substring (which paints its OWN color and does NOT inherit the near-white band
   // title, so it hit --color-accent at 1.16:1), the section body list markers, and
   // .hero--cover's title-accent (same --overlay-bg scrim idiom). Same worst-case method
-  // as #461: seed a WHITE background-image, read the rendered overlay's real rgba() and
+  // as #461: seed a WHITE background-image, read the rendered scrim's real rgba() and
   // composite it over white(255) — the worst case for a light-tinted foreground.
-  const WHITE_PNG =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWP8//8/AwMDEwMDAwMDAwAkBgMBmjCi+wAAAABJRU5ErkJggg==';
 
   // SECTION'S BAND AND ITS TWO SURFACES LEFT IN #1023, for the reason recorded on the
   // #461 block above: the on-overlay routing was a band-class mechanism and a v2 band has
@@ -9193,41 +9287,56 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // `update_design_token` on `--color-accent` itself, which recolours every accent on the
   // site. That is disclosed in section's README, the CHANGELOG and composition.md, and it
   // is the sharp edge #1024's per-item work should look at.
-  const bands = () => [
+  // REBUILT ON THE AUTHORED ROUTE AT #1066 PR2, for the same reason as the #461 block and
+  // with one extra reason of its own.
+  //
+  // #463 IS NOT A DUPLICATE OF #461, even though both now seed the same kind of band. It
+  // records a different trap: the accented heading SUBSTRING paints its own colour at
+  // (0,1,0) and does NOT inherit the near-white ink the band's heading carries — so on a
+  // scrim band it rendered bare `--color-accent` at 1.16:1 while the heading AROUND it read
+  // perfectly. That trap SURVIVES the rebuild untouched: re-inking `heading` still does not
+  // reach `heading-accent`, because a direct declaration always beats an inherited value.
+  // All that changed is that the correction is authored rather than automatic, which makes
+  // measuring it MORE important, not less — an author following components/stats/README.md
+  // and the migration how-to must actually clear the bar, and this is the only place that
+  // is measured rather than asserted.
+  const bands = (mediaId: number) => [
     {
       component: 'stats',
       props: {
-        id: 'pp-ov463-stats',
-        background_image: WHITE_PNG,
+        id: 'pp-ov463a1',
         title: 'Overlay accent stats',
         title_accent: 'accent',
         items: [{ number: '42', label: 'Metric' }],
       },
-    },
-    {
-      component: 'hero',
-      props: {
-        id: 'pp-ov463-hero',
-        layout: 'cover',
-        image_url: WHITE_PNG,
-        title: 'Overlay accent hero',
-        title_accent: 'accent',
+      udc: {
+        _band: {
+          background: { image: String(mediaId), overlay: '@overlay-bg', size: 'cover', repeat: 'no-repeat' },
+          typography: { color: '@color-bg' },
+        },
+        heading: { typography: { color: '@color-bg' } },
+        'heading-accent': { typography: { color: '@color-accent-on-overlay' } },
       },
     },
   ];
 
-  // Each accent surface: the selector, an optional ::before pseudo (list marker glyph),
-  // the per-instance slot the rule reads first, and the overlay whose rgba() sits behind it.
+  // Each accent surface: the selector and the element whose composited scrim sits behind
+  // it — the BAND itself since #1066 PR2, because `background.overlay` is a background
+  // layer now rather than a child <div>.
   const SURFACES = [
-
-    { name: 'stats heading-accent', accent: '.stats--has-bg-image .stats__heading-accent', pseudo: '', slot: '--stats-heading-accent-color', overlay: '.stats--has-bg-image .stats__overlay' },
+    { name: 'stats heading-accent', accent: '.stats__heading-accent', band: '.stats' },
   ];
 
-  test('every bg-image title-accent + marker clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
+  test('the authored title-accent clears AA (4.5:1) over the overlay-over-white worst case @375 + @1280', async ({
     page,
   }) => {
     pageId = createPage('E2E 463 overlay accent-span contrast');
-    setComposition(pageId, bands());
+    const mediaId = importTestImage('pp463-white');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const wrote = await updateComposition(page, pageId, bands(mediaId));
+    expect(wrote.success, `authored 463 band: ${JSON.stringify(wrote)}`).toBe(true);
 
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: 900 });
@@ -9237,7 +9346,7 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
         await expect(page.locator(s.accent).first()).toBeVisible({ timeout: 10000 });
 
         const res = await page.evaluate(
-          ({ accentSel, pseudo, overlaySel }) => {
+          ({ accentSel, overlaySel }: { accentSel: string; overlaySel: string }) => {
             const parseRgb = (str: string): number[] => (str.match(/[\d.]+/g) || []).map(Number);
             const lum = (rgb: number[]): number => {
               const f = (v: number) => {
@@ -9249,8 +9358,13 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
             const el = document.querySelector(accentSel);
             const ov = document.querySelector(overlaySel);
             if (!el || !ov) return { found: false, fg: [] as number[], comp: [] as number[], alpha: -1, ratio: 0 };
-            const fg = parseRgb(getComputedStyle(el, pseudo || undefined).color);
-            const o = parseRgb(getComputedStyle(ov).backgroundColor); // rgba(r,g,b,a)
+            const fg = parseRgb(getComputedStyle(el).color);
+            // The scrim is a background LAYER now: `background.overlay` composes into the
+            // band's own background-image list as a gradient, so the rgba() is read out of
+            // that declaration rather than off a child <div>.
+            const layers = getComputedStyle(ov).backgroundImage;
+            const rgbaMatch = layers.match(/rgba?\(([^)]+)\)/);
+            const o = rgbaMatch ? rgbaMatch[1].split(',').map((v) => Number(v.trim())) : [];
             const alpha = o.length >= 4 ? o[3] : 1;
             const comp = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
             const L1 = lum(fg);
@@ -9258,10 +9372,10 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
             const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
             return { found: true, fg, comp, alpha, ratio };
           },
-          { accentSel: s.accent, pseudo: s.pseudo, overlaySel: s.overlay },
+          { accentSel: s.accent, overlaySel: s.band },
         );
 
-        expect(res.found, `${s.name} or its overlay not found @${width}`).toBe(true);
+        expect(res.found, `${s.name} or its band not found @${width}`).toBe(true);
         // The overlay must actually be a translucent scrim (guards a vacuous pass).
         expect(res.alpha, `${s.name} @${width}: overlay alpha ${res.alpha} is not the expected translucent scrim`).toBeGreaterThan(0);
         expect(res.alpha).toBeLessThan(1);
@@ -9276,12 +9390,16 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
   // RETIRED (#986): pinned a hero style slot or the .hero__overlay element, neither of
   // which exists on a v2 hero. RETIRED (#1026): the cta title-accent row, the same way —
   // `.cta--has-bg-image` and `--cta-heading-accent-color` both went with the
-  // `background_image` prop. The hero band stays in the fixture without a surface of its
-  // own, as #986 left it. What survives here is the STATS row, which is the whole reason
-  // the block is narrowed rather than deleted: stats still routes its heading-accent to
-  // the on-overlay role automatically, so there is still an automatic guarantee to
-  // measure. For the two rebuilt components the replacement is an authored value, covered
-  // by their own role-default tests and disclosed in their READMEs.
+  // `background_image` prop. RETIRED (#1066 PR2): the hero band that #986 had left in the
+  // fixture without a surface of its own — a seeded band nothing measures is scenery, and
+  // it was still carrying the retired `image_url`/`layout: cover` shape.
+  //
+  // What survives is the STATS row, and the reason it survives is worth stating since
+  // stats no longer routes anything automatically: the accent SUBSTRING is the one surface
+  // on a scrim band whose ink an author must set SEPARATELY from the heading it sits
+  // inside. A role-default test cannot see that — it proves what stats emits with no `udc`
+  // map at all. Only a rendered scrim band shows whether the documented two-role write
+  // actually lands on both, and at what ratio.
 });
 
 /*
@@ -9953,9 +10071,12 @@ test.describe('#545 per-instance button slots stay off nested author buttons (re
  *
  * Two honest limits, both relevant to how the results below are read:
  *  - `opacity` is invisible here. An element faded by itself or an ancestor still
- *    reports its unfaded ratio, so where fading matters (`.logos--inverted
- *    .logos__label` at 0.75) the opacity is asserted separately rather than folded
- *    into a misleadingly high number.
+ *    reports its unfaded ratio, so wherever fading mattered the opacity was asserted
+ *    separately rather than folded into a misleadingly high number. AS OF #1066 PR2 THAT
+ *    CASE NO LONGER ARISES IN THIS FILE: `.logos--inverted .logos__label` at 0.75 was the
+ *    last fade, `opacity` has no UDC group, and the de-emphasis ports as a real colour
+ *    (rgb(192, 195, 201)) — so every figure below is now the effective one. The opacity
+ *    reads that remain assert `1`, to catch a literal coming back.
  *  - the channel scrape assumes Chromium's legacy `rgb()` serialization. A computed
  *    value in a modern colour space (`color(srgb …)`, `oklch(…)`, which `color-mix()`
  *    can produce) would parse as 0-1 channels and yield a wrong ratio rather than an
@@ -10070,6 +10191,9 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
   const INK_ON_BG = 17.44;
   const MUTED_ON_BG = 5.66;
   const INK_ON_INVERTED = 17.54;
+  // v1's inverted label was `--color-bg` at `opacity: 0.75`. `opacity` is in no UDC group,
+  // so it ports as the pixel-measured composite rgb(192, 195, 201) over --color-bg-inverted.
+  const MUTED_COMPOSITE_ON_INVERTED = 10.11;
   const ACCENT_LINK_ON_INVERTED = 8.33;
 
   // [viewport, band padding edge, band heading size] — the shared band rhythm (#430/
@@ -10213,13 +10337,25 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
    * Four things are pinned, because only the last two survive a bad severance:
    *   1. the cap resolves to 40rem and binds at desktop (the number),
    *   2. the title actually wraps inside it (the fixture is genuinely stressed),
-   *   3. driving the component's OWN slot MOVES the heading (the route still exists),
+   *   3. driving the handle the band routes MOVES the heading (the route still exists),
    *   4. driving `--cta-heading-measure` does NOT move it (the leak is really gone).
    *
    * Without (3) a rewrite to a literal `max-width: 40rem` keeps every number and loses
-   * the authorable slot silently. Without (4) a severance that merely demoted the CTA
+   * the authorable measure silently. Without (4) a severance that merely demoted the CTA
    * slot to an intermediate fallback — `var(--table-heading-measure,
    * var(--cta-heading-measure, 40rem))` — would keep every number AND keep the leak.
+   *
+   * ALL FIVE ROWS ARE v2 NOW (#1066 PR2 took logos and stats, the last two on slots), so
+   * the handle in (3) is `--measure-heading` for every one of them: the shared token each
+   * `heading` role's `sizing.max-width` default references. That is a WEAKER handle than a
+   * per-component slot in one respect and a stronger one in another, and both are worth
+   * saying out loud. Weaker: one token now moves five bands, so this step no longer proves
+   * the cap is addressable PER BAND. Stronger: the per-band address is a role parameter
+   * the write path validates, and it is proved where validation lives — each component's
+   * RoleDefaultsEmitTest pins the emitted `max-width` and the #1046 faq block drives a role
+   * `sizing` write end to end. What (3) still catches here, for all five at once, is the
+   * regression it was written for: a role that froze 40rem as a literal instead of
+   * routing the token.
    */
   const HEADING_CASES = [
     {
@@ -10243,19 +10379,18 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       }),
     },
     {
+      // No `slot` since #1066 PR2: logos joined the UDC alongside stats, same reasoning as
+      // table's and embed's rows above. Its heading measure is the `heading` role's
+      // `sizing.max-width`, still referencing `@measure-heading` — every claim the case
+      // makes still applies, and only the handle for step (3) changes.
       name: 'logos',
       selector: '.logos__heading',
-      slot: '--logos-heading-measure',
       props: () => ({
         component: 'logos',
         props: { ...BASE_LOGOS_PROPS, title: LONG_TITLE },
       }),
     },
-    // The other three the shared rule capped. `stats` is the one that most needs a
-    // rendered check: its issue-367 auto-inline-margin centering is documented as
-    // depending on this h2 having a 40rem box, so a cap that failed to resolve would
-    // break the centering while every static text check stayed green.
-    // cta's row left at #1026 with its slot map. THE MEASURE ITSELF DID NOT CHANGE — the
+    // The other three the shared rule capped. cta's row left at #1026 with its slot map. THE MEASURE ITSELF DID NOT CHANGE — the
     // `heading` role defaults `sizing.max-width` to `@measure-heading`, the same 40rem token
     // this block pins for every component still on slots, and the `text` role carries it too
     // because v1's single slot fed BOTH elements. What is gone is only the slot-shaped
@@ -10263,9 +10398,15 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     // #1026's evidence run, which wraps a 100-character unbroken token at 375 and reads the
     // box; the emitted default is asserted in CtaRoleDefaultsEmitTest.
     {
+      // No `slot` since #1066 PR2, and this is the row where step (3) matters MOST — which
+      // is why it keeps the note it has always carried rather than inheriting the generic
+      // one. stats' #367 centring depends on this h2 having a box NARROWER than its
+      // container: the auto margins only bite against the cap. A cap that stopped resolving
+      // would silently un-centre the heading while every static text check stayed green,
+      // and after the rebuild the cap is a role default rather than a stylesheet literal,
+      // so there is one more way for it to stop resolving than there used to be.
       name: 'stats',
       selector: '.stats__heading',
-      slot: '--stats-heading-measure',
       props: () => ({
         component: 'stats',
         props: { id: 'pp-st583', title: LONG_TITLE, items: [{ number: '99%', label: 'Uptime' }] },
@@ -10334,7 +10475,13 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       // TOKEN its role default references: if the role froze the number instead of
       // routing `@measure-heading`, this goes red in exactly the same way the slot
       // version did.
-      const measureHandle = 'slot' in heading ? (heading as { slot: string }).slot : '--measure-heading';
+      //
+      // ONE HANDLE FOR EVERY ROW SINCE #1066 PR2. This read `'slot' in heading ? … :
+      // '--measure-heading'` while some rows were still on slots; logos and stats were the
+      // last two, so the ternary now has a branch nothing can take. Left in place it would
+      // read as "some component here is still on a slot", which is the false note #1038
+      // warns about — and the row that reintroduced one would have to declare it anyway.
+      const measureHandle = '--measure-heading';
       await open(page, 1280, heading.selector);
       await page.addStyleTag({ content: `:root { ${measureHandle}: 30rem; }` });
       const driven = await measureHeadingBox(page, heading.selector);
@@ -10975,25 +11122,49 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
   });
 
   /**
-   * The one dark paint these components can actually reach today: theme "inverted".
-   * table has no theme prop and no .table-section--* rule at all, so it cannot.
+   * THE DARK BAND, AUTHORED ON BOTH ARMS SINCE #1066 PR2 — and the logos arm is now a
+   * BETTER measurement than the one it replaces, not merely a ported one.
    *
-   * Unlike the simulated dark paint below, this is shipped behaviour and therefore a real
-   * regression surface. Note the label's ratio is PRE-OPACITY: `.logos--inverted
-   * .logos__label` fades to 0.75, which measureContrast cannot see, so the opacity is
-   * asserted on its own rather than folded into a misleadingly high ratio.
+   * v1 reached this paint with `theme: "inverted"`, a prop both components have retired.
+   * embed's arm was already authored (PR1); logos' joins it, writing exactly what
+   * docs/howto-migrate-a-logos-band-to-v2.md tells an author to write.
+   *
+   * WHAT IMPROVES. The old logos label figure was explicitly PRE-OPACITY: `.logos--inverted
+   * .logos__label` faded to 0.75, `measureContrast` cannot see an opacity, and the test said
+   * so and asserted the 0.75 separately — so the ratio it reported (17.5:1) was one nobody
+   * ever saw on screen, and the real one was never measured anywhere. `opacity` has no UDC
+   * group, so the de-emphasis ports as the measured COMPOSITE `rgb(192, 195, 201)`, and the
+   * number this test now reports is the effective one: 10.11:1. That is also the figure the
+   * two migration how-tos and both component READMEs quote, and this is the only place it
+   * is measured rather than asserted.
+   *
+   * The opacity check survives INVERTED: it used to prove the fade was there, and now
+   * proves it did not come back — a re-introduced literal would multiply the composite
+   * again and silently drop the band below the number the docs promise.
    */
   test('#583 inverted logos and embed bands: ink as rendered today @smoke', async ({ page }) => {
     pageId = createPage('E2E 583 inverted ink');
     setComposition(pageId, [
       {
         component: 'logos',
+        id: 'pp-l583inv1',
         props: {
           ...BASE_LOGOS_PROPS,
           id: 'pp-log-inv',
-          theme: 'inverted',
           title: 'Inverted logos band',
           items: [BASE_LOGOS_PROPS.items[1]],
+        },
+        udc: {
+          _band: {
+            background: { fill: '@color-bg-inverted' },
+            typography: { color: '@color-bg' },
+          },
+          // THE THIRD WRITE, and the one the route explicitly says the band ink does not
+          // reach: `label` pins `@color-muted` as a direct declaration, so a `_band`
+          // typography write sails past it. Omit this and the label renders muted grey on
+          // near-black at 1.9:1 — which is exactly why logos' `retired_props` entry spells
+          // the label out rather than saying "set the band ink".
+          label: { typography: { color: 'rgb(192, 195, 201)' } },
         },
       },
       // embed's arm is AUTHORED since #1066 — `theme` retired — and it carries the
@@ -11028,11 +11199,11 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
     const embedLink = await measureContrast(page, '#pp-emb-inv .embed__content a');
 
     // Both bands put their heading on var(--color-bg) against the dark paint, so the
-    // 1.02:1 failure the #570 corpus reports does NOT occur — logos through its shipped
-    // `.logos--inverted` rule, embed through `currentColor` on the `heading` role picking
-    // up the authored `_band` ink. Same rendered outcome, two different mechanisms, and
-    // the embed half is the one that would break silently if the heading role were ever
-    // "tidied" back to a pinned literal.
+    // 1.02:1 failure the #570 corpus reports does NOT occur — and since #1066 PR2 BOTH do
+    // it the same way: `currentColor` on the `heading` role picking up the authored `_band`
+    // ink. v1's logos reached the same pixel through a `.logos--inverted` rule that no
+    // longer exists. This is the pin that would go red if either heading role were ever
+    // "tidied" back to a pinned `@color-text` literal — the cta defect (#1026, 1.016:1).
     expect(logosHeading, `inverted logos heading ${logosHeading.toFixed(2)}:1`).toBeCloseTo(
       INK_ON_INVERTED,
       1,
@@ -11051,16 +11222,23 @@ test.describe('#583 stressed-state rendered coverage (table, embed, logos)', () 
       ACCENT_LINK_ON_INVERTED,
       1,
     );
-    expect(logosLabel, `inverted logos label, PRE-opacity ${logosLabel.toFixed(2)}:1`).toBeCloseTo(
-      INK_ON_INVERTED,
+    // THE EFFECTIVE RATIO, not a pre-opacity one. This is the number the how-tos and both
+    // READMEs quote, measured: the composite of v1's `--color-bg` at 0.75 over
+    // `--color-bg-inverted`, which Chromium floors to rgb(192, 195, 201) (the exact
+    // composite is 192.75 / 195.5 / 201.75, and floor is why the docs say 10.11 and not
+    // the 10.2 an idealised calculation gives).
+    expect(logosLabel, `inverted logos label, EFFECTIVE ${logosLabel.toFixed(2)}:1`).toBeCloseTo(
+      MUTED_COMPOSITE_ON_INVERTED,
       1,
     );
     const labelOpacity = await page
       .locator('#pp-log-inv .logos__label')
       .evaluate((el: Element) => getComputedStyle(el).opacity);
-    expect(labelOpacity, 'the inverted label is faded, so its effective ratio is lower').toBe(
-      '0.75',
-    );
+    expect(
+      labelOpacity,
+      'an opacity literal came back: it would multiply the composite and drop the band '
+        + 'below the ratio the migration docs promise',
+    ).toBe('1');
   });
 
   /**
@@ -11542,32 +11720,66 @@ test.describe('#577 dead and defeated style slots render', () => {
   // literal fails here even if the declared `color` is untouched — which is the exact
   // regression this pin exists to catch.
 
-  // ROW 6 (the cta body) LEFT THIS BLOCK AT #1026 and row 7 did NOT. Both used to live
-  // here; cta's half was keyed on `.cta--has-bg-image` and painted a `.cta__overlay`
-  // element, and both went with the `background_image` prop that derived them. Row 7 is
-  // untouched: stats is still a v1 component, still takes `background_image`, still
-  // renders `.stats__overlay`, and still routes `--color-muted-on-overlay`. So this
-  // measurement stays, narrowed to the one surface that still exists — deleting it with
-  // its cta twin would have dropped a live AA pin on the band that still has the bug.
+  // ROW 6 (the cta body) LEFT THIS BLOCK AT #1026; ROW 7 (the stats label) IS REBUILT ON
+  // THE AUTHORED ROUTE AT #1066 PR2 RATHER THAN RETIRED, and the distinction matters.
+  //
+  // cta's half went because the thing it measured stopped existing: `.cta--has-bg-image`
+  // and `.cta__overlay` were both derived from the `background_image` prop, so there was no
+  // band left to build. Row 7's SUBJECT is different and still exists — "the de-emphasis on
+  // a scrim band is expressed as a COLOUR, and that colour still clears AA on the worst
+  // case". All that moved is who writes it. v1's stylesheet applied
+  // `--color-muted-on-overlay` automatically when it saw the bg-image class; v2's author
+  // writes `label -> typography.color: @color-muted-on-overlay`, which is exactly what
+  // components/stats/README.md and docs/howto-migrate-a-stats-band-to-v2.md instruct.
+  //
+  // THAT MAKES THE MEASUREMENT MORE LOAD-BEARING, NOT LESS. The de-emphasis budget on this
+  // band is about 0.07:1 (see --color-muted-on-overlay in base.css: the contrast CEILING
+  // over the worst-case composite is 4.74:1 and the AA bar is 4.5:1). When the correction
+  // was automatic, a token change was the only way to lose it. Now a DOCUMENTED WRITE has
+  // to land it, and the only thing standing between a reader and 3.87:1 is that the doc is
+  // right. This is where the doc is checked.
+  //
+  // The probe still composites BOTH stages the browser does — the scrim over white, then
+  // the element's own `opacity` over that — so an opacity literal coming back fails here
+  // even with the declared colour untouched.
   const OVERLAY_SURFACES = [
     {
       name: 'stats label',
       row: 7,
       ink: '#pp-ov-stats .stats__label',
-      overlay: '#pp-ov-stats .stats__overlay',
-      slot: '--stats-label-color',
+      // THE BAND, not a child <div>: `background.overlay` composes into the band's own
+      // background-image layer list as a gradient. The overlay element is gone.
+      overlay: '#pp-ov-stats',
     },
   ];
 
-  function overlayBands() {
+  /** The band the migration how-to describes, built the way it tells an author to. */
+  function overlayBands(mediaId: number) {
     return [
       {
         component: 'stats',
         props: {
           id: 'pp-ov-stats',
-          background_image: WHITE_PNG,
           title: 'Overlay stats',
           items: [{ number: '42', label: 'Deployments every single week' }],
+        },
+        udc: {
+          _band: {
+            background: {
+              image: String(mediaId),
+              overlay: '@overlay-bg',
+              size: 'cover',
+              repeat: 'no-repeat',
+            },
+          },
+          // All four child inks, because the band write reaches none of them: each of these
+          // roles pins a colour as a DIRECT declaration and a direct declaration always
+          // beats an inherited value. Dropping any one is a silent contrast failure, which
+          // is why the retirement route spells all four out.
+          heading: { typography: { color: '@color-bg' } },
+          'heading-accent': { typography: { color: '@color-accent-on-overlay' } },
+          number: { typography: { color: '@color-accent-on-overlay' } },
+          label: { typography: { color: '@color-muted-on-overlay' } },
         },
       },
     ];
@@ -11589,7 +11801,11 @@ test.describe('#577 dead and defeated style slots render', () => {
         const ov = document.querySelector(ovS) as HTMLElement | null;
         if (!el || !ov) return { found: false, ratio: 0, alpha: -1, textOpacity: -1, fg: [] as number[], bg: [] as number[] };
 
-        const o = parseRgb(getComputedStyle(ov).backgroundColor);
+        // THE SCRIM IS A BACKGROUND LAYER NOW (#1066 PR2), not an element: `background.overlay`
+        // composes into the band's own background-image list as a gradient, so the rgba()
+        // comes out of that declaration rather than off a child <div>'s background-color.
+        const rgbaMatch = getComputedStyle(ov).backgroundImage.match(/rgba?\(([^)]+)\)/);
+        const o = rgbaMatch ? rgbaMatch[1].split(',').map((v) => Number(v.trim())) : [];
         const alpha = o.length >= 4 ? o[3] : 1;
         // Stage 1: the scrim over a pure-white image — the worst case.
         const bg = [0, 1, 2].map((i) => alpha * (o[i] ?? 0) + (1 - alpha) * 255);
@@ -11619,17 +11835,29 @@ test.describe('#577 dead and defeated style slots render', () => {
   test('#577 row 7: the stats overlay de-emphasis still clears AA at 1280 and 375 @smoke', async ({
     page,
   }) => {
-    // The surviving half of the rows 6+7 pair. cta's band can no longer be built from a
-    // prop, so its row went with #1026; this one measures the band that still can.
+    // The surviving half of the rows 6+7 pair, on the authored route since #1066 PR2 (see
+    // the fixture comment above for why this is a rebuild and cta's was a retirement).
+    // Written through the REAL action rather than raw meta, because "the documented write
+    // clears the bar" is a claim about the write path as much as about the pixels.
     pageId = createPage('E2E 577 row 7 overlay de-emphasis');
-    setComposition(pageId, overlayBands());
+    const mediaId = importTestImage('pp577-row7-white');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const wrote = await updateComposition(page, pageId, overlayBands(mediaId));
+    expect(wrote.success, `authored overlay band: ${JSON.stringify(wrote)}`).toBe(true);
+
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-ov-stats .stats__overlay')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('#pp-ov-stats .stats__label')).toBeVisible({ timeout: 10000 });
       for (const s of OVERLAY_SURFACES) {
         const res = await overlayContrast(page, s.ink, s.overlay);
         expect(res.found, `${s.name} not found @${width}`).toBe(true);
+        // The scrim must actually be a translucent layer, or the composite below is a
+        // measurement of nothing and the AA check passes vacuously.
+        expect(res.alpha, `${s.name} @${width}: scrim alpha ${res.alpha} is not translucent`).toBeGreaterThan(0);
+        expect(res.alpha).toBeLessThan(1);
         expect(
           res.textOpacity,
           `${s.name} @${width}: an opacity literal came back onto the overlay band`,
@@ -11642,124 +11870,333 @@ test.describe('#577 dead and defeated style slots render', () => {
     }
   });
 
-  test('#577 the stats inverted+bg-image carve-out still clears AA at 1280 and 375 @smoke', async ({
+  /*
+   * ── RETIRED (#1066 PR2): the stats inverted + bg-image carve-out ──────────────────────
+   *
+   * THE MECHANISM IS GONE, NOT MERELY THE FIXTURE — which is the test that decides whether
+   * a retirement is honest. What this measured was a `:not()` guard:
+   * `.stats--inverted:not(.stats--has-bg-image) .stats__label`. It existed because
+   * stats.php emitted the theme class and the bg-image class INDEPENDENTLY, the inverted
+   * rule came first in the stylesheet, and on a band carrying both the inverted
+   * `opacity: 0.75` would survive while the bg-image rule supplied only `color` — dimmer
+   * than the 0.85 that already measured 3.87:1 and failed AA. The carve-out disarmed the
+   * earlier rule when the later one applied.
+   *
+   * Both classes went with `theme` and `background_image`, and with them the whole shape of
+   * the bug: there is no rule that fires on a condition, no second rule that fires on
+   * another, and therefore nothing for a `:not()` to separate. A v2 dark scrim band is ONE
+   * authored `label -> typography.color`, which cannot combine with itself.
+   *
+   * NOT PORTABLE, CHECKED RATHER THAN ASSUMED. Every selector this test names —
+   * `.stats--inverted`, `.stats--has-bg-image`, `.stats__overlay` — matches nothing a v2
+   * stats band renders, and the rule they addressed is no longer in components.css (the
+   * whole `.stats--*` family left with the stylesheet block, which is down to two
+   * structural rules). So there is no narrowed version: an assertion about a class the
+   * markup cannot emit is an assertion about absent DOM, which passes or fails on the
+   * probe's not-found branch rather than on anything the theme does.
+   *
+   * WHAT REPLACES IT, so the AA floor on that band is not simply dropped: the row 7 test
+   * above measures the SAME element (`.stats__label`) on the SAME worst-case scrim — the
+   * overlay over a pure-white image — with the correction written the way the migration
+   * how-to says to write it, and it keeps the `textOpacity === 1` guard this test carried.
+   * The replacement was probed twice, in a COPY (rule 14.7), and the two answers are worth
+   * recording together. Substituting an INVENTED role name for `label` turns it red at the
+   * write, not at the pixels: `Component 0 ("stats") has no UDC role label-invented-name.
+   * Available roles: _band, heading, heading-accent, list, item, number, label` — so a role
+   * rename cannot quietly hollow this test out the way a class rename hollowed out the one
+   * being retired. OMITTING the label write entirely — the realistic defect, an author
+   * following a doc that forgot a line — turns it red at the pixels: `stats label @1280:
+   * ratio=1.21 (need >= 4.5)`. So it is the authored write that carries the ratio, not the
+   * role's own light-band default, and 1.21:1 is what a reader would have got.
+   * The dark-FILL half (v1's `inverted`) is measured on the label's logos twin in the #583
+   * inverted block and on stats' own in the A-36 test immediately below.
+   */
+
+  /**
+   * A-36 REBUILT AT #1066 PR2 — and it measures the number the docs promise, which the
+   * version it replaces never did.
+   *
+   * WHAT IT USED TO SAY. stats and logos were the last two components whose inverted
+   * labels carried `opacity: 0.75`, ratified as deliberate de-emphasis. The test asserted
+   * the two literals were untouched, and that is all it asserted: the EFFECTIVE contrast
+   * those literals produced was never measured anywhere in the suite. cta's row had already
+   * left at #1026 when `.cta--inverted` went.
+   *
+   * WHAT CHANGED. `theme` is retired on both components, so both `--inverted` rules are
+   * gone and with them the last two opacity literals in the theme. `opacity` IS IN NO UDC
+   * GROUP — it has no home in the seven groups the engine compiles, and base.css records
+   * the standing rule next to `--color-muted-on-overlay`: "do NOT re-introduce an opacity
+   * literal". So the de-emphasis cannot port as an opacity; it ports as the PIXEL-MEASURED
+   * COMPOSITE of v1's paint, `rgb(192, 195, 201)`, which both READMEs and both migration
+   * how-tos give as the value to write.
+   *
+   * WHY IT IS A REBUILD AND NOT A RETIREMENT. The subject was never the number 0.75 — it
+   * was "the inverted label is DE-EMPHASISED and still legible". That claim survives intact
+   * and is now falsifiable in a way it was not before: the composite is a colour, so the
+   * ratio it produces can be measured directly, and 10.11:1 is the figure the docs quote.
+   * If a later author "restores" the fade on top of the composite, the ratio drops and this
+   * goes red — which the old assertion could not have caught, because it was checking FOR
+   * the fade.
+   *
+   * THE FLOORING IS THE DETAIL WORTH KEEPING. The arithmetic composite is
+   * 192.75 / 195.5 / 201.75 and Chromium FLOORS each channel, so the rendered colour is
+   * 192 / 195 / 201 and the real ratio is 10.11:1 — not the 10.2:1 an idealised calculation
+   * gives. An outside review challenged that arithmetic during this PR; the pixels settled
+   * it, and this is where the settlement is pinned.
+   */
+  /**
+   * THE FIDELITY OF THE PORTED LITERAL, MEASURED FROM A PAINT — added because the review
+   * train caught the A-36 evidence being CIRCULAR.
+   *
+   * The test below asserts the de-emphasised label renders `rgb(192, 195, 201)` at 10.11:1.
+   * But that literal is one the TEST ITSELF authors, so measuring it proves the engine
+   * delivers a value — not that the value is the right one. The claim underneath it is a
+   * FIDELITY claim: this colour is what v1's `color: @color-bg; opacity: 0.75` actually
+   * painted on `@color-bg-inverted`, so a band that upgrades looks the same.
+   *
+   * THAT CLAIM HAD NO EVIDENCE AND WAS ASSERTED IN FIVE PLACES AS "pixel-measured". The
+   * #1066 PR2 v1 measurement run recorded 231 opacity readings and every one is `1` — the
+   * inverted-label scene never produced a 0.75 paint, so no composite was ever sampled.
+   * Worse, the v1 stylesheet comment this rebuild DELETES recorded `10.22:1` for that same
+   * rendering, which is the round-half-up composite (193/196/202) — the repo's only
+   * independent record disagreed with the branch, and the branch had reclassified it as
+   * "idealised" on reasoning alone.
+   *
+   * So this measures the thing itself: paint `@color-bg` at `opacity: 0.75` over
+   * `@color-bg-inverted` in the real browser, sample the pixel, and require it to equal the
+   * literal the schemas and both migration how-tos tell an author to write. Neither side is
+   * authored by the other — one is a Chromium paint, the other is shipped text read out of
+   * the schema. Chromium FLOORS each channel (192.75/195.5/201.75 → 192/195/201), which is
+   * why 10.11 and not 10.22, and that is now a measurement rather than a belief.
+   */
+  test('#577 A-36 fidelity: the shipped label literal equals what Chromium paints for v1 opacity', async ({
     page,
   }) => {
-    // RESTORED, NARROWED (#1026 review). The deleted `rows 6+7: an inverted +
-    // background_image band` test covered TWO components and only cta's half retired. This
-    // is the stats half, and it was the ONLY rendered proof of the `:not(.stats--has-bg-image)`
-    // carve-out on `.stats--inverted:not(.stats--has-bg-image) .stats__label` — a rule that
-    // still ships, on a component that still has BOTH props, and which the stylesheet's own
-    // comment now calls "the only one left". Nothing else pins it: no css-lint or PHPUnit test
-    // asserts the `:not()`, and no other e2e fixture builds a stats band with both.
-    //
-    // What it prevents is a measured REGRESSION, not a hypothetical: stats.php emits the theme
-    // class and the bg-image class independently, and the inverted rule is the EARLIER of the
-    // two. Without the carve-out a combined band keeps the inverted `opacity: 0.75` while the
-    // --has-bg-image rule supplies only `color` — DIMMER than the 0.85 that already measured
-    // 3.87:1 and failed AA.
-    pageId = createPage('E2E 577 stats inverted + bg-image');
-    setComposition(pageId, [
-      {
-        component: 'stats',
-        props: {
-          id: 'pp-ov-stats',
-          theme: 'inverted',
-          background_image: WHITE_PNG,
-          title: 'Combined band',
-          items: [{ number: '42', label: 'Deployments every single week' }],
-        },
+    // The two tokens v1 composited, read from the stylesheet rather than restated.
+    const INVERTED_FILL = '#0f172a'; // --color-bg-inverted
+    const LIGHT_INK = '#fcfdff'; //     --color-bg
+
+    await page.setViewportSize({ width: 400, height: 200 });
+    await page.setContent(`<body style="margin:0">
+      <div style="background:${INVERTED_FILL};width:400px;height:200px">
+        <span style="color:${LIGHT_INK};opacity:0.75;font-size:150px;line-height:200px;display:block">██████</span>
+      </div></body>`);
+
+    const shot = await page.screenshot({ clip: { x: 30, y: 80, width: 2, height: 2 } });
+    const painted = await page.evaluate(async (d: string) => {
+      const img = new Image();
+      await new Promise((r) => {
+        img.onload = r;
+        img.src = 'data:image/png;base64,' + d;
+      });
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, 1, 1).data;
+      return [px[0], px[1], px[2]];
+    }, shot.toString('base64'));
+
+    // THE SHIPPED LITERAL, read out of the schema — not restated here, so the two sides
+    // cannot be quietly brought into agreement by editing this file.
+    const shipped = JSON.parse(
+      execSync('cat components/stats/schema.json', { cwd: process.cwd(), encoding: 'utf-8' }),
+    ).retired_props.theme as string;
+    const quoted = shipped.match(/rgb\((\d+), (\d+), (\d+)\)/);
+    expect(quoted, 'stats\' `theme` retirement route must quote the composite it tells an author to write').not.toBeNull();
+    const literal = [Number(quoted![1]), Number(quoted![2]), Number(quoted![3])];
+
+    expect(
+      painted,
+      `Chromium paints ${LIGHT_INK} at 0.75 over ${INVERTED_FILL} as rgb(${painted.join(', ')}), but the `
+        + `shipped retirement route tells an author to write rgb(${literal.join(', ')}). The ported literal `
+        + 'is a FIDELITY claim — if these disagree, an upgrading band changes appearance and the '
+        + 'schemas, both READMEs and both how-tos are all quoting the wrong number.',
+    ).toEqual(literal);
+
+    // And the ratio the docs promise follows from the painted pixel, not from the literal.
+    const ratio = await page.evaluate(
+      ({ fg, bg }: { fg: number[]; bg: number[] }) => {
+        const lum = (c: number[]) => {
+          const f = (v: number) => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+        };
+        const L1 = lum(fg);
+        const L2 = lum(bg);
+        return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
       },
-    ]);
-
-    for (const width of [1280, 375]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      await expect(page.locator('#pp-ov-stats .stats__overlay')).toBeVisible({ timeout: 10000 });
-
-      // The fixture must actually be the combined band, or the carve-out is untested.
-      const classes = (await page.locator('#pp-ov-stats').getAttribute('class')) || '';
-      expect(classes, `@${width}: fixture must carry BOTH classes`).toContain('stats--inverted');
-      expect(classes).toContain('stats--has-bg-image');
-
-      const res = await overlayContrast(page, '#pp-ov-stats .stats__label', '#pp-ov-stats .stats__overlay');
-      expect(res.found, `stats label not found @${width}`).toBe(true);
-      expect(
-        res.textOpacity,
-        `@${width}: the inverted opacity literal leaked onto the overlay band — the carve-out is gone`,
-      ).toBe(1);
-      expect(
-        res.ratio,
-        `@${width}: ratio=${res.ratio?.toFixed(2)} (need >= 4.5)`,
-      ).toBeGreaterThanOrEqual(4.5);
-    }
+      { fg: painted, bg: [15, 23, 42] },
+    );
+    expect(ratio, `painted composite measures ${ratio.toFixed(4)}:1`).toBeCloseTo(10.11, 1);
+    // The round-half-up alternative is 10.2153; asserting closeTo(10.11, 1) separates them
+    // (tolerance 0.05), so this fails if a future Chromium starts rounding instead.
   });
 
-  test('#577 A-36: the surviving inverted opacity literals are untouched', async ({ page }) => {
-    // THE cta ROW LEFT THIS TEST AT #1026, THE OTHER TWO DID NOT — and that is the whole
-    // reason this test still exists rather than going with its cta row. The inverted cta
-    // body's `opacity: 0.85` was keyed on `.cta--inverted`, a class derived from the
-    // retired `theme` prop, so it is gone. stats and logos are still v1 components whose
-    // inverted labels still carry `opacity: 0.75`, ratified as deliberate de-emphasis at
-    // 10.22:1 against a 4.5:1 bar. Deleting the whole test would have unpinned both.
-    pageId = createPage('E2E 577 surviving opacity literals');
+  test('#577 A-36: the de-emphasised inverted label is a COLOUR now, and it measures 10.11:1', async ({
+    page,
+  }) => {
+    // v1's inverted label composite, measured: --color-bg at 0.75 over --color-bg-inverted,
+    // each channel floored by Chromium.
+    const COMPOSITE = 'rgb(192, 195, 201)';
+    const COMPOSITE_ON_INVERTED = 10.11;
+
+    pageId = createPage('E2E 577 inverted label de-emphasis');
+    const darkBand = {
+      _band: {
+        background: { fill: '@color-bg-inverted' },
+        typography: { color: '@color-bg' },
+      },
+      label: { typography: { color: COMPOSITE } },
+    };
     setComposition(pageId, [
       {
         component: 'stats',
+        id: 'pp-a36stats',
         props: {
           id: 'pp-stats-inv',
-          theme: 'inverted',
           title: 'Inverted stats',
           items: [{ number: '42', label: 'Metric' }],
+        },
+        udc: {
+          ...darkBand,
+          // stats has one more direct declaration than logos does: the figure pins
+          // `@color-accent`, which measures 3.23:1 on this fill. The route says to move it,
+          // and a band that left it behind would fail AA on its largest element.
+          number: { typography: { color: '@color-accent-on-inverted' } },
         },
       },
       {
         component: 'logos',
+        id: 'pp-a36logos',
         props: {
           id: 'pp-logos-inv',
-          theme: 'inverted',
           title: 'Inverted logos',
           items: [{ image_url: 'https://example.com/l.png', image_alt: 'Logo', label: 'Acme' }],
         },
+        udc: darkBand,
       },
     ]);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-    const stats = await computed(page, '#pp-stats-inv .stats__label', ['opacity']);
-    const logos = await computed(page, '#pp-logos-inv .logos__label', ['opacity']);
-    expect(stats.opacity, 'inverted stats label opacity').toBe('0.75');
-    expect(logos.opacity, 'inverted logos label opacity').toBe('0.75');
+    await expect(page.locator('#pp-stats-inv .stats__label')).toBeVisible({ timeout: 10000 });
+
+    for (const [name, sel] of [
+      ['stats', '#pp-stats-inv .stats__label'],
+      ['logos', '#pp-logos-inv .logos__label'],
+    ] as const) {
+      const got = await computed(page, sel, ['opacity', 'color']);
+      expect(
+        got.opacity,
+        `${name}: an opacity literal came back — it would multiply the composite and drop `
+          + 'the band below the ratio the migration docs promise',
+      ).toBe('1');
+      expect(got.color, `${name}: the documented composite must reach the element`).toBe(COMPOSITE);
+
+      const ratio = await measureContrast(page, sel);
+      expect(ratio, `${name} inverted label ${ratio.toFixed(2)}:1`).toBeCloseTo(
+        COMPOSITE_ON_INVERTED,
+        1,
+      );
+    }
   });
 
+  // ── A-13 — the band's scrim, authorable, and absent when nobody asks for one ──
 
-  // ── A-13 — stats gains the overlay slot the other three bands already had ──
-
-  test('#577 A-13: --stats-overlay-bg drives the stats scrim; unset is byte-identical', async ({
+  /**
+   * A-13 REBUILT AT #1066 PR2, and its second half is a DIFFERENT CLAIM than it was.
+   *
+   * A-13 gave stats the overlay slot the other three bg-image bands already had:
+   * `--stats-overlay-bg`, read by the `.stats__overlay` <div> stats.php painted whenever
+   * `background_image` was set. Both are retired. The scrim is `_band -> background.overlay`
+   * now and it composes into the band's own background-image layer list as a gradient, so
+   * there is no element to inspect — the rgba() is read out of the composited declaration.
+   *
+   * HALF ONE IS UNCHANGED: an authored scrim colour reaches the band. Written through the
+   * real action rather than raw meta, because "authorable" is a claim about the write path.
+   *
+   * HALF TWO IS NOT. A-13's second assertion was "unset is byte-identical" — with no slot
+   * set, the overlay still painted `--overlay-bg`, because the <div> was unconditional.
+   * v2 HAS NO SUCH DEFAULT AND MUST NOT: `_band` declares no `background.overlay`, so a
+   * band with an image and no overlay paints NO scrim at all. That is a real behaviour
+   * change, it is disclosed in stats' `retired_props` and in both the README and the
+   * how-to ("write `background.overlay` explicitly"), and it is pinned here so the
+   * disclosure keeps being true. Asserting the old "byte-identical" text would have been
+   * the easy port and would have shipped a claim the engine contradicts.
+   */
+  test('#577 A-13: the band scrim is authorable, and absent unless authored', async ({
     page,
   }) => {
-    pageId = createPage('E2E 577 stats overlay slot');
-    setComposition(pageId, [
-      {
-        component: 'stats',
-        props: { id: 'pp-ov-stats', background_image: WHITE_PNG, title: 'Overlay stats', items: [{ number: '42', label: 'Metric' }] },
+    const AUTHORED_SCRIM = 'rgba(0, 40, 90, 0.7)';
+    pageId = createPage('E2E 577 stats band scrim');
+    const mediaId = importTestImage('pp577-a13-white');
+
+    /** The band's composited scrim, read out of its background-image layer list. */
+    const scrimOf = () =>
+      page.evaluate(() => {
+        const band = document.querySelector('#pp-ov-stats') as HTMLElement | null;
+        if (!band) return { found: false, layers: '', rgba: '' };
+        const layers = getComputedStyle(band).backgroundImage;
+        const m = layers.match(/rgba?\([^)]+\)/);
+        return { found: true, layers, rgba: m ? m[0] : '' };
+      });
+
+    const imageOnly = {
+      component: 'stats',
+      props: { id: 'pp-ov-stats', title: 'Overlay stats', items: [{ number: '42', label: 'Metric' }] },
+      udc: {
+        _band: { background: { image: String(mediaId), size: 'cover', repeat: 'no-repeat' } },
       },
-    ]);
+    };
+
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const first = await updateComposition(page, pageId, [imageOnly]);
+    expect(first.success, `image-only band: ${JSON.stringify(first)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('#pp-ov-stats .stats__overlay')).toBeVisible({ timeout: 10000 });
-    const before = await computed(page, '#pp-ov-stats .stats__overlay', ['background-color']);
-    expect(before['background-color'], 'unset stats overlay').toBe(OVERLAY_BG);
+    await expect(page.locator('#pp-ov-stats')).toBeVisible({ timeout: 10000 });
 
+    const unset = await scrimOf();
+    expect(unset.found, 'the band must render').toBe(true);
+    // The fixture must really carry an image, or "no scrim" is trivially true.
+    expect(unset.layers, 'the band must actually paint the authored image').toContain('url(');
+    expect(
+      unset.rgba,
+      'a band that did not ask for a scrim must not get one: there is no overlay default, '
+        + 'and v1\'s unconditional .stats__overlay <div> is exactly what retired',
+    ).toBe('');
+
+    // And the same band, once an author writes the scrim.
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--stats-overlay-bg': 'rgba(0, 40, 90, 0.7)' });
-    expect(res.success).toBe(true);
+    const second = await updateComposition(page, pageId, [
+      {
+        ...imageOnly,
+        udc: {
+          _band: {
+            background: {
+              image: String(mediaId),
+              overlay: AUTHORED_SCRIM,
+              size: 'cover',
+              repeat: 'no-repeat',
+            },
+          },
+        },
+      },
+    ]);
+    expect(second.success, `authored scrim: ${JSON.stringify(second)}`).toBe(true);
 
     await page.goto(`/?page_id=${pageId}`);
-    const after = await computed(page, '#pp-ov-stats .stats__overlay', ['background-color']);
-    expect(after['background-color'], 'authored stats overlay').toBe('rgba(0, 40, 90, 0.7)');
+    const authored = await scrimOf();
+    expect(authored.rgba, 'the authored scrim must reach the band').toBe(AUTHORED_SCRIM);
+    expect(authored.layers, 'the image must survive the scrim write').toContain('url(');
   });
 
   // ── A-7 — sever the grid-slot leak into faq ────────────────────────────────
@@ -12275,28 +12712,55 @@ test.describe('#584 slot families, as rendered', () => {
    * tests below still use both.
    */
 
-  test('#584 --logos-image-size caps BOTH logo heights and --logos-gap moves the strip @smoke', async ({
+  /**
+   * A-40 REBUILT AT #1066 PR2 — and the rebuild gave it a SECOND subject it did not have.
+   *
+   * A-40 minted `--logos-image-size` and `--logos-gap`. Both retired with logos' slot map.
+   * The gap is the `list` role's `spacing.gap`; the cap is where it gets interesting.
+   *
+   * v1 expressed the cap as ONE knob with a descendant override: `.logos__image` at 3rem,
+   * and `.logos__item--labeled .logos__image` at 2.5rem. A UDC role carries at most one
+   * default per parameter, so the single knob had to become TWO ROLES — `image` and
+   * `image-labeled`. That raises a question v1 never had to answer: can an author still say
+   * "one size for every logo", or has the split made the label-driven switch compulsory?
+   *
+   * THIS IS WHERE THAT IS ANSWERED, and it is the same measurement A-40 always made. Set
+   * both roles to one value and the strip must render flat — both images at 64px, the
+   * switch inert — which is exactly what the single slot used to do. If a future change
+   * made `image-labeled` outrank an authored `image` value (a layer, an `!important`, a
+   * selector gaining weight), the two heights would diverge here and nowhere else: the
+   * role-defaults test pins the two DEFAULTS, and #583 pins the two UNSET heights, but only
+   * an authored flat write can show the switch stepping aside.
+   */
+  test('#584 an authored cap flattens BOTH logo heights and an authored gap moves the strip @smoke', async ({
     page,
   }) => {
-    // Unset, #583 already pins 48px unlabelled / 40px labelled / 32px gap in this exact
-    // fixture shape. Set, the label-driven switch stops applying and both collapse to one
-    // value — the behaviour the slot description promises an author, measured rather than
-    // asserted from the stylesheet text.
     pageId = createPage('E2E 584 logos sizing');
-    setComposition(pageId, [
-      {
-        component: 'logos',
-        props: {
-          id: 'pp-l584',
-          title: 'Trusted by',
-          items: [
-            { image_url: TALL_PNG_584, image_alt: 'Unlabeled' },
-            { image_url: TALL_PNG_584, image_alt: 'Labeled', label: 'Delivery' },
-          ],
-        },
-        style: { '--logos-image-size': '4rem', '--logos-gap': '12px' },
+    const band = {
+      component: 'logos',
+      props: {
+        id: 'pp-l584',
+        title: 'Trusted by',
+        items: [
+          { image_url: TALL_PNG_584, image_alt: 'Unlabeled' },
+          { image_url: TALL_PNG_584, image_alt: 'Labeled', label: 'Delivery' },
+        ],
       },
-    ]);
+      udc: {
+        list: { spacing: { gap: '12px' } },
+        // BOTH roles, which is the author-facing cost of the split and is documented as
+        // such in components/logos/README.md. Writing only `image` leaves the labeled
+        // tile on its own 2.5rem default — the failure this test would catch.
+        image: { sizing: { 'max-height': '4rem' } },
+        'image-labeled': { sizing: { 'max-height': '4rem' } },
+      },
+    };
+
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const wrote = await updateComposition(page, pageId, [band]);
+    expect(wrote.success, `authored logos sizing: ${JSON.stringify(wrote)}`).toBe(true);
 
     for (const width of [1280, 375]) {
       await open584(page, width, '.logos__list');
@@ -12321,137 +12785,47 @@ test.describe('#584 slot families, as rendered', () => {
       for (const n of got.naturals) {
         expect(n, `@${width}: fixture asset must exceed the 64px cap`).toBeGreaterThan(64);
       }
-      // The switch is retired while the slot is set: BOTH items land on 4rem.
+      // AND THE FIXTURE MUST STILL BE MIXED. If both tiles were plain, `image-labeled`
+      // would never apply and the flat result would be true for the wrong reason — the
+      // switch has to be present and stepping aside, not absent.
       expect(got.labeled, `@${width}: fixture must still be one plain + one labelled`).toEqual([
         false,
         true,
       ]);
-      expect(got.heights, `@${width}: both caps collapse to --logos-image-size`).toEqual([64, 64]);
-      expect(got.gap, `@${width}: strip gap follows --logos-gap`).toBe('12px');
+      expect(got.heights, `@${width}: an authored cap on both roles renders a flat strip`).toEqual([
+        64, 64,
+      ]);
+      expect(got.gap, `@${width}: the strip gap follows the authored list gap`).toBe('12px');
     }
   });
 
-  // ── A-41: the band-fusing step is now executable on all ten bands ─────────────────
-
-  test('#584 heading rhythm: the surviving slots zero their band heading margin @smoke', async ({
-    page,
-  }) => {
-    // The whole justification for the row: band fusing requires margin-bottom 0 on the upper
-    // band's last element, and six of ten bands could not express it. Measured on all six.
-    const BANDS: Array<{ slot: string; sel: string; band: unknown }> = [
-      // hero's row is gone (#986): its heading rhythm is the `title` role's
-      // `spacing.margin-bottom`, not a slot. It was already the one band excluded from
-      // the zero assertion below (its shipped margin is 0), so nothing else moves.
-      // cta's row left at #1026, the way hero's did at #986: its heading rhythm is the
-      // `heading` role's `spacing.margin-bottom` (defaulting to `@space-xs`, the literal
-      // v1's rule carried), not a slot. The band-fusing capability #584 exists for is
-      // unchanged — set that parameter to `0` — and the emitted default is asserted at the
-      // CSS level in CtaRoleDefaultsEmitTest.
-      {
-        slot: '--stats-heading-margin-bottom',
-        sel: '.stats__heading',
-        band: {
-          component: 'stats',
-          props: { id: 'pp-x3', title: 'Stats', items: [{ number: '10', label: 'Teams' }] },
-        },
-      },
-      // table's and embed's rows left at #1066, the way hero's did at #986 and cta's at
-      // #1026: each heading rhythm is the `heading` role's `spacing.margin-bottom`
-      // (defaulting to `@space-lg`, the literal v1's rule carried), not a slot. THE
-      // BAND-FUSING CAPABILITY #584 EXISTS FOR IS UNCHANGED for both — set that parameter
-      // to `0` — and it is exercised end-to-end for the v2 shape by the authored-band row
-      // in the #438 adjacent block above, which drives `_band` -> `spacing.padding-top`
-      // through the real `udc` write. The emitted defaults are asserted at the CSS level
-      // in TableRoleDefaultsEmitTest and EmbedRoleDefaultsEmitTest.
-      {
-        slot: '--logos-heading-margin-bottom',
-        sel: '.logos__heading',
-        band: {
-          component: 'logos',
-          props: {
-            id: 'pp-x6',
-            title: 'Logos',
-            items: [{ image_url: TALL_PNG_584, image_alt: 'Mark' }],
-          },
-        },
-      },
-    ];
-
-    // Unset first: each band must still render the margin it always had, or "byte-identical
-    // unset" is a claim rather than a fact. Then zeroed, in one composition.
-    pageId = createPage('E2E 584 heading rhythm');
-    setComposition(pageId, BANDS.map(({ band }) => band));
-    await open584(page, 1280, '.stats__heading');
-    const unset = await page.evaluate(
-      (sels: string[]) =>
-        sels.map((s) =>
-          getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom,
-        ),
-      BANDS.map((b) => b.sel),
-    );
-    // TWO bands now, not six: hero left this slot family in #986, cta at #1026, and table
-    // and embed at #1066 — on all four the heading rhythm is a role's
-    // `spacing.margin-bottom`. The ready selector moved to `.stats__heading` with cta's
-    // departure (it was `.cta__title`, and a ready selector naming a band no longer in the
-    // list waits forever); stats is still here, so it stays. Both remaining bands are
-    // var(--space-lg) = 32px, and these are the exact literals their slots carry as
-    // fallbacks, measured rather than restated from the stylesheet. The leading '4px' left
-    // with cta (its `--cta-heading-margin-bottom` fell back to var(--space-xs)).
-    //
-    // THE ROSTER IS DOWN TO stats AND logos, AND BOTH LEAVE IN #1066'S SECOND HALF. When
-    // they do, this test retires rather than narrowing to zero — an empty roster asserts
-    // nothing, which is the #1038 shape. The capability it guards (band fusing needs a
-    // zeroable heading margin on every band) is asserted for the v2 shape in each
-    // component's RoleDefaultsEmitTest, which pins the emitted `margin-bottom` default
-    // that an author sets to `0`.
-    expect(unset, 'unset heading rhythm must be unchanged').toEqual([
-      '32px',
-      '32px',
-    ]);
-
-    // LIVE first, with a value no default could produce. (The vacuity this guards against
-    // was hero's: its shipped margin was already 0, so a zero-only assertion proved
-    // nothing there. Hero has left the family, and the live-value step stays because the
-    // same trap would return the day another band ships a 0 default.)
-    setComposition(
-      pageId,
-      BANDS.map(({ band, slot }) => ({ ...(band as object), style: { [slot]: '11px' } })),
-    );
-    for (const width of [1280, 375]) {
-      await open584(page, width, '.stats__heading');
-      const authored = await page.evaluate(
-        (sels: string[]) =>
-          sels.map((s) =>
-            getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom,
-          ),
-        BANDS.map((b) => b.sel),
-      );
-      expect(authored, `@${width}: every new slot must actually reach its heading`).toEqual(
-        BANDS.map(() => '11px'),
-      );
-    }
-
-    // Then zero, the value the header-tightening case actually asks for. FUSABLE is every
-    // band in the list now: hero used to be excluded here because its shipped margin was
-    // already 0, and it left the family entirely at #986. NOTE:
-    // on none of these bands is the heading the band's trailing element (each has a required
-    // content prop that renders after it), so this is the band's INTERNAL header rhythm —
-    // the seam with the band below is closed with --<component>-padding-bottom.
-    const FUSABLE = BANDS;
-    setComposition(
-      pageId,
-      BANDS.map(({ band, slot }) => ({ ...(band as object), style: { [slot]: '0' } })),
-    );
-    await open584(page, 1280, '.stats__heading');
-    const zeroed = await page.evaluate(
-      (sels: string[]) =>
-        sels.map((s) => getComputedStyle(document.querySelector(s) as HTMLElement).marginBottom),
-      FUSABLE.map((b) => b.sel),
-    );
-    expect(zeroed, 'the four remaining slot bands must be able to zero their header rhythm').toEqual(
-      FUSABLE.map(() => '0px'),
-    );
-  });
+  /*
+   * ── A-41 RETIRED (#1066 PR2): the band-fusing heading-rhythm test ─────────────────────
+   *
+   * RETIRED BY ITS OWN INSTRUCTION, WHICH WAS WRITTEN FOR THIS PR. The test's comment read:
+   * "THE ROSTER IS DOWN TO stats AND logos, AND BOTH LEAVE IN #1066'S SECOND HALF. When
+   * they do, this test retires rather than narrowing to zero — an empty roster asserts
+   * nothing, which is the #1038 shape." Both have now left: `--stats-heading-margin-bottom`
+   * and `--logos-heading-margin-bottom` were the last two rows, and each is the `heading`
+   * role's `spacing.margin-bottom` now (both defaulting to `@space-lg`, the literal v1's
+   * rule carried).
+   *
+   * THE CAPABILITY A-41 EXISTS FOR IS UNCHANGED AND STILL PINNED. Band fusing needs a
+   * zeroable heading margin on every band; the author's move is to set that ONE parameter
+   * to `0`. Where each half is now proved:
+   *
+   *   the default is emitted          tests/StatsRoleDefaultsEmitTest.php and
+   *                                   tests/LogosRoleDefaultsEmitTest.php pin the emitted
+   *                                   `margin-bottom` on the `heading` role, mutation-proven
+   *   an authored value reaches the   the authored-band row in the #438 adjacent block
+   *   rendered element                above, which drives a `spacing` parameter through the
+   *                                   real `udc` write and measures the painted result
+   *
+   * The `slot`/`sel`/`band` roster and the three-phase unset -> live -> zero walk went with
+   * it: every row addressed a retired slot, and a walk over an empty roster is the vacuous
+   * pass #1038 named. `TALL_PNG_584` and `open584` stay — the sizing and srcset tests below
+   * still use both.
+   */
 
   // ── A-42: srcset arrives without moving the painted box ───────────────────────────
 

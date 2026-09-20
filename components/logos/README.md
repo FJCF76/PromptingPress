@@ -1,96 +1,158 @@
 # Component: logos
 
-A flex-wrap image grid. Use for client logo strips (items without labels) or icon-category tiles (items with labels). Both use cases share the same component and CSS — the `label` field controls which layout renders.
+A flex-wrap image grid. Works for client logo strips (no labels) and icon-category tiles
+(with labels). Items are always image-based; labels are optional and per item.
+
+**On the Universal Design Contract since #1066.** It declares **8 roles and zero style
+slots**; its eight `--logos-*` slots and its `theme` prop are retired.
 
 ## Props
 
-| Prop    | Type   | Required | Default | Description |
-|---------|--------|----------|---------|-------------|
-| `id`    | string | No       | `''`    | HTML id for anchor linking |
-| `title` | string | No       | `''`    | Optional heading above the grid |
-| `theme`   | enum | No       | `default` | Background color/tone: `default` (page background), `muted` (light tinted surface band with borders), `inverted` (inverted dark background for strong contrast) |
-| `items` | array  | Yes      | —       | Array of image items |
+| Prop | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | no | Stable band id. The engine mints one on write if absent. |
+| `title` | string | no | Band heading. Plain text — HTML is escaped. |
+| `items` | array | yes | `[{image_url, image_alt, image_id?, label?}]`. An item with no `image_url` renders nothing. |
 
-Each item:
+`theme` is **retired** — see "Retired props" below.
 
-| Key         | Type   | Required | Description |
-|-------------|--------|----------|-------------|
-| `image_url` | string | Yes      | Image or icon URL |
-| `image_alt` | string | Yes      | Alt text — use the logo or category name |
-| `image_id`  | int    | No       | Media Library attachment ID. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise |
-| `label`     | string | No       | Text label below the image. Omit for logo-only rows. |
+## Roles
 
-## Usage — logo strip (no labels)
-
-```php
-pp_get_component('logos', [
-    'title' => 'Clients',
-    'items' => [
-        ['image_url' => '/path/to/3m.png',   'image_alt' => '3M'],
-        ['image_url' => '/path/to/depsa.png', 'image_alt' => 'Depsa'],
-    ],
-]);
-```
-
-## Usage — icon + category tiles (with labels)
-
-```php
-pp_get_component('logos', [
-    'title' => 'Sectors',
-    'items' => [
-        ['image_url' => '/icons/construction.svg', 'image_alt' => 'Construction', 'label' => 'Construction'],
-        ['image_url' => '/icons/finance.svg',      'image_alt' => 'Finance',      'label' => 'Financial services'],
-    ],
-]);
-```
-
-## Style slots
-
-8 per-instance style slots, declared in `schema.json` under `styling.style_slots`
-and set with the `style_component` action. This table is the map — read each slot's
-`type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
-
-`◦` = conditional (`applies_when`): setting it outside that configuration is accepted
-and stored but paints nothing, and `wp pp check page` reports a non-blocking
-`inert_slot` smell.
-
-| Group | Slots |
-|---|---|
-| Band | `--logos-padding-top` · `--logos-padding-bottom` · `--logos-gap` ◦ |
-| Heading | `--logos-heading-size` ◦ · `--logos-heading-color` ◦ · `--logos-heading-measure` ◦ · `--logos-heading-margin-bottom` ◦ |
-| Images | `--logos-image-size` ◦ |
-
-`--logos-image-size` has two effective defaults, not one: `3rem` on a logo-only strip
-and `2.5rem` on a labelled tile, because a tile carries a caption under the image.
-Setting the slot replaces **both** branches with the single value you write.
-
-**There is no `--logos-bg`** — see the deferred band-background gate below.
+| Role | Selector | What it is |
+|---|---|---|
+| `_band` | *(the band root)* | The `<section>`. Padding, background, and the ink the heading follows. |
+| `heading` | `.logos__heading` | The `<h2>`. **Not centred** — see below. |
+| `list` | `.logos__list` | The strip. Its gap only. |
+| `item` | `.logos__item` | One logo cell. Declares nothing by default. |
+| `item-labeled` | `.logos__item--labeled` | A cell carrying a caption under its image. |
+| `image` | `.logos__image` | The logo in an **unlabelled** cell. |
+| `image-labeled` | `.logos__item--labeled .logos__image` | The logo in a **labelled** tile. |
+| `label` | `.logos__label` | The caption under a labelled logo. |
 
 ## Stated defaults (and what would reopen them)
 
-| Default | Why it is a default | What would reopen it |
-|---|---|---|
-| Images are `object-fit: contain`, with no focal-point or aspect-ratio slots | `logos` is a **fit** model, not a crop model: a client logo or category glyph must be shown whole, so cropping it to a focal point would be a defect rather than a feature. This is the deliberate contrast with the testimonials avatar, whose `object-fit: cover` **is** a crop model. The crop controls hero and section carry on their `media` role — `sizing.object-position` and `sizing.aspect-ratio` — are therefore not offered here on purpose. (Those were the `--{hero,section}-image-position` / `-aspect-ratio` style slots until those two components moved to the design contract in #986 and #1023.) | A layout that genuinely needs a cropped logo tile — which would be a different component's job, not a slot here. |
-| `.logos--dark` framing borders — `1px solid var(--color-border)` top and bottom | The colour already routes `var(--color-border)`, so a site-wide rule retune reaches it with one `update_design_token` write; and the treatment is deliberately **consistent across every muted variant** — `embed` and `stats` use the same 1px pair, so the muted bands frame identically down a page. | **Already scheduled, not speculative:** bound to the deferred band-background gate below. |
+Measured in Chromium at 375/768/1280 before the slots were retired.
 
-### The deferred band-background gate
+- **`_band` paints nothing.** Measured `rgba(0, 0, 0, 0)` with no border on any edge. Both
+  belonged to `.logos--dark` / `.logos--inverted`, the retired `theme` variants.
+- **Band padding is the fluid `@pp-band-padding` clamp** (measured 53.6 / 68 / 76.8px).
+- **`heading` is NOT centred, and stats' is.** Measured `text-align: start` with
+  `margin-left: 0` at every tier, so this role declares neither an `align` nor auto side
+  margins. The two components look like twins and differ here; the asymmetry is declared
+  rather than quietly flattened. An author who wants the stats treatment writes
+  `typography.align: "center"` plus both `spacing.margin-*: "auto"` and gets exactly it.
+- **`heading` is `currentColor`.** v1 pinned `@color-text` and re-pointed to `@color-bg`
+  from `.logos--inverted`; both retire with the `theme` prop, and `currentColor` reproduces
+  both — measured rgb(16, 24, 40) on an unauthored band, byte-identical.
+- **`heading` declares no weight and no leading** (measured 650 / 46.08px, both from
+  base.css's `h2` rule, not logos' own block).
+- **`item` declares nothing.** Its v1 rule is `display: flex; align-items: center;
+  justify-content: center` — three structural properties and no design value at all. The
+  role exists so a cell is reachable (a border, a padded tile, a hover) without the schema
+  pretending it ships a look it does not.
 
-`--logos-bg` **does not exist**. This component's own `muted` variant paints
-`--color-surface` directly.
+## The two image caps are two roles, and that is a capability change
 
-`--embed-bg` and `--table-bg` never existed either, but since #1066 that is no longer the
-interesting fact about them: both are v2 components with no style slots at all, and a band
-tone on either is the `_band` role's `background.fill` — a real capability rather than a
-deferred one. So the gate below is about **logos alone** now. (table is the odd one out
-twice over: it never declared a `theme` prop or any variant class, so its rebuild retired
-nothing.)
+v1 routed **one** slot (`--logos-image-size`) at **both** cap sites with different
+fallbacks — 3rem unlabelled, 2.5rem labelled — so setting it collapsed the label-driven
+switch deliberately. The schema called two knobs for one visual job "a family this gate is
+completing, not extending."
 
-Its **entry criterion**, for the day the deferred gate opens: if `--logos-bg` is ever
-shipped, these framing borders must route a slot **in the same change**. An author who paints the band a new colour and gets a
-frame that no longer matches it is worse off than one who cannot paint it at all. The
-borders do not stay independently open after that gate — they join it.
+A role carries exactly one default, and `max-height` is a sizing value the fail-closed
+structural-CSS lint will not let stay in the stylesheet. So preserving the measured switch
+**requires** two roles, and it now survives by **specificity** rather than by fallback:
+`.logos__item--labeled .logos__image` is (0,2,0) against `.logos__image`'s (0,1,0).
+
+- Rendered default is **byte-identical** to v1 (measured 48px plain / 40px labelled).
+- What changed: the caps are independently authorable, so "make the logos bigger" is two
+  writes rather than one, and setting `image` no longer touches labelled tiles.
+
+### The ratified literals, and what would reopen each
+
+- **`item-labeled` → `sizing.min-width: 6rem`** (measured 96px). Keeps a labelled tile from
+  collapsing narrower than its caption. **What would reopen it:** a strip whose labels are
+  long enough that 6rem still wraps them mid-word at 375px.
+- **`item-labeled` → `spacing.gap: @space-sm`** (measured 8px). The image-to-label nudge,
+  deliberately NOT the strip's rhythm — that is `list` → `spacing.gap`. **What would reopen
+  it:** a tile design where the caption reads as a separate element rather than as part of
+  the tile.
+- **The `muted` framing is `1px solid var(--color-border)` top and bottom**, which is what
+  the retired `theme: "muted"` variant painted and what the retired-prop route names. It is
+  a literal rather than a token pair because only two components ever drew it. **What would
+  reopen it:** a third component needing the same framing, at which point it earns a token.
+- **`label` → `typography.size: 0.8125rem`** (13px), one step below the stats caption
+  because a logo label is a category name rather than a sentence. **What would reopen it:**
+  a measured legibility complaint, or labels being used as running copy.
+
+## A dark logos band is THREE writes
+
+`_band` → `typography.color` reaches the heading through `currentColor` and **not** the
+labels: `label` pins `@color-muted` as a direct declaration on the element, and a direct
+declaration always beats an inherited value.
+
+```json
+{
+  "udc": {
+    "_band": { "background": { "fill": "@color-bg-inverted" }, "typography": { "color": "@color-bg" } },
+    "label": { "typography": { "color": "rgb(192, 195, 201)" } }
+  }
+}
+```
+
+**Why that colour.** v1's `.logos--inverted .logos__label` set `@color-bg` at
+`opacity: 0.75`. `opacity` is in none of the seven UDC groups, so the de-emphasis ports as
+the **pixel-measured composite rgb(192, 195, 201)** (measured 10.11:1; the composite is 192.75/195.5/201.75 and Chromium floors each channel). `@color-muted` itself
+measures about **3.1:1** on `@color-bg-inverted` — under the 4.5:1 floor at this 13px size —
+so a dark band genuinely owes this role a write.
+
+**The logo images are not one of the writes.** Nothing in the theme ever re-inked them, and
+nothing does now: a dark strip of dark logos was as much the author's problem on v1 as it is
+here. That is a content decision, not a styling one.
+
+> **The fill and the ink are two writes.** A dark fill with no `typography.color` leaves the
+> heading on the inherited `@color-text`, at about **1.04:1**.
+
+## Retired props
+
+| Retired | Write this instead |
+|---|---|
+| `theme` | `_band` → `background.fill`, plus `typography.color`, plus `border.width-top` / `width-bottom` at 1px solid `@color-border` for the `muted` framing. And `label` ink — the band write does not reach it. |
+
+Refused with `retired_prop` and the route. Clear a stored one by sending it as `null`
+through `update_component`.
+
+## The deferred band-background gate
+
+`--logos-bg` **does not exist**, and this component's own retired `muted` variant painted
+`--color-surface` directly. Since #1066 that gate is about **logos alone** — `--embed-bg`
+and `--table-bg` never existed either, but both of those components are on the contract now,
+where a band tone is `_band` → `background.fill`, a real capability rather than a withheld
+one.
+
+Its **entry criterion**, unchanged: if `--logos-bg` is ever shipped, the framing borders
+must route a slot in the same change. An author who paints the band a new colour and gets
+framing borders they cannot retune is worse off than one who cannot paint it at all.
+
+## Retired style slots
+
+All eight. The migration is in `docs/howto-migrate-a-logos-band-to-v2.md`; each slot's
+replacement is recorded in `SLOT_RENAME_MIGRATION_NOTES`.
 
 ## CSS
 
-Styles in `assets/css/components.css` under `/* === COMPONENT: logos === */`.
+`assets/css/components.css` keeps **four** structural rules: `.logos__list`, `.logos__item`,
+`.logos__item--labeled` (its `flex-direction: column` — what makes it a tile rather than a
+cell) and `.logos__image` (`width: auto`, `object-fit: contain`). The zeroed list reset
+stays because it undoes UA chrome.
+
+`object-fit: contain` is why logos exposes **no** focal point and **no** aspect ratio: it is
+a **fit** model, so a client logo is shown whole. That is the deliberate contrast with the
+testimonials avatar, which is a **crop** model.
+
+## What NOT to change
+
+- Do not fold `image` and `image-labeled` back into one role. The measured caps differ.
+- Do not give `heading` an `align` or auto margins to "match stats". Measured, it is
+  start-aligned; the difference is the record.
+- Do not add a `background.fill` default to `_band`. v1 measured transparent.
+- Do not re-introduce an `opacity` literal for the dark-band label. Write the composite.

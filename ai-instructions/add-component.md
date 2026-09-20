@@ -232,9 +232,10 @@ contract fixes one layer down. The bounded value set lives in `pp_slot_roles()`
   invisible-but-clickable button.
 - **`measure`** — mark a length slot `measure` when it caps the width of **text**: a
   band heading, a prose column, or a content column. The name is exactly why this
-  cannot be a `-measure` suffix rule — hero's real measure is spelled
-  `--hero-content-width`, so a suffix rule would miss the one slot the hero docs point
-  every author at. Its consumer is deferred (issue #610); the runtime AI catalog
+  cannot be a `-measure` suffix rule — hero's real measure was spelled
+  `--hero-content-width` (a name now RETIRED with hero's slot map at #986, kept here
+  because it is the clearest example there is), so a suffix rule would have missed the
+  one slot the hero docs pointed every author at. Its consumer is deferred (issue #610); the runtime AI catalog
   already emits the marker so an agent is told a literal here opts that band out of a
   later site-wide `--measure-*` retune.
 
@@ -305,7 +306,7 @@ declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the sixteen v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`; faq's `theme`; embed's `theme` — and NOT `table`, which is v2 as of #1066 but never declared a styling prop, so it retired none) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the nineteen v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`; faq's `theme`; embed's `theme`; stats' `theme` and `background_image`; logos' `theme` — and NOT `table`, which is v2 as of #1066 but never declared a styling prop, so it retired none) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
 | prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |

@@ -91,7 +91,8 @@ class StyleSlotContractTest extends TestCase
     public function testDiscoveryFindsTheKnownStyledComponents(): void
     {
         $found = $this->styledComponents();
-        // THREE: grid, logos, stats. The number is written out rather than counted
+        // ONE: grid. stats and logos left at #1066 PR2, and grid is the last component in
+        // the theme that declares a style slot at all. The number is written out rather than counted
         // because this is the fail-closed floor for every discovery-driven check in the
         // file — a component silently dropping out of discovery would quietly disable its
         // whole slot contract.
@@ -102,10 +103,12 @@ class StyleSlotContractTest extends TestCase
         // "FOUR" while listing four with a tail sentence naming embed — which #1066 had
         // just made v2. Count the list below before editing this line.
         //
-        // table and embed left at #1066; stats and logos leave in the same issue's second
-        // half, at which point GRID ALONE remains and this file's own retirement becomes
-        // the question rather than another narrowing.
-        foreach (['grid', 'logos', 'stats'] as $known) {
+        // table and embed left at #1066; stats and logos left in the same issue's second
+        // half. GRID ALONE REMAINS, and this file's retirement is now the live question its
+        // own comment predicted — answered deliberately here: it STAYS while grid ships
+        // slots, because grid is the last component the slot contract governs and the last
+        // place a slot-shaped defect can hide. It retires WITH grid's rebuild, not before.
+        foreach (['grid'] as $known) {
             $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
         }
         // …and the v2 components must NOT be discovered here, or this suite would start
@@ -405,8 +408,14 @@ class StyleSlotContractTest extends TestCase
         // leaving room for ordinary CSS evolution. FLOORS ARE LOWERED WITH THE MEASURED
         // NUMBER IN HAND, never rounded down to whatever makes the run green: the gap
         // between the count and the floor is the whole guard.
+        // LOWERED 65 -> 33 AT #1066 PR2 WITH THE MEASURED NUMBER IN HAND, which is what
+        // the paragraph above requires: the derivation now counts 41 consumption triples
+        // (stats' seventeen slots and logos' eight left the stylesheet with their blocks),
+        // and 33 keeps the same ~one-fifth headroom this floor has always carried. Rounding
+        // down to whatever made the run green would have retired the guard while leaving it
+        // looking armed.
         $this->assertGreaterThan(
-            65,
+            33,
             $analysis['tripleCount'],
             'Slot-consumption derivation collapsed — the bypass guard would pass vacuously.'
         );
@@ -597,22 +606,17 @@ class StyleSlotContractTest extends TestCase
      * differs from --font-body on the sites this slot is for. So heading-system parity
      * is opt-in, and these two literals are what makes that true.
      */
-    public function testIssue472StatsNumberTypographySlotFallbacks(): void
-    {
-        $block = $this->stripComments($this->componentBlock('stats'));
-        $this->assertStringContainsString(
-            'font-family: var(--stats-number-font, inherit)',
-            $block,
-            'The .stats__number rule must route font-family through --stats-number-font '
-            . 'with `inherit` as the fallback (issue 472, byte-identical unset).'
-        );
-        $this->assertStringContainsString(
-            'font-weight: var(--stats-number-weight, 700)',
-            $block,
-            'The .stats__number rule must route font-weight through --stats-number-weight '
-            . 'with 700 as the fallback (issue 472, byte-identical unset).'
-        );
-    }
+    /**
+     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
+     *
+     * #472's claim — the display figure's typography is authorable per instance and the
+     * stylesheet carries no literal that would shadow it — moved to the `number` role at
+     * #1066 PR2. It is asserted against the EMITTED declaration in
+     * StatsNumberTypographyTest, which was repriced wholesale in the same change, and the
+     * stylesheet half is now stronger than this test could be: the structural-CSS boundary
+     * lint refuses ANY typography in stats' block, fail-closed, rather than checking one
+     * property's fallback shape.
+     */
 
     // RETIRED (#986): hero's button fill slots are the `cta` / `cta-secondary` roles'
     // `background.fill` (and its `:hover`), covered by ActionsTest's UDC contract test.
@@ -663,71 +667,15 @@ class StyleSlotContractTest extends TestCase
      * flex `gap` supplies the visible spacing — so its fallback is `0`, not a --space-* token.
      * A future edit that "harmonises" it to --space-md would push every hero headline down.
      */
-    public function testIssue584HeadingRhythmRoutesEachComponentsOwnLiteral(): void
-    {
-        // component => [selector, expected fallback literal]
-        // table's row left at #1066. The CLAIM survives intact for the three that
-        // remain — it is about a slot routing its own literal so an unset band is
-        // byte-identical — and table's replacement asserts the same value one layer
-        // lower: TableRoleDefaultsEmitTest pins the EMITTED
-        // `margin-bottom:var(--space-lg)` on the `heading` role, which is what an unset
-        // band now renders from.
-        // table's row left at #1066 and embed's with it. TWO remain here (stats, logos)
-        // of the three components still on slots — grid's heading rhythm is pinned in its
-        // own premium-rule block rather than this one. The claim is unchanged for both:
-        // a slot routes its own literal so an unset band is byte-identical. Each departed
-        // component's replacement asserts the same value one layer lower, against the
-        // EMITTED `margin-bottom:var(--space-lg)` on its `heading` role.
-        $expected = [
-            'stats'  => ['.stats__heading', 'var(--space-lg)'],
-            'logos'  => ['.logos__heading', 'var(--space-lg)'],
-        ];
-
-        foreach ($expected as $component => [$selector, $literal]) {
-            $slot  = "--{$component}-heading-margin-bottom";
-            $block = $this->stripComments($this->componentBlock($component));
-
-            $this->assertStringContainsString(
-                "margin-bottom: var({$slot}, {$literal})",
-                $block,
-                "{$component}'s heading rule must route margin-bottom through {$slot} with "
-                . "{$literal} as the fallback (issue 584) — the literal is what makes an unset "
-                . "band byte-identical."
-            );
-
-            // Declared with the length type, so `0` and every --space-* token validate.
-            $slots = $this->slots($component);
-            $this->assertArrayHasKey($slot, $slots, "{$component}/schema.json must declare {$slot}.");
-            $this->assertSame('length', $slots[$slot]['type'] ?? null, "{$slot} must be a length slot.");
-            $this->assertSame(
-                $literal === '0' ? '0' : $literal,
-                $slots[$slot]['default'] ?? null,
-                "{$slot}'s declared default must be the same literal the CSS falls back to, or "
-                . 'the AI catalog advertises a value the stylesheet does not produce.'
-            );
-        }
-
-        // Fail-closed: the six must be the ONLY margin-bottom literals left on a band heading.
-        // The four that already had the slot keep it; a seventh bare literal appearing on a
-        // band title is the exact regression this row exists to prevent from recurring.
-        // faq left this roster at #1046: its heading rhythm is the `heading` role's
-        // `spacing.margin-bottom` breakpoint map (1.65rem desktop / 1.25rem phone), which
-        // is the same two literals #584 made each component own, now owned as data.
-        foreach (['grid' => '.grid__heading',
-                  // testimonials, hero and section are absent: their heading rhythm is the
-                  // `heading` role's `spacing.margin-bottom` default, not a
-                  // --<comp>-heading-margin-bottom slot, so there is no slot for this
-                  // guard to route. section's responsive tiers (1.65rem desktop/tablet,
-                  // 1.25rem phone) are that default's breakpoint map since #1023, which is
-                  // more than the single slot could express.
-                  ] as $component => $_selector) {
-            $this->assertStringContainsString(
-                "var(--{$component}-heading-margin-bottom,",
-                $this->stripComments($this->componentBlock($component)),
-                "{$component} must keep its pre-existing heading-rhythm slot."
-            );
-        }
-    }
+    /**
+     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
+     *
+     * #584's heading-rhythm claim — each band's heading margin is zeroable per instance
+     * without a global retune — moved to each component's `heading` role
+     * (`spacing.margin-bottom`, still `@space-lg`). stats and logos were the last two
+     * members here; grid keeps the slot-shaped version, asserted in ActionsTest's
+     * style_component persistence test with the fixture beside it.
+     */
 
     /**
      * Logo sizing completes its family (issue 584, A-40).
@@ -743,53 +691,17 @@ class StyleSlotContractTest extends TestCase
      * strength of a sizing slot (the heading renders 1.02:1 and the label has no colour slot
      * on a dark band — owned by the deferred band-background gate).
      */
-    public function testIssue584LogosSizingSlotsRouteBothCapsAndTheStripGap(): void
-    {
-        $block = $this->stripComments($this->componentBlock('logos'));
-
-        $this->assertStringContainsString(
-            'max-height: var(--logos-image-size, 3rem)',
-            $block,
-            'The unlabelled logo cap must route --logos-image-size with 3rem as the fallback.'
-        );
-        $this->assertStringContainsString(
-            'max-height: var(--logos-image-size, 2.5rem)',
-            $block,
-            'The labelled-tile logo cap must route the SAME slot with its OWN 2.5rem fallback, '
-            . 'so an unset strip keeps the label-driven height switch exactly as shipped.'
-        );
-        $this->assertStringContainsString(
-            'gap: var(--logos-gap, var(--space-lg))',
-            $block,
-            'The strip gap must route --logos-gap with var(--space-lg) as the fallback.'
-        );
-
-        // The intra-tile image-to-label nudge is deliberately NOT slotted (per-instance item
-        // gaps are a stated non-goal), so it must stay a bare token.
-        $this->assertStringContainsString(
-            'gap: var(--space-sm)',
-            $block,
-            'The .logos__item--labeled image-to-label gap must stay an unslotted token — '
-            . 'per-instance item gaps are intentionally absent.'
-        );
-
-        // The band-background family stays out of the stylesheet, entirely — but since
-        // #1066 the three names are absent for two different reasons. `--logos-bg` is
-        // still DEFERRED to the band-background gate. `--table-bg` and `--embed-bg` are
-        // not deferred any more: both components are on the Universal Design Contract,
-        // where a band tone is the `_band` role's `background.fill`, and a v2 component
-        // declares no style slots at all — so their names are barred by the stronger
-        // v2 boundary rule rather than by a withheld gate.
-        foreach (['--logos-bg', '--embed-bg', '--table-bg'] as $absent) {
-            $this->assertStringNotContainsString(
-                $absent,
-                $this->stripComments($this->css),
-                "{$absent} must not appear: --logos-bg is deferred to the band-background "
-                . 'gate, and --table-bg/--embed-bg would be style slots on components that '
-                . 'declare none.'
-            );
-        }
-    }
+    /**
+     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
+     *
+     * #584's logos sizing claim retired with the slots at #1066 PR2, and it is the one
+     * case in this file where the CAPABILITY genuinely changed rather than moving: v1 read
+     * ONE slot at BOTH cap sites with different fallbacks, and a role carries one default,
+     * so the caps are the `image` and `image-labeled` roles now and the label-driven switch
+     * survives by SPECIFICITY instead. Rendered default byte-identical (measured 48px /
+     * 40px); the two caps are independently authorable. Asserted in
+     * LogosRoleDefaultsEmitTest and stated in components/logos/README.md.
+     */
 
     /**
      * The schema note that tells an agent WHICH cap a logo item gets had the two values the
@@ -797,6 +709,13 @@ class StyleSlotContractTest extends TestCase
      * and the rendered #583 strip measures 48px unlabelled / 40px labelled). It is corrected
      * here because --logos-image-size overrides both caps, so the note is now describing
      * behaviour this issue changes. Pinned so the correction cannot silently revert.
+     *
+     * REPRICED AT #1066: the slot retired with logos' whole slot map and the two caps
+     * became two ROLES. The note had to change or it would describe a defeat mechanism
+     * that no longer exists — and it also had to stay UNDER THE 400-CHARACTER BOUND that
+     * `SchemaValidationTest::testEveryShippedDefinitionObjectConformsToTheClosedContract`
+     * enforces on bounded prose, which the first rewrite blew past at 515. Both guards
+     * fired on the same edit, which is the system working.
      */
     public function testIssue584LogosConditionalityNoteMatchesTheStylesheet(): void
     {
@@ -805,9 +724,21 @@ class StyleSlotContractTest extends TestCase
             true
         );
         $note = $schema['props']['items']['conditionality_note'] ?? '';
+        // THE TWO MEASURED NUMBERS SURVIVE THE REBUILD UNCHANGED, which is why they are
+        // still the first two assertions: the label-driven switch is the subject, and
+        // #1066 moved where it is expressed without moving what it renders.
         $this->assertStringContainsString('2.5rem labelled', $note);
         $this->assertStringContainsString('3rem unlabelled', $note);
-        $this->assertStringContainsString('--logos-image-size overrides both', $note);
+
+        // THE THIRD ASSERTION IS REPRICED, NOT DROPPED. It read
+        // `'--logos-image-size overrides both'` — a claim about a slot logos no longer
+        // declares. The note's JOB is unchanged: warn an author that this condition is
+        // item-level and tell them how to defeat it. The v2 answer is "write both roles",
+        // and the retired slot is still named so an author meeting it on an aged page can
+        // match it up, which is what the shipped note says.
+        $this->assertStringContainsString('`image` and `image-labeled`', $note);
+        $this->assertStringContainsString('write both for a flat strip', $note);
+        $this->assertStringContainsString('`--logos-image-size`, which overrode both, is retired', $note);
     }
 
     // RETIRED (#1026): SEVEN TESTS AND THEIR PROVIDER, together, because they pinned ONE
@@ -1234,8 +1165,12 @@ class StyleSlotContractTest extends TestCase
         // emits `data-pp-band` and no `style` attribute at all, which is why each rebuild
         // takes exactly one surface off this count. If the scan finds nothing, the loop
         // above proved nothing.
+        // TWO since #1066 PR2: stats' and logos' root attributes left with their slot maps,
+        // exactly as table's and embed's did earlier in the same issue. Both remaining
+        // surfaces are grid's — its root attribute and the per-card one — so this floor and
+        // grid's rebuild now retire together.
         $this->assertGreaterThanOrEqual(
-            4,
+            2,
             $emitted,
             'Found fewer inline slot surfaces than the 4 known today — the template scan is broken.'
         );

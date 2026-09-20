@@ -14,6 +14,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class ComponentPropsTest extends TestCase
 {
@@ -436,12 +437,20 @@ class ComponentPropsTest extends TestCase
 
     public function testRenderStyleVarsBasic(): void
     {
-        $result = pp_render_style_vars(
-            ['--stats-bg' => '#1a1a2e', '--stats-padding-top' => '8rem'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-bg: #1a1a2e', $result);
-        $this->assertStringContainsString('--stats-padding-top: 8rem', $result);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $result = pp_render_style_vars(
+                ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-bg: #1a1a2e', $result);
+            $this->assertStringContainsString('--ppfixture-padding-top: 8rem', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsEmpty(): void
@@ -452,34 +461,58 @@ class ComponentPropsTest extends TestCase
 
     public function testRenderStyleVarsSkipsUnknownSlot(): void
     {
-        $result = pp_render_style_vars(
-            ['--stats-bg' => '#1a1a2e', '--stats-display' => 'none'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-bg', $result);
-        $this->assertStringNotContainsString('--stats-display', $result);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $result = pp_render_style_vars(
+                ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-display' => 'none'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-bg', $result);
+            $this->assertStringNotContainsString('--ppfixture-display', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsEmitsKeywordAndVarReferenceUnchanged(): void
     {
-        // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
-        // none of ( ) - so the reference reaches the browser intact.
-        $result = pp_render_style_vars(
-            ['--stats-bg' => 'transparent', '--stats-label-color' => 'var(--color-accent)'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-bg: transparent', $result);
-        $this->assertStringContainsString('--stats-label-color: var(--color-accent)', $result);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
+            // none of ( ) - so the reference reaches the browser intact.
+            $result = pp_render_style_vars(
+                ['--ppfixture-bg' => 'transparent', '--ppfixture-label-color' => 'var(--color-accent)'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-bg: transparent', $result);
+            $this->assertStringContainsString('--ppfixture-label-color: var(--color-accent)', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsSkipsRecipeKey(): void
     {
-        $result = pp_render_style_vars(
-            ['__recipe' => 'dark-spacious', '--stats-bg' => '#1a1a2e'],
-            'stats'
-        );
-        $this->assertStringNotContainsString('__recipe', $result);
-        $this->assertStringContainsString('--stats-bg', $result);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $result = pp_render_style_vars(
+                ['__recipe' => 'dark-spacious', '--ppfixture-bg' => '#1a1a2e'],
+                'ppfixture'
+            );
+            $this->assertStringNotContainsString('__recipe', $result);
+            $this->assertStringContainsString('--ppfixture-bg', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsRejectsInjection(): void
@@ -535,22 +568,36 @@ class ComponentPropsTest extends TestCase
 
     public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
     {
-        $result = pp_render_style_vars(
-            ['--stats-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
+        // PER-TEST OPT-IN (#1025): the gradient type needs a slot-bearing host, and stats
+        // stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $result = pp_render_style_vars(
+                ['--ppfixture-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsGradientOverlayScrimSurvivesUnmangled(): void
     {
-        // The primary practical motivation for gradient support: a
-        // transparent-to-dark scrim over a background image for legibility.
-        $result = pp_render_style_vars(
-            ['--stats-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
+        // PER-TEST OPT-IN (#1025): the gradient type needs a slot-bearing host, and stats
+        // stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            // The primary practical motivation for gradient support: a
+            // transparent-to-dark scrim over a background image for legibility.
+            $result = pp_render_style_vars(
+                ['--ppfixture-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testRenderStyleVarsUnknownComponent(): void
@@ -1750,28 +1797,44 @@ class ComponentPropsTest extends TestCase
 
     public function testStatsRendersAllFourSlots(): void
     {
-        $overrides = [
-            '--stats-bg' => 'radial-gradient(#fff, #000)',
-            '--stats-heading-color' => '#111111',
-            '--stats-number-color' => '#ea3900',
-            '--stats-label-color' => '#666666',
-        ];
-        $html = $this->render('stats', array_merge($this->statsProps(), ['__pp_style' => $overrides]));
-        foreach ($overrides as $slot => $value) {
-            $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $overrides = [
+                '--ppfixture-bg' => 'radial-gradient(#fff, #000)',
+                '--ppfixture-heading-color' => '#111111',
+                '--ppfixture-number-color' => '#ea3900',
+                '--ppfixture-label-color' => '#666666',
+            ];
+            $html = $this->render('ppfixture', array_merge($this->statsProps(), ['__pp_style' => $overrides]));
+            foreach ($overrides as $slot => $value) {
+                $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
+            }
+        } finally {
+            FixtureTheme::deactivate();
         }
     }
 
     public function testStatsStyleSlotMergesWithBackgroundImage(): void
     {
-        // stats.php's __pp_style rendering must coexist with the pre-existing
-        // background_image inline-style mechanism (same pattern as hero/section).
-        $html = $this->render('stats', array_merge($this->statsProps(), [
-            '__pp_style' => ['--stats-number-color' => '#ea3900'],
-            'background_image' => 'https://example.com/bg.jpg',
-        ]));
-        $this->assertStringContainsString('--stats-number-color: #ea3900', $html);
-        $this->assertStringContainsString('background-image:url(', $html);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            // stats.php's __pp_style rendering must coexist with the pre-existing
+            // background_image inline-style mechanism (same pattern as hero/section).
+            $html = $this->render('ppfixture', array_merge($this->statsProps(), [
+                '__pp_style' => ['--ppfixture-number-color' => '#ea3900'],
+                'background_image' => 'https://example.com/bg.jpg',
+            ]));
+            $this->assertStringContainsString('--ppfixture-number-color: #ea3900', $html);
+            $this->assertStringContainsString('background-image:url(', $html);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testStatsRejectsInjectionInStyleSlot(): void
@@ -1820,9 +1883,12 @@ class ComponentPropsTest extends TestCase
      */
     public function testEveryComponentWithTitleAccentCanStyleIt(): void
     {
+        // stats' row left at #1066 PR2 with its slot map. Its capability did NOT leave:
+        // the accent is the `heading-accent` role's `typography.color`, asserted against
+        // the EMITTED declaration in StatsRoleDefaultsEmitTest and covered by the v2 half
+        // of this same test below. GRID IS THE LAST v1 DECLARER.
         $v1 = [
             'grid'  => '--grid-heading-accent-color',
-            'stats' => '--stats-heading-accent-color',
         ];
         foreach ($v1 as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
@@ -1867,15 +1933,84 @@ class ComponentPropsTest extends TestCase
      * declaration into the rendered style attribute. Section carries the surviving
      * position-typed slot, so the red proof moves there rather than being deleted.
      */
+    /**
+     * RE-HOMED ONTO THE FIXTURE (#1066 PR2) BECAUSE IT HAD GONE VACUOUS — and it is an
+     * INJECTION test, which is the worst kind to lose quietly.
+     *
+     * It rendered `section` with `--section-bg-position`. section became a v2 component at
+     * #1023 and emits no `style` attribute at all, so the lone
+     * `assertStringNotContainsString('url(evil)', $html)` was asserting the absence of a
+     * payload in a string that could never contain anything: it passed on an empty subject,
+     * for three rebuilds. Its docblock still claimed "section carries the surviving
+     * position-typed slot", which stopped being true at #1023.
+     *
+     * The #1025 fixture is exactly the right home: the claim is about the ENGINE's render
+     * boundary, not about any component, and `ppfixture` declares `--ppfixture-bg-position`
+     * so the claim stops moving house at every rebuild.
+     *
+     * AND THE REBUILD FOUND OUT WHICH GATE ACTUALLY REFUSES THE PAYLOAD, which the old test
+     * never established. It is NOT the `position` grammar. `pp_render_style_value_allowed()`
+     * (lib/wp.php) runs two layers, and the payload dies at LAYER 1 —
+     * `_pp_forbidden_css_construct()`, the shared reject set, which is type-INDEPENDENT.
+     * Measured: making `_pp_validate_position()` (Layer 2) return true for everything does
+     * NOT reopen the injection. That ordering is the thing worth pinning, and Layer 1's own
+     * comment says why it is a separate call — "a slot with no declared type never reaches
+     * Layer 2 and this is its sole line of defense". So a future widening of any value
+     * grammar cannot let a second declaration through, and this test proves that rather
+     * than assuming it.
+     *
+     * THREE ASSERTIONS, because the negative one alone is what went vacuous: the slot is
+     * live (control), the payload is absent, and the whole declaration is DROPPED rather
+     * than escaped — "escaped somehow" and "refused outright" are different contracts and
+     * only one of them ships.
+     */
     public function testPositionSlotRejectsInjectionInStyleSlot(): void
     {
-        $html = $this->render('section', $this->sectionProps([
-            'title'        => 'T',
-            'layout'       => 'text-image',
-            'image_url'    => 'https://example.com/photo.jpg',
-            '__pp_style'   => ['--section-bg-position' => 'top; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
+        // PER-TEST OPT-IN (#1025), same reason as testRenderStyleVarsGradientSurvivesUnmangled
+        // below: this class also holds registry rosters that must see only shipped components.
+        FixtureTheme::activate();
+        try {
+            // THE CONTROL FIRST: a valid value on this slot IS emitted. Without it the
+            // negative assertions below pass on any empty string — a renamed slot, a missing
+            // fixture, a dead code path — which is precisely how this test went vacuous.
+            $clean = pp_render_style_vars(['--ppfixture-bg-position' => 'top left'], 'ppfixture');
+            $this->assertStringContainsString(
+                '--ppfixture-bg-position: top left',
+                $clean,
+                'the fixture must declare a live `position`-typed slot, or this test has no subject'
+            );
+
+            $dirty = pp_render_style_vars(
+                ['--ppfixture-bg-position' => 'top; background:url(evil)'],
+                'ppfixture'
+            );
+            $this->assertStringNotContainsString(
+                'url(evil)',
+                $dirty,
+                'a slot value must not carry a second declaration into the style attribute'
+            );
+            $this->assertStringNotContainsString(
+                '--ppfixture-bg-position',
+                $dirty,
+                'the boundary DROPS the whole declaration rather than escaping it; a version '
+                . 'that starts passing the value through escaped is a contract change to review'
+            );
+
+            // THE LAYER, ASSERTED DIRECTLY. This is what makes the refusal robust against a
+            // grammar widening: the reject set answers before any type is consulted, so it
+            // holds even for a slot whose type is unknown to the engine.
+            $this->assertNotNull(
+                _pp_forbidden_css_construct('top; background:url(evil)'),
+                'Layer 1 must own this refusal; if it stops matching, every type-less slot '
+                . 'loses its only line of defense (see pp_render_style_value_allowed)'
+            );
+            $this->assertFalse(
+                pp_render_style_value_allowed('top; background:url(evil)', null),
+                'with NO declared type the value must still be refused — Layer 1 alone'
+            );
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     /**
@@ -1887,11 +2022,19 @@ class ComponentPropsTest extends TestCase
      */
     public function testRenderStyleVarsGradientSurvivesUnmangled(): void
     {
-        $result = pp_render_style_vars(
-            ['--stats-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
-            'stats'
-        );
-        $this->assertStringContainsString('--stats-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $result = pp_render_style_vars(
+                ['--ppfixture-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
+                'ppfixture'
+            );
+            $this->assertStringContainsString('--ppfixture-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     public function testHeroEyebrowRenders(): void
@@ -2413,7 +2556,7 @@ class ComponentPropsTest extends TestCase
             // `--filter`. The capability audit that DOES follow each component across the
             // move is testEveryComponentWithTitleAccentCanStyleIt.
             'grid'  => '--grid-heading-accent-color',
-            'stats' => '--stats-heading-accent-color',
+            // stats' row left at #1066 PR2 with its slot map; grid is the last declarer.
         ];
         foreach ($expected as $component => $slot) {
             $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
@@ -3699,19 +3842,55 @@ class ComponentPropsTest extends TestCase
 
     public function testStatsBgPositionOverrideRenders(): void
     {
-        $html = $this->render('stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--stats-bg-position' => 'left']]));
-        $this->assertStringContainsString('--stats-bg-position: left', $html);
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $html = $this->render('ppfixture', $this->statsProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--ppfixture-bg-position' => 'left']]));
+            $this->assertStringContainsString('--ppfixture-bg-position: left', $html);
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
-    public function testSectionCtaStatsSchemaDeclareBgPositionSlot(): void
+    /**
+     * THE ROSTER EMPTIED AND THE CLAIM MOVED, rather than the test being deleted (#1038).
+     *
+     * section left at #1023 and cta at #1026; stats was the last member and left at #1066
+     * PR2, taking `--stats-bg-position` with it — the LAST position-typed style slot in the
+     * theme. So there is no slot left for the old assertion to read.
+     *
+     * The claim survives in the v2 vocabulary: ruling A2 pairs a band background IMAGE with
+     * a focal POINT, so every component that can carry `background.image` must also permit
+     * `background.position`. Asserted across all of them rather than on one, which is
+     * strictly more than the slot roster ever covered.
+     */
+    public function testEveryBandThatTakesABackgroundImageCanAlsoAimIt(): void
     {
-        // section left this roster at #1023 and cta at #1026: on both, the band background
-        // position is the `_band` role's `background.position`, which ruling A2 pairs with
-        // `background.image`. stats is the last component whose band background is a prop.
-        foreach (['stats' => '--stats-bg-position'] as $component => $slot) {
-            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
-            $this->assertSame('position', $schema['styling']['style_slots'][$slot]['type'], "{$component} must declare {$slot} as type position.");
+        $checked = 0;
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode(file_get_contents($file), true);
+            $band   = $schema['roles']['_band'] ?? null;
+            if ($band === null) {
+                continue;
+            }
+            $component = basename(dirname($file));
+            $this->assertContains(
+                'background',
+                $band['groups'] ?? [],
+                "{$component}'s _band must permit the background group"
+            );
+            // A2: the image and its focal point travel together. A band that can take an
+            // image but not aim it pins every authored image top-left.
+            $this->assertArrayHasKey(
+                'position',
+                pp_udc_groups()['background']['params'] ?? [],
+                'the engine must still know background.position at all'
+            );
+            $checked++;
         }
+        $this->assertGreaterThanOrEqual(9, $checked, 'the sweep must reach every v2 band');
     }
 
     // ── pp_render_faq_schema() + FAQ JSON-LD (#3) ─────────────────────────────
@@ -4016,26 +4195,34 @@ class ComponentPropsTest extends TestCase
      */
     public function testAScalarBackgroundImageStillPaintsExactlyAsBefore(): void
     {
-        foreach ([42, true, 3.14] as $scalar) {
-            $label   = var_export($scalar, true);
-            $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            foreach ([42, true, 3.14] as $scalar) {
+                $label   = var_export($scalar, true);
+                $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
 
-            foreach ([
-                // section's row left these #705 guards at #1023 and cta's at #1026: on both
-                // the prop is retired, so there is no pp_esc_image_src() call site left to
-                // guard. A band background is `_band` -> `background.image`, an attachment
-                // id the ENGINE resolves — the guarded-scalar class cannot arise there,
-                // because a non-numeric id is refused at write rather than cast at render.
-                // stats is the last component that declares the prop, so it is the last one
-                // that can hold these pins, and the canonical #705 explanation moved into
-                // components/stats/stats.php with them.
-                ['stats', $this->statsProps(['background_image' => $scalar]), 'stats'],
-            ] as [$component, $props, $prefix]) {
-                $html = $this->render($component, $props);
-                $this->assertMatchesRegularExpression($pattern, $html, "{$component} {$label}: the scalar still paints");
-                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: modifier still set");
-                $this->assertStringContainsString($prefix . '__overlay', $html, "{$component} {$label}: overlay still rendered");
+                foreach ([
+                    // section's row left these #705 guards at #1023 and cta's at #1026: on both
+                    // the prop is retired, so there is no pp_esc_image_src() call site left to
+                    // guard. A band background is `_band` -> `background.image`, an attachment
+                    // id the ENGINE resolves — the guarded-scalar class cannot arise there,
+                    // because a non-numeric id is refused at write rather than cast at render.
+                    // stats is the last component that declares the prop, so it is the last one
+                    // that can hold these pins, and the canonical #705 explanation moved into
+                    // components/stats/stats.php with them.
+                    ['ppfixture', $this->statsProps(['background_image' => $scalar]), 'ppfixture'],
+                ] as [$component, $props, $prefix]) {
+                    $html = $this->render($component, $props);
+                    $this->assertMatchesRegularExpression($pattern, $html, "{$component} {$label}: the scalar still paints");
+                    $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: modifier still set");
+                    $this->assertStringContainsString($prefix . '__overlay', $html, "{$component} {$label}: overlay still rendered");
+                }
             }
+        } finally {
+            FixtureTheme::deactivate();
         }
     }
 
@@ -4046,21 +4233,29 @@ class ComponentPropsTest extends TestCase
      */
     public function testAnOrdinaryBackgroundImageUrlIsUnchanged(): void
     {
-        // cta's row left at #1026 with its `background_image` prop; stats is the last
-        // component whose band background is a prop, so it is the last one that can hold
-        // this pin. See testAScalarBackgroundImageStillPaintsExactlyAsBefore for the full
-        // reasoning on why the whole guarded-scalar class cannot arise on a v2 band.
-        foreach ([
-            ['stats', $this->statsProps(['background_image' => 'https://example.com/bg.jpg']), 'stats'],
-        ] as [$component, $props, $prefix]) {
-            $html = $this->render($component, $props);
-            $this->assertStringContainsString(
-                'style="background-image:url(https://example.com/bg.jpg);"',
-                $html,
-                "{$component}: the exact style attribute"
-            );
-            $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: modifier");
-            $this->assertStringContainsString('<div class="' . $prefix . '__overlay" aria-hidden="true"></div>', $html, "{$component}: overlay");
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            // cta's row left at #1026 with its `background_image` prop; stats is the last
+            // component whose band background is a prop, so it is the last one that can hold
+            // this pin. See testAScalarBackgroundImageStillPaintsExactlyAsBefore for the full
+            // reasoning on why the whole guarded-scalar class cannot arise on a v2 band.
+            foreach ([
+                ['ppfixture', $this->statsProps(['background_image' => 'https://example.com/bg.jpg']), 'ppfixture'],
+            ] as [$component, $props, $prefix]) {
+                $html = $this->render($component, $props);
+                $this->assertStringContainsString(
+                    'style="background-image:url(https://example.com/bg.jpg);"',
+                    $html,
+                    "{$component}: the exact style attribute"
+                );
+                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: modifier");
+                $this->assertStringContainsString('<div class="' . $prefix . '__overlay" aria-hidden="true"></div>', $html, "{$component}: overlay");
+            }
+        } finally {
+            FixtureTheme::deactivate();
         }
     }
 
@@ -4123,42 +4318,50 @@ class ComponentPropsTest extends TestCase
      */
     public function testTheStringCastFlipsTheGateOnlyForNegativeZero(): void
     {
-        $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
+        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
+        // must see only shipped components. The engine claim below needs a slot-bearing
+        // host, and stats stopped being one at #1066 PR2.
+        FixtureTheme::activate();
+        try {
+            $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
 
-        // cta's row left at #1026 with its `background_image` prop. The -0.0 exception this
-        // pins is a PROP-path behaviour — a stored float whose string cast opens a truthiness
-        // gate — and a v2 band has no such gate: `background.image` is an attachment id the
-        // engine resolves, and a non-numeric id is refused at write rather than cast at
-        // render. stats is the last component that can hold the pin.
-        $components = [
-            ['stats', fn($v) => $this->statsProps(['background_image' => $v]), 'stats'],
-        ];
+            // cta's row left at #1026 with its `background_image` prop. The -0.0 exception this
+            // pins is a PROP-path behaviour — a stored float whose string cast opens a truthiness
+            // gate — and a v2 band has no such gate: `background.image` is an attachment id the
+            // engine resolves, and a non-numeric id is refused at write rather than cast at
+            // render. stats is the last component that can hold the pin.
+            $components = [
+                ['ppfixture', fn($v) => $this->statsProps(['background_image' => $v]), 'ppfixture'],
+            ];
 
-        foreach ($scalars as $scalar) {
-            $label     = var_export($scalar, true);
-            $rawTruthy = (bool) $scalar;
+            foreach ($scalars as $scalar) {
+                $label     = var_export($scalar, true);
+                $rawTruthy = (bool) $scalar;
+
+                foreach ($components as [$component, $propsFor, $prefix]) {
+                    $html    = $this->render($component, $propsFor($scalar));
+                    $painted = str_contains($html, $prefix . '--has-bg-image');
+
+                    $this->assertSame(
+                        $rawTruthy,
+                        $painted,
+                        "{$component} {$label}: the (string) cast must not change whether the band paints a background"
+                    );
+                }
+            }
+
+            // The single exception, asserted head-on so it can never drift silently.
+            $this->assertFalse((bool) -0.0, 'float negative zero is falsy');
+            $this->assertTrue((bool) (string) -0.0, "...but its string cast '-0' is truthy");
 
             foreach ($components as [$component, $propsFor, $prefix]) {
-                $html    = $this->render($component, $propsFor($scalar));
-                $painted = str_contains($html, $prefix . '--has-bg-image');
-
-                $this->assertSame(
-                    $rawTruthy,
-                    $painted,
-                    "{$component} {$label}: the (string) cast must not change whether the band paints a background"
-                );
+                $html = $this->render($component, $propsFor(-0.0));
+                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: -0.0 opens the modifier gate");
+                $this->assertStringContainsString($prefix . '__overlay', $html, "{$component}: -0.0 opens the overlay gate");
+                $this->assertMatchesRegularExpression('#background-image:url\((?:https?://)?-0\)#', $html, "{$component}: -0.0 paints, where before the guard it did not");
             }
-        }
-
-        // The single exception, asserted head-on so it can never drift silently.
-        $this->assertFalse((bool) -0.0, 'float negative zero is falsy');
-        $this->assertTrue((bool) (string) -0.0, "...but its string cast '-0' is truthy");
-
-        foreach ($components as [$component, $propsFor, $prefix]) {
-            $html = $this->render($component, $propsFor(-0.0));
-            $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: -0.0 opens the modifier gate");
-            $this->assertStringContainsString($prefix . '__overlay', $html, "{$component}: -0.0 opens the overlay gate");
-            $this->assertMatchesRegularExpression('#background-image:url\((?:https?://)?-0\)#', $html, "{$component}: -0.0 paints, where before the guard it did not");
+        } finally {
+            FixtureTheme::deactivate();
         }
     }
 }

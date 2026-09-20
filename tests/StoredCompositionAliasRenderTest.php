@@ -51,12 +51,18 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class StoredCompositionAliasRenderTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta'  => [],
             'posts'      => [],
@@ -65,6 +71,16 @@ class StoredCompositionAliasRenderTest extends TestCase
             'custom_css' => '',
             'filters'    => [],
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        // MUST pair with the activate() above. PHPUnit runs every class in ONE process,
+        // so a fixture root left in force is inherited by every later class — which does
+        // not look like a leak, it looks like the UDC suites suddenly seeing a component
+        // that declares no roles. Pinned in FixtureThemeSeamTest.
+        FixtureTheme::deactivate();
+        parent::tearDown();
     }
 
     /**
@@ -344,8 +360,8 @@ class StoredCompositionAliasRenderTest extends TestCase
                 'heading' => ['typography' => ['color' => '#f0f0f0', 'size' => '4rem']]]],
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
-                '--stats-label-color' => '#334455']]];
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
+                '--ppfixture-label-color' => '#334455']]];
 
         $id     = pp_create_page('Fresh canonical page', 'draft');
         $result = pp_execute_action('update_composition', [
@@ -393,7 +409,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('data-pp-band="', $faqTag[0]);
         $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
         $this->assertStringContainsString('--grid-item-bg: #101014', $html);
-        $this->assertStringContainsString('--stats-label-color: #334455', $html);
+        $this->assertStringContainsString('--ppfixture-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
         $this->assertSame([], pp_validate_composition_errors($stored));
@@ -556,8 +572,10 @@ class StoredCompositionAliasRenderTest extends TestCase
             // canonical-render contract is about PROPS surviving a round trip, and its
             // remaining props do.
             ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
-            ['component' => 'stats',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
-            ['component' => 'logos',        'props' => ['title' => 'Logos', 'theme' => 'muted', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
+            ['component' => 'ppfixture',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
+            // logos' `theme` retired at #1066 PR2, so the band carries content only — the
+            // tone it used to express is the `_band` role's background in the `udc` map.
+            ['component' => 'logos',        'props' => ['title' => 'Logos', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
             // embed's `theme` retired at #1066, so it carries none here. It stays in the
             // roster for the reason testimonials does: this contract is about PROPS
             // surviving a round trip, and its remaining props do.
@@ -638,7 +656,7 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Rejected slot', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
@@ -668,13 +686,13 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write boundary', 'draft');
         pp_update_composition($id, [
-            ['component' => 'stats', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
              'style' => ['--section-text' => '#334455']]]);
 
         // STORED: paints nothing, under either name.
         $html = $this->renderStored($id);
         $this->assertStringNotContainsString('#334455', $html, 'the stored legacy declaration is dead');
-        $this->assertStringNotContainsString('--stats-label-color', $html, 'and nothing renames it');
+        $this->assertStringNotContainsString('--ppfixture-label-color', $html, 'and nothing renames it');
         $this->assertStringNotContainsString('--section-text', $html);
 
         // The band can no longer be edited at all — the stale declaration is visible
@@ -831,8 +849,13 @@ class StoredCompositionAliasRenderTest extends TestCase
     // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
     // ComponentPropsTest's rosters keep theirs: renaming it on every rebuild breaks
     // `--filter` continuity for no fact. The roster inside is the fact.
-    public function testAFreshCanonicalThemeWritesValidatesReadsBackAndRendersOnAllSevenThemedBands(): void
+    public function testAFreshCanonicalThemeWriteValidatesReadsBackAndRendersOnTheLastThemedBand(): void
     {
+        // SEVEN BANDS UNTIL #1066 PR2, ONE NOW. Each rebuild took its `theme` prop with it —
+        // testimonials (#958), hero (#986), section (#1023), cta (#1026), faq (#1046), embed
+        // (#1066), and stats and logos in that issue's second half. grid is the last band
+        // that can carry a canonical theme value at all, so this test asserts on the one
+        // survivor rather than on a roster that would otherwise be empty.
         // Acceptance criterion 5: fresh-generation correctness. Every band component
         // that carries a `theme` accepts each of the three canonical values through
         // the REAL authoring surface, stores it verbatim, and renders the documented
@@ -840,7 +863,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         // `default` under none.
         $bands = [
             'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
-            'stats'        => ['title' => 'St', 'items' => [['number' => '10', 'label' => 'Customers']]],
             // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
             // entire effect was value-styling the structural-CSS boundary forbids.
             // section is absent since #1023 for the same reason, and it took the one
@@ -863,7 +885,6 @@ class StoredCompositionAliasRenderTest extends TestCase
             // rebuilt in that same issue and never appears here at all: it never declared
             // `theme`. The roster is THREE bands now and still means the same thing —
             // every component that declares `theme` round-trips its canonical values.
-            'logos'        => ['title' => 'L', 'items' => [['image_url' => 'https://example.com/a.png', 'image_alt' => 'A']]],
         ];
 
         foreach ($bands as $component => $props) {

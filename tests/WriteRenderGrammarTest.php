@@ -42,16 +42,32 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class WriteRenderGrammarTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
+        // is the slot engine; which component carries the slots is incidental, which is
+        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
+        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100,
             'custom_css' => '', 'filters' => [],
         ];
+    }
+
+    protected function tearDown(): void
+    {
+        // MUST pair with the activate() above. PHPUnit runs every class in ONE process,
+        // so a fixture root left in force is inherited by every later class — which does
+        // not look like a leak, it looks like the UDC suites suddenly seeing a component
+        // that declares no roles. Pinned in FixtureThemeSeamTest.
+        FixtureTheme::deactivate();
+        parent::tearDown();
     }
 
     /**
@@ -96,21 +112,21 @@ class WriteRenderGrammarTest extends TestCase
     public function testStatsNumberFontWithACommentOpenerIsRejectedAtWrite(): void
     {
         $id = pp_create_page('Comment-opener font', 'draft');
-        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [
+        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [
             ['number' => '99%', 'label' => 'Uptime'],
         ]]]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--stats-number-font' => 'serif /*'],
+            'style'           => ['--ppfixture-number-font' => 'serif /*'],
         ]);
 
         $this->assertFalse($result['ok'], 'a value the renderer would drop must not be accepted at write');
-        $this->assertStringContainsString('--stats-number-font', $result['error']);
+        $this->assertStringContainsString('--ppfixture-number-font', $result['error']);
         $this->assertStringNotContainsString(
             'serif /*',
-            pp_get_composition($id)[0]['style']['--stats-number-font'] ?? '',
+            pp_get_composition($id)[0]['style']['--ppfixture-number-font'] ?? '',
             'nothing persisted'
         );
     }
@@ -226,20 +242,20 @@ class WriteRenderGrammarTest extends TestCase
     public function testRestoreNeverBlocksOnACommentOpenerAndReportsIt(): void
     {
         $id = pp_create_page('Comment-opener snapshot');
-        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [
+        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [
             ['number' => '99%', 'label' => 'Uptime'],
         ]]]]);
         $raw = pp_get_composition($id);
-        $raw[0]['style'] = ['--stats-number-font' => 'serif /*'];
+        $raw[0]['style'] = ['--ppfixture-number-font' => 'serif /*'];
         $this->seedRaw($id, $raw);
-        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [
+        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [
             ['number' => '1', 'label' => 'Later'],
         ]]]]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? 'restore must never block');
-        $this->assertSame('serif /*', pp_get_composition($id)[0]['style']['--stats-number-font']);
+        $this->assertSame('serif /*', pp_get_composition($id)[0]['style']['--ppfixture-number-font']);
         $this->assertContains('invalid_style_value', array_column($result['findings'], 'type'));
     }
 
@@ -252,24 +268,24 @@ class WriteRenderGrammarTest extends TestCase
     {
         $id = pp_create_page('Comment-opener render');
         $this->seedRaw($id, [[
-            'component' => 'stats',
+            'component' => 'ppfixture',
             'props'     => ['items' => [['number' => '99%', 'label' => 'Uptime']]],
             'style'     => [
-                '--stats-number-font'  => 'serif /*',
-                '--stats-number-color' => '#ff0000',
+                '--ppfixture-number-font'  => 'serif /*',
+                '--ppfixture-number-color' => '#ff0000',
             ],
         ]]);
 
         $html = $this->renderStored($id);
 
         $this->assertStringNotContainsString('serif /*', $html);
-        $this->assertStringContainsString('--stats-number-color: #ff0000', $html);
+        $this->assertStringContainsString('--ppfixture-number-color: #ff0000', $html);
     }
 
     // ── A-30 — the length grammar can express `none` ─────────────────────────
 
     /**
-     * `--stats-max-width` DECLARED `default: "none"` while its grammar could not
+     * `--ppfixture-max-width` DECLARED `default: "none"` while its grammar could not
      * express it, so ai-instructions documented the workaround verbatim: "set 100%,
      * the type has no none input". A declared default nobody can author is a third
      * state. Authored through the real action, not the validator directly.
@@ -277,19 +293,19 @@ class WriteRenderGrammarTest extends TestCase
     public function testNoneIsAcceptedOnTheBandGeometrySlot(): void
     {
         $id = pp_create_page('Max-width none', 'draft');
-        pp_update_composition($id, [['component' => 'stats', 'props' => ['items' => [
+        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [
             ['number' => '99%', 'label' => 'Uptime'],
         ]]]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--stats-max-width' => 'none'],
+            'style'           => ['--ppfixture-max-width' => 'none'],
         ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? 'the declared default must be authorable');
-        $this->assertSame('none', pp_get_composition($id)[0]['style']['--stats-max-width']);
-        $this->assertStringContainsString('--stats-max-width: none', $this->renderStored($id));
+        $this->assertSame('none', pp_get_composition($id)[0]['style']['--ppfixture-max-width']);
+        $this->assertStringContainsString('--ppfixture-max-width: none', $this->renderStored($id));
     }
 
     /**
@@ -314,8 +330,13 @@ class WriteRenderGrammarTest extends TestCase
     public static function lengthSlotsThatMustRejectNone(): array
     {
         return [
-            'padding'        => ['stats', '--stats-padding-top'],
-            'font size'      => ['stats', '--stats-number-size'],
+            // stats' two rows left this table at #1066 PR2 with its slot map, the way
+            // section's went at #1023. The length-vs-length-or-none distinction they pinned
+            // is hosted on the fixture now (#1025) — it is a claim about the GRAMMAR, not
+            // about stats — and on the v2 side it is a role param type, pinned per
+            // component in the RoleDefaultsEmitTests.
+            'padding'        => ['ppfixture', '--ppfixture-padding-top'],
+            'font size'      => ['ppfixture', '--ppfixture-image-size'],
             // section's row left this table at #1023 with its slot map. The
             // length-vs-length-or-none distinction it pinned lives on for the components
             // still on slots, and for section it is now a ROLE param type

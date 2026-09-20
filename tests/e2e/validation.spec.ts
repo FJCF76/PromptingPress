@@ -120,22 +120,36 @@ test.describe('Post-Apply Validation', () => {
     page,
   }) => {
     // 1. Create a page with a band whose image URL is unresolvable.
-    //    `stats`, not section (#1023) and not a cover hero (#986). This fixture needs BOTH
-    //    halves from ONE band: an unresolvable image so `missing_local_media` fires, and a
-    //    `style_component` write that succeeds. `style_component` refuses a v2 component
-    //    outright, so each rebuild sprint evicts this fixture from its host — hero in
-    //    #986, section here. stats is chosen rather than the next-largest slot map because
-    //    it is furthest down the usage-ordered rebuild queue, so this should be the last
-    //    move. (The broken-media signal itself is component-agnostic; it reads image URLs
-    //    wherever a schema declares them.)
+    //    `grid` since #1066 PR2. This fixture needs BOTH halves from ONE band: an
+    //    unresolvable image so `missing_local_media` fires, and a `style_component` write
+    //    that succeeds. `style_component` refuses a v2 component outright, so each rebuild
+    //    evicts this fixture from its host — hero (#986), then section (#1023), then stats,
+    //    and stats rebuilt in #1066's second half. GRID IS THE LAST SHIPPED COMPONENT WITH
+    //    STYLE SLOTS, so this is the final move: when grid rebuilds there is no host left
+    //    and this test retires with the slot engine rather than moving a fifth time.
+    //
+    //    NOTE the #1025 fixture component is NOT usable here. It is registered by
+    //    repointing get_template_directory() inside the PHP test process; the e2e suite
+    //    drives a real WordPress install serving the real theme, so `ppfixture` does not
+    //    exist in this context at all.
+    //
+    //    The image moves from `background_image` to an ITEM's `image_url`: grid declares no
+    //    background_image prop, and the broken-media signal is component-agnostic — it reads
+    //    image URLs wherever a schema declares them.
     pageId = createPage('E2E Validation Broken Media');
     setComposition(pageId, [
       {
-        component: 'stats',
+        component: 'grid',
         props: {
           title: 'Band With Bad Image',
-          items: [{ number: '42', label: 'Metric' }],
-          background_image: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
+          items: [
+            {
+              title: 'Card',
+              text: 'Body',
+              image_url: 'http://localhost:8889/wp-content/uploads/2026/06/nonexistent-image.jpg',
+              image_alt: 'Missing',
+            },
+          ],
         },
       },
     ]);
@@ -162,7 +176,7 @@ test.describe('Post-Apply Validation', () => {
       data.append('name', 'style_component');
       data.append('params[post_id]', String(pid));
       data.append('params[component_index]', '0');
-      data.append('params[style]', JSON.stringify({ '--stats-padding-top': '4rem' }));
+      data.append('params[style]', JSON.stringify({ '--grid-padding-top': '4rem' }));
       if (baseline && baseline.success && baseline.data) {
         data.append('params[expected_version]', String(baseline.data.version));
       }

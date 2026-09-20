@@ -253,7 +253,12 @@ class AiContextTest extends TestCase
         // count it cannot act on.
         foreach (array_keys($counts) as $component) {
             $this->assertStringContainsString(
-                $component === 'testimonials' ? "testimonials' " : "{$component}'s ",
+                // DERIVED, NOT LISTED. A component whose name already ends in `s` takes the
+                // bare apostrophe — `testimonials'`, and since #1066 PR2 `stats'` and
+                // `logos'` too. The hardcoded testimonials special-case was correct for one
+                // component and silently wrong for the next two; the rule it was standing in
+                // for is just English.
+                str_ends_with($component, 's') ? "{$component}' " : "{$component}'s ",
                 $prompt,
                 "the retired-prop inventory must name {$component}, which declares retired props"
             );
@@ -332,10 +337,36 @@ class AiContextTest extends TestCase
             $prompt,
             'the length-or-none carrier set must be stated, including when it empties'
         );
+        // REPRICED AT #1066, ONE LEVEL UP FROM THE NOTE ABOVE, and by its own argument.
+        // That note recorded the TEXT-measure roster emptying at #1046 and concluded that
+        // "the honest successor to a list of one is not a list of zero, it is a sentence
+        // saying the set is empty and naming where the capability went". The SLOT roster
+        // has now emptied the same way: `--stats-max-width` was the last carrier of any
+        // kind and retired with stats' rebuild. So this asserted that the cap "is the only
+        // slot carrier left and must still be named"; it is named as the one that LEFT,
+        // and what must be stated is that nothing carries the type now.
+        //
+        // The danger this guards against is unchanged and is why the assertion is repriced
+        // rather than deleted: an agent told a type exists, shown no carrier and given no
+        // route, concludes the capability is gone and reaches for the pre-#579 `100%`
+        // workaround. So the prompt must say BOTH halves — no slot carries it, and the
+        // route is a role parameter — and both are asserted.
         $this->assertStringContainsString(
-            '`--stats-max-width`',
+            'NO SHIPPED STYLE SLOT CARRIES IT ANY MORE',
             $prompt,
-            'the band-geometry cap is the only slot carrier left and must still be named'
+            'an empty carrier set must be stated as empty, not left to be inferred'
+        );
+        $this->assertStringContainsString(
+            '`--stats-max-width` was the last',
+            $prompt,
+            'the last carrier must still be named, or an author meeting it on an aged page '
+            . 'has nothing to match it against'
+        );
+        $this->assertStringContainsString(
+            'THE TYPE IS NOT GONE, ONLY ITS SLOT CARRIERS ARE',
+            $prompt,
+            'without this an agent reads an empty roster as a removed capability and falls '
+            . 'back to the pre-#579 `100%` workaround'
         );
         $this->assertStringContainsString(
             'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
@@ -982,10 +1013,20 @@ class AiContextTest extends TestCase
         // heading-size slot", not "#436's three components", so every current declarer
         // belongs in the roster and it is derived from that claim rather than from the
         // issue that introduced it.
+        // stats and logos left this roster at #1066 PR2, for the reason table and embed
+        // left earlier in the same issue: both are v2 components now, so the prompt
+        // announces their ROLES and the "Style slots:" assertion below is the one claim
+        // that cannot be true of them. GRID IS THE LAST DECLARER — and unlike the earlier
+        // draft this comment corrects, that is not an instruction to retire the test when
+        // grid goes: the SUBJECT is "the runtime prompt surfaces a component's heading-size
+        // slot", so when grid rebuilds the claim genuinely has no subject left and the
+        // test retires with the slot system rather than with any one component.
+        //
+        // The v2 half is covered by testTheRuntimePromptsV2RosterMatchesTheRegistry in
+        // DocsCoverageTest, which is registry-derived and picked stats and logos up the
+        // moment they declared roles.
         $expected = [
             'grid'  => '--grid-heading-size',
-            'stats' => '--stats-heading-size',
-            'logos' => '--logos-heading-size',
         ];
         foreach ($expected as $name => $slot) {
             $found = false;
@@ -1325,16 +1366,55 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('share background', $system);
     }
 
-    public function testAdjacencyNotAnnotatedWhenImageBackedEvenWithMatchingBg(): void
+    /**
+     * REPRICED AT #1066, AND THE ANSWER FLIPPED — deliberately, with a precedent.
+     *
+     * This asserted that a `background_image` SUPPRESSED the flat-colour fusing hint:
+     * the visible band was the image, so "these two share #092082" would have been a
+     * lie. Every component has now retired that prop (section #1023, cta #1026, stats
+     * #1066) and nothing migrates stored props, so this fixture is exactly the aged
+     * page it always described — and on that page the prop is UNREAD AT RENDER. The
+     * band paints its `--*-bg` slot and nothing else. Suppressing the hint would now
+     * hide a statement that is true.
+     *
+     * THE RULE IS THE ONE #605 ALREADY SET, three steps down in the same resolver: a
+     * `theme` value stored before the vocabulary freeze falls through to the default
+     * bucket because pp_theme_class() coerces it to the default band, and the resolver
+     * and the renderer move in lockstep. A stored `background_image` is the same
+     * situation and takes the same answer.
+     *
+     * The test is KEPT rather than deleted because the subject — what an aged page's
+     * dead styling prop does to the adjacency hint — is exactly what needs pinning
+     * while such pages exist. Deleting it would have left the flip unrecorded.
+     */
+    public function testAdjacencyAnnotatedDespiteAStoredRetiredBackgroundImage(): void
     {
-        // A background_image makes the visible band the image, not the flat color,
-        // so a co-set --*-bg slot must NOT produce a fusing hint.
         $system = $this->pageContextFor(706, [
             ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
             ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
         ]);
 
-        $this->assertStringNotContainsString('share background', $system);
+        $this->assertStringContainsString('share background #092082', $system);
+
+        // DISCRIMINATING, not merely positive: pin the resolver directly, so a pass
+        // cannot come from some other pair or some other wording. A stored
+        // `background_image` must resolve exactly as an absent one does.
+        $withImage = _pp_resolve_component_bg([
+            'component' => 'section',
+            'props'     => ['background_image' => 'https://ex.test/a.jpg'],
+            'style'     => ['--section-bg' => '#092082'],
+        ]);
+        $withoutImage = _pp_resolve_component_bg([
+            'component' => 'section',
+            'props'     => [],
+            'style'     => ['--section-bg' => '#092082'],
+        ]);
+        $this->assertSame(
+            $withoutImage,
+            $withImage,
+            'a retired prop that paints nothing must not change what the resolver sees'
+        );
+        $this->assertSame('bg:#092082', $withImage['id']);
     }
 
     public function testAdjacencyTransparentOverrideTreatedAsDefault(): void

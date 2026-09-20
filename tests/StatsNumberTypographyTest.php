@@ -16,30 +16,40 @@
  *     └── .stats__label    <span>  ← SIBLING, not a child: it keeps the body font
  *                                    no matter what the number's family is set to.
  *
- * Three layers are pinned here:
- *   1. Schema — the two new slots are declared with the types the shared
- *      validation engine already owns (`font-family` -> _pp_validate_font_family,
- *      `number` -> _pp_validate_number). No new value grammar was invented.
- *   2. Authoring path — real writes through pp_validate_composition() with the
- *      top-level `style` key are accepted for good values and rejected for bad
- *      ones (Section 14.1: raw _pp_composition meta seeding would bypass this).
- *   3. CSS contract — the base rule routes both properties through the slots with
- *      fallbacks that reproduce the pre-472 render EXACTLY (`inherit` and `700`),
- *      and nothing in the stats block re-declares either property literally.
+ * REPRICED AT #1066 PR2, CLAIM BY CLAIM, AND THE FILE KEEPS ITS NAME. #472's
+ * capability is the same one it always was — the display figure's typography is
+ * controllable per instance, and the LABEL beside it is not dragged along — but
+ * every address in it moved when stats joined the Universal Design Contract.
+ * The two slots this file was built around (`--stats-number-font`,
+ * `--stats-number-weight`) retired with stats' entire slot map; the capability
+ * is the `number` role's `typography` group, which carries family, weight, size
+ * and colour together rather than as four independently-editable handles.
  *
- * Why the fallbacks are literals and not the heading tokens: see the
- * `.stats__number` rule in assets/css/components.css, which carries the full
- * rationale next to the code. testUnsetStatsRenderIsByteIdentical pins the
- * consequence here.
+ * Three layers are still pinned here, and the middle one is unchanged:
+ *   1. Schema — the `number` role declares the `typography` group, and the
+ *      engine knows every parameter the capability needs. No new value grammar
+ *      was invented at #472 and none was invented at the rebuild either.
+ *   2. Authoring path — real writes through the validating surface are accepted
+ *      for good values and rejected for bad ones (Section 14.1: raw
+ *      _pp_composition meta seeding would bypass this).
+ *   3. Rendered contract — nothing re-declares either property literally where
+ *      an authored value would lose to it.
  *
- * The generic "every declared slot is consumed on a type-compatible property and
- * is not defeated by a literal re-declaration" proof is owned by
- * StyleSlotContractTest (#305), which auto-discovers these two slots from
- * schema.json; the exact fallback literals are pinned there too
- * (testIssue472StatsNumberTypographySlotFallbacks), alongside the sibling
- * byte-identical-unset pins for issues 293/296/514. The rendered paint
- * (computed weight, family swap at 375/1280) is pinned in
- * tests/e2e/style-render.spec.ts.
+ * THE FAMILY'S ABSENCE IS THE ONE DELIBERATE CHANGE, and it is asserted rather
+ * than incidental. v1 declared `font-family: var(--stats-number-font, inherit)`
+ * and this file pinned `inherit` as the documented default. An explicit
+ * `inherit` IS a declaration — but nothing in this theme declares font-family on
+ * a <span>, so the inherited body face already lands and SILENCE IS
+ * BYTE-IDENTICAL (measured `system-ui, sans-serif` either way, at all three
+ * tiers). The role therefore declares the GROUP but no `family` default: the
+ * same rendered answer #472 shipped, and one fewer unlayered declaration
+ * competing with an author's.
+ *
+ * Where the neighbouring proofs live now: the emitted defaults are asserted as
+ * CSS in StatsRoleDefaultsEmitTest (which pins this absence from the other
+ * side), the generic "every declared role default emits and is not defeated"
+ * sweep is UdcEngineTest's, and the rendered paint (computed weight, family swap
+ * at 375/1280) is pinned in tests/e2e/style-render.spec.ts.
  */
 
 declare(strict_types=1);
@@ -98,29 +108,51 @@ class StatsNumberTypographyTest extends TestCase
 
     public function testSchemaDeclaresBothNumberTypographySlots(): void
     {
+        // REPRICED AT #1066 PR2 FROM SLOTS TO A ROLE, claim intact. The two slots this
+        // asserted (`--stats-number-font`, `--stats-number-weight`) retired with stats'
+        // whole slot map; #472's capability did not. It is the `number` role's `typography`
+        // group now, which carries family, weight, size and colour together.
+        //
+        // AND THE FAMILY'S ABSENCE IS THE INTERESTING HALF, carried over deliberately. v1
+        // declared `font-family: var(--stats-number-font, inherit)` and this test pinned
+        // `inherit` as the documented default. An explicit `inherit` IS a declaration — but
+        // nothing in this theme declares font-family on a <span>, so the inherited body
+        // face already lands and SILENCE IS BYTE-IDENTICAL (measured `system-ui, sans-serif`
+        // either way, at all three tiers). So the role declares the GROUP but no `family`
+        // default, which is the same rendered answer #472 shipped and one fewer unlayered
+        // declaration competing with an author's.
         $schema = json_decode(
             file_get_contents($this->themeRoot . '/components/stats/schema.json'),
             true
         );
-        $slots = $schema['styling']['style_slots'];
+        $number = $schema['roles']['number'] ?? null;
+        $this->assertNotNull($number, 'stats must declare a `number` role');
 
-        $expected = [
-            '--stats-number-font'   => ['font-family', 'inherit'],
-            '--stats-number-weight' => ['number', '700'],
-        ];
-        foreach ($expected as $name => [$type, $default]) {
-            $this->assertArrayHasKey($name, $slots, "stats must declare {$name}.");
-            $this->assertSame($type, $slots[$name]['type'], "{$name} must be type {$type}.");
-            $this->assertSame(
-                $default,
-                $slots[$name]['default'],
-                "{$name}'s documented default must be the pre-472 rendered value ({$default})."
+        $this->assertContains(
+            'typography',
+            $number['groups'],
+            '#472 asked for the display figure to be heading-typography controllable per '
+            . 'instance; the typography group is where that lives now'
+        );
+
+        $defaults = $number['defaults']['typography'] ?? [];
+        $this->assertSame('700', $defaults['weight'] ?? null, "the pre-472 rendered weight, carried as a literal");
+        $this->assertSame('2.5rem', $defaults['size'] ?? null);
+        $this->assertArrayNotHasKey(
+            'family',
+            $defaults,
+            'the family must NOT be defaulted: v1\'s `inherit` was a declaration that '
+            . 'changed nothing, and restating it as a role default would emit an unlayered '
+            . 'declaration where v1 emitted an inert one'
+        );
+
+        // The engine must still know every parameter the capability needs.
+        foreach (['family', 'weight', 'size', 'color'] as $param) {
+            $this->assertArrayHasKey(
+                $param,
+                pp_udc_groups()['typography']['params'],
+                "typography.{$param} must exist, or #472's capability is not expressible"
             );
-            $this->assertIsString(
-                $slots[$name]['default'],
-                "{$name}'s default must be a STRING like every other slot default — a JSON number would be a different shape for the schema-derived surfaces to render."
-            );
-            $this->assertNotEmpty($slots[$name]['description']);
         }
     }
 
@@ -142,93 +174,88 @@ class StatsNumberTypographyTest extends TestCase
 
     public function testHeadingSystemTypographyValidatesThroughTheAuthoringSurface(): void
     {
-        // The exact site-level ask in #472: a serif heading face at weight 600 on
-        // the display figures, authored as a composition write (create_page /
-        // update_composition), not a raw _pp_composition meta seed.
-        $composition = [[
-            'component' => 'stats',
-            'props'     => $this->statsProps(),
-            'style'     => [
-                '--stats-number-font'   => 'var(--font-heading)',
-                '--stats-number-weight' => '600',
-            ],
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'A serif-heading stats band must validate through the shared style-slot engine.'
+        // The exact site-level ask in #472, through the v2 write surface: a serif heading
+        // face at weight 600 on the display figures.
+        $this->assertNull(
+            pp_udc_validate_map(
+                ['number' => ['typography' => ['family' => '@font-heading', 'weight' => '600']]],
+                'stats'
+            ),
+            'the #472 ask must still be expressible: a heading face and weight on the figure'
         );
     }
 
     public function testLiteralFontStackValidatesThroughTheAuthoringSurface(): void
     {
-        $composition = [[
-            'component' => 'stats',
-            'props'     => $this->statsProps(),
-            'style'     => ['--stats-number-font' => 'Fraunces, Georgia, serif'],
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'A comma-separated literal font stack must validate.'
+        $this->assertNull(
+            pp_udc_validate_map(
+                ['number' => ['typography' => ['family' => 'Fraunces, Georgia, serif']]],
+                'stats'
+            ),
+            'a literal stack must validate, not only a token reference'
         );
     }
 
     public function testQuotedFontStackSurvivesValidationAndRender(): void
     {
-        // A family name with spaces is quoted in real CSS, and the slot-type table
-        // in ai-instructions/style-component.md advertises exactly that shape
-        // (`"Inter", sans-serif`). Quotes clear the injection guard, so the only
-        // question is whether they survive the render boundary and esc_attr —
-        // they must arrive in the attribute as an entity the browser decodes back
-        // to a quote, not get dropped as an unrenderable value.
-        $value       = '"Fraunces", Georgia, serif';
-        $composition = [[
+        // A quoted family name is the shape most likely to be mangled on the way to CSS.
+        $map = ['number' => ['typography' => ['family' => '"Playfair Display", Georgia, serif']]];
+        $this->assertNull(pp_udc_validate_map($map, 'stats'));
+
+        $css = pp_udc_band_css([
             'component' => 'stats',
-            'props'     => $this->statsProps(),
-            'style'     => ['--stats-number-font' => $value],
-        ]];
-        $this->assertTrue(
-            pp_validate_composition($composition),
-            'A quoted font stack must validate.'
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => $map,
+        ]);
+        $this->assertStringContainsString(
+            '"Playfair Display", Georgia, serif',
+            $css,
+            'the quoted stack must reach the page unmangled — validation accepting it is '
+            . 'not the same claim as it surviving to CSS (#1046: acceptance is not emission)'
         );
-        $this->assertTrue(
-            pp_render_style_value_allowed($value, 'font-family'),
-            'A quoted font stack must survive the #330 render boundary, not be silently dropped.'
-        );
-        $html = $this->render($this->statsProps(['__pp_style' => ['--stats-number-font' => $value]]));
-        $this->assertStringContainsString('--stats-number-font: &quot;Fraunces&quot;, Georgia, serif', $html);
     }
 
     public function testEitherSlotIsIndependentlySettable(): void
     {
-        foreach ([
-            ['--stats-number-weight' => '600'],
-            ['--stats-number-font' => 'var(--font-heading)'],
-        ] as $style) {
-            $composition = [[
-                'component' => 'stats',
-                'props'     => $this->statsProps(),
-                'style'     => $style,
-            ]];
-            $this->assertTrue(
-                pp_validate_composition($composition),
-                'Each slot must be settable on its own, not only as a pair: ' . key($style)
+        // Each parameter stands alone: setting the weight must not require a family, and
+        // setting a family must not force a weight.
+        foreach ([['weight' => '600'], ['family' => '@font-heading']] as $one) {
+            $this->assertNull(
+                pp_udc_validate_map(['number' => ['typography' => $one]], 'stats'),
+                'each typography parameter must be independently settable: ' . json_encode($one)
             );
         }
     }
 
-    public function testKeywordWeightIsRejectedByTheAuthoringSurface(): void
+    public function testTheWeightGrammarWidenedAtTheRebuildAndStillRefusesNonsense(): void
     {
-        // `bold` is a legal CSS font-weight but not a unitless number, so the
-        // `number` type rejects it — the same bound --hero-heading-weight carries.
-        // The write is refused at the authoring boundary; nothing persists.
-        $composition = [[
-            'component' => 'stats',
-            'props'     => $this->statsProps(),
-            'style'     => ['--stats-number-weight' => 'bold'],
-        ]];
-        $result = pp_validate_composition($composition);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
+        // THE CLAIM INVERTED AT #1066 PR2, AND THE INVERSION IS THE FINDING. #472 pinned
+        // that `bold` was REFUSED, because `--stats-number-weight` was a generically
+        // `number`-typed slot and a keyword is not a number. The `number` role's
+        // `typography.weight` is a purpose-built `font-weight` type, which ACCEPTS the CSS
+        // keywords — so the rebuild WIDENED this grammar rather than preserving it.
+        //
+        // That is a capability change, so it is asserted rather than quietly inherited: an
+        // author writing `bold` used to get a refusal and now gets bold text. Recorded here
+        // because a reader of #472 would otherwise reasonably expect the old refusal, and
+        // because the widening is shared by every v2 component, not special to stats.
+        foreach (['bold', 'bolder', '600', '700', '1000'] as $ok) {
+            $this->assertNull(
+                pp_udc_validate_map(['number' => ['typography' => ['weight' => $ok]]], 'stats'),
+                "the font-weight type accepts `{$ok}`"
+            );
+        }
+
+        // AND IT STILL REFUSES NONSENSE, which is what keeps the widening from being a
+        // hole: a length, an invented keyword and a negative are all still errors.
+        foreach (['600px', 'heavy', '-100'] as $bad) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                pp_udc_validate_map(['number' => ['typography' => ['weight' => $bad]]], 'stats'),
+                "`{$bad}` must still be refused — the type widened to CSS keywords, not to anything"
+            );
+        }
     }
 
     public function testInjectionInEitherSlotIsRejectedByTheAuthoringSurface(): void
@@ -255,14 +282,22 @@ class StatsNumberTypographyTest extends TestCase
 
     public function testBothSlotsRenderAsInlineCustomProperties(): void
     {
-        $overrides = [
-            '--stats-number-font'   => 'var(--font-heading)',
-            '--stats-number-weight' => '600',
-        ];
-        $html = $this->render($this->statsProps(['__pp_style' => $overrides]));
-        foreach ($overrides as $slot => $value) {
-            $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
-        }
+        // v1 emitted these as inline custom properties on the band; v2 emits them as real
+        // declarations in a band-scoped block in the document head. The CLAIM is the same —
+        // an authored value reaches the page — and it is asserted against the EMISSION
+        // rather than against the schema, which is the #1046 rule.
+        $css = pp_udc_band_css([
+            'component' => 'stats',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['number' => ['typography' => [
+                'family' => 'Fraunces, Georgia, serif',
+                'weight' => '600',
+            ]]],
+        ]);
+        $this->assertStringContainsString('font-family:Fraunces, Georgia, serif', $css);
+        $this->assertStringContainsString('font-weight:600', $css);
+        $this->assertStringContainsString('.stats__number', $css, 'both must land on the figure');
     }
 
     public function testUnsetStatsRenderIsByteIdentical(): void
@@ -286,38 +321,21 @@ class StatsNumberTypographyTest extends TestCase
 
     public function testNoLiteralFontWeightSurvivesOnTheNumber(): void
     {
-        // The #302 dead-slot class: a slot is declared and consumed, but a literal
-        // re-declaration elsewhere on the same element wins, so style_component
-        // reports Success and the page does not move. Scan every rule in the WHOLE
-        // stylesheet whose selector targets .stats__number and require any
-        // font-family/font-weight declaration on it to consume the slot.
-        $css = preg_replace('!/\*.*?\*/!s', '', $this->componentsCss);
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-        $seen = 0;
-        foreach ($rules as [, $selector, $body]) {
-            if (!preg_match('/\.stats__number(?![-\w])/', $selector)) {
-                continue;
-            }
-            foreach (['font-family', 'font-weight'] as $property) {
-                if (!preg_match_all('/(?<![-a-z])' . $property . '\s*:\s*([^;}]+)/i', $body, $decls)) {
-                    continue;
-                }
-                foreach ($decls[1] as $value) {
-                    $seen++;
-                    $this->assertMatchesRegularExpression(
-                        '/var\(\s*--stats-number-(font|weight)\b/',
-                        $value,
-                        "A literal {$property} on `" . trim($selector) . "` would defeat the slot."
-                    );
-                }
-            }
+        // THE ORIGINAL CLAIM, AND IT IS STRONGER NOW. #472 required that the stylesheet
+        // carry no literal font-weight on the figure, because a literal would beat the
+        // slot. Under the v2 boundary the stylesheet carries no TYPOGRAPHY AT ALL on it —
+        // the whole `.stats__number` rule is gone, and the fail-closed structural-CSS lint
+        // makes its return a CI failure rather than a silent shadowing.
+        $block = $this->statsBlock();
+        foreach (['font-weight', 'font-family', 'font-size', 'color'] as $prop) {
+            $this->assertStringNotContainsString(
+                $prop,
+                $block,
+                "the stats block must declare no {$prop}: every one of those is a `number` "
+                . 'role parameter now, and a stylesheet literal would shadow the author'
+            );
         }
-        $this->assertSame(
-            2,
-            $seen,
-            'Exactly the two slotted declarations (family + weight) should exist on .stats__number.'
-        );
+        $this->assertStringNotContainsString('.stats__number', $block, 'the rule itself is gone');
     }
 
     public function testLabelTypographyIsUntouchedByTheNumberSlots(): void

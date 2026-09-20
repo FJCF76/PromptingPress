@@ -11,26 +11,59 @@
 
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
-$theme = $props['theme'] ?? 'default';
-$items   = $props['items']   ?? [];
+// The container guard, following faq's precedent at #1046 — see the longer note in
+// components/stats/stats.php, which this change made in the same pass. A scalar `items`
+// is unreachable through the write path (#744 refuses it) and reachable through stored
+// state, exactly like the retired props.
+$raw_items = $props['items']   ?? [];
+$items   = is_array($raw_items) ? $raw_items : [];
 
-// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
-$theme_class = pp_theme_class($theme, 'logos');
+// ── v2: the band id, and the one attribute this template emits for it (#1066) ──
+//
+// logos declares ROLES, not style slots, so there is no `__pp_style` map to render and no
+// `style` attribute at all - #708's guard left with the map it guarded. The engine
+// compiles the band's `udc` map into a band-scoped block in the document head; this
+// template's whole contribution is saying WHICH band.
+//
+// THE GUARD IS THE POINT, AND AN EMPTY ATTRIBUTE WOULD BE WORSE THAN NO ATTRIBUTE:
+// `[data-pp-band=""]` matches every other id-less band on the page, so a malformed stored
+// id would paint one band's design onto all of them. Reachable from stored data even
+// though the engine mints on WRITE - a raw `_pp_composition` meta write is not gated, and
+// restore_composition reports without blocking (#233). Validate, then emit or emit
+// nothing. Pinned behaviourally in StatsLogosV2BandContractTest.
+//
+// WHAT THIS GUARD DOES NOT DO, stated because the engine's own docblock overstates it:
+// `pp_udc_promote_band_identity()` says a band with no usable id "promotes NOTHING, so the
+// component emits no `data-pp-band`". That is true of the PROMOTION but not of the props —
+// it never clears a `__pp_udc_band` already present, so a stored one passes this charset
+// check on its way through and the band can wear ANOTHER band's compiled block. The check
+// here is a grammar check, not a provenance check; only the engine can tell a minted id
+// from a copied one. Filed as #1073 with the overlay half.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
-// #708: guard the raw `__pp_style` map before it reaches the typed
-// pp_render_style_vars(array $style, ...). A stored non-array raises a TypeError that
-// no caller catches, so the whole PUBLIC PAGE 500s. It arrives as `__pp_style` stored
-// INSIDE props: all four top-level `style` promotions are already is_array guarded, so
-// this read is the only reachable boundary and the only place a guard can help.
-// is_array, NOT is_scalar — an array IS the contract at this parameter. Degrades to no
-// inline custom properties and no `style` attribute at all, byte-identical to a band
-// that stored no style. Full reasoning in components/grid/grid.php.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-$slot_style = pp_render_style_vars($style, 'logos');
-$style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
+// THE ENGINE DECIDES whether a scrim is being painted; the template just consumes the flag.
+//
+// TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
+// stood here claimed a benefit this component cannot have:
+//
+// 1. IT HAS NO CONSUMER ON THIS BAND TODAY. The attribute's only readers are
+//    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`. Neither stats nor
+//    logos renders a `.btn`, a `.faq__question`, or ANY focusable child — so there is no
+//    focus ring here to switch, and the 1.17:1 contrast defect the old comment cited
+//    (#986's mechanism, #1035's defect) is unreachable on these two components. It is
+//    emitted for consistency with the other v2 bands and to be correct the day one of
+//    these grows a focusable child, not because it fixes something now.
+// 2. THE FLAG IS AN INPUT-SHAPED PROP AND IS NOT VALIDATED AGAINST THE COMPILED MAP. The
+//    engine sets it, but `pp_udc_promote_band_identity()` never CLEARS a value already in
+//    `$props`, so a raw `_pp_composition` write or a restore (#233) can carry a forged
+//    `__pp_udc_overlay` and switch the hook on a band painting no scrim at all. Filed as
+//    #1073 rather than patched here: the fix belongs in the engine's promotion step, which
+//    is shared by all v2 templates, and a local guard here would leave the other nine.
+$overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos<?php echo esc_attr($theme_class); ?>" data-pp-component="logos"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos" data-pp-component="logos"<?php echo $band_attr; ?><?php echo $overlay_attr; ?>>
     <div class="container">
 
         <?php if ($title) : ?>
@@ -62,7 +95,7 @@ $style_attr = $slot_style ? ' style="' . $slot_style . ';"' : '';
                     // components/stats/stats.php and components/hero/hero.php respectively
                     // (#705's block lived in components/cta/cta.php until #1026 retired that
                     // component's background_image prop and moved it to the last declarer);
-                    // #708 (the `__pp_style` map into pp_render_style_vars, and grid's
+                    // #708 (the `__pp_style` map into the style-vars renderer, and grid's
                     // count($items)) has since LANDED too, and this file carries its
                     // guard at the top; its canonical block is in
                     // components/grid/grid.php. #738 (an associative `items` map fataling

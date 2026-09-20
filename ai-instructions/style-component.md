@@ -57,12 +57,14 @@ design token** (a property in the first `:root` block of `base.css`, which is th
 (a rule that component can match actually reads it). Completeness is NOT guaranteed. The array
 is hand-curated and deliberately partial: a band's own rules read several times more registered
 tokens than its array names, and a token can be missing for no reason beyond nobody having added
-it. `--overlay-bg` is listed by the one v1 component that still reads it (`stats`), and it is
-reached only as a slot fallback (`var(--stats-overlay-bg, var(--overlay-bg))`);
-`--measure-heading` is reached in exactly the same way and is not listed by anyone. (`hero`,
-`section` and `cta` listed it too until their rebuilds retired the slot chain that reached
-it — on a v2 component the token is reached by a ROLE default instead, e.g. cta's `heading`
-and `text` roles both default `sizing.max-width` to `@measure-heading`.)
+it. `--overlay-bg` is listed by NOBODY since #1066 — `stats` was the last v1 component that
+reached it, through `var(--stats-overlay-bg, var(--overlay-bg))`, and both that slot and
+that chain retired with its rebuild. On a v2 band the token is written BY NAME instead:
+`_band` -> `background.overlay: "@overlay-bg"`. `--measure-heading` is in the same
+position and likewise listed by no one (`hero`, `section` and `cta` listed it until their
+rebuilds retired the slot chain that reached it) — on a v2 component it is reached by a
+ROLE default, e.g. cta's `heading` and `text` roles both default `sizing.max-width` to
+`@measure-heading`.
 **So never read absence from this array as "this component does not consume that token."** For
 what you can actually set on one band, read its `style_slots` — each slot's `default` names the
 token it routes — or, on a v2 component, its `roles` and the band's `udc` map, which declare no
@@ -170,7 +172,7 @@ not.
 |------|----------|-----------|
 | `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
 | `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
-| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). Carried by the width-cap slots whose **declared default IS `none`**, so the built-in uncapped state stays authorable: since #1046 the band-geometry cap `--stats-max-width` is the ONLY slot left that carries it — no text measure ships uncapped any more. (`--faq-body-measure` was the last and left at #1046 with faq's rebuild; faq's `answer` role declares no measure at all, because v1 rendered `none`.) (`--cta-body-measure` left at #1026 with cta's rebuild; cta's `body` role declares no `max-width` at all, which is the same uncapped render stated as silence rather than as `none`.) Every other measure slot has a real length default and stays plain `length`. A plain `length` slot still rejects `none`. On a v2 component there is no `length-or-none` slot to reach: an uncapped measure is the role's `sizing.max-width` set to `none`, which the v2 grammar accepts on that parameter directly. | `_pp_validate_length()` (with the `none` keyword) |
+| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). **NO SHIPPED STYLE SLOT CARRIES IT ANY MORE.** It was carried by the width caps whose declared default IS `none`, so the built-in uncapped state stayed authorable; `--stats-max-width` was the last and retired at #1066 with stats' rebuild. (The text measures went first: `--cta-body-measure` at #1026 and `--faq-body-measure` at #1046, and neither component's role declares a measure at all, because v1 rendered `none` — the same uncapped render stated as silence rather than as a keyword.) grid's remaining measure slots have real length defaults and stay plain `length`, which still rejects `none`. The TYPE is live and still reachable, on a v2 component: an uncapped measure is the role's `sizing.max-width` set to `none`, which the v2 grammar accepts on that parameter directly, and `sizing.max-height` takes it too. | `_pp_validate_length()` (with the `none` keyword) |
 | `number` | `700`, `1.5` | `_pp_validate_number()` |
 | `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
 | `font-family` | `"Inter", sans-serif`, `system-ui, sans-serif`, `-apple-system, BlinkMacSystemFont`, `var(--font-heading)` — a comma-separated list where every name is one of three shapes: an **unquoted** name of letters, digits, spaces, `-` or `_`; a **fully quoted** name (`"Helvetica Neue"`, `'Cascadia Code'`) whose quote character does not recur inside it; or a **single token reference** (`var(--font-mono)`, no fallback, no nesting — unlike `color`, this is not checked against the token registry, so a typo validates and paints nothing). Quote any name carrying other characters, a non-ASCII face name included — quoting is not a licence for anything, since the shared reject set still applies to the whole value on every surface (`{ } ; < >`, backslash, `/*`, `url(`, `@import` are rejected inside quotes too). Empty names (`Inter,, serif`) and trailing commas are rejected. **Two extra limits apply wherever the value reaches raw CSS source text** — every v2 `udc` parameter, and the `:root` block the theme emits for design-token overrides (a v1 style slot is unaffected; its sink is an escaped `style` attribute). First, brackets must be closed, matching pairs: `(` with `)` and `[` with `]`, properly nested (`"Foo (Display)"` ok, `"Foo (Display"` rejected, `[full-start] 1fr [full-end]` ok, `([)]` rejected). Second, each of `'` and `"` must appear an even number of times across the whole value (`"Foo's Font"` rejected however written; `'Foo "Display Font'` rejected; `'Foo "Display" Font'` ok). **Where it bites differs by surface:** a `udc` value breaking either limit is REFUSED at write; a design-token override breaking one is accepted at write but DROPPED at render, and `wp pp readiness status` then reports it. | `_pp_validate_font_family()` (+ the shared delimiter gate on `udc` values and design-token overrides) |
@@ -213,31 +215,41 @@ only as its plain-color half.
 
 The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
 or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
-`inset`, multi-layer shadows, and `url()` are rejected. The grid (card) and stats components each expose namespaced `*-border-color`,
-`*-border-width`, `*-radius`, and `*-shadow` slots. hero, section, testimonials, cta and faq
-exposed them until their rebuilds (#986, #1023, #958, #1026); on a v2 component that framing
-is the role's own `border` and `shadow` groups.
+`inset`, multi-layer shadows, and `url()` are rejected. The grid (card) component is the
+only one left that exposes namespaced `*-border-color`, `*-border-width`, `*-radius` and
+`*-shadow` slots. hero, section, testimonials, cta, faq, table, embed, stats and logos
+exposed them until their rebuilds (#986, #1023, #958, #1026, #1046, #1066); on a v2
+component that framing is the role's own `border` and `shadow` groups.
 
-The `stats` band exposes two of these framing slots — `--stats-radius` (length,
-default `0`) and `--stats-max-width` (**length-or-none**, default `none`) — for a
-**contained, rounded metrics card** (#383). Set both together: `--stats-max-width`
-caps the band and centers it with auto side margins, and `--stats-radius` rounds the
-band's background. Unset, the band spans full width with square corners exactly as
-before. To remove the max-width, set `none` — the `length-or-none` type accepts the
-same keyword the slot declares as its default, so the built-in full-bleed is
-authorable (#579). `none` is accepted **only** on a `length-or-none` slot; a plain
-`length` slot (padding, font-size, radius, and any measure with a real length default
-such as `--grid-heading-measure`) still rejects it, and there `100%` remains the way to
-widen a cap. The measures that ship uncapped carry `length-or-none` too — see the
-type table above and "Text measures" below. Stats does not expose `*-border-*` or `*-shadow` slots.
+**THE `stats` FRAMING SLOTS LEFT AT #1066 AND THE CAPABILITY DID NOT.** `--stats-radius`
+and `--stats-max-width` built a **contained, rounded metrics card** (#383); the v2 write is
+`_band` -> `border.radius` beside `_band` -> `sizing.max-width`, in one map. The centring
+comes free: `_band` defaults both side margins to `auto`, so a capped stats band centres
+itself exactly as the slot pair did. To remove the cap, write `none` on
+`sizing.max-width` — the v2 grammar accepts the keyword on that parameter directly, which
+is why no `length-or-none` SLOT is needed for it.
+
+**AND NO SLOT NEEDS IT ANY MORE AT ALL.** `--stats-max-width` was the last carrier of the
+`length-or-none` type in the theme; grid, the one v1 component left, carries none. So the
+rule below is about the TYPE rather than about any shipped slot, and it still matters
+because the type is live on every v2 component's `sizing.max-width` and `sizing.max-height`:
+`none` removes a cap, and it is accepted **only** where the grammar declares it. A plain
+`length` slot (padding, font-size, radius, and any measure with a real length default such
+as `--grid-heading-measure`) still rejects `none`, and there `100%` remains the way to
+widen a cap (#579).
 
 ## Text measures — prefer the token over a per-band literal (#578)
 
-Five band components declare `--<component>-heading-measure` — embed, grid, logos, stats
-and table — and of those only `embed` also declares `--<component>-body-measure`. (The
-rosters were wider: section's and cta's measures left with their rebuilds at #1023 and #1026,
-where a measure is the role's `sizing.max-width`.) They **default to the shared
-`--measure-heading` design token** (`40rem`), so the
+**ONE band component still declares `--<component>-heading-measure`, and it is `grid`.**
+Nothing declares `--<component>-body-measure` at all. The rosters were five and two: this
+sentence read "grid and table … only embed also declares a body measure" until #1066, which
+is wrong twice over — it said "one" and listed two, and BOTH names it listed belong to
+components that now declare zero slots, so `--table-heading-measure` and
+`--embed-body-measure` are refused with `no_style_slots`. On every v2 component a measure
+is the role's own `sizing.max-width` (section's and cta's left at #1023 and #1026, faq's at
+#1046, table's and embed's at #1066's first half, stats' and logos' at its second). grid's
+remaining measure slots **default to the shared `--measure-heading` design token**
+(`40rem`), so the
 normal way to change band heading measure across a site is ONE `update_design_token`
 write, not ten `style_component` writes.
 
@@ -249,11 +261,14 @@ and accept that this band stops following.
 
 Two components are deliberately exempt and default to `none`:
 
-- **`hero`** — `.hero__content` is a flex item that shrink-wraps to its widest child, so
-  a cap on `--hero-heading-measure` narrows the whole content column (title, subheading
-  AND buttons), not just the headline. The hero measure you almost always want is
-  **`--hero-content-width`**. Reach for `--hero-heading-measure` only to hold a headline
-  deliberately narrower than its column.
+- **`hero`** — both hero names below are RETIRED (#986) and are kept because the
+  BEHAVIOUR they describe survived the rebuild intact. `.hero__content` is a flex item
+  that shrink-wraps to its widest child, so a cap on the TITLE's measure narrows the whole
+  content column (title, subheading AND buttons), not just the headline. The cap you
+  almost always want is the CONTENT column's, which is the `content` role's
+  `sizing.max-width`; reach for the `title` role's only to hold a headline deliberately
+  narrower than its column. (v1 spelled the pair `--hero-heading-measure` and
+  `--hero-content-width`; writing either is refused with `no_style_slots`.)
 - **`section`** — the section title has never carried a cap, and section is the most-used
   band, so it stays uncapped unless you say otherwise.
 
@@ -286,16 +301,21 @@ matters. See components/section/README.md, "Stated defaults" and "What narrowed"
 
 **Stats display numbers follow the heading system only when you ask (#472).** The big
 metric values are the largest text in the component, but by default they take the page
-**body** font at weight `700` — they are not headings. On a site whose headings use a
-distinct display face, set both `--stats-number-font` (font-family, default `inherit`)
-and `--stats-number-weight` (number, default `700`) to bring the figures onto the
-heading system: `"--stats-number-font": "var(--font-heading)"` plus, say,
-`"--stats-number-weight": "600"` when the heading face wants a lighter weight than the
-bold body default. `--stats-number-font` takes a font token or any comma-separated
-stack; `--stats-number-weight` is literal-only (a unitless number — `bold` is
-rejected), so read `--font-weight-heading`'s current value and pass that number if you
-want parity. Both are opt-in: leave them unset and the band renders exactly as before.
-The `--stats-label-*` text is a sibling element and never follows the number's face.
+**body** font at weight `700` — they are not headings, and the `number` role DECLARES NO
+`family` DEFAULT precisely so that inherited face keeps landing. On a site whose headings
+use a distinct display face, bring the figures with it in the band's `udc` map:
+
+```json
+{ "number": { "typography": { "family": "var(--font-heading)", "weight": "600" } } }
+```
+
+`typography.family` takes a font token or any comma-separated stack. `typography.weight`
+is a purpose-built `font-weight` type and, unlike the v1 slot it replaces, ACCEPTS THE CSS
+KEYWORDS (`bold`, `normal`, `lighter`, `bolder`) as well as a unitless number — `600px`,
+`heavy` and `-100` are still refused. Both are opt-in: write neither and the band renders
+exactly as before. The `label` role is a sibling element and never follows the number's
+face. (v1 spelled this pair `--stats-number-font` / `--stats-number-weight`; both retired
+with stats' slot map at #1066 and writing either is refused with `no_style_slots`.)
 
 The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
 glow on card 1 of a cards-layout grid) is slot-controllable (#293):
@@ -350,10 +370,11 @@ card, so they are rejected here — set those on the grid-level style. Set it th
 
 The `position` and `ratio` types (#108) control image focal point and aspect ratio,
 per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
-`ratio` accepts `auto` (natural proportions) or a number/fraction. `--stats-bg-position`
-controls the `background_image` CSS background. No v1 component has a content-image
-focal-point or crop-ratio slot left. Not exposed on logos (fixed `object-fit: contain`
-layout, not a crop model).
+`ratio` accepts `auto` (natural proportions) or a number/fraction. NO COMPONENT EXPOSES
+EITHER TYPE ANY MORE: `--stats-bg-position` was the last, and it left with stats' rebuild
+(#1066). A band background's focal point is `_band` -> `background.position` on every
+component now. Not exposed on logos at any point (fixed `object-fit: contain` layout, not
+a crop model).
 
 **HERO AND SECTION ARE NOT ON THIS LIST (#986, #1006, #1023).** Their `--*-image-*` and
 `--*-bg-position` slots were retired with their v2 rebuilds, and both values are role
@@ -366,12 +387,13 @@ point is `_band`'s `background.position`. A hero band
 background is `_band` `background.image` plus `background.position` — never `image_url`,
 which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
 
-**The scrim over a `background_image` has its own per-instance slot on the one v1 band
-that still carries one: `--stats-overlay-bg`** (stats was the last to get one, #577, and cta's left at #1026).
-On a v2 component the scrim is the `_band` role's `background.overlay`, authored beside
-`background.image` in the same map — hero left this slot family in #986 and section in
-#1023, and writing either retired slot is refused with `no_style_slots`.
-It is `gradient`-typed and defaults to the shared `--overlay-bg`. Reach for it when one
+**NO BAND HAS A SCRIM SLOT ANY MORE.** `--stats-overlay-bg` was the last (stats got one
+at #577 and lost it at #1066; cta's left at #1026, hero's at #986, section's at #1023), and
+writing any of them is refused with `no_style_slots`. The scrim is the `_band` role's
+`background.overlay`, authored beside `background.image` in the same map. It is
+`gradient`-typed — and unlike the slot it replaces it has **no default**: a band with an
+image and no `background.overlay` paints no scrim at all, where v1 painted one
+unconditionally. Write `"@overlay-bg"` for v1's scrim. Reach for a different value when one
 particular photo needs a darker or lighter scrim than the site default, instead of
 retuning `--overlay-bg` and moving every image band at once. Two things to know before
 you lighten one: the band's text defaults are calibrated against the SHIPPED scrim over a
@@ -506,15 +528,21 @@ authored `@color-bg-inverted` embed band:
 stays at `@color-accent` — 3.23:1 on `@color-bg-inverted`, under the AA floor — and no write can
 reach it. Filed as #1069.
 
-## The narrow band: `logos` (and the two that left)
+## The bands that left the slot surface
 
-`logos` declares far fewer slots than `grid` — the widest surface left now that `hero`,
-`section`, `testimonials`, `cta`, `faq`, `table` and `embed` have none at all — and the
-gap is a contract, not an omission. Read this before assuming a slot is missing.
+**`grid` is the only component in the theme that still declares style slots.** Everything
+below about `logos`, `stats`, `table` and `embed` is the RETIRED surface, kept for whoever
+meets a stored `--logos-*`, `--stats-*`, `--table-*` or `--embed-*` key on an old page.
+Writing any of those names is refused with `no_style_slots`, and the refusal lists the
+roles that replaced them.
 
-`table` and `embed` used to be described here beside it. Both moved to the v2 contract at
-#1066 and declare no slots; what remains below for each is the retired surface, kept for
-whoever meets a stored `--table-*` or `--embed-*` key on an old page.
+**`logos` and `stats` moved to the v2 contract at #1066** and declare no slots. logos' band
+padding, heading size/colour/measure/rhythm, strip gap and the two image caps are its eight
+roles; stats' band, heading, accented substring, list, item, figure and caption are its
+seven. Two things are worth knowing before you darken either: the `label` on both pins
+`@color-muted` as a direct declaration, so a band ink write does not reach it, and v1's
+inverted label carried an `opacity: 0.75` that has no UDC group — it ports as the measured
+composite `rgb(192, 195, 201)` written on `label` -> `typography.color`.
 
 **`table` is on the v2 contract since #1066 and has NO style slots.** Its band padding, heading
 size/colour/measure/rhythm, and everything v1 had no slot for at all — the table fill, the head
@@ -557,13 +585,28 @@ for it. The retired v1 surface, for reference only: `--embed-padding-top` / `-bo
 `--embed-heading-size` / `-color` / `-measure` / `-margin-bottom`, `--embed-body-measure`
 and `--embed-body-color`.
 
-**`logos` (8 slots) — band padding, heading, gap, and image size.**
-`--logos-image-size` is the one to know: it has **two** effective defaults, `3rem` on a
-logo-only strip and `2.5rem` on a labelled tile, and setting it replaces both branches
-with your single value. Prefer it on strips that are all-labelled or all-unlabelled.
-`logos` is a **fit** model (`object-fit: contain`), so it deliberately exposes no
-focal-point or aspect-ratio slots — a client logo must be shown whole. That is the
-deliberate contrast with the testimonials avatar, which is a **crop** model.
+**`grid` (38 slots) — the only component in the theme that still has any.**
+Everything the style-slot system does, it does for grid: card and step layouts, the
+featured-card treatment, per-item overrides through `items[].style`, the icon and banner
+image treatments, and the named recipes. When grid is rebuilt on the design contract, the
+slot engine has no shipped consumer left and this whole section retires with it. Until
+then, a `--grid-*` name is the only slot name any write will accept.
+
+**`logos` LEFT THIS SECTION AT #1066 — it is a v2 component and declares no slots at all.**
+Style it through the `udc` map on the band, on one of its eight roles. Two things the slot
+surface taught are still true, and one of them CHANGED SHAPE in the move:
+
+- **The two image caps are two roles now, and they are independent.** The RETIRED
+  `--logos-image-size` had **two** effective defaults — `3rem` on a logo-only strip,
+  `2.5rem` on a labelled tile — and setting it replaced both branches with your single
+  value, deliberately. A role carries one default, so the caps are the `image` and
+  `image-labeled` roles, and the label-driven switch survives by specificity rather than by
+  fallback. Rendered default is
+  byte-identical (measured 48px / 40px); what changed is that "make the logos bigger" is
+  now two writes rather than one.
+- **It is still a fit model** (`object-fit: contain`, structural), so it exposes no
+  focal-point or aspect-ratio parameter — a client logo must be shown whole. That is the
+  deliberate contrast with the testimonials avatar, which is a **crop** model.
 
 **`faq` LEFT THIS SECTION AT #1046 — it is a v2 component and declares no slots at all.**
 Style it through the `udc` map on the band, on one of its ten roles. Two things the slot
@@ -584,35 +627,34 @@ The question/answer type pair still distinguishes the two **at identical size**,
 weight (560 vs 430) and leading alone — but it is authorable now, per breakpoint, on the
 `question` and `answer` roles.
 
-### `--logos-bg` does not exist
+### `--logos-bg` does not exist, and it never needs to
 
-**This section was about three bands until #1066 and is about ONE now.** `table` and
-`embed` became v2 components in that change, so a band tone on either is the `_band`
-role's `background.fill` — a real capability, not a deferred one. `--table-bg` and
-`--embed-bg` never existed and never will; the names are kept here only so an author who
-meets one on an old page knows what happened to it.
+**THIS SECTION DESCRIBED A DEFERRED GATE UNTIL #1066 AND DESCRIBES A CLOSED ONE NOW.**
+`--table-bg`, `--embed-bg` and `--logos-bg` never existed; the names are kept here only so
+an author who meets one on an old page knows what happened. All three components are v2
+now, so a band tone on any of them is the `_band` role's `background.fill` — a real
+capability, reached the same way on every band in the theme.
 
-What is left is `logos`, and its absence is a deferred decision rather than an oversight.
+`--logos-bg` **does not exist and is not declared**, and the gate that would have shipped
+it is moot — but the criterion is worth recording rather than deleting, because it is the
+one a future v1 slot request should still be held to: **a band background arrives together
+with everything needed to keep the band readable.** Shipping the fill first leaves an author
+able to paint a band they cannot make legible.
 
-- `logos` still has a `theme` prop; its `muted` variant paints `--color-surface` directly
-  and frames the band with a `1px var(--color-border)` pair top and bottom.
-- **Entry criterion for the gate that would ship `--logos-bg`**, which is deferred and
-  does not exist today: a band background arrives together with everything needed to keep
-  the band readable. For `logos` that means the framing borders must route a slot **in the
-  same change**, or an author who paints the band gets a frame that no longer matches it.
-- **What the gate looked like for `table`, now that it has been through it**, because it
-  is the worked example: the criterion said the whole text surface — body type, caption
-  ink, header fill and header ink — had to land with the background, since shipping the
-  typography half first leaves an author able to paint a band they cannot make legible.
-  The rebuild did exactly that: all four are roles now (`table`, `caption`, `head`,
-  `header`), and the schema states which of them a dark band must re-ink and which it
-  must leave alone.
-- Until the gate opens for `logos`: wrap it in a `section` band and set that band's
-  `_band` role's `background.fill`, or use `logos`'s own `theme: "muted"` / `"inverted"`.
-  Do not write `--logos-bg` into a `style_component` call — it is not a declared slot and
-  the write is rejected.
+- **`table` was the worked example.** Its whole text surface — body type, caption ink,
+  header fill and header ink — had to land with the background, and the rebuild did exactly
+  that: all four are roles (`table`, `caption`, `head`, `header`), and the schema states
+  which a dark band must re-ink and which it must leave alone.
+- **`logos` cleared the same bar at #1066.** Its framing borders were the open question —
+  paint the band and a frame that no longer matches it stays behind. They are `_band`'s own
+  `border` group now, written in the same map as the fill, so the mismatch cannot arise.
+  Its one text surface, the `label`, pins `@color-muted` as a direct declaration, so the
+  schema and the README both say a dark logos band owes that role a write.
 
----
+So: to tone a logos band, write its `_band` role's `background.fill` (plus
+`typography.color`, and `label` -> `typography.color`). Do NOT reach for `--logos-bg` or
+`logos`'s old `theme` prop — the slot is not declared and the write is rejected, and
+`theme` retired at #1066 and is refused with `retired_prop`.
 
 ## Fusing adjacent components into one colored band
 
@@ -671,11 +713,11 @@ between two navy bands this exact way). Zeroing that margin closes the seam.
 | grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |
 | cta | — | No named recipe. `cta` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. The two recipes it used to ship, `dark-bold` and `accent-framed`, were bundles of slot values; a `udc` map says the same thing directly, and a custom preset (`save_preset`) is the reusable form. `dark-bold` becomes `_band` -> `background.fill` plus `typography.color` on the text roles and `heading` -> `typography.size`; `accent-framed` becomes `_band` -> `border` (`width`, `style`, `color`, `radius`). |
 | testimonials | — | No named recipe. `testimonials` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
-| stats | — | **No recipes.** Set `--stats-bg` + `--stats-radius` + `--stats-max-width` together for the contained rounded metrics card; there is no named shorthand for it |
+| stats | — | **`stats` is a v2 component (#1066)** — no slots, no recipes, no `theme` and no `background_image` prop, and a `style_component` call naming it is refused with `no_style_slots`. Band tone is `_band` -> `background.fill` plus `typography.color`, AND the three child inks (`heading-accent`, `number`, `label`) which a band ink write does not reach. The contained rounded metrics card (#383) that `--stats-bg` + `--stats-radius` + `--stats-max-width` built is now `_band` -> `background.fill` + `border.radius` + `sizing.max-width` in one map; the centring comes free, because `_band` defaults both side margins to `auto`. Retired v1 position: 17 slots |
 | faq | — | No named recipe. `faq` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
 | table | — | **`table` is a v2 component (#1066)** — no slots, no recipes, and a `style_component` call naming it is refused with `no_style_slots`. Its band tone is `_band` -> `background.fill`; its text surface is the `table` / `caption` / `head` / `header` / `cell` roles. What follows is the retired v1 position: it declared 6 slots, all band padding and heading, so there is nothing for a recipe to bundle. Use the `theme` prop of a surrounding `section` if the band needs a tone |
 | embed | — | **`embed` is a v2 component (#1066)** — no slots, no recipes, no `theme` prop, and a `style_component` call naming it is refused with `no_style_slots`. Band tone is `_band` -> `background.fill` plus `typography.color`; the content column is the `content` role and its links are `content-link`. Retired v1 position: 8 slots covering band padding, heading and the content column |
-| logos | — | **No recipes.** Use `--logos-image-size` and `--logos-gap` for strip density, and the `theme` prop for band tone |
+| logos | — | **`logos` is a v2 component (#1066)** — no slots, no recipes, no `theme` prop, and a `style_component` call naming it is refused with `no_style_slots`. Strip density is `list` -> `spacing.gap` plus the `image` AND `image-labeled` roles' `sizing.max-height` (two roles, because a role carries one default per parameter — write both for a flat strip). Band tone is `_band` -> `background.fill` plus `typography.color`, and `label` -> `typography.color`, which a band ink write does not reach. Retired v1 position: 8 slots |
 
 A `—` row means the component ships **no named recipe**, so `style_component` with a
 `recipe` key naming one is rejected. That is a real absence, not a documentation gap —

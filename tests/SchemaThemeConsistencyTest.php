@@ -60,10 +60,43 @@ class SchemaThemeConsistencyTest extends TestCase
             }
         }
 
-        // `theme` must be a real shared enum: same value set across 2+ components.
+        // `theme` STOPPED BEING A SHARED ENUM AT #1066 PR2, and that is asserted rather
+        // than worked around. This test's premise was that `theme` appears on 2+ components
+        // with one value set, so their descriptions must agree — a real risk when six
+        // components advertised the same three values and could drift apart in wording.
+        //
+        // stats and logos were the last two beside grid, and both retired the prop. Grid is
+        // the only declarer now, so there is nothing left to be consistent WITH: a
+        // one-component enum cannot disagree with itself.
         $this->assertArrayHasKey('theme', $groups, 'theme enum not found in any schema');
         $themeSharedGroups = array_filter($groups['theme'], static fn ($comps) => count($comps) >= 2);
-        $this->assertNotEmpty($themeSharedGroups, 'theme should share one value set across components');
+        $this->assertSame(
+            [],
+            $themeSharedGroups,
+            'theme is declared by grid alone since #1066 PR2. If a second component ever '
+            . 'declares it again, this assertion fails and the identical-description rule '
+            . 'below starts doing work again — which is the point of pinning the emptiness '
+            . 'rather than deleting the premise.'
+        );
+
+        // AND THE GENERIC RULE STILL RUNS. The loop below is not theme-specific: any prop
+        // name sharing one value set across 2+ components must be described identically.
+        // No prop qualifies today, so the loop is inert — pinned out loud here so an inert
+        // loop cannot read as a passing audit (the vacuous-pass shape).
+        $sharedAny = 0;
+        foreach ($groups as $bySignature) {
+            foreach ($bySignature as $componentsToDesc) {
+                if (count($componentsToDesc) >= 2) {
+                    $sharedAny++;
+                }
+            }
+        }
+        $this->assertSame(
+            0,
+            $sharedAny,
+            'no enum prop is shared across components since #1066 PR2 — every one is '
+            . 'per-component now. A non-zero count means the loop below is live again.'
+        );
 
         $checkedTheme = false;
         foreach ($groups as $propName => $bySignature) {
@@ -89,7 +122,11 @@ class SchemaThemeConsistencyTest extends TestCase
             }
         }
 
-        $this->assertTrue($checkedTheme, 'the shared theme enum was not actually asserted');
+        $this->assertFalse(
+            $checkedTheme,
+            'theme is no longer shared, so the identical-description loop must not have '
+            . 'checked it — if it did, a second declarer reappeared and the roster above is stale'
+        );
     }
 
     /**
@@ -114,7 +151,10 @@ class SchemaThemeConsistencyTest extends TestCase
         // `dark` alias #605 removed. embed's replacement is the `retired_props` route,
         // which states all three measured values — and SchemaValidationTest checks that
         // route in both directions.
-        $bandComponents = ['grid', 'logos', 'stats'];
+        // stats and logos left at #1066 PR2 with their `theme` props and slot maps.
+        // GRID IS THE LAST THEMED BAND in the theme; when it rebuilds, `theme` leaves
+        // entirely and this file retires with the prop rather than narrowing to nothing.
+        $bandComponents = ['grid'];
         $schemas        = $this->loadSchemas();
 
         foreach ($bandComponents as $component) {
@@ -177,7 +217,8 @@ class SchemaThemeConsistencyTest extends TestCase
         // table's v2 half is asserted against the EMITTED declaration in
         // TableRoleDefaultsEmitTest, which also pins that the fluid token is not frozen
         // to one tier.
-        $bandComponents = ['grid', 'stats', 'logos'];
+        // stats and logos left at #1066 PR2; grid is the last band with a padding slot.
+        $bandComponents = ['grid'];
         $schemas        = $this->loadSchemas();
 
         $expected = 'var(--pp-band-padding)';
