@@ -1806,13 +1806,22 @@ function pp_get_style_recipes(string $component_name): array {
  * Two layers, no second grammar:
  *   1. A conservative reject set applied to every value regardless of type —
  *      `{ } ; < >`, backslash escapes, control characters, the CSS comment
- *      delimiters `/ *` / `* /`, and `url(` / `expression(` / `@import`. Named
- *      precisely rather than as a category: it is those three constructs, NOT
- *      "every CSS network-request primitive" — `image-set()` and `src()` also
- *      fetch and are not in the set. They are inert at every sink this reaches,
- *      because each typed grammar refuses them and the one untyped token
- *      (`--transition`) is only ever consumed as a transition value; but the set
- *      is a literal list and the comment should not promise a class. Since #579 this is
+ *      delimiters `/ *` / `* /`, and every construct that can name an EXTERNAL
+ *      RESOURCE: `url(`, `image-set(`, `image(`, `src(`, plus `expression(` and
+ *      `@import`.
+ *
+ *      THIS COMMENT USED TO SAY THE OPPOSITE, AND WAS WRONG (#1079). It named
+ *      three constructs, stated explicitly that `image-set()` and `src()` "also
+ *      fetch and are not in the set", and justified leaving them out on the
+ *      grounds that "they are inert at every sink this reaches, because each
+ *      typed grammar refuses them and the one untyped token (`--transition`) is
+ *      only ever consumed as a transition value". That premise expired the moment
+ *      Layer 2 shipped a channel where an UNTYPED value reaches CSS source text
+ *      verbatim: `image-set()` takes a bare string as its image, so a value could
+ *      name a third-party host while containing no `url(` at all. Found by the
+ *      pre-landing security pass and closed in the shared predicate. The set is a
+ *      literal list AND it now covers the class its name implies — do not
+ *      re-narrow it on the old argument. Since #579 this is
  *      the SHARED set (`_pp_forbidden_css_construct`, lib/apply.php) the write
  *      engine applies too, not a second, stricter copy of it. It is the sole line
  *      of defense for a (hypothetical) slot with no declared type.

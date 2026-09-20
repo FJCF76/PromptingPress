@@ -20,6 +20,23 @@
 
 # PromptingPress v2 — the LAYER 2 contract (issue #1079)
 
+> ## STATUS — READ THIS FIRST (2026-09-20)
+>
+> **Layer 2 is RULED and SHIPPED.** The owner ruled Q0 = BUILD under a standing
+> freedom-guarantee frame, which then REVERSED Q2 and REVISED Q1. See **§8.R**.
+>
+> **The current text is:** §2′ (admission + the property-name gate), §4′ (validation
+> scope), §6.0 (the exclusion set), §7′ (the AI surface), §8.R (the rulings), §9
+> (acceptance criteria, items 1-10).
+>
+> **Everything else is the PRE-RULING draft**, kept deliberately so a ruling can be read
+> against the question it answered. Where a section was superseded it says so; where it
+> carries a `′` twin, the twin is current. In particular §0, §0.5, §1.5, §2.2-§2.5, §2.7,
+> §3.3, §5.1, §5.2, §6.6-§6.8, §12, §13 and §15 describe a TYPED, DISJOINT allowlist that
+> was never built. **There is no allowlist.** Admission is broad by default: every CSS
+> property clearing the charset gate except the five in §6.0.
+
+
 `docs/v2/BUILD-SPEC-sprint0.md` §7 names Layer 2 in one line — *"breakpoint-keyed declaration lists, PP-owned property/function ALLOWLIST … each with its own contract review"* — and the approved design doc gives it a paragraph. **Neither is a contract.** This body IS the contract, written before any code, and it is a **7A to the maintainer**.
 
 **Nothing here is implemented yet, and §8 asks whether it should be.** Writing the contract was supposed to settle *how* Layer 2 works. It did — §1-§7 are implementation-ready — but the evidence gathered to size the allowlist says something the task did not anticipate, and it is reported first because it is the more important result: **Layer 2's allowlist has almost no cited subject, and the escape pressure v2 has actually measured is selector pressure, which Layer 2 is selector-free by definition.** §0.5 is that evidence. §8 Q0 is the fork it forces.
@@ -74,7 +91,24 @@ That is not mine to decide. §8 Q0.
 
 ---
 
-## 0 — What Layer 2 is, in one paragraph
+## 0′ — What Layer 2 IS, as shipped
+
+An author writes CSS declarations directly, under a `_css` key inside a role's map, beside
+that role's groups. **Every** CSS property is admissible except five named exclusions
+(§6.0) — there is no allowlist to maintain. The security boundary is the property-name
+charset gate `^-?[a-z][a-z0-9-]{0,63}\z` (§2′.1), because the property string is now author
+input interpolated into CSS source text. Values pass the shared security gates always, and
+their parameter's typed grammar as well when the vocabulary knows the property (§2′.4).
+Breakpoints and states work exactly as they do in a group; the engine writes every
+`@media`. Where a raw declaration and a group parameter name the same property, the raw one
+wins and the loss is disclosed (§2′.3).
+
+**Structured first, `_css` for what structure cannot say** — the ladder the AI surface
+teaches (§7′).
+
+---
+
+## 0 (original, PRE-RULING — describes an allowlist that was never built)
 
 Layer 1 (the UDC engine, `lib/udc.php`) lets an author reach a CSS property only through a **group** and a **param**: `quote.typography.size`. The property string is looked up from `pp_udc_groups()` and **never taken from author input** (lib/udc.php:474-478). That closed registry is the whole security posture of the styling system, and it is also its ceiling: a designable property that belongs to no group is unreachable from any surface, which is the #901 class the UDC exists to end.
 
@@ -121,7 +155,7 @@ Each of these is inherited, not rebuilt: **CAS/freshness, undo, the history ring
 
 Stated as a decision because the alternative is tempting. A per-role `"custom": true` schema flag would let a component withhold the valve — and the valve's whole purpose is to be reachable *exactly where the grammar fell short*, which is by definition not predictable when the schema is written. A withheld escape recreates the #901 wall one level up.
 
-The cost is named: **a role's `groups` list stops being a complete statement of what can be set on that role.** §2.3's disjointness rule is what keeps that cost bounded — the `groups` list stays authoritative for everything Layer 1 owns, and `_css` can only ever reach properties Layer 1 owns *nothing* of.
+The cost is named: **a role's `groups` list stops being a complete statement of what can be set on that role.** ⚠️ **REVISED BY R2′:** this draft bounded that cost with §2.3's disjointness rule, which R2′ deleted — `_css` may now name a property a group already owns, and it OUTRANKS it. The cost is instead bounded by DISCLOSURE (`udc_css_overrides_group_value`) and by `_css` placing last in the compiler so the rank is deterministic rather than decided by JSON key order. See §2′.3.
 
 `_css` is **not** a member of `roles.<name>.groups`. Putting it there would feed it to the preset intersect predicate (`_pp_udc_split_preset_by_permitted()`), and presets must not carry `_css` (§6.13).
 
@@ -225,7 +259,7 @@ is the check R1 existed to protect and it survives the reversal intact.
 
 ---
 
-## 2 — THE ALLOWLIST as first drafted (§2.1 and §2.6 stand; §2.2-§2.5 superseded by §2′)
+## 2 — THE ALLOWLIST as first drafted (§2.1 and §2.6 stand; §2.2-§2.5 AND §2.7 superseded by §2′)
 
 ### 2.1 One owner, beside the unified grammar
 
@@ -383,7 +417,9 @@ The design doc asks for a function allowlist (*"calc/clamp/min/max/var + color f
 2. **`url()` stays banned, no Layer-2 exception.** The design doc floats *"url() restricted to uploads/-hosted assets"*; ruling A2 already settled it — the author writes an attachment id, the **engine** builds the escaped same-install URL. A Layer-2 `url()` would be a second mechanism for one outcome (I35) and would put author bytes inside a CSS function for the first time.
 3. **Raw `var()` is not a Layer-2 reference form.** `@name` is v2's one reference sigil (`pp_udc_parse_reference()`); a second syntax on the same namespace is the hidden aliasing I36 forbids. `@name` reaches `_css` free — resolved *before* the grammar check, by `_pp_udc_validate_scalar()` and the reference-type table.
 
-### 2.7 The refusal envelope names the exclusion
+### 2.7 ⚠️ PRE-RULING — the refusal envelope names the exclusion
+
+*Superseded with §2.2-§2.5: its first two rows describe an allowlist refusal and a registry-owned refusal that do not exist (a registry-owned property is TYPED and its collision disclosed, not refused). The `_css` near-miss row IS current and shipped. The intro says "Four refusals" above five rows.*
 
 Four refusals, each naming *why* rather than only *no*:
 
@@ -617,7 +653,7 @@ owns the outcome. §6.8 argued for excluding them under the old policy and is su
 
 ---
 
-## 6 — EXCLUSIONS as first drafted (§6.1-§6.5, §6.9-§6.15 stand; §6.6-§6.8 superseded by §6.0)
+## 6 — EXCLUSIONS as first drafted (§6.1-§6.5, §6.9, §6.11-§6.13, §6.15 stand; §6.6-§6.8 superseded by §6.0; §6.10 and §6.14 REVISED by R1′ — see their rows)
 
 | # | excluded | reason |
 |---|---|---|
@@ -630,11 +666,11 @@ owns the outcome. §6.8 argued for excluding them under the old policy and is su
 | 6.7 | **Any property the css-lint boundary classifies `STRUCTURAL`** | §2.4 one-home rule. Disqualifies `cursor`, `transform`, `transition`, `animation`, and the five table-markup properties |
 | 6.8 | **Properties that escape the band's own box**: `position`, `inset`/`top`/`right`/`bottom`/`left`, `z-index`, `float`, `mix-blend-mode`, `isolation`, `clip-path` | the design doc names `position: fixed`; the general rule is that a band must not paint or place outside itself — the entire safety story of scoped emission. Several are also `STRUCTURAL` or 2nd-cut group members |
 | 6.9 | **`content`** | the design doc names `content: attr()`. Beyond that, `content` on an ordinary element *replaces its content* — a content mutation through a styling channel, which breaks the file-vs-composition authority model |
-| 6.10 | **`min()` / `max()`** | named by the design doc; the shared grammar owner admits `calc`/`clamp` only. Widening it changes every value in the program and is its own decision (§2.6) |
+| 6.10 | **`min()` / `max()`** ⚠️ REVISED BY R1′: true on a property the vocabulary TYPES, where the shared grammar owner is consulted and admits `calc`/`clamp` only. On an untyped property no grammar runs, so `min()`/`max()` reach the sheet verbatim like any other value the security gates allow. | named by the design doc; the shared grammar owner admits `calc`/`clamp` only. Widening it changes every value in the program and is its own decision (§2.6) |
 | 6.11 | **`url()`** | ruling A2 already owns images: the author writes an attachment id and the engine builds the escaped same-install URL. A second mechanism for one outcome is I35 |
 | 6.12 | **Custom properties as the declared property** (`--x: y`) | `_tokens` owns that namespace with a charset gate, a literal-only rule, a mint reservation and a balance gate. A raw custom property in `_css` bypasses all four |
 | 6.13 | **Presets may not carry `_css`**, at either grain | a preset is a site-wide named Layer-1 bundle. A preset carrying raw declarations makes the escape invisible at the band that uses it, defeats the ladder's attributability, and would need the intersect predicate (`_pp_udc_split_preset_by_permitted()`) to reason about a pseudo-group. See §6.13a — this is not free, and getting it wrong is a silent hole |
-| 6.14 | **`!important`** | §3.4 of the build spec: never emitted, never authorable |
+| 6.14 | **`!important`** | §3.4 of the build spec: never emitted, never authorable. **This row was briefly false and is now true again:** every typed grammar rejects it as a side effect of being a grammar, so it had no gate of its own — and an untyped `_css` value reached the sheet verbatim carrying it. Found by the pre-landing maintainability pass and gated in `pp_udc_validate_value()`, which both the write gate and the emitter's re-validation call. |
 
 ### 6.13a The preset exclusion interacts with §1.5, and the interaction is the whole difficulty
 
@@ -900,6 +936,11 @@ not the one being built.*
 9. Rendered evidence at 375/768/1280 including a dark band and a stressed value.
 10. Both suites green at every commit.
 
+#### 9 (original, PRE-RULING) — ORIGINAL TEXT FOLLOWS
+
+*Written under the typed/disjoint rulings; items 1, 2 and 3 describe tests for rules that
+no longer exist (disjointness by shorthand family, the one-home rule, allowlist types).*
+
 1. The contract above, as ruled, implemented with **zero new validators** and **zero forked grammar**: one registry function, one params-table seam, the existing write gate, the existing emitter, the existing findings channels.
 2. Disjointness (by shorthand family), the one-home rule, and every allowlist type's existence in the shared grammar owner: each pinned by a test.
 3. Red-proofs on real surfaces: hostile properties and hostile function values **refused at write** and **dropped-with-a-ledger-entry at emit**; allowed ones round-trip through the real CLI and paint in Chromium.
@@ -943,10 +984,10 @@ The contract's central engineering claim is that Layer 2 is **almost entirely ex
 | CSS-source-sink gate | `_pp_udc_delimiters_balanced()` | unchanged, already called from `pp_udc_validate_value()` |
 | breakpoints / states | `pp_udc_breakpoints()`, `pp_udc_states()` + their emit-order siblings | unchanged |
 | references | `pp_udc_parse_reference()`, `pp_udc_resolve_reference()`, `_pp_udc_reference_check()` | unchanged; `enum` needs an answer (§2.5a obligation 3) |
-| minting | `pp_udc_mint_name()`, `_pp_udc_mint_value()` | unchanged; `_pp_udc_name_is_the_engines_own_mint()` **must learn `_css`** (§3.4.1, CRITICAL) |
-| declaration ordering | `_pp_udc_sort_declarations()` / `_pp_udc_property_rank()` | already correct for unranked properties; extend for stable order (§3.5) |
+| minting | `pp_udc_mint_name()`, `_pp_udc_mint_value()` | unchanged; the obligation was discharged by extracting `_pp_udc_mint_splits()` and sharing it between BOTH decoders, which had carried two copies of the walk |
+| declaration ordering | `_pp_udc_sort_declarations()` / `_pp_udc_property_rank()` | ⚠️ **"already correct" was falsified by the build:** the `_css` RANK was decided by JSON key order until the compiler was changed to place `_css` last. Within-block sorting was indeed already correct |
 | drop ledger | `_pp_udc_place()`'s `$drops`, `PP_UDC_MAX_EMIT_DROPS` | unchanged |
-| disclosure | `udc_token_minted`, `udc_band_value_shadowed_by_role_default` | unchanged; **no new finding type** (§5.1) |
+| disclosure | `udc_token_minted`, `udc_band_value_shadowed_by_role_default` | ⚠️ **REVISED:** Layer 2 adds TWO finding types — `udc_css_overrides_group_value` and `udc_css_unchecked_property` (§5.1 is itself marked superseded; this row cited it as provenance while it refuted the claim) |
 | reflected-text bounds | `_pp_udc_reflect()`, `pp_udc_bounded_list()`, `_pp_render_undeclared_prop_keys()` | unchanged |
 | chrome | `pp_udc_validate_site_map()` → `pp_udc_validate_map()` | **verified**: same engine, no chrome copy |
 | CAS / undo / ring / preview | the composition value and `pp_composition_content_hash()` | free, by storing inside `udc` (§1.2) |

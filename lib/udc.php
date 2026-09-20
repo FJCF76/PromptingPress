@@ -818,6 +818,26 @@ function _pp_udc_css_param_for_property(string $property): ?array {
 }
 
 /**
+ * Is this property writable through `_css` at all? (contract §2′.2, §6.0.)
+ *
+ * ONE NAME FOR ONE DECISION. The compiler and the disclosure walk had this as a
+ * copy-pasted pair, and they MUST agree byte for byte: a property the emitter drops but
+ * the disclosures describe as "emitted exactly as written" reports on the wrong subject,
+ * and a property the emitter paints but the disclosures skip is an undisclosed escape.
+ * That is the write-accept/emit-drop divergence the #570 convergence rule forbids, arriving
+ * between two functions that were keeping the same rule in their own words.
+ *
+ * The WRITE gate deliberately keeps the two halves apart — a bad charset and an excluded
+ * property get different refusals, because the author needs different advice — so it is not
+ * a third caller of this. That split is a decision, recorded here rather than looking like
+ * an oversight.
+ */
+function pp_udc_css_property_admissible(string $property): bool {
+    return pp_udc_valid_css_property($property)
+        && !isset(pp_udc_css_excluded_properties()[$property]);
+}
+
+/**
  * The parameter definition `_css` uses for one property: TYPED WHERE KNOWN (R1′.2),
  * untyped otherwise (R1′.4).
  *
@@ -2040,6 +2060,27 @@ function pp_udc_validate_value(string $value, array $param) {
         return new WP_Error('empty_value', 'Value must not be empty.');
     }
 
+    // `!important` IS NEVER AUTHORABLE (contract §6.14), and Layer 2 was the first way in.
+    //
+    // Every typed grammar rejects it as a side effect of being a grammar, so this never
+    // needed saying — until an UNTYPED `_css` value started reaching the sheet verbatim.
+    // Measured: `{"_css": {"opacity": "0.5 !important"}}` was accepted and emitted, and
+    // that is not a cosmetic breach. This engine's whole cascade story is that specificity
+    // is flat by construction and `!important` never appears, so one authored `!important`
+    // makes a band value unbeatable by the role defaults, by a later band, and by the
+    // author's own next write — the cliff v1's inline styles were, rebuilt by hand.
+    //
+    // GATED HERE rather than in the `_css` validator because BOTH doors call this function:
+    // the write gate through _pp_udc_validate_scalar(), and _pp_udc_place() when it
+    // re-validates stored data. One predicate, so the gates cannot disagree.
+    if (!empty($param['untyped']) && preg_match('/!\s*important/i', $value)) {
+        return new WP_Error('invalid_udc_value',
+            'Value must not carry "!important". This engine keeps specificity flat by '
+            . 'construction — a band\'s values win on cascade position, never on weight — '
+            . 'so an "!important" here would be unbeatable by the component\'s own defaults '
+            . 'and by your own later writes. Remove it; the declaration already wins.');
+    }
+
     // ATTACHMENT IDS ARE NOT CSS, AND MUST NOT REACH THE CSS TYPE SWITCH.
     //
     // This branch is ahead of the dispatch below for a concrete reason, not for
@@ -2547,12 +2588,24 @@ function _pp_udc_validate_group_map(
 
     $groups = pp_udc_groups();
     if (!isset($groups[$group_name])) {
+        // `_css` IS IN THE LISTING ON THE BAND AND CHROME PATHS (contract §2.7, C1).
+        //
+        // It is not a registry group, so `array_keys($groups)` omits it — and an author
+        // who types `css`, `_cs` or `_CSS` was told the correct key does not exist. The
+        // contract called this out as a required change and the pin never shipped; found
+        // by the pre-landing maintainability pass.
+        //
+        // NOT on the preset path, where `$allow_preset` is false: a preset genuinely
+        // cannot carry `_css` (§6.13a), so listing it there would advertise a key that is
+        // refused two lines later.
         return new WP_Error('unknown_udc_group', sprintf(
             '%s%s names the UDC group %s, which does not exist. Available groups: %s',
             $who,
             $origin,
             _pp_render_undeclared_prop_keys([$group_name]),
-            implode(', ', array_keys($groups))
+            implode(', ', $allow_preset
+                ? array_merge(array_keys($groups), [PP_UDC_CSS_KEY])
+                : array_keys($groups))
         ));
     }
     if (!in_array($group_name, $permitted, true)) {
@@ -2685,7 +2738,12 @@ function _pp_udc_validate_css_map(
     // reads, so the subject stays plain here and the `_css`-shaped refusals below say it
     // once, themselves.
     $who = sprintf('Component "%s" role "%s"', $component, $role);
-    $mine = sprintf('%s "%s"', $who, PP_UDC_CSS_KEY);
+    // THE STATE BELONGS IN THE LOCATOR, and this string is built once per recursion level
+    // so it has to carry it here. Without it every refusal raised INSIDE a state pointed at
+    // `_css` rather than at `_css ":hover"`, and the docblock above claims these refusals
+    // are the locator an operator reads. The sibling group validator carries the state in
+    // the same position.
+    $mine = sprintf('%s "%s"%s', $who, PP_UDC_CSS_KEY, $state !== '' ? ' ' . $state : '');
 
     if (!is_array($css_map)) {
         return new WP_Error('invalid_prop_value', sprintf(
@@ -3620,8 +3678,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                         }
                         foreach ($map as $property => $value) {
                             $property = (string) $property;
-                            if (!pp_udc_valid_css_property($property)
-                                || isset(pp_udc_css_excluded_properties()[$property])) {
+                            if (!pp_udc_css_property_admissible($property)) {
                                 if ($drops !== null && $source !== 'defaults'
                                     && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
                                     $drops[] = [
@@ -5943,8 +6000,7 @@ function pp_udc_composition_findings(array $items): array {
             }
 
             foreach ($declared as [$state, $property]) {
-                if (!pp_udc_valid_css_property($property)
-                    || isset(pp_udc_css_excluded_properties()[$property])) {
+                if (!pp_udc_css_property_admissible($property)) {
                     continue; // Refused at write; a stored one is the emitter's ledger.
                 }
                 // BOUNDED AT THE SOURCE, for the reason the drop ledger states about

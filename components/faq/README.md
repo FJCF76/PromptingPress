@@ -99,7 +99,9 @@ accepted with no findings. Set `answer-link` → `typography.color` and its `:ho
 `answer-link` declares **no defaults**, on purpose: a default would restate base.css's anchor
 values as an unlayered declaration and outrank the premium button rules, repainting an
 author-written `<a class="btn">` inside an answer (the #545 defect through a role selector).
-Empty defaults emit nothing at rest, so an unauthored link keeps the global treatment. A dark BAND on its own is one write (`_band` → `typography.color`), because
+Empty defaults emit nothing at rest, so an unauthored link keeps the global treatment.
+
+A dark BAND on its own is one write (`_band` → `typography.color`), because
 the heading follows it through `currentColor`.
 
 `question-open` is the one people leave out, and it fails in the state nobody screenshots:

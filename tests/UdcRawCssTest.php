@@ -546,6 +546,54 @@ class UdcRawCssTest extends TestCase
         $this->assertStringContainsString(PP_UDC_CSS_KEY, $drops[0]['where']);
     }
 
+    /**
+     * `!important` IS NEVER AUTHORABLE (contract §6.14), and Layer 2 was the first way in.
+     *
+     * Every typed grammar rejects it as a side effect of being a grammar, so the rule had
+     * never needed its own gate — until an untyped `_css` value started reaching the sheet
+     * verbatim. Not cosmetic: this engine's cascade story is that specificity is flat by
+     * construction and `!important` never appears, so one authored `!important` makes a
+     * band value unbeatable by the component's own defaults, by a later band, and by the
+     * author's own next write. Found by the pre-landing maintainability pass, which
+     * noticed the engine header and the contract both asserting a guarantee the code had
+     * just stopped keeping.
+     */
+    public function testImportantIsRefusedOnARawDeclarationAtBothGates(): void
+    {
+        foreach (['0.5 !important', '0.5!important', '0.5 ! important', '0.5 !IMPORTANT'] as $value) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $this->validate(['opacity' => $value]),
+                "\"{$value}\" must be refused: the engine keeps specificity flat by construction"
+            );
+        }
+        $this->assertSame(
+            '',
+            $this->emit(['answer' => [PP_UDC_CSS_KEY => ['opacity' => '0.5 !important']]]),
+            'and stored data the write gate never saw must not paint it either'
+        );
+        $this->assertNotSame('', $this->emit(['answer' => [PP_UDC_CSS_KEY => ['opacity' => '0.5']]]),
+            'red-proofed: the same property without it still paints');
+    }
+
+    /**
+     * A NEAR-MISS `_css` MUST NOT BE TOLD THE REAL KEY DOES NOT EXIST (contract §2.7, C1).
+     *
+     * `_css` is not a registry group, so the unknown-group listing omitted it and an
+     * author who typed `css` or `_cs` was sent to look for something else. The contract
+     * named this as a required change and called for this pin; neither shipped until the
+     * maintainability pass found the gap.
+     */
+    public function testAMistypedRawDeclarationKeyIsOfferedTheRealOne(): void
+    {
+        foreach (['css', '_cs', '_CSS'] as $typo) {
+            $message = pp_udc_validate_map(['answer' => [$typo => ['opacity' => '1']]], 'faq')
+                ->get_error_message();
+            $this->assertStringContainsString(PP_UDC_CSS_KEY, $message,
+                "a near-miss \"{$typo}\" must be offered the key that exists, not a list that omits it");
+        }
+    }
+
     // ── Emission: breakpoints, states, and the ruled rank ───────────────────
 
     public function testBreakpointsAndStatesEmitThroughTheEngineSMachinery(): void
