@@ -239,7 +239,14 @@ has to opt in.
 say.** A raw declaration buys you reach and costs you everything the vocabulary was giving
 you, so it is the right answer when — and only when — there is no parameter for the job.
 
-Four things worth knowing before you use it.
+Five things worth knowing before you use it, and the first is the one that surprises people.
+
+**A property the vocabulary already knows keeps its parameter's grammar.** `_css` is not a
+way around a grammar — it is a way to reach a property that has none. `color` in `_css`
+still takes hex, `rgb()` or `hsl()` and still refuses `red`; `width` and `border-radius`
+still take lengths and refuse `fit-content`; `background-image` still takes a Media Library
+attachment id and refuses a gradient. If a group owns the property, writing it raw buys you
+nothing and costs you the catalog, the type check and the ability to change it by name.
 
 **If you set both, the raw one wins.** A `_css` `color` outranks `typography.color` on the
 same role. That is deliberate — an escape hatch that lost to the thing it was escaping would
@@ -267,6 +274,11 @@ What you cannot write here: selectors, `@media` or `@supports` blocks, and pseud
 around it. And no value may name an external resource — `url()`, `image-set()`, `image()`
 and `src()` are all refused on every property, because the Media Library is the only source
 of external assets. A background image is an attachment id on `background.image`.
+
+**`!important` is refused.** The engine keeps specificity flat by construction: your value
+wins because of where it is emitted, never because of weight. An `!important` here would be
+unbeatable by the component's own defaults and by your own next write, so it is turned away
+— the declaration already wins without it.
 
 And one thing the engine cannot do for you: **a raw `background` or `opacity` changes what
 your text sits on, and nothing checks the contrast.** That was true of the groups too, but

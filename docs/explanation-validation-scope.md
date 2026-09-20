@@ -225,16 +225,16 @@ is stated, because a promise that is not written down is not a promise.
 | | checked | not checked |
 |---|---|---|
 | the property NAME | the charset `^-?[a-z][a-z0-9-]{0,63}\z`, plus a short exclusion list | nothing else is reachable — the charset is an allowlist of characters, not a list of banned constructs |
-| any value | forbidden constructs, delimiter balance, emptiness, reflected-text bounds | — |
+| any value | forbidden constructs (including anything naming an external resource), delimiter balance, emptiness, `!important`, reflected-text bounds | — |
 | a value on a property the design vocabulary **types** | that parameter's full grammar, and whether an `@token` fits it | — |
 | a value on any **other** property | *(the gates above, and nothing more)* | whether the browser accepts it |
 
 The last row is the one that matters, and it is **disclosed rather than hidden**: such a
 declaration produces a `udc_css_unchecked_property` finding on the write envelope naming the
 role, the property and the state. Two bounds, stated because this page's own job is that a
-promise not written down is not a promise: the disclosures stop after 200 per band (the same
-cap the emit-drop ledger carries, and for the same reason — slicing the reader's output does
-not bound the allocation), and a `_css` map on a role the component does not declare produces
+promise not written down is not a promise: the disclosures stop after 200 FINDINGS per band (the same
+cap the emit-drop ledger carries, and for the same reason — the message strings are the
+allocation, so it is appends that are counted, not declarations examined), and a `_css` map on a role the component does not declare produces
 none, because the compiler never walks that role and it paints nothing to disclose. An author who writes `mixx-blend-mode` gets an accepted
 write, a verbatim emission, a browser that ignores it, and a finding saying the value went
 out unverified.

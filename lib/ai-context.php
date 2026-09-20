@@ -327,7 +327,7 @@ function pp_ai_system_prompt(): string {
         . 'values are type-checked, they appear in the catalog, they can be reviewed and changed by '
         . 'name, and the engine can tell you when one cannot take effect. Reach for `_css` when the '
         . 'vocabulary genuinely has no way to say it. Almost every CSS property is accepted, '
-        . 'including vendor-prefixed ones like `-webkit-line-clamp`. FOUR THINGS TO KNOW. (1) IF YOU '
+        . 'including vendor-prefixed ones like `-webkit-line-clamp`. FIVE THINGS TO KNOW. (0) A PROPERTY THE VOCABULARY KNOWS KEEPS ITS PARAMETER\'S GRAMMAR, and this is the one that will surprise you: `_css` is NOT a way around a grammar, it is a way to reach a property that has none. `color` still takes hex/`rgb()`/`hsl()` and REFUSES `red`; `width`, `padding` and `border-radius` still take lengths and refuse `fit-content`; `background-image` still takes a Media Library attachment id and refuses a gradient. If a group owns the property, writing it in `_css` buys you nothing and costs you the catalog and the type check — use the parameter, and the refusal names it for you. (1) IF YOU '
         . 'SET BOTH, `_css` WINS — a raw `color` outranks `typography.color` on the same role, and '
         . 'the write envelope tells you so with a `udc_css_overrides_group_value` finding naming the '
         . 'parameter that lost. Do not write both; pick one. (2) A PROPERTY THE VOCABULARY DOES NOT '
@@ -343,7 +343,7 @@ function pp_ai_system_prompt(): string {
         . 'AND NO VALUE MAY NAME AN EXTERNAL RESOURCE — not `url()`, and not `image-set()`, `image()` or `src()` either, on any property. A background image is an attachment id on '
         . '`background.image`, as above; the Media Library is the only source of external assets. Selectors, `@media`/`@supports` blocks and pseudo-elements '
         . '(`::before`) are not written here either: `_css` is a declaration LIST on the role you '
-        . 'put it on, and the engine owns everything around it. YOU STILL OWN CONTRAST: a raw '
+        . 'put it on, and the engine owns everything around it. `!important` IS REFUSED: this engine keeps specificity flat by construction, so your value wins on cascade position and never on weight — an `!important` would be unbeatable by the component\'s own defaults and by your own next write, and the declaration already wins without it. AND YOU STILL OWN CONTRAST: a raw '
         . '`background` or `opacity` changes what text sits on, and nothing checks that for you.';
     // The dark-band expression, and the contrast obligation that comes with it.
     // v2 components have no `theme` prop: a tone preset is a bundle of designable

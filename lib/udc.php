@@ -6028,10 +6028,17 @@ function pp_udc_composition_findings(array $items): array {
                 // findings and +13.8 MB from ~320 KB of input, while the emitter capped
                 // itself at 200. `wp pp check page` and restore_composition reach this
                 // function without the write path's 1 MB pre-engine gate in front of them.
+                // THE COUNTER COUNTS WHAT ITS NAME SAYS. It was incremented for every
+                // admissible declaration EXAMINED, including a typed property with no
+                // collision — which emits no finding and then continues. The registry holds
+                // 61 properties, so a band declaring all of them in `_css` burned 61 slots
+                // producing nothing, and real disclosures could then be dropped with fewer
+                // than 200 findings on the envelope. The allocation argument the cap rests
+                // on is about the MESSAGE STRINGS, not the walk, so counting appends is
+                // both the honest reading and the one the bound was argued for.
                 if ($css_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                     continue;
                 }
-                $css_disclosed++;
                 $typed = _pp_udc_css_param_for_property($property);
 
                 // (a) THE COLLISION. `_css` outranks a group value at the same
@@ -6045,6 +6052,7 @@ function pp_udc_composition_findings(array $items): array {
                         ? ($group_map[$state] ?? null)
                         : $group_map;
                     if (is_array($branch) && array_key_exists($typed['_param'], $branch)) {
+                        $css_disclosed++;
                         $findings[] = [
                             'type'    => 'udc_css_overrides_group_value',
                             'message' => sprintf(
@@ -6074,6 +6082,7 @@ function pp_udc_composition_findings(array $items): array {
                 // conventions-only and the finding would have lied. It is also the
                 // ladder's escape telemetry arriving as a by-product — a count of these
                 // is a count of escapes — rather than as a mechanism of its own.
+                $css_disclosed++;
                 $findings[] = [
                     'type'    => 'udc_css_unchecked_property',
                     'message' => sprintf(
