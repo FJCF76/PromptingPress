@@ -29,6 +29,8 @@ slots**; its eight `--logos-*` slots and its `theme` prop are retired.
 | `image-labeled` | `.logos__item--labeled .logos__image` | The logo in a **labelled** tile. |
 | `label` | `.logos__label` | The caption under a labelled logo. |
 
+**Which roles carry `layout` (#1084):** `list`, `item`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
 ## Stated defaults (and what would reopen them)
 
 Measured in Chromium at 375/768/1280 before the slots were retired.

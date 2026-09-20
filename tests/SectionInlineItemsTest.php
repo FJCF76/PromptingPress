@@ -239,9 +239,10 @@ class SectionInlineItemsTest extends TestCase
         );
         // justify-content is `flex-start` outright since #1023. It used to read the
         // --section-inline-items-align SLOT; alignment is the `body_items_align` PROP
-        // now (justify-content is a layout property and the taxonomy carries no layout
-        // group), and the prop derives the --center modifier rather than a raw keyword,
-        // because the modifier also switches the separator from ::before to ::after.
+        // now — and since #1084 that is true for ONE reason rather than two: the prop
+        // derives the --center modifier, which also switches the separator from
+        // ::before to ::after, and no role value can move a pseudo-element. The
+        // packing itself IS a role parameter now (`inline-items.layout.justify`).
         // flex-start is what an unset slot resolved to, so the default row is unchanged
         // — and left-packing is what lets the #489 clip hide line-leading separators.
         $this->assertMatchesRegularExpression(
@@ -430,13 +431,14 @@ class SectionInlineItemsTest extends TestCase
 
     // ── Per-line alignment: a PROP since #1023 (issue 510's capability) ──────
     //
-    // It was an enum STYLE SLOT. v2 components declare none, and this one could not
-    // become a role value either: it sets `justify-content`, a LAYOUT property, and the
-    // UDC taxonomy carries no layout group — the same reason hero kept `split_ratio`
-    // and `vertical_align` as props. It also has to derive a MODIFIER rather than emit a
-    // raw keyword, because the centred mode switches the separator from ::before to
-    // ::after; a role value could never do that. So it is `body_items_align`, with the
-    // same two accepted values and the same default.
+    // It was an enum STYLE SLOT. v2 components declare none, and this one became a PROP
+    // rather than a role value. The first half of that reason expired at #1084, when the
+    // Layout group shipped: `justify-content` IS a role parameter now
+    // (`inline-items.layout.justify`), and an authored one outranks the rule this prop
+    // selects. The half that did NOT expire is the one that matters here: the prop
+    // derives a MODIFIER, because the centred mode switches the separator from ::before
+    // to ::after, and no role value can move a pseudo-element. So it is still
+    // `body_items_align`, with the same two accepted values and the same default.
 
     public function testAlignIsAPropWithTheSameTwoValuesAndDefault(): void
     {

@@ -121,7 +121,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -139,7 +140,8 @@
         "background",
         "sizing",
         "shadow",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {}
     },

@@ -47,8 +47,18 @@ authoring shape.
   default, so an unauthored hero renders a filled primary beside a muted, bordered
   secondary exactly as it did on v1 — the prop went, the default did not.
 
-`layout`, `split_ratio` and `vertical_align` STAY, because the UDC taxonomy has no
-layout group: removing them would delete the capability rather than move it.
+`layout`, `split_ratio` and `vertical_align` STAY — and the reason changed at #1084,
+when the **Layout group** shipped. It used to be "the taxonomy has no layout group".
+It has one now, and all three props still stay, because each selects a **mechanism
+bundle** rather than a value: `layout` swaps a whole geometry (and on `cover`, a
+band-root rule), while `split_ratio` and `vertical_align` derive attribute-scoped rules
+(`[data-pp-split-ratio]`, `[data-pp-vertical-align]`) that a role address cannot reach —
+a role has a breakpoint dimension and a state dimension, and no variant dimension.
+
+What the group adds is the retune: `inner.layout.columns` sets the split's tracks,
+`inner.layout.align` its cross-axis alignment, and `inner.sizing.align-self` places a
+single child. An authored value is unlayered and this stylesheet is in `pp-v1`, so it
+outranks whatever the prop selected — at every breakpoint, in every variant.
 
 ## Roles
 
@@ -68,6 +78,8 @@ layout group: removing them would delete the capability rather than move it.
 | `proof-link` | `.hero__proof a` | links inside the proof markup — **no defaults**, and the only address that reaches them (#1069). A `cover` hero puts this row over a photograph, so a dark scrim needs a colour here as well as on `proof` |
 | `surface` | `.hero__surface` | the split layout's proof panel |
 | `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
+
+**Which roles carry `layout` (#1084):** `inner`, `content`, `cta-group`, `proof`, `surface`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ### The two CTA roles are deliberately asymmetric
 

@@ -4416,9 +4416,11 @@ class SchemaValidationTest extends TestCase
         // The rule that decided which props die: a prop dies IFF the UDC can express
         // what it did. These four were bundles of designable values — vertical padding,
         // a content measure, two sets of button colours — and the engine expresses all
-        // of them directly. `layout`, `split_ratio` and `vertical_align` STAY, because
-        // the taxonomy has no layout group: removing them would delete the capability
-        // rather than move it.
+        // of them directly. `layout`, `split_ratio` and `vertical_align` STAY. The
+        // reason changed at #1084, when the Layout GROUP shipped: it is no longer "the
+        // taxonomy has no layout group" but "each selects a mechanism bundle" — a whole
+        // geometry, or attribute-scoped rules a role (breakpoints + states, no variant
+        // dimension) cannot reach. The group retunes the values inside the bundle.
         'hero' => [
             'spacing' => 'REMOVED in v2 (#986). It was a three-step bundle of vertical '
                 . 'padding (compact/default/spacious). Set the `_band` role\'s '
@@ -5448,7 +5450,7 @@ class SchemaValidationTest extends TestCase
             '--section-panel-cta-border' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `border.color`.',
             '--section-panel-cta-hover-border' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `:hover` state, nested inside `border`.',
             '--section-panel-cta-shadow' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `shadow.box`.',
-            '--section-inline-items-align' => 'REPLACED in v2 (#1023) by the `body_items_align` PROP, not by a role parameter, and that is deliberate: the value selects a WRAP TECHNIQUE (a justify-content value plus the separator mechanism that technique needs), the UDC taxonomy carries no layout group, and the `inline-items` role owns the row\'s type, colour and gaps. Same two accepted values (`start`, `center`).',
+            '--section-inline-items-align' => 'REPLACED in v2 (#1023) by the `body_items_align` PROP, not by a role parameter, and that is deliberate: the value selects a WRAP TECHNIQUE (a justify-content value plus the separator mechanism that technique needs), and only the prop can move the separator. The packing half IS a role parameter since #1084 — `inline-items.layout.justify`, which outranks the prop\'s rule — while the `inline-items` role owns the row\'s type, colour and gaps as before. Same two accepted prop values (`start`, `center`).',
             '--section-separator-color' => 'NARROWED in v2 (#1023): no role replaces it and NO TOKEN replaces it either (#1028). The separator is drawn with `content` on a `::before`/`::after` and ruling A3 defers pseudo-elements, so no role can express it at any value; the `--pp-list-marker-color` property its rule reads is internal plumbing, declared nowhere and registered as no design token. What renders is that read\'s fallback, `currentColor`, so the mark follows its row\'s ink — this slot defaulted to `var(--color-muted)`, so a default light band moves #5e6677 -> #101828 (the row is a SIBLING of `.section__content`, so it inherits `--color-text`, not the `body` role\'s colour) — the same ink as the item text beside it, where v1 painted the mark one step lighter. The `inline-items` role owns the row\'s type, colour and gaps, and its `typography.color` is the only lever on the mark; it moves the item text too. A mark DIFFERENT in colour from its sibling text is no longer expressible.',
             '--section-body-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Unlike the separator it renders `var(--color-accent)`, the exact value this slot defaulted to, so nothing moves visually; `--color-accent` IS a registered design token, so `update_design_token` still moves it along with every other accent on the site. Per-band and glyph-only control are what is lost. The `body_marker` prop still chooses WHICH glyph, and the `body` role still owns the list text.',
             '--section-panel-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Like `--section-body-marker-color` it renders `var(--color-accent)`, this slot\'s own default, so nothing moves visually. The `panel_items_marker` prop still chooses WHICH glyph, and the `panel-list` role still owns the list\'s spacing.',

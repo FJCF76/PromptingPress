@@ -234,6 +234,67 @@ class DocsCoverageTest extends TestCase
      * slots across 10 components" for five minor versions while the real figure
      * moved; regenerating it by hand is exactly what keeps going wrong.
      */
+    /**
+     * THE LAYOUT ROSTER IS WRITTEN IN THREE PLACES, and two of them were tied
+     * together while the third was not (#1084, found by the pre-landing
+     * maintainability pass).
+     *
+     * A component's `schema.json` declares which roles carry `layout`, and
+     * tests/js/css-lint.test.js asserts that list against a derivation from the
+     * stylesheet in both directions. The nine component READMEs then hand-copy the
+     * same role names for a human reader — and a hand-copied roster is the #1045
+     * class exactly: it goes stale at the next rebuild, and a vocabulary-scoped doc
+     * sweep cannot find it. This ties the prose to the schema, which is the only
+     * one of the three an author can act on.
+     */
+    public function testTheLayoutRosterInEachReadmeMatchesItsSchema(): void
+    {
+        $checked = 0;
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
+            $roles     = $schema['roles'] ?? [];
+            $expected  = [];
+            foreach ($roles as $role => $definition) {
+                if (in_array('layout', $definition['groups'] ?? [], true)) {
+                    $expected[] = $role;
+                }
+            }
+            if ($expected === []) {
+                continue;
+            }
+
+            $readme = (string) @file_get_contents(dirname($file) . '/README.md');
+            $this->assertNotSame('', $readme, "{$component} exposes layout but has no README to say so");
+
+            $ok = preg_match('/Which roles carry `layout`[^\n]*\n?[^\n]*/', $readme, $m);
+            $this->assertSame(1, $ok,
+                "components/{$component}/README.md does not name which of its roles carry `layout`. "
+                . 'A roster a reader cannot find is a roster they will re-derive, usually wrong.');
+
+            $named = [];
+            foreach ($expected as $role) {
+                if (preg_match('/`' . preg_quote($role, '/') . '`/', $m[0])) {
+                    $named[] = $role;
+                }
+            }
+            sort($named);
+            $sorted = $expected;
+            sort($sorted);
+            $this->assertSame($sorted, $named, sprintf(
+                'components/%s/README.md names %s in its layout roster; the schema declares %s.',
+                $component,
+                implode(', ', $named) ?: '(none)',
+                implode(', ', $sorted)
+            ));
+            $checked++;
+        }
+
+        // Fail-closed: a walk that stops finding schemas would pass vacuously.
+        $this->assertGreaterThanOrEqual(9, $checked,
+            'the roster walk found almost no components — it is asserting on an empty set');
+    }
+
     public function testAiContextSlotCensusMatchesTheSchemas(): void
     {
         // The census covers the components still ON the style-slot system. A v2

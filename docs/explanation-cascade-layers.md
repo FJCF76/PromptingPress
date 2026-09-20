@@ -209,6 +209,30 @@ baseline had to stop matching chrome BECAUSE those borders left the stylesheet.
 Any future rule whose job is to defeat third-party CSS needs the same check: read the
 computed value, do not assume the specificity argument still holds.
 
+**3. One property family lives in BOTH places on purpose — the Layout overlay (#1084).**
+Everywhere else, a designable value belongs to a role and a structural value belongs to the
+stylesheet, and `tests/js/css-lint.test.js` keeps them apart. The five layout properties
+(`grid-template-columns`, `flex-direction`, `flex-wrap`, `justify-content`, `align-items`)
+plus `align-self` sit in both, and the layers are what make that safe rather than confusing.
+
+The stylesheet holds the arrangement a band gets when nobody says otherwise — including the
+parts no role could express, because they are scoped to a layout variant
+(`.cta--inline .cta__inner { flex-direction: row }`) or to an attribute
+(`.hero--split[data-pp-split-ratio="60-40"]`). A role carries breakpoints and states and no
+variant dimension, so those rules have no role address at any value.
+
+The registry holds the author's retune. `layout.orientation` on `cta.inner` emits unlayered,
+so it beats that variant rule at every width, without the variant rule having to move or a
+`!important` having to exist. Set nothing and the variant paints exactly as before — the
+overlay adds a tier, it does not replace one.
+
+The rule that keeps this from becoming "structure and design are the same thing after all":
+**no role may declare a default for those six properties.** A default emits unlayered too,
+so it would not sit above the variant rule as an author's choice — it would sit above it
+permanently, for every band, and quietly delete the variant. That ban is what makes the
+stylesheet the only home for the unauthored behaviour, which is in turn what justifies
+keeping it there. `tests/UdcLayoutGroupTest.php` enforces it from the registry.
+
 ## Trade-offs
 
 **What was given up.** Customizer "Additional CSS", a plugin stylesheet, and any late

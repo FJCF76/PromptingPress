@@ -984,10 +984,11 @@
    hide a line-leading glyph on a per-line-CENTERED row.
 
    `justify-content` used to read a style slot (#510). It is a prop now
-   (`body_items_align`), because justify-content is a LAYOUT property and the taxonomy
-   carries no layout group — the same reasoning that kept hero's `split_ratio`. The
-   modifier below is what the prop derives, and it carries what a raw keyword cannot: the
-   ::before -> ::after separator switch in the shared block.
+   (`body_items_align`), and it STAYS one now that a layout group exists (#1084),
+   because the prop carries what a raw keyword cannot: the modifier below derives the
+   ::before -> ::after separator switch in the shared block. The packing alone IS
+   authorable — `inline-items.layout.justify` — and an authored value outranks this
+   rule, which is the overlay working as designed.
 
    The row's gaps and its top margin are the `inline-items` role. */
 .section__inline-items {

@@ -56,6 +56,8 @@ band — see `item` below.
 | `answer-link` | `.faq__answer a` | links inside the answer — **no defaults**, and the only address that reaches them |
 | `empty` | `.faq__empty` | the "No questions yet." line |
 
+**Which roles carry `layout` (#1084):** `list`, `question`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
 ### The two roles that are one control
 
 `question` and `question-open` are **positional twins**, and the second outranks the first:

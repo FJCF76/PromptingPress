@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, and raw CSS as a standing freedom guarantee (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, and the Layout group (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,92 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## Arrangement is designable now: the Layout group (#1084)
+
+**You can set how a band arranges its content, not just how it looks.** Column count, direction,
+wrapping, packing and alignment were the one first-cut part of the design vocabulary that never got
+built, and three open requests had been waiting on it: vertical alignment for a `section` panel
+(#658), a four-across process band (#905), and control over a two-column split's ratio (#588).
+
+```json
+"udc": {
+  "columns": { "layout": { "columns": { "d": 4, "p": 1 }, "align": "start" } },
+  "panel":   { "sizing": { "align-self": "center" } }
+}
+```
+
+### What changes for you
+
+**`columns` takes a count or a track list.** `4` gives four equal columns; an explicit list
+(`"3fr 2fr"`, `"repeat(auto-fit, minmax(20rem, 1fr))"`) gives you the exact tracks. A count becomes
+`repeat(N, minmax(0, 1fr))`, so one long unbroken word can never widen a column and push the page
+sideways.
+
+**Setting columns makes the box a grid.** The engine emits `display: grid` with your value, because
+otherwise the value would paint nothing wherever the theme lays that box out with flexbox — and a
+value that stores and paints nothing is exactly what this system refuses to ship. Plan for it: on
+that box, at the breakpoints you set, `orientation` and `wrap` stop applying, because they are
+flexbox parameters.
+
+**The phone is not stacked for you.** `d` is the base and applies at every width, so `{"columns": 4}`
+is four columns on a phone too. Write `{"columns": {"d": 4, "p": 1}}` for the ordinary stack, exactly
+as with any other responsive value.
+
+**A box placing ITSELF is `sizing.align-self`,** not a layout parameter: `layout` is what a container
+does to its children. That is what #658 asked for, and it works on any role with `sizing`.
+
+**Two parameter names are shared with `typography` and mean different things.** `layout.align` is
+cross-axis alignment of a container's children while `typography.align` is text alignment;
+`layout.wrap` is flex wrapping while `typography.wrap` is line wrapping. `center`, `wrap` and
+`nowrap` are legal under both, so a value written under the wrong group validates and styles the
+wrong thing. The AI-facing instructions now say so where the model reads them.
+
+### Which roles carry it
+
+The group lands on the 29 roles whose boxes are actually flex or grid containers, across `hero`,
+`section`, `cta`, `faq`, `stats`, `logos`, `testimonials`, `nav` and `footer`. Each component's
+README lists its own, and a test checks those lists against the stylesheet in both directions so
+they cannot drift.
+
+`nav`'s menu and hamburger are deliberately excluded: their `display` is a visibility switch, and an
+authored `display: grid` there would outrank the `hidden` attribute and pin an open mobile menu open.
+
+### The props did not go away, and that is deliberate
+
+`layout`, `split_ratio`, `vertical_align` and `body_items_align` still exist. Each selects a whole
+mechanism — a geometry, an attribute-scoped rule set, or a wrap technique plus the separator
+treatment it needs — which a single value cannot carry. Pick the prop for the arrangement, then use
+the group to retune it: an authored value outranks whatever the prop selected, at every breakpoint.
+Whether some of those props should now retire is filed as its own question.
+
+### Raw `_css` for these properties is type-checked now
+
+`grid-template-columns`, `flex-direction`, `flex-wrap`, `justify-content`, `align-items` and
+`align-self` belong to the vocabulary, so a `_css` write of one is validated against its parameter's
+grammar instead of passed through. The alignment grammars were deliberately widened so that
+anything CSS accepts still validates — the full box-alignment vocabulary, `safe`/`unsafe` prefixes
+included — so an alignment value you already stored does not start failing. The track-list grammar is
+narrower than CSS on purpose and says so: no `calc()` inside a track, one `repeat()` per list, at most
+12 tracks once resolved. If you had written one of those raw, it is refused now with a message naming
+the accepted forms. If you set both a parameter and a raw declaration
+for the same property, the raw one wins and the write envelope tells you so — and the box stays a
+grid, because the companion the parameter earned survives. A raw track list on its own brings no
+`display: grid` with it: companions belong to the named parameter, and the raw valve emits what you
+wrote and nothing else.
+
+### Fixed along the way
+
+- A stored track list could cost seconds of CPU on **every page view**: nested `minmax()` validated in
+  quadratic time, was accepted, and was re-checked on every render. It is refused now (it was never
+  valid CSS), and a whole track list is bounded before anything walks it.
+- A value the browser drops no longer reaches the page: `repeat(2, 1fr, 2fr)`,
+  `repeat(auto-fit, 1fr)`, `repeat(2,,1fr)` and a zero or negative track are all refused, each with a
+  message naming the accepted form.
+- A group a role does not permit is refused at render as well as at write, and reported, instead of
+  painting from storage the write gate had already rejected.
 
 ---
 

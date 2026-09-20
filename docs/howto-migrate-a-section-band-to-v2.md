@@ -211,28 +211,50 @@ of the four no role reaches: glyph colour, prose paragraph rhythm, the list inde
 phone-only gap between stacked panel rows. All four are listed in
 [section's README](../components/section/README.md#what-no-role-reaches).
 
-## Layout values: `_css` now, a group later
+## Layout values: the group, and what to migrate
 
-The approved coverage table specifies a **Layout** group — columns, gap, orientation, wrap —
-and `Sizing → alignment`, and neither has been built yet. Four places in the shipped
-component code route around that gap in writing, and three open issues ask for it (#658
-vertical alignment on the panel and grid, #588 media fit and cropping, #905 grid columns).
-
-Until the group ships, **those values are expressible through `_css` today**:
+The **Layout group shipped at #1084**, so the `_css` recipe this section used to teach is
+no longer the way to set these. Named parameters, type-checked at write:
 
 ```json
-{"columns": {"_css": {"align-items": "start"}},
- "panel":   {"_css": {"align-self": "center"}},
- "media":   {"_css": {"object-fit": "contain"}}}
+{"columns": {"layout": {"columns": {"d": 2, "p": 1}, "align": "start"}},
+ "panel":   {"sizing": {"align-self": "center"}}}
 ```
 
-That is exactly what the escape hatch is for, and it is worth being clear about the trade:
-these are raw declarations, so they are checked for safety and emitted verbatim, and each
-one produces a `udc_css_unchecked_property` finding on the write envelope. When the Layout
-group lands they become named, type-checked parameters, and the `_css` versions should be
-migrated to them — a raw declaration and a group parameter for the same property is always
-a mistake, and the engine will tell you so with a `udc_css_overrides_group_value` finding if
-you leave both in place.
+- **`columns.layout.columns`** — a count (1-12) or a track list
+  (`"3fr 2fr"`, `"repeat(auto-fit, minmax(20rem, 1fr))"`). A count becomes
+  `repeat(N, minmax(0, 1fr))`, and the engine emits `display: grid` with it, so the value
+  is true at every breakpoint you set it for — including the phone, where this component's
+  own CSS would otherwise stack the columns with flexbox and your value would paint
+  nothing. `d` applies at every width, so write `{"d": 2, "p": 1}` to keep the phone
+  stacked.
+- **`columns.layout.align`** — the columns' vertical alignment (what
+  `.section--text-panel` sets to `start` for you).
+- **`panel.sizing.align-self`** — one column placing itself (#658). It is in `sizing`, not
+  `layout`, because `layout` is what a container does to its children and the panel is a
+  child.
+- **`inline-items.layout.justify`** / **`.wrap`** — how the trust strip packs.
+
+**If you wrote the `_css` form earlier, migrate it.** Those properties are registry-owned
+now, so a `_css` declaration for one is type-checked rather than passed through — and if
+you leave both in place, the raw declaration wins and the envelope says so with a
+`udc_css_overrides_group_value` finding. Move the value to the parameter and delete the
+`_css` entry.
+
+**One behavioural difference worth knowing:** the `display: grid` companion belongs to the
+`layout.columns` PARAMETER. Write the same property raw through `_css` and you get the track list
+alone, which paints only where the box is already a grid. Set both and the raw value wins the
+property while the companion survives, so the box stays a grid.
+
+**What `_css` is still for here:** properties no group owns, such as
+`{"media": {"_css": {"object-fit": "contain"}}}`. Those still report
+`udc_css_unchecked_property` on the write envelope, which is the honest signal that the
+engine checked the value's safety and not its meaning.
+
+**What is still a prop:** `layout` and `body_items_align`. They select a whole mechanism
+(a geometry; a wrap technique *plus* the separator switch it needs), which no single role
+value can carry. Choose the prop for the arrangement, then retune it with the group — an
+authored value outranks the rule the prop selected.
 
 ## Related
 

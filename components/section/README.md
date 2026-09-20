@@ -69,8 +69,18 @@ accepted quietly.
 
 ### Why two props survived
 
-`layout` and `body_items_align` STAY, because the UDC taxonomy has **no layout group**:
-removing them would delete the capability rather than move it.
+`layout` and `body_items_align` STAY — and the reason changed at #1084, when the
+**Layout group** shipped. It used to be "the taxonomy has no layout group". It has one
+now (`columns`, `orientation`, `wrap`, `justify`, `align`, plus `sizing.align-self`),
+and both props still stay, because each selects a **mechanism bundle** rather than a
+value.
+
+What the group adds is the retune, and it is the answer to three open issues on this
+component: `columns.layout.columns` sets the track count or an explicit track list
+(#588's ratio half, and #905's four-across shape), `columns.layout.align` sets the
+columns' vertical alignment, and `panel.sizing.align-self` places the panel column on
+its own (#658). An authored value emits unlayered while this component's structural CSS
+sits in `pp-v1`, so it outranks the rule the prop selected, at every breakpoint.
 
 `body_items_align` is the subtler of the two, and it is worth being exact about why it is
 a prop. It does not set a value — it selects a **wrap technique**: a `justify-content`
@@ -103,6 +113,8 @@ one, so there is nothing for a role parameter to hold.
 | `panel-row-label` | `.section__panel-row-label` | the left-hand label's type |
 | `panel-row-value` | `.section__panel-row-value` | the right-hand value's type |
 | `panel-cta` | `.section__panel-cta` | the panel button, usually via `"_preset": "button"` |
+
+**Which roles carry `layout` (#1084):** `columns`, `inline-items`, `panel-row`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 **Nineteen roles is deliberate, and it was argued down and back up again.** A mid-sprint
 draft collapsed the five `panel-*` text roles into the `panel` role on the grounds that

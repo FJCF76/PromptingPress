@@ -181,7 +181,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -198,7 +199,8 @@
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -310,7 +312,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -381,7 +384,8 @@
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "typography": {
@@ -417,7 +421,8 @@
         "background",
         "sizing",
         "shadow",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {

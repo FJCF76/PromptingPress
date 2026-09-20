@@ -54,9 +54,17 @@ ordinary accent ring — set the `button` role's own values if that needs to cha
 
 ### Why one prop survived
 
-`layout` selects flex GEOMETRY and the UDC taxonomy carries no layout group, so retiring it
-would delete a capability rather than move it — the same reasoning that kept hero's
-`split_ratio` and section's `body_items_align`.
+`layout` STAYS — and the reason changed at #1084, when the **Layout group** shipped. It
+used to be "the taxonomy carries no layout group". It has one now, and the prop still
+stays, because it selects a **mechanism bundle**: `inline` sets a direction, a packing
+and an alignment together and only from 768px, while `full-width` centres the text block
+and its button row. A role carries breakpoints and states, not variants, so no role
+value can swap a bundle.
+
+What the group adds is the retune: `inner.layout.orientation`, `inner.layout.align` and
+`buttons.layout.justify` are authored per breakpoint, emit unlayered, and outrank the
+bundle's own rules in `pp-v1`. Same reading as hero's `split_ratio` and section's
+`body_items_align`.
 
 **It no longer carries colour.** v1's `full-width` painted a surface fill and two 1px rules;
 `inline` painted neither. v2 has no layout-scoped role defaults, so one value serves both,
@@ -84,6 +92,8 @@ byte-identical to v1. **An `inline` cta now paints them too.** For the v1 inline
 | `buttons` | `.cta__buttons` | the pair row's gap |
 | `button` | `.cta__button--primary` | the primary button, and only it — **declares nothing** (see below) |
 | `button-secondary` | `.cta__button--secondary` | the second button — the only role here with colour-bearing defaults |
+
+**Which roles carry `layout` (#1084):** `inner`, `buttons`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ### Two roles declare nothing, and that is the deliberate part
 

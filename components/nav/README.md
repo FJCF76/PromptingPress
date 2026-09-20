@@ -141,6 +141,10 @@ slots, so a literal is the only disposition available"), and the difference matt
 panel's whole surface is the `submenu` role now, and `submenu` permits `sizing`, so an
 authored `sizing.min-width` overrides this line. Nothing here is out of reach any more.
 
+**Which roles carry `layout` (#1084):** `container`, `logo`, `menu-list`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
+`menu` and `toggle` are deliberately NOT on that list. Their `display` is a visibility switch — `.nav__menu[hidden]` against the JS that opens and closes the mobile menu, and a hamburger that is `display: none` from 768px — and an authored `columns` emits a `display: grid` companion that would outrank the `hidden` attribute and pin an open menu open. The exclusion is derived from the stylesheet, not kept by hand (tests/js/css-lint.test.js).
+
 ## Configuring the header
 
 The header is template-owned, so it is configured through site options and never by

@@ -1,6 +1,6 @@
 {
   "component": "cta",
-  "description": "Call-to-action band: an optional eyebrow, heading and supporting line above one or two buttons. Two layouts: full-width (a centred block) and inline (a flex row, text left and buttons right). Omit title and body to render a standalone button row with no heading — the sanctioned heading-less button pattern. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. `layout` survives as a prop because the UDC taxonomy has no layout group, so removing it would delete a capability rather than move it. See docs/v2/BUILD-SPEC-sprint0.md §3.",
+  "description": "Call-to-action band: an optional eyebrow, heading and supporting line above one or two buttons. Two layouts: full-width (a centred block) and inline (a flex row, text left and buttons right). Omit title and body to render a standalone button row with no heading — the sanctioned heading-less button pattern. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. `layout` survives as a prop because it selects a MECHANISM BUNDLE — a direction, a packing and an alignment together, at one breakpoint only — which a role, having breakpoints and states but no variant dimension, cannot carry. The `layout` GROUP (#1084) retunes what the bundle sets: `inner.layout.orientation`, `buttons.layout.justify`, `inner.layout.align`. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",
@@ -116,7 +116,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -267,7 +268,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
