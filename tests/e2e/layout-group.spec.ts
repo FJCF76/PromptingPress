@@ -123,6 +123,13 @@ test.describe('The Layout group, rendered', () => {
     page,
   }) => {
     pageId = createPage('E2E layout group');
+    // RAW META IS DELIBERATE HERE, and the test below uses the real write path for
+    // the opposite reason. This one is a RENDER-boundary fixture: its claims are
+    // about the cascade, and it needs stable band ids to address four bands in one
+    // page (the write path mints `pp-<hex8>` over any id it does not consider
+    // usable, which the minting test relies on). Rule 14.1's authoring-path mandate
+    // is met in tests/UdcLayoutGroupTest.php, which writes the group through
+    // `create_page` validation.
     setComposition(pageId, [
       // 1. AUTHORED: a four-across process band — #905's shape, on the component
       //    whose own CSS is flex below 768px and a two-column grid above it.
@@ -150,6 +157,34 @@ test.describe('The Layout group, rendered', () => {
           body: STRESS,
           layout: 'image-right',
           image_url: 'https://example.test/none.png',
+        },
+      },
+      // 2b. #658 ITSELF: the panel column placing itself, beside an unauthored
+      //     twin. `align-self` is the reason the parameter went to `sizing`, so its
+      //     cascade claim gets the same browser proof the container params get.
+      {
+        component: 'section',
+        id: 'pp-layout-panel',
+        props: {
+          id: 'pp-layout-panel',
+          title: 'Panel authored',
+          body: STRESS,
+          layout: 'text-panel',
+          panel_heading: 'What you get',
+          panel_body: 'A short panel that is shorter than the prose beside it.',
+        },
+        udc: { panel: { sizing: { 'align-self': 'center' } } },
+      },
+      {
+        component: 'section',
+        id: 'pp-layout-panel-control',
+        props: {
+          id: 'pp-layout-panel-control',
+          title: 'Panel control',
+          body: STRESS,
+          layout: 'text-panel',
+          panel_heading: 'What you get',
+          panel_body: 'A short panel that is shorter than the prose beside it.',
         },
       },
       // 3. A cta whose `inline` variant sets flex-direction: row from 768px. The
@@ -197,10 +232,13 @@ test.describe('The Layout group, rendered', () => {
             columns: cs.gridTemplateColumns,
             direction: cs.flexDirection,
             alignItems: cs.alignItems,
+            alignSelf: cs.alignSelf,
           };
         };
         return {
           authored: box('[data-pp-band="pp-layout-authored"] .section__grid'),
+          panel: box('[data-pp-band="pp-layout-panel"] .section__panel'),
+          panelControl: box('[data-pp-band="pp-layout-panel-control"] .section__panel'),
           control: box('[data-pp-band="pp-layout-control"] .section__grid'),
           cta: box('[data-pp-band="pp-layout-cta"] .cta__inner'),
           ctaControl: box('[data-pp-band="pp-layout-cta-control"] .cta__inner'),
@@ -224,11 +262,22 @@ test.describe('The Layout group, rendered', () => {
       // the stylesheet's own two-column grid from 768px.
       if (vp.width < 768) {
         expect(read.control!.display, `${vp.label}: an unauthored band must still stack`).toBe('flex');
-        expect(read.control!.flexDirection ?? read.control!.direction).toBe('column');
+        expect(read.control!.direction, `${vp.label}: an unauthored stack is a flex column`).toBe('column');
       } else {
         expect(read.control!.display, `${vp.label}: an unauthored band keeps the stylesheet grid`).toBe('grid');
         expect(read.control!.columns.split(' ').length, `${vp.label}: the shipped two-column track`).toBe(2);
       }
+
+      // #658 — the authored panel places itself, and its unauthored twin does not.
+      // The stylesheet gives `.section--text-panel .section__grid` align-items:
+      // start from 768px, so the control's panel resolves to that and the authored
+      // one must override it on its own box.
+      expect(read.panel, 'the panel band must be on the page').not.toBeNull();
+      expect(read.panel!.alignSelf, `${vp.label}: an authored align-self must win on the panel`).toBe('center');
+      expect(
+        read.panelControl!.alignSelf,
+        `${vp.label}: the unauthored panel keeps whatever the stylesheet gives it`,
+      ).not.toBe('center');
 
       // CLAIM 1 — the authored orientation beats `.cta--inline`'s row at >=768px,
       // where the variant rule is the one that would otherwise apply.

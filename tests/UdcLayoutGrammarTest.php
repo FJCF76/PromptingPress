@@ -17,10 +17,16 @@
  *    composition and every read surface re-validates stored ones (the #1007 class).
  *    So `safe center` and friends are pinned as ACCEPTED: they are valid CSS and
  *    `_css` took them before the registry claimed the property.
- * 2. DEAD VALUES, refused. `0fr`, `repeat(0, 1fr)` and a negative track validate as
- *    "CSS the browser keeps and paints as nothing" — the I19 class this engine
- *    exists to close — so the grammar refuses them rather than the page doing it
- *    silently.
+ * 2. DEAD VALUES, refused — and the rule is narrower than "anything that computes
+ *    to zero", which is why it is spelled out. A zero FRACTION (`0fr`), a zero
+ *    REPEAT (`repeat(0, 1fr)`) and a NEGATIVE track are refused: none of them is a
+ *    design anyone means, and each one validates green and paints nothing, which is
+ *    the I19 class. A zero LENGTH (`0px 1fr`) is ACCEPTED, deliberately: a
+ *    deliberately collapsed track is a real layout — it is how an author hides a
+ *    column at one breakpoint and keeps the grid's shape — and refusing it would be
+ *    this engine inventing a constraint CSS does not have (the #988 lesson). The
+ *    first draft of this docblock claimed the wider rule and the tests only proved
+ *    the narrow one; the pre-landing testing pass caught the gap between them.
  */
 
 namespace PromptingPress\Tests;
@@ -155,6 +161,11 @@ class UdcLayoutGrammarTest extends TestCase
             'auto 1fr auto',
             'min-content max-content',
             'minmax(0, 1.08fr) minmax(0, 0.92fr)',
+            // A deliberately collapsed track: accepted, per the rule stated in the
+            // file docblock. Pinned as ACCEPTED so the refusals below cannot be
+            // widened into it by accident.
+            '0px 1fr',
+            '0% 1fr',
         ] as $good) {
             $this->ok($good, 'track-list');
         }
@@ -180,6 +191,14 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no('calc(100% / 3) 1fr', 'track-list', 'calc() inside a track is not accepted in this cut');
         $this->no('subgrid', 'track-list', 'subgrid is not in this cut');
         $this->no('1fr, 1fr', 'track-list', 'tracks are space separated, not comma separated');
+        // The three bounds the implementation states in prose and nothing pinned,
+        // found by the pre-landing testing pass. Each behaves correctly today; a
+        // later relaxation would have landed silently.
+        $this->no('repeat(2, 1fr) repeat(2, 1fr)', 'track-list', 'one repeat() per list is the stated bound');
+        $this->no('minmax(0)', 'track-list', 'minmax() takes exactly two tracks');
+        $this->no('minmax(0, 1fr, 2fr)', 'track-list', 'minmax() takes exactly two tracks');
+        $this->no('-10px 1fr', 'track-list', 'a negative LENGTH track, distinct from the -1fr case above');
+        $this->no('1fr -10px', 'track-list', 'and in either position');
 
         // The shared reject set still owns the injection classes, ahead of the
         // grammar — pinned here because this is the first type whose values carry

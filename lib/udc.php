@@ -2198,7 +2198,12 @@ function _pp_udc_background_image_companions(array $declarations): array {
  * keyboard and screen-reader affordance. Those roles do not declare `layout`.
  */
 function _pp_udc_grid_columns_companion(array $declarations): array {
-    if (!isset($declarations['grid-template-columns']) || isset($declarations['display'])) {
+    // `companion` is set by _pp_udc_place() only for the `layout.columns`
+    // PARAMETER. Keying on the property instead let a raw `_css` declaration pull
+    // the companion onto any role at all, including the two the exposure roster
+    // excludes precisely because their `display` is a visibility switch — see the
+    // note at the marker for the probe that found it.
+    if (empty($declarations['grid-template-columns']['companion']) || isset($declarations['display'])) {
         return $declarations;
     }
     $declarations['display'] = [
@@ -4677,10 +4682,44 @@ function _pp_udc_place(
             $css = 'repeat(' . $css . ', minmax(0, 1fr))';
         }
 
+        // THE COMPANION RIDES THE PARAMETER, NOT THE PROPERTY (#1084, found by the
+        // pre-landing testing pass).
+        //
+        // It was keyed on `grid-template-columns` appearing in the bucket, and
+        // `_css` can put it there on ANY role — so the exposure roster, which gates
+        // the `layout` GROUP, gated nothing. Probed: `{"menu": {"_css":
+        // {"grid-template-columns": "2"}}}` on nav emitted an unlayered
+        // `display: grid` on `.nav__menu`, which outranks the UA stylesheet's
+        // `[hidden]` rule and PINS AN OPEN MOBILE MENU OPEN — the exact
+        // keyboard/screen-reader break the roster's visibility-switch clause exists
+        // to make unreachable, reachable through the next door along.
+        //
+        // The fix is the honest rule rather than a second exclusion list: the
+        // companion belongs to `layout.columns`, which is a designed parameter with
+        // a documented behaviour, and NOT to the raw valve, whose whole posture is
+        // that it checks a value's safety and not its meaning. A raw track list
+        // emits a track list; if the box is not already a grid, that is the same
+        // inertness any raw declaration can have on an element it does not suit.
+        //
+        // THE PARAM NAME IS THE DISCRIMINATOR, and it is a real one rather than a
+        // coincidence: the group route arrives as the parameter `columns`, while the
+        // `_css` route arrives as the PROPERTY `grid-template-columns`
+        // (pp_udc_css_param() keys its synthesized params by property).
+        $companion = $param_name === 'columns' && $property === 'grid-template-columns';
+
         $resolved[$state][$bp][$property] = [
             'css'     => $css,
             'source'  => $source,
             'literal' => $literal,
+            // A LATER WRITER AT THE SAME COORDINATE KEEPS THE MARKER. `_css` places
+            // after the groups by rank, so a band carrying BOTH `layout.columns` and
+            // a raw `grid-template-columns` would otherwise lose the companion the
+            // group value earned — the author would set two values and watch the
+            // box stop being a grid. The raw value still wins the property (and the
+            // envelope still discloses that with `udc_css_overrides_group_value`);
+            // it just does not un-declare the display the group value implied.
+            'companion' => $companion
+                || !empty($resolved[$state][$bp][$property]['companion']),
         ];
     }
 }

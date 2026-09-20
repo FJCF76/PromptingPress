@@ -171,6 +171,18 @@ it**. A value that validates green, stores, and paints nothing on no channel is 
 #1048 is already open against; building one deliberately is not an option. With the companion, "N
 columns" is true wherever the author wrote it.
 
+**THE COMPANION RIDES THE PARAMETER, NOT THE PROPERTY** — corrected during the pre-landing review,
+which found the roster's visibility-switch clause gated nothing. `_css` reaches every role whatever
+the roster says, and the companion keyed on `grid-template-columns` appearing in the bucket, so
+`{"menu": {"_css": {"grid-template-columns": "2"}}}` on nav emitted an unlayered `display: grid` on
+`.nav__menu` and pinned an open mobile menu open — the exact affordance §5 exists to protect,
+reachable through the next door along. The companion now fires only for the `layout.columns`
+parameter. A raw track list emits a track list and nothing else, which is the raw valve's own posture
+(it checks a value's safety, not its meaning), and the claimed property still keeps its parameter's
+GRAMMAR through `_css` — a raw `3` is still the count `repeat(3, minmax(0, 1fr))`, per the Layer-2
+typed-property rule. When a band carries both, the raw value wins the property, the envelope
+discloses it with `udc_css_overrides_group_value`, and the companion the group value earned survives.
+
 **The suppression check is source-agnostic.** The companion is skipped when `display` is already in
 that bucket's declaration map **whatever put it there** — `_css`, a future param, stored data — which
 is the same `isset()` shape the background trio uses. No group emits `display` today, so `_css` is

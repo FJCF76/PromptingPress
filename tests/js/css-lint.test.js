@@ -4801,12 +4801,24 @@ describe('CSS lint: the Layout group is exposed by box fact, not by judgement', 
         section: ['columns', 'inline-items', 'panel-row'],
         stats: ['list', 'item'],
         table: [],
+        // grid ships a schema and declares NO roles yet (its rebuild is #1024,
+        // gated on the item-grain ruling). It is listed with an empty roster rather
+        // than omitted, so the coverage check above stays exact and the day grid
+        // declares roles this test demands a decision instead of ignoring it.
+        grid: [],
         testimonials: ['list', 'card', 'attribution'],
         embed: [],
     };
 
     const derive = (component) => {
         const block = componentBlock(component);
+        // FAIL CLOSED. A component whose recorded roster is empty (table, embed)
+        // would otherwise produce a green `toEqual([])` from a slicer that had
+        // stopped finding its banner — an empty result that means "I read nothing"
+        // must never read as "I read it and found nothing".
+        if (block === '' && !fs.existsSync(path.join(componentsDir, component, 'schema.json'))) {
+            throw new Error(`${component}: no schema on disk, so the roster cannot be derived`);
+        }
         const schema = JSON.parse(
             fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
         );
@@ -4837,6 +4849,25 @@ describe('CSS lint: the Layout group is exposed by box fact, not by judgement', 
     };
 
     const v2Components = Object.keys(RECORDED);
+
+    /**
+     * THE ROSTER FAILED OPEN FOR ANYTHING NOT LISTED, and the pre-landing testing
+     * pass caught it: the per-component loop walks `Object.keys(RECORDED)`, so a
+     * component absent from that map had its layout exposure checked by nothing at
+     * all. Harmless the day it was written (the only absentee, `grid`, declares no
+     * roles yet) and exactly the kind of gap that stops being harmless the moment
+     * grid's rebuild lands.
+     */
+    test('the recorded roster covers every component that ships a schema', () => {
+        const onDisk = fs.readdirSync(componentsDir, { withFileTypes: true })
+            .filter(d => d.isDirectory() && fs.existsSync(path.join(componentsDir, d.name, 'schema.json')))
+            .map(d => d.name)
+            .sort();
+        expect(
+            Object.keys(RECORDED).sort(),
+            'a component absent from RECORDED is a component whose layout exposure nothing checks',
+        ).toEqual(onDisk);
+    });
 
     test('the roster derivation reads real CSS and real schemas', () => {
         // Anti-vacuity: the parse must find containers at all, and must find the
@@ -4884,7 +4915,10 @@ describe('CSS lint: the Layout group is exposed by box fact, not by judgement', 
                 (schema.roles[role].groups || []).includes('layout'),
                 `nav.${role} must NOT expose layout: an authored columns value emits an unlayered ` +
                 'display:grid companion, which outranks the UA stylesheet\'s [hidden] rule and pins ' +
-                'an open mobile menu open — a styling write breaking a keyboard/AT affordance.',
+                'an open mobile menu open — a styling write breaking a keyboard/AT affordance. ' +
+                'This test gates the GROUP door only; the raw `_css` door is closed in the engine ' +
+                '(the companion rides the layout.columns PARAMETER) and pinned by ' +
+                'UdcLayoutGroupTest::testTheCompanionNeverReachesARoleTheRosterExcluded.',
             ).toBe(false);
         });
 

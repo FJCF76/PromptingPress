@@ -130,28 +130,133 @@ class UdcLayoutGroupTest extends TestCase
                 // which is how this guard was found to be asking the wrong
                 // question. What must never appear in a default is a
                 // layout PROPERTY, whatever group carries it.
-                foreach ($defaults as $group => $values) {
-                    if (!is_array($values) || !isset($groups[$group]['params'])) {
-                        continue;
-                    }
-                    foreach (array_keys($values) as $param) {
-                        $property = $groups[$group]['params'][$param]['property'] ?? null;
-                        $this->assertNotContains($property, $layoutProperties, sprintf(
-                            '%s role "%s" defaults "%s.%s", which emits the layout property "%s"',
-                            basename(dirname($file)),
-                            $role,
-                            $group,
-                            $param,
-                            (string) $property
-                        ));
-                    }
-                }
+                $hits = $this->layoutPropertyDefaultsIn($defaults, $groups, $layoutProperties);
+                $this->assertSame([], $hits, sprintf(
+                    '%s role "%s" defaults %s, which emits a layout property',
+                    basename(dirname($file)),
+                    $role,
+                    implode(', ', $hits)
+                ));
             }
         }
 
         $this->assertGreaterThanOrEqual(9, $componentsSeen, 'the schema walk found almost no components — it is asserting on an empty set');
         $this->assertGreaterThan(20, $rolesExposing, 'almost no role exposes layout — the roster never landed, so this test proves nothing');
         $this->assertGreaterThan(50, $otherDefaults, 'no role defaults were read at all, so the absence above is not evidence');
+    }
+
+    /**
+     * Every layout PROPERTY a defaults map declares, including through a state
+     * bucket — the level the first version of this walk stepped straight over.
+     *
+     * A role's defaults nest a state exactly as an authored map does
+     * (`typography: {":hover": {color: …}}` ships on cta, nav and footer today), so
+     * a walk that read one level under a group would have accepted
+     * `sizing: {":hover": {"align-self": "center"}}` — an unlayered default on a
+     * state, which is the same cascade hazard as the base one and is writable
+     * today (probed: that shape validates at the write gate). Keyed on the emitted
+     * property rather than the parameter name, because `typography.align` and
+     * `layout.align` are different properties sharing a name.
+     *
+     * @return array<int, string> Human-readable locators, empty when clean.
+     */
+    private function layoutPropertyDefaultsIn(array $defaults, array $groups, array $layoutProperties): array
+    {
+        $hits = [];
+        foreach ($defaults as $group => $values) {
+            if (!is_array($values) || !isset($groups[$group]['params'])) {
+                continue;
+            }
+            foreach ($values as $key => $inner) {
+                $isState = is_string($key) && $key !== '' && $key[0] === ':' && is_array($inner);
+                foreach ($isState ? array_keys($inner) : [$key] as $param) {
+                    $property = $groups[$group]['params'][$param]['property'] ?? null;
+                    if ($property !== null && in_array($property, $layoutProperties, true)) {
+                        $hits[] = $isState
+                            ? sprintf('%s.%s.%s', $group, $key, $param)
+                            : sprintf('%s.%s', $group, $param);
+                    }
+                }
+            }
+        }
+        return $hits;
+    }
+
+    /**
+     * THE WALK'S OWN RED PROOF. A guard whose assertion count does not move when
+     * you break its subject is asserting on an empty set, and the shipped schemas
+     * are (correctly) clean — so the only way to prove the state arm fires is to
+     * feed it the shape it exists for.
+     */
+    public function testTheNoDefaultsWalkSeesThroughAStateBucket(): void
+    {
+        $groups     = pp_udc_groups();
+        $properties = array_merge(
+            array_column($groups['layout']['params'], 'property'),
+            [$groups['sizing']['params']['align-self']['property']]
+        );
+
+        $this->assertSame(
+            ['sizing.:hover.align-self'],
+            $this->layoutPropertyDefaultsIn(['sizing' => [':hover' => ['align-self' => 'center']]], $groups, $properties),
+            'a state-nested layout default must be caught, not stepped over'
+        );
+        $this->assertSame(
+            ['layout.columns'],
+            $this->layoutPropertyDefaultsIn(['layout' => ['columns' => 3]], $groups, $properties),
+            'and the plain arm still fires'
+        );
+        // The near miss: a name a layout param shares with another group's, whose
+        // property is NOT a layout one, must stay clean.
+        $this->assertSame(
+            [],
+            $this->layoutPropertyDefaultsIn(['typography' => ['align' => 'center', ':hover' => ['align' => 'left']]], $groups, $properties),
+            'typography.align emits text-align and is a legitimate default, in a state or out of one'
+        );
+    }
+
+    /**
+     * THE TWO ENDS OF THE AMENDMENT CANNOT DRIFT APART.
+     *
+     * The css-lint amendment's condition 1 is "the registry owns it", and the lint
+     * expresses that as a hand-written literal in JavaScript
+     * (`REGISTRY_OWNED_STRUCTURAL`). Nothing compared it to the registry, so a
+     * seventh layout parameter claiming a new property — or `align-self` moving
+     * group — would leave the JS list stale and the amendment's own condition
+     * unasserted for the new property. That is the opposite of the registry-derived
+     * posture the no-defaults test takes for the same rule, and the pre-landing
+     * testing pass flagged the asymmetry.
+     *
+     * PHP owns the registry, so PHP is where the comparison belongs: it reads the
+     * lint's literal and asserts the two sets are the same. A new layout parameter
+     * now fails here until the lint is updated in the same commit.
+     */
+    public function testTheLintsDualHomeSetIsExactlyWhatTheRegistryOwns(): void
+    {
+        $lint = (string) file_get_contents(dirname(__DIR__) . '/tests/js/css-lint.test.js');
+        $this->assertNotSame('', $lint, 'the lint file must be readable, or this test proves nothing');
+
+        $ok = preg_match(
+            '/const REGISTRY_OWNED_STRUCTURAL = new Set\(\[(.*?)\]\);/s',
+            $lint,
+            $m
+        );
+        $this->assertSame(1, $ok, 'REGISTRY_OWNED_STRUCTURAL was renamed or removed — update this pin with it');
+
+        preg_match_all("/'([a-z-]+)'/", $m[1], $found);
+        $declared = $found[1];
+        sort($declared);
+
+        $groups   = pp_udc_groups();
+        $expected = array_merge(
+            array_column($groups['layout']['params'], 'property'),
+            [$groups['sizing']['params']['align-self']['property']]
+        );
+        sort($expected);
+
+        $this->assertSame($expected, $declared,
+            'the css-lint amendment names a different set of properties than the registry owns. Both ends '
+            . 'of the exception move together, or the amendment stops being true for the property that drifted.');
     }
 
     // ── 2. Exposure is declared, and the write gate honours it ───────────────
@@ -224,11 +329,94 @@ class UdcLayoutGroupTest extends TestCase
         $this->assertStringNotContainsString('display:grid;', $css);
     }
 
+    /**
+     * THE NEGATIVE HALF OF THIS TEST USED TO ASSERT ON AN EMPTY STRING, and the
+     * pre-landing testing pass caught it. With `columns` authored at `p` only, the
+     * whole emitted block is one `@media (max-width: 767px)` wrapper, so the base
+     * slice was `substr($css, 0, 0)` — and "the empty string does not contain
+     * display:grid" is a claim no implementation could ever fail. The `d` tier now
+     * carries a second layout value, which makes the base slice real and the
+     * negative assertion a real one.
+     */
     public function testTheCompanionRidesOnlyTheBucketThatCarriesTheColumns(): void
     {
-        $css = $this->css(['columns' => ['layout' => ['columns' => ['p' => 1]]]]);
+        $css = $this->css(['columns' => ['layout' => ['columns' => ['p' => 1], 'justify' => 'center']]]);
+        $base = $this->tier($css, 'd');
+        $this->assertStringContainsString('justify-content:center', $base,
+            'the base tier must actually be emitted, or the negative below asserts on nothing');
+        $this->assertStringNotContainsString('display:grid', $base);
         $this->assertStringContainsString('display:grid', $this->tier($css, 'p'));
-        $this->assertStringNotContainsString('display:grid', $this->tier($css, 'd'));
+    }
+
+    /** The other half of the bucket claim: a state is a bucket too. */
+    public function testTheCompanionRidesAStateBucketAsWell(): void
+    {
+        $css = $this->css(['columns' => ['layout' => [':hover' => ['columns' => 2]]]]);
+        $this->assertStringContainsString('.section__grid:hover{', $css);
+        $this->assertStringContainsString('display:grid', $css);
+    }
+
+    /**
+     * THE EXCLUSION HAS TO HOLD ON EVERY DOOR, not just the one the roster gates.
+     *
+     * `nav.menu` is out of the layout roster because its `display` is a visibility
+     * switch. But `_css` reaches every role regardless of the roster, and the
+     * companion used to key on the PROPERTY appearing in the bucket — so a raw
+     * `grid-template-columns` there emitted an unlayered `display: grid`, outranked
+     * the UA stylesheet's `[hidden]` rule, and pinned an open mobile menu open. A
+     * styling write taking out a keyboard and screen-reader affordance is not a
+     * thing to document; the companion is scoped to the parameter now, and this is
+     * the test that says so.
+     */
+    public function testTheCompanionNeverReachesARoleTheRosterExcluded(): void
+    {
+        $css = pp_udc_band_css([
+            'component' => 'nav',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['menu' => ['_css' => ['grid-template-columns' => '2']]],
+        ]);
+
+        $this->assertStringContainsString('grid-template-columns', $css, 'the raw declaration still emits');
+        $this->assertStringNotContainsString('display:grid', $css,
+            'an unlayered display:grid on .nav__menu outranks the UA [hidden] rule and pins the mobile menu open');
+    }
+
+    /**
+     * The raw route keeps the parameter's GRAMMAR (a count is still a count, per
+     * the Layer-2 typed-property rule) and does NOT keep its companion. Both halves
+     * are pinned because both are surprising, and an untested surprise is a bug
+     * waiting to be "fixed" in either direction.
+     */
+    public function testTheRawRouteKeepsTheGrammarAndDropsTheCompanion(): void
+    {
+        $css = $this->css(['columns' => ['_css' => ['grid-template-columns' => '3']]]);
+        $this->assertStringContainsString('grid-template-columns:repeat(3, minmax(0, 1fr))', $css,
+            'a claimed property keeps its parameter\'s meaning through _css — the count is still a count');
+        $this->assertStringNotContainsString('display:grid', $css,
+            'the raw valve checks safety, not meaning; companions belong to the designed parameter');
+    }
+
+    /**
+     * BOTH IN PLACE: the raw declaration wins the property (and the envelope says
+     * so), but it must not un-declare the display the group value implied — an
+     * author who adds a second value should not watch the box stop being a grid.
+     */
+    public function testARawDeclarationOverAGroupValueKeepsTheCompanionAndIsDisclosed(): void
+    {
+        $udc = ['columns' => [
+            'layout' => ['columns' => 3],
+            '_css'   => ['grid-template-columns' => '1fr 2fr'],
+        ]];
+
+        $css = $this->css($udc);
+        $this->assertStringContainsString('grid-template-columns:1fr 2fr', $css, 'the raw value wins the property');
+        $this->assertStringContainsString('display:grid', $css, 'and the group value\'s companion survives it');
+
+        $findings = pp_udc_composition_findings([$this->band($udc)]);
+        $types    = array_column($findings, 'type');
+        $this->assertContains('udc_css_overrides_group_value', $types,
+            'the author set two values for one property; the envelope has to say which one lost');
     }
 
     /**
