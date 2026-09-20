@@ -180,10 +180,21 @@ if (!in_array($layout, $allowed_layouts, true)) {
 // `button2_variant`. Each was a bundle of designable values — vertical padding, a
 // content measure, a set of button colours — which is exactly what the UDC expresses
 // directly: `_band` spacing, the `content` role's `sizing.max-width`, and a `_preset`
-// on the CTA roles. What REMAINS a prop is what the UDC has no group for: `layout`,
-// `split_ratio` and `vertical_align` select grid geometry and cross-axis alignment,
-// and the taxonomy carries no layout group, so removing them would delete the
-// capability rather than move it.
+// on the CTA roles.
+//
+// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
+// This comment used to read "the taxonomy carries no layout group". It does now
+// (`layout`: columns, orientation, wrap, justify, align, plus `sizing.align-self`),
+// so the old reason is gone and a truer one takes its place: `layout`,
+// `split_ratio` and `vertical_align` each select a MECHANISM BUNDLE, not a value.
+// `layout` swaps a whole geometry (and on `cover`, a band-root rule); `split_ratio`
+// and `vertical_align` derive attribute-scoped rules that a flat role address
+// cannot reach, because a role has a breakpoint dimension and a state dimension and
+// no variant dimension. The group RETUNES what the bundle sets — an authored
+// `inner.layout.columns` outranks the split ratio's track list, and
+// `inner.layout.align` outranks the vertical alignment, both unlayered against this
+// stylesheet's `pp-v1`. Retiring the props is a migration with its own review, and
+// it is filed rather than smuggled in here.
 $allowed_split_ratios = ['50-50', '60-40', '40-60'];
 if (!in_array($split_ratio, $allowed_split_ratios, true)) {
     $split_ratio = '50-50';

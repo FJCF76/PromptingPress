@@ -228,11 +228,16 @@ if ($layout === 'text-panel') {
 // on the text roles, the `header` role's `typography.align`, `_band` ->
 // `background.image` (ruling A2), and the `panel-cta` role or a button preset.
 //
-// What REMAINS a prop is what the UDC has no group for. `layout` selects grid
-// geometry and `body_items_align` selects a wrap technique (a justify-content value
-// plus the separator mechanism that technique requires); the taxonomy carries no
-// layout group, so removing them would delete the capability rather than move it —
-// the same reasoning that kept hero's `split_ratio` and `vertical_align`.
+// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
+// This comment used to read "the taxonomy carries no layout group". It does now, so
+// the honest reason is the one that survives it: both props select a MECHANISM
+// BUNDLE rather than a value. `layout` swaps a whole geometry, and
+// `body_items_align` picks a wrap TECHNIQUE — a justify-content value AND the
+// ::before -> ::after separator switch that technique requires, which no role value
+// could ever carry. The group retunes what the bundle sets: `columns.layout.*`
+// outranks the track and the alignment this file's rules declare, and
+// `inline-items.layout.justify` outranks the packing — all unlayered against
+// `pp-v1`. The same reading now applies to hero's `split_ratio`/`vertical_align`.
 $allowed_body_items_aligns = ['start', 'center'];
 if (!in_array($body_items_align, $allowed_body_items_aligns, true)) {
     $body_items_align = 'start';

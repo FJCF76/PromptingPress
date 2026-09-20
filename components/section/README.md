@@ -69,8 +69,18 @@ accepted quietly.
 
 ### Why two props survived
 
-`layout` and `body_items_align` STAY, because the UDC taxonomy has **no layout group**:
-removing them would delete the capability rather than move it.
+`layout` and `body_items_align` STAY — and the reason changed at #1084, when the
+**Layout group** shipped. It used to be "the taxonomy has no layout group". It has one
+now (`columns`, `orientation`, `wrap`, `justify`, `align`, plus `sizing.align-self`),
+and both props still stay, because each selects a **mechanism bundle** rather than a
+value.
+
+What the group adds is the retune, and it is the answer to three open issues on this
+component: `columns.layout.columns` sets the track count or an explicit track list
+(#588's ratio half, and #905's four-across shape), `columns.layout.align` sets the
+columns' vertical alignment, and `panel.sizing.align-self` places the panel column on
+its own (#658). An authored value emits unlayered while this component's structural CSS
+sits in `pp-v1`, so it outranks the rule the prop selected, at every breakpoint.
 
 `body_items_align` is the subtler of the two, and it is worth being exact about why it is
 a prop. It does not set a value — it selects a **wrap technique**: a `justify-content`

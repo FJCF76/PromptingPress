@@ -430,13 +430,14 @@ class SectionInlineItemsTest extends TestCase
 
     // ── Per-line alignment: a PROP since #1023 (issue 510's capability) ──────
     //
-    // It was an enum STYLE SLOT. v2 components declare none, and this one could not
-    // become a role value either: it sets `justify-content`, a LAYOUT property, and the
-    // UDC taxonomy carries no layout group — the same reason hero kept `split_ratio`
-    // and `vertical_align` as props. It also has to derive a MODIFIER rather than emit a
-    // raw keyword, because the centred mode switches the separator from ::before to
-    // ::after; a role value could never do that. So it is `body_items_align`, with the
-    // same two accepted values and the same default.
+    // It was an enum STYLE SLOT. v2 components declare none, and this one became a PROP
+    // rather than a role value. The first half of that reason expired at #1084, when the
+    // Layout group shipped: `justify-content` IS a role parameter now
+    // (`inline-items.layout.justify`), and an authored one outranks the rule this prop
+    // selects. The half that did NOT expire is the one that matters here: the prop
+    // derives a MODIFIER, because the centred mode switches the separator from ::before
+    // to ::after, and no role value can move a pseudo-element. So it is still
+    // `body_items_align`, with the same two accepted values and the same default.
 
     public function testAlignIsAPropWithTheSameTwoValuesAndDefault(): void
     {

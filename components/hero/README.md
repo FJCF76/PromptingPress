@@ -47,8 +47,18 @@ authoring shape.
   default, so an unauthored hero renders a filled primary beside a muted, bordered
   secondary exactly as it did on v1 — the prop went, the default did not.
 
-`layout`, `split_ratio` and `vertical_align` STAY, because the UDC taxonomy has no
-layout group: removing them would delete the capability rather than move it.
+`layout`, `split_ratio` and `vertical_align` STAY — and the reason changed at #1084,
+when the **Layout group** shipped. It used to be "the taxonomy has no layout group".
+It has one now, and all three props still stay, because each selects a **mechanism
+bundle** rather than a value: `layout` swaps a whole geometry (and on `cover`, a
+band-root rule), while `split_ratio` and `vertical_align` derive attribute-scoped rules
+(`[data-pp-split-ratio]`, `[data-pp-vertical-align]`) that a role address cannot reach —
+a role has a breakpoint dimension and a state dimension, and no variant dimension.
+
+What the group adds is the retune: `inner.layout.columns` sets the split's tracks,
+`inner.layout.align` its cross-axis alignment, and `inner.sizing.align-self` places a
+single child. An authored value is unlayered and this stylesheet is in `pp-v1`, so it
+outranks whatever the prop selected — at every breakpoint, in every variant.
 
 ## Roles
 

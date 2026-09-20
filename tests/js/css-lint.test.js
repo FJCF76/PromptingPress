@@ -2982,8 +2982,14 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
     // …gap…" is already satisfied there. `display` is not on it either: no group
     // emits it, and the `display: grid` the engine pairs with an authored
     // `layout.columns` is an engine companion, not a parameter.
+    // SIX, not five: `align-self` is owned by `sizing` rather than by `layout`
+    // (a box placing ITSELF is the sizing group's subject), and it is in exactly the
+    // same position — STRUCTURAL here, registry-owned there, defaulted nowhere.
+    // Leaving it off this list would have let a `sizing.align-self` default slip past
+    // the condition and outrank `.hero--centered .hero__eyebrow { align-self: center }`.
     const REGISTRY_OWNED_STRUCTURAL = new Set([
         'grid-template-columns', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+        'align-self',
     ]);
 
     // Properties that are NEVER structural, whatever value they carry. A

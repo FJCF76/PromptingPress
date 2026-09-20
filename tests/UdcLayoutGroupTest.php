@@ -82,9 +82,18 @@ class UdcLayoutGroupTest extends TestCase
      */
     public function testNoRoleAnywhereDeclaresALayoutDefault(): void
     {
-        $groups           = pp_udc_groups();
-        $layoutParams     = array_keys($groups['layout']['params']);
-        $layoutProperties = array_column($groups['layout']['params'], 'property');
+        $groups       = pp_udc_groups();
+        $layoutParams = array_keys($groups['layout']['params']);
+        // SIX PROPERTIES, NOT FIVE. `align-self` lives in `sizing` (a box placing
+        // ITSELF is that group's subject) and is in exactly the same position as the
+        // layout five: structural in the stylesheet, owned by the registry, defaulted
+        // nowhere. A `sizing.align-self` default would emit unlayered and outrank
+        // `.hero--centered .hero__eyebrow { align-self: center }`, so it is guarded
+        // here rather than left out because of which group happens to carry it.
+        $layoutProperties = array_merge(
+            array_column($groups['layout']['params'], 'property'),
+            [$groups['sizing']['params']['align-self']['property']]
+        );
         $this->assertNotEmpty($layoutParams, 'the registry has no layout group to check');
         $this->assertContains('grid-template-columns', $layoutProperties, 'the property list is not the one this test thinks it is');
 
@@ -272,6 +281,48 @@ class UdcLayoutGroupTest extends TestCase
     }
 
     // ── 5. Scope ─────────────────────────────────────────────────────────────
+
+    /**
+     * THE AUTHORING PATH (rule 14.1), not the engine's front door.
+     *
+     * Every assertion above calls pp_udc_validate_map() directly. That is the
+     * engine's own gate, and a group can satisfy it while being unreachable
+     * through the surface an author actually writes: #488 is the recorded case
+     * where raw-meta seeding hid a schema contract the real write path refused.
+     * So the group is written once the way the chat and the CLI write it.
+     */
+    public function testTheGroupIsWritableThroughTheRealAuthoringSurface(): void
+    {
+        $valid = pp_validate_action('create_page', [
+            'title'       => 'Four across',
+            'composition' => [[
+                'component' => 'section',
+                'props'     => ['title' => 'Process', 'body' => 'Copy.'],
+                'udc'       => [
+                    // #905's shape: a four-across band that the grammar refused to
+                    // express until this group existed.
+                    'columns' => ['layout' => ['columns' => ['d' => 4, 'p' => 1], 'align' => 'start']],
+                    // #658's shape: the panel side placing itself.
+                    'panel'   => ['sizing' => ['align-self' => 'center']],
+                ],
+            ]],
+        ]);
+        $this->assertTrue($valid, 'the Layout group must be reachable through the write path an author uses');
+
+        $refused = pp_validate_action('create_page', [
+            'title'       => 'Bad tracks',
+            'composition' => [[
+                'component' => 'section',
+                // The band has to satisfy section's content requirement, or the
+                // composition is refused for THAT before the udc map is read and
+                // this test would pass on the wrong refusal.
+                'props'     => ['title' => 'Process', 'body' => 'Copy.'],
+                'udc'       => ['columns' => ['layout' => ['columns' => 'repeat(2, repeat(2, 1fr))']]],
+            ]],
+        ]);
+        $this->assertInstanceOf(WP_Error::class, $refused, 'a nested repeat() must be refused at the authoring surface too');
+        $this->assertStringContainsString('repeat', $refused->get_error_message());
+    }
 
     public function testALayoutValueEmitsOnItsOwnRoleSelectorAndScopesToTheBand(): void
     {

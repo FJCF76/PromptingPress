@@ -147,10 +147,15 @@ $has_button2 = is_scalar($button2_text) && (string) $button2_text !== '';
 // -> `background.image` + `background.overlay` (ruling A2), and the `button` /
 // `button-secondary` roles or a button preset.
 //
-// What REMAINS a prop is what the UDC has no group for. `layout` selects flex geometry
-// and the taxonomy carries no layout group, so removing it would delete the capability
-// rather than move it — the same reasoning that kept hero's `split_ratio` and section's
-// `body_items_align`.
+// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
+// This comment used to read "the taxonomy carries no layout group". It does now, so
+// the reason `layout` stays is the one that was always underneath it: the prop
+// selects a MECHANISM BUNDLE — `.cta--inline` sets a direction, a packing and an
+// alignment together at >=768px only, and `.cta--full-width` centres the text block
+// and its buttons — while a role carries breakpoints and states but no variant
+// dimension. The group retunes the bundle's values: `inner.layout.orientation` and
+// `buttons.layout.justify` are authored, unlayered, and outrank these rules in
+// `pp-v1`. Same reading as hero's `split_ratio` and section's `body_items_align`.
 //
 // NO `refuse_props_when`, AND THAT IS A MEASURED ANSWER RATHER THAN AN OMISSION. The
 // rebuild contract says to check for props that are declared, well-typed and stored but

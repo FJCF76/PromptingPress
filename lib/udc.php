@@ -987,12 +987,14 @@ function pp_udc_css_param(string $property): array {
     if ($typed !== null) {
         return $typed;
     }
+    // `signed` and `keywords` are deliberately ABSENT (#1079's approved cleanup).
+    // The untyped path never reaches pp_udc_validate_value()'s numeric or keyword
+    // arms — `type => null` lands in the shared validator's generic arm — so both
+    // keys were read by nothing. A key that nothing reads reads as a contract.
     return [
         'property'   => $property,
         'type'       => null,
-        'signed'     => true,
         'max_values' => 1,
-        'keywords'   => [],
         'untyped'    => true,
     ];
 }
@@ -3113,23 +3115,18 @@ function _pp_udc_validate_param(
     // builder, two vocabularies: a diagnostic that names the wrong kind of thing sends
     // an operator to the wrong surface, which is the whole point of I27's one-canonical-
     // vocabulary rule.
-    $where = $group === PP_UDC_CSS_KEY
-        ? sprintf(
-            '%s "%s"%s%s property "%s"',
-            $who,
-            PP_UDC_CSS_KEY,
-            $origin,
-            $state !== '' ? ' ' . $state : '',
-            $param_name
-        )
-        : sprintf(
-            '%s group "%s"%s%s parameter "%s"',
-            $who,
-            $group,
-            $origin,
-            $state !== '' ? ' ' . $state : '',
-            $param_name
-        );
+    // One sprintf, two vocabularies: the only difference between the arms was the
+    // two label words, and a duplicated format string is where a later edit
+    // changes one arm and not the other (#1079's approved cleanup).
+    $where = sprintf(
+        '%s %s%s%s %s "%s"',
+        $who,
+        $group === PP_UDC_CSS_KEY ? '"' . PP_UDC_CSS_KEY . '"' : 'group "' . $group . '"',
+        $origin,
+        $state !== '' ? ' ' . $state : '',
+        $group === PP_UDC_CSS_KEY ? 'property' : 'parameter',
+        $param_name
+    );
 
     if (!isset($params[$param_name])) {
         return new WP_Error('invalid_prop_value', sprintf(

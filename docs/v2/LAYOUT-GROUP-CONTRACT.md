@@ -69,8 +69,14 @@ outrank machinery it was never meant to touch.
 
 ### §2.3 The rule, and the one-home amendment
 
-**The six layout properties stay in css-lint's `STRUCTURAL` set. The group emits authored values
-only. No role may declare a `layout` default.**
+**The six dual-home properties stay in css-lint's `STRUCTURAL` set. The group emits authored values
+only. No role may declare a default for any of them.**
+
+The six are the `layout` five (`grid-template-columns`, `flex-direction`, `flex-wrap`,
+`justify-content`, `align-items`) **plus `align-self`**, which `sizing` owns. Which group carries a
+property does not change its position: a `sizing.align-self` default would emit unlayered and outrank
+`.hero--centered .hero__eyebrow { align-self: center }` exactly as a layout default would, so the
+no-default rule is keyed on the property, not on the group.
 
 The one-home rule (*"the property has exactly one home at every commit — never zero, and never
 two"*, recorded on `object-position` and `aspect-ratio`) is amended **once, narrowly**, and the
@@ -90,13 +96,24 @@ the outside-voice pass, which read the first draft as *"one home except when con
 property may hold both homes only when **both** hold:
 
 1. the **registry owns it** — so every stylesheet occurrence is overridable by an authored value; and
-2. its stylesheet occurrences are **variant- or tier-conditioned mechanism** that no flat role
-   address can express (`.cta--inline .cta__inner`, `@media … .hero--split .hero__inner`).
+2. its group declares **no defaults** for it, which makes the stylesheet the only possible home for
+   the **unauthored** behaviour. Deleting a rule there would then delete behaviour rather than move
+   it.
 
-A property whose stylesheet occurrence is an **unconditioned value on a bare role selector** still
-has to move to the role — condition 2 fails, and that is the ordinary boundary case. Both conditions
-are asserted, not just described: the lint checks that each dual-home property's occurrences inside a
-v2 block are either variant-scoped or media-scoped.
+**Condition 2 is the one that does the work, and an earlier draft of this document got it wrong.**
+That draft said condition 2 was "every occurrence is variant- or tier-conditioned". The file
+disproves it: `.hero__cta-group { flex-wrap: wrap }` and `.cta__buttons { justify-content:
+flex-start }` are unconditioned base values on bare role selectors, and they stay in the stylesheet
+precisely **because** no default may hold them. The variant-scoped declarations are why *defaults are
+banned* (a default would outrank them); the ban is then why the *stylesheet keeps everything*,
+conditioned or not.
+
+Condition 2 is asserted rather than described — by the registry-derived test in
+`tests/UdcLayoutGroupTest.php`, which walks every component's role defaults for these five
+**properties** (not parameter names: `typography.align` emits `text-align` and legitimately defaults
+on `logos.label`, which is how the first version of that guard was found to be asking the wrong
+question). The day the Layout group takes a default, its properties stop satisfying the condition and
+belong in `ALWAYS_DESIGN` like everything else.
 
 **The cascade claim is narrowed to what this repo can pin.** "Authored beats structural at any
 specificity" holds *here* because (a) the six properties carry no `!important` anywhere in
@@ -471,23 +488,27 @@ No critical gaps: every row has a test and a handler.
 **Parallelization:** sequential. Every task after T1 depends on the registry, and T4/T5/T6 all read
 the schemas T3 writes. One lane.
 
-## §10 — Open questions carried out of review (both raised to the coordinator)
+## §10 — The two questions review raised, and how they were ruled
 
-**Q1 — the grain of `align-self`.** The 7A tabled it inside `layout`; §3 places it in `sizing`. The
-reason is exposure mechanics: `groups` is a **group-grain** list, so a role that gets `layout` gets
-all of its params. A role whose box is a *child* of a container but not a container itself
-(`section.panel`, `hero.content`) would then expose `orientation`, `wrap`, `justify` and `align` —
-four parameters that paint nothing on a block box, which is the #1006/#1048 inert class this group
-must not manufacture. The approved design table's own wording puts alignment under **Sizing**
-(*"Sizing | width, max/min-width, height, min-height, alignment"*) and Layout under *"columns, gap,
-orientation, wrap"* — so `sizing.align-self` is both the honest grain and the table's own placement.
-Raised to the coordinator before coding.
+Both were put to the coordinator before any schema was written; both were ruled as recommended.
 
-**Q2 — the two roles clause 2 removes.** The ruled Q4 said "container-ness" and said nothing about
-visibility; §5's second clause takes `nav.menu` and `nav.toggle` out of the roster on verified
-evidence (an authored `columns` there would pin an open mobile menu open). It narrows what the group
-reaches, so it is the coordinator's call rather than mine, with the alternative recorded: expose them
-and accept that a styling write can defeat `hidden`.
+**Q1 — the grain of `align-self`: RULED `sizing`.** The 7A had tabled it inside `layout`. `groups` is
+a **group-grain** list, so a role that declares `layout` gets all of its params — and on a role whose
+box is a *child* of a container but not a container itself (`section.panel`, `hero.content`), four of
+the five would paint nothing at any value: the #1006/#1048 inert class this group must not
+manufacture. The approved coverage table's own wording puts alignment under **Sizing** (*"Sizing |
+width, max/min-width, height, min-height, alignment"*), so this is fidelity to the design rather than
+a deviation from it. Per-param exposure (`groups: {"layout": ["align-self"]}`) stays filed as its own
+axis (§9.5).
+
+**Q2 — the visibility-switch clause: RULED IN**, with three requirements, all met:
+(1) it derives mechanically from the stylesheet, with no hand-kept list;
+(2) the hazard itself is pinned — `tests/js/css-lint.test.js` asserts `nav.menu` and `nav.toggle` do
+not expose the group AND asserts the two mechanics the exclusion depends on (`.nav__menu[hidden]`
+exists; base.css carries no `[hidden]` rule that would survive an authored value), with the
+`hidden`-vs-authored-display reasoning written at the clause;
+(3) the roster fails closed — a future role that matches the clause and declares the group anyway
+fails, in both directions, against a recorded roster.
 
 ## GSTACK REVIEW REPORT
 
