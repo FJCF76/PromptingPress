@@ -27,7 +27,9 @@ so in practice only `location` is ever set.
 The footer is styled through the **`footer` entry of the `pp_site_udc` site option**, in
 exactly the shape a band's `udc` map takes — same engine, same grammar, same groups,
 same `@token` references, same breakpoint and `:hover` / `:focus-visible` / `:active`
-state maps, same presets.
+state maps, same presets, and the same `"_css"` raw-declaration map beside a role's
+groups for a property no group owns (#1079). Chrome is validated by the band validator
+itself, not a chrome-flavoured copy of it, so it gets all of this for free.
 
 This replaced three colour options (`pp_footer_bg`, `pp_footer_text`,
 `pp_footer_link_color`), which are gone. Their problem was reach: `--footer-text` painted

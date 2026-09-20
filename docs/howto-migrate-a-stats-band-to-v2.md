@@ -236,8 +236,11 @@ especially: a long unbroken metric label can still push the row wider than the v
 
 ## What you cannot express, and what to do instead
 
-- **`opacity` has no group.** Write the composite colour (Step 4). This is deliberate, not a
-  gap waiting to be filled — see the token note in `base.css`.
+- **`opacity` has no group — but since #1079 it is reachable through a role's `"_css"` map,
+  and you should still not use it here.** Write the composite colour (Step 4). The engine
+  will accept `{"label": {"_css": {"opacity": "0.75"}}}` and paint it; what it will not do
+  is stop you dropping this label under the contrast floor. The ban is deliberate and it is
+  now yours to keep — see the token note in `base.css`.
 - **A background image cannot re-ink the band automatically.** That capability is gone on
   every v2 component, for the same reason. Write the inks.
 - **Zebra striping and per-item tints are not expressible.** `:nth-child` is not a role

@@ -403,7 +403,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 ## Style slots (per-instance styling)
 
-Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected.
+Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected. **That is a statement about SLOTS, and since #1079 it is no longer the theme's whole posture:** a v2 band reaches any CSS property through a role's `"_css"` map (see the `udc` section below), safety-checked rather than vocabulary-checked. The slot system itself never gained an escape hatch and never will — grid is its last consumer.
 
 **38 style slots** across 1 components: grid (38). `hero`, `section`, `testimonials`, `cta`, `faq`, `table`, `embed`, `stats` and `logos` declare NONE: they are v2 components on the Universal Design Contract, where named roles carry every designable value (see the `udc` section below). GRID IS THE LAST COMPONENT ON STYLE SLOTS — when it rebuilds, the slot system has no shipped consumer left.
 

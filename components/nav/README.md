@@ -29,7 +29,9 @@ logo through the `pp_logo_id` option instead.
 The header is styled through the **`nav` entry of the `pp_site_udc` site option**, in
 exactly the shape a band's `udc` map takes — same engine, same grammar, same groups,
 same `@token` references, same breakpoint and `:hover` / `:focus-visible` / `:active`
-state maps, same presets.
+state maps, same presets, and the same `"_css"` raw-declaration map beside a role's
+groups for a property no group owns (#1079). Chrome is validated by the band validator
+itself, not a chrome-flavoured copy of it, so it gets all of this for free.
 
 This replaced three colour options (`pp_header_bg`, `pp_header_text`,
 `pp_header_link_color`), which are gone. They were the header's only styling surface
