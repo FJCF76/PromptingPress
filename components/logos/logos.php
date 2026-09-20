@@ -25,7 +25,7 @@ $items   = $props['items']   ?? [];
 // id would paint one band's design onto all of them. Reachable from stored data even
 // though the engine mints on WRITE - a raw `_pp_composition` meta write is not gated, and
 // restore_composition reports without blocking (#233). Validate, then emit or emit
-// nothing. Pinned behaviourally in TableEmbedLogosMarkupTest.
+// nothing. Pinned behaviourally in StatsLogosV2BandContractTest.
 $raw_band  = $props['__pp_udc_band'] ?? '';
 $band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
 $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';

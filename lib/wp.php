@@ -1723,7 +1723,7 @@ function pp_get_style_slots(string $component_name): array {
  * route names a role the component does not declare. A refusal that lies about where a
  * value went is worse than one that only says no.
  *
- * STYLE SLOTS NEED NO SUCH REGISTRY and deliberately do not have one. All 123 retired
+ * STYLE SLOTS NEED NO SUCH REGISTRY and deliberately do not have one. All 223 retired
  * slots belong to the components `pp_udc_is_v2_component()` already identifies, and
  * every one of them is replaced by the same thing — the band's `udc` map — so the route
  * is derivable at runtime and cannot drift. Only props need naming, because their

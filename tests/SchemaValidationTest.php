@@ -289,7 +289,27 @@ class SchemaValidationTest extends TestCase
 
         // The departed components are accounted for rather than dropped: every slot each
         // one used to declare carries a migration note.
-        foreach (['hero' => 49, 'section' => 47, 'cta' => 40, 'faq' => 21] as $component => $retiredCount) {
+        //
+        // ALL NINE, NOT THE FIRST FOUR. This roster named hero/section/cta/faq while the
+        // docblock above said "the departed components" — so testimonials, table, embed and
+        // (from #1066) stats and logos had no count pinned against their migration-note
+        // block. Coverage was not actually lost, because
+        // testEveryLiveSchemaSlotIsPinnedInBaseline requires every pinned component's slots
+        // to have notes; what drifted was the redundant count, which is the same
+        // roster-behind-its-own-docblock defect this issue fixed three times elsewhere.
+        // 223 slots across nine components, and the arithmetic is the point: a rebuild that
+        // leaves this list alone is visible here.
+        foreach ([
+            'hero'         => 49,
+            'section'      => 47,
+            'cta'          => 40,
+            'testimonials' => 27,
+            'faq'          => 21,
+            'stats'        => 17,
+            'logos'        => 8,
+            'embed'        => 8,
+            'table'        => 6,
+        ] as $component => $retiredCount) {
             $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
             $this->assertArrayNotHasKey(
                 'style_slots',

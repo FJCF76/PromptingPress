@@ -85,12 +85,22 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
         return $out;
     }
 
-    /** The AI-facing prose an authoring agent is pointed at. */
+    /**
+     * Every doc an author or an authoring agent is pointed at.
+     *
+     * WIDENED AT THE PRE-LANDING REVIEW, which measured the hole: the original set was
+     * `ai-instructions/` + AI_CONTEXT + README, which scanned 59 retired-slot mentions and
+     * left 192 unscanned — including the two migration how-tos THIS change adds and every
+     * component README. A guard written for "a doc offers a retired slot" that does not
+     * read the migration docs is the wrong shape.
+     */
     private function docFiles(): array
     {
         $root = dirname(__DIR__);
         return array_merge(
             glob($root . '/ai-instructions/*.md') ?: [],
+            glob($root . '/docs/*.md') ?: [],
+            glob($root . '/components/*/README.md') ?: [],
             [$root . '/AI_CONTEXT.md', $root . '/README.md']
         );
     }
@@ -108,6 +118,22 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
                 continue;
             }
             foreach ($m[0] as [$name, $offset]) {
+                // A MARKDOWN TABLE ROW IS A MAPPING, NOT AN OFFER — the one carve-out, and
+                // it is what makes widening to the migration docs possible at all. Those
+                // docs are built around `| v1 slot | v2 address |` tables whose ENTIRE
+                // SUBJECT is the retirement: cta's how-to trips 17 of 17 rows and faq's 26
+                // of 26 under the prose rule, because a table cell has no room for a
+                // sentence saying what the row already says structurally. Skipping rows
+                // that begin with `|` keeps the guard on PROSE, where a neutral mention
+                // really does read as an offer.
+                $lineStart = strrpos(substr($haystack, 0, $offset), "\n");
+                $lineStart = $lineStart === false ? 0 : $lineStart + 1;
+                $lineEnd   = strpos($haystack, "\n", $offset);
+                $line      = substr($haystack, $lineStart, ($lineEnd === false ? strlen($haystack) : $lineEnd) - $lineStart);
+                if (str_starts_with(ltrim($line), '|')) {
+                    continue;
+                }
+
                 // TWO CONSTRAINTS, INTERSECTED, and the second one is the second-pass
                 // review's other correction. A 400-character window ALONE was defeated in
                 // the runtime prompt: retirement language is dense enough there that an
@@ -156,7 +182,33 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
             $text      = (string) file_get_contents($file);
             $mentions += $this->countMentions($text, $components);
 
-            foreach ($this->unmarkedMentions($text, $components, "\n\n") as [$name, $window]) {
+
+            // A MIGRATION HOW-TO IS EXEMPT FOR ITS OWN COMPONENT, and this is a real rule
+            // rather than a way around a failing test. `howto-migrate-a-cta-band-to-v2.md`
+            // exists to say "these cta names are gone, here is the replacement": every
+            // `--cta-*` in it is historical BY CONSTRUCTION, and the strict prose rule
+            // fires on genuine explanatory sentences like "`--cta-heading-measure` fed TWO
+            // elements, so it takes two roles". Satisfying the rule there would mean
+            // padding good prose with marker words — degrading the doc to please a test,
+            // which is backwards.
+            //
+            // What is NOT exempt, and is the reason these files are scanned at all: a
+            // how-to naming ANOTHER component's slot. stats' how-to has no business
+            // mentioning `--grid-heading-measure` neutrally — that is an offer, in a
+            // document an author reads while migrating, and it still fails.
+            // The same exemption covers a component's OWN README, for the same reason and
+            // with the same limit: `components/cta/README.md` explaining that "the v1 seed
+            // set `--cta-bg` to the same near-black" is history about its own subject, not
+            // an offer. Naming a DIFFERENT component's retired slot there still fails.
+            $own = [];
+            if (preg_match('/howto-migrate-an?-([a-z0-9-]+)-band-to-v2\.md$/', $file, $subject)) {
+                $own = [$subject[1]];
+            } elseif (preg_match('#/components/([a-z0-9-]+)/README\.md$#', $file, $subject)) {
+                $own = [$subject[1]];
+            }
+            $scanned = array_values(array_diff($components, $own));
+
+            foreach ($this->unmarkedMentions($text, $scanned, "\n\n") as [$name, $window]) {
                 $this->fail(sprintf(
                     "%s names %s with nothing within %d characters saying the name is "
                     . "retired. That component declares zero style slots, so writing the name "
@@ -173,9 +225,13 @@ class RetiredNamesAreMarkedRetiredTest extends TestCase
         // FAIL-CLOSED, AT THE REAL COUNT. These names SHOULD still appear (a migration doc
         // that deleted them would be useless), so a scan finding few has broken rather than
         // succeeded. The floor was 10 against an actual count in the dozens, which the
-        // second-pass review defeated by deleting every doc but one and still passing.
+        // second-pass review defeated by deleting every doc but one and still passing; then
+        // 55, against the 59 mentions the narrow file set reached. The set now covers
+        // `docs/` and every component README too — 46 files, 251 mentions — so the floor
+        // moves with it. A floor left behind by its own corpus is the drift this issue has
+        // fixed repeatedly.
         $this->assertGreaterThan(
-            55,
+            210,
             $mentions,
             'the scan found far fewer retired slot names than the docs carry — the glob or '
             . 'the naming convention changed, and either way this guard has lost its reach'

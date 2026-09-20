@@ -41,8 +41,16 @@ class DocumentedUdcSnippetsTest extends TestCase
             $component = basename(dirname($readme));
             $map[$component][] = $readme;
         }
-        foreach (glob($root . '/docs/howto-migrate-a-*-band-to-v2.md') as $howto) {
-            if (preg_match('/howto-migrate-a-([a-z0-9-]+)-band-to-v2\.md$/', $howto, $m)) {
+        // `a` OR `an` — ENGLISH BROKE THIS GUARD. The glob was `howto-migrate-a-*` and the
+        // pattern `howto-migrate-a-(…)`, which silently skipped
+        // `howto-migrate-an-embed-band-to-v2.md`: six of the seven shipped how-tos were
+        // walked and embed's was not checked against the write path at all. Found by the
+        // pre-landing review, and the miss is doubly pointed — embed's how-to is the one
+        // this PR edits, and a silently-skipped input is exactly the vacuity this file
+        // exists to prevent. The fail-closed floors below are what would eventually have
+        // caught it; the article is what caused it.
+        foreach (glob($root . '/docs/howto-migrate-a*-band-to-v2.md') as $howto) {
+            if (preg_match('/howto-migrate-an?-([a-z0-9-]+)-band-to-v2\.md$/', $howto, $m)) {
                 $map[$m[1]][] = $howto;
             }
         }
@@ -211,8 +219,9 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        // 47 today; see the sibling floor below for why these track the real count.
-        $this->assertGreaterThan(40, $checked, 'the doc walk stopped finding JSON blocks');
+        // 51 today (47 before the `an-embed` glob fix restored the seventh how-to); see
+        // the sibling floor below for why these track the real count.
+        $this->assertGreaterThan(44, $checked, 'the doc walk stopped finding JSON blocks');
     }
 
     public function testEveryDocumentedUdcMapIsAcceptedByTheWritePath(): void
@@ -272,11 +281,12 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         // Fail-closed. A walk that stops finding documented maps — a fence style changing,
         // a docs directory moving — must not read as compliance.
-        // FAIL-CLOSED AT THE REAL COUNT (42 today), not at a token floor. 15 was low
-        // enough that two thirds of the corpus could stop being scanned unnoticed — the
-        // understated-floor defect this PR fixed in the emit tests and then repeated here.
+        // FAIL-CLOSED AT THE REAL COUNT (45 today; 42 before the `an-embed` glob fix), not
+        // at a token floor. 15 was low enough that two thirds of the corpus could stop
+        // being scanned unnoticed — the understated-floor defect this PR fixed in the emit
+        // tests and then repeated here.
         $this->assertGreaterThan(
-            35,
+            38,
             $checked,
             'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
