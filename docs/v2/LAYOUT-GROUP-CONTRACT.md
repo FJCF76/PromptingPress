@@ -248,8 +248,8 @@ a second validator.
 |---|---|
 | `flex-direction` | `row`, `row-reverse`, `column`, `column-reverse` |
 | `flex-wrap` | `nowrap`, `wrap`, `wrap-reverse` |
-| `justify-content` | `flex-start`, `flex-end`, `start`, `end`, `left`, `right`, `center`, `space-between`, `space-around`, `space-evenly`, `normal`, `stretch`, and `safe`/`unsafe` before any positional keyword |
-| `box-align` (align-items / align-self) | `flex-start`, `flex-end`, `start`, `end`, `self-start`, `self-end`, `center`, `baseline`, `first baseline`, `last baseline`, `stretch`, `normal`, `safe`/`unsafe` + positional; `align-self` additionally `auto` |
+| `justify-content` | `flex-start`, `flex-end`, `start`, `end`, `left`, `right`, `center`, `space-between`, `space-around`, `space-evenly`, `normal`, `stretch`, and `safe`/`unsafe` before any positional keyword. **No baseline values** — not valid on this property |
+| `box-align` (align-items / align-self) | `flex-start`, `flex-end`, `start`, `end`, `self-start`, `self-end`, `center`, `baseline`, `first baseline`, `last baseline`, `stretch`, `normal`, `safe`/`unsafe` + positional; `align-self` additionally `auto`. **No `space-*`, no `left`/`right`** — those are justify-content's; `self-start`/`self-end` are valid on BOTH, the container property included |
 | `track-list` | a positive integer 1–12, **or** a bounded track list |
 
 **Bounds the grammar enforces, corrected at the pre-landing performance pass.** `minmax()` does
@@ -266,7 +266,12 @@ repo's own grid lesson (a track needs `minmax(0,…)` or its content cannot shri
 class). An explicit list is a sequence of 1–12 tracks, each one of: a length with the shared unit
 grammar, a percentage, an `<n>fr`, `auto`, `min-content`, `max-content`, `minmax(<track>, <track>)`,
 or one `repeat(<positive integer 1-12 | auto-fit | auto-fill>, <track>+)`. `repeat()` does not nest
-(CSS forbids it too). Everything else is refused with a message naming the accepted forms.
+(CSS forbids it too), takes exactly one comma (its count from its tracks — the tracks themselves are
+space-separated, so `repeat(2, 1fr, 2fr)` is invalid CSS and is refused), and an `auto-fit` /
+`auto-fill` repeat requires FIXED track sizes, because a browser cannot count repetitions of a track
+whose size depends on how many times it repeated (`repeat(auto-fit, 1fr)` is invalid;
+`repeat(auto-fit, minmax(20rem, 1fr))` is the valid shape, and the one #905's brand writes).
+Everything else is refused with a message naming the accepted forms.
 
 Red-proofs required: nested `repeat()`, unbalanced `minmax(`, negative `fr`, `0fr` denominators,
 `repeat(0, …)`, a 13-track list, `calc()` inside a track (not accepted in this cut — stated), and
