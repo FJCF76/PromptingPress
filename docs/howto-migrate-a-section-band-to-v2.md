@@ -110,18 +110,30 @@ and each retired slot carries its own migration note naming the role that replac
 Three conversions to do deliberately rather than mechanically:
 
 **`--section-body-measure` fed the WRAPPER, so it set the whole column.** `.section__body`
-held the header block, the prose and the trust strip, and capping it capped all three. The
-v2 `body` role is `.section__content` alone. To reproduce one slot you set four roles:
+held the header block, the prose and the trust strip, and capping it capped all three. v2
+splits that across the children AND keeps the wrapper, so reproducing one slot takes
+**five** roles:
 
 ```json
-{"heading":      {"sizing": {"max-width": "46rem"}},
+{"body-wrap":    {"sizing": {"max-width": "46rem"}},
+ "heading":      {"sizing": {"max-width": "46rem"}},
  "subheading":   {"sizing": {"max-width": "46rem"}},
  "body":         {"sizing": {"max-width": "46rem"}},
  "inline-items": {"sizing": {"max-width": "46rem"}}}
 ```
 
+**`body-wrap` is the one you cannot leave out when WIDENING, and leaving it out fails
+silently.** It is `.section__body` — the wrapper — and it defaults to `40rem` (#1032 put
+that cap back, because the trust strip is `margin: 0 auto` and centres within this element;
+without it the strip centred on the band while the prose stayed 640px and left-aligned,
+measured at 224px adrift at 1280). A wrapper cap is a ceiling for everything inside it, so
+the four-role version of this recipe **renders at 640px, not 736px** — measured. The write
+is accepted, nothing warns you, and the band simply does not widen. Narrowing is the other
+way round: `body-wrap` alone narrows all three children, because the tighter cap wins.
+
 Set only `body` and your heading keeps the 40rem default while your prose widens, which
-reads as a mistake rather than a design.
+reads as a mistake rather than a design — and with `body-wrap` still at 40rem the prose
+does not widen either.
 
 **A literal colour becomes a reference.** If the slot held `#0f172a`, write
 `"@color-bg-inverted"` instead. A literal will not follow a site retune; a reference will.
