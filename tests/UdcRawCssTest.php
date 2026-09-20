@@ -902,6 +902,59 @@ class UdcRawCssTest extends TestCase
             'and nothing may be ledgered as dropped: the engine minted these names itself');
     }
 
+    /**
+     * A COLLISION THAT BITES ON ONE BREAKPOINT MUST NOT LEAVE THE OTHER ONE MINTED.
+     *
+     * The collision guard bails from inside the breakpoint loop, and `$tokens` is passed
+     * by reference — so before this pin, a breakpoint that minted BEFORE the colliding one
+     * stayed written while the caller discarded the rewrite and kept the literals. The
+     * leftover was not merely dead weight: it is a mint-SHAPED name that nothing
+     * references, which is exactly what `testAnAuthorSquattingAMintedRawNameIsStillRefused`
+     * below defines as a squat. So an ACCEPTED write stored a band that failed
+     * `pp_udc_validate_map()` on the engine's own output, and would keep failing on every
+     * post-write envelope, `wp pp check page` and restore.
+     *
+     * `x-hover` carrying only `p` is what makes the two coordinates collide on `p` while
+     * leaving `d` free; with both breakpoints on both coordinates the bail happens on the
+     * first iteration and nothing is left behind, which is why the original measurement
+     * missed it.
+     */
+    public function testAPartialMintCollisionLeavesNoTokenBehind(): void
+    {
+        $normalized = pp_udc_normalize_band([
+            'component' => 'faq', 'id' => 'pp-1079bbbb', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => [
+                'x-hover' => ['p' => '1'],
+                ':hover'  => ['x' => ['d' => '2', 'p' => '3']],
+            ]]],
+        ]);
+
+        $tokens = $normalized['udc']['_tokens'] ?? [];
+        $this->assertArrayNotHasKey('answer-_css-x-hover-d', $tokens,
+            'the `d` coordinate of the colliding value must not be minted on its own: the '
+            . 'value it belongs to kept its literals, so the name would reference nothing');
+
+        $css = pp_udc_band_css($normalized);
+        foreach (array_keys($tokens) as $name) {
+            $this->assertStringContainsString('var(--pp-' . $name . ')', $css,
+                sprintf('every minted token must be referenced by a declaration; "%s" is not', $name));
+        }
+
+        $this->assertNull(
+            pp_udc_validate_map($normalized['udc'], 'faq'),
+            'THE REGRESSION: the stored form of an accepted write must re-validate. An '
+            . 'orphan mint-shaped name reads as an author squatting the namespace, and '
+            . 'validation runs over stored compositions on every envelope, check and restore.'
+        );
+
+        // Non-destructive, as the collision guard intends: nothing the author wrote is lost.
+        foreach (['1', '2', '3'] as $value) {
+            $this->assertStringContainsString(':' . $value, $css,
+                'both colliding coordinates must still paint — the guard declines to mint, '
+                . 'it does not drop a value');
+        }
+    }
+
     /** The other direction: the namespace is still reserved against an author squatting it. */
     public function testAnAuthorSquattingAMintedRawNameIsStillRefused(): void
     {

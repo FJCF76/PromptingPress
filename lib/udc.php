@@ -3288,6 +3288,22 @@ function _pp_udc_mint_value(
     $breakpoints = pp_udc_breakpoints();
     $rewritten   = [];
     $changed     = false;
+    // STAGED, NOT WRITTEN — because the bail below is mid-loop and `$tokens` is by
+    // reference (#1079).
+    //
+    // The collision guard returns null from inside the breakpoint loop, so any breakpoint
+    // that already minted had ALREADY written into the caller's `$tokens`. The caller then
+    // discards `$rewritten` and keeps the literal map, and the half-written tokens stay
+    // behind referenced by nothing.
+    //
+    // Measured on one accepted write, `{"x-hover": {"p": …}, ":hover": {"x": {"d": …, "p": …}}}`:
+    // `answer-_css-x-hover-d` was minted, appeared in no declaration, and — the part that
+    // matters — made the STORED band fail `pp_udc_validate_map()` with "uses a name the
+    // engine mints for itself". An accepted write produced a composition that errors on
+    // every post-write envelope, `wp pp check page` and restore, for the same reason the
+    // decoder regression above exists: validation runs over stored output, and the output
+    // was the engine's own. All-or-nothing is the only shape that cannot half-apply.
+    $staged = [];
 
     foreach ($value as $bp => $bp_value) {
         if (!isset($breakpoints[$bp]) || !is_scalar($bp_value)) {
@@ -3328,14 +3344,22 @@ function _pp_udc_mint_value(
         // defect that put the props.id strip in the hash. Refusing was rejected because
         // nothing is wrong with what the author wrote; only the engine's own shortcut
         // cannot be applied to both.
-        if (array_key_exists($name, $tokens) && (string) $tokens[$name] !== $literal) {
+        $held = $staged[$name] ?? ($tokens[$name] ?? null);
+        if ($held !== null && (string) $held !== $literal) {
             return null;
         }
-        $tokens[$name]  = $literal;
+        $staged[$name]  = $literal;
         $rewritten[$bp] = '@' . $name;
         $changed        = true;
     }
-    return $changed ? $rewritten : null;
+    if (!$changed) {
+        return null;
+    }
+    // Commit only now, once the whole value is known to have minted.
+    foreach ($staged as $name => $literal) {
+        $tokens[$name] = $literal;
+    }
+    return $rewritten;
 }
 
 /**
