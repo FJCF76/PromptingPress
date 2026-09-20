@@ -3508,6 +3508,22 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         }
 
         foreach ($sources as [$source, $map]) {
+            // `_css` PLACES LAST, ALWAYS — and this is a correctness fix, not a tidy-up.
+            //
+            // _pp_udc_place() lets a later placement overwrite an earlier one at the same
+            // (state, breakpoint, property) key, and this loop walks the author's map in
+            // the order their JSON happened to carry. Measured before the reorder: the
+            // same band with the same two values painted `#ff0000` when `typography` was
+            // written first and `#111111` when `_css` was — the winner decided by key
+            // order, which no author can see and no disclosure could describe. §2′.3 rules
+            // that `_css` outranks a group value (an escape that loses to the thing it
+            // escapes cannot escape anything), and `udc_css_overrides_group_value` states
+            // that unconditionally, so the emitter has to make it unconditionally true.
+            if (is_array($map) && array_key_exists(PP_UDC_CSS_KEY, $map)) {
+                $css_last = $map[PP_UDC_CSS_KEY];
+                unset($map[PP_UDC_CSS_KEY]);
+                $map[PP_UDC_CSS_KEY] = $css_last;
+            }
             foreach ($map as $group_name => $group_map) {
                 // A `_preset` KEY IS NOT A MISSING GROUP — IT IS THE PRESET
                 // MECHANISM, AND IT PAINTS. Ledgering it would put a "stored but
@@ -5803,6 +5819,106 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
+        // ── LAYER 2 DISCLOSURES (contract §2′.3, §2′.4) ─────────────────────
+        //
+        // R2′ made both of these real by removing the two rules that had made them
+        // impossible. Disjointness used to guarantee a `_css` property could never
+        // collide with a group value; typed-everything used to guarantee nothing was
+        // unchecked. Both premises are gone by ruling, so the guarantees are replaced
+        // by honest reporting — which is what the #570 convergence rule now demands
+        // of this layer: whatever the write gate accepts, the emitter emits or
+        // DISCLOSES.
+        foreach ($item['udc'] as $role_name => $role_map) {
+            if (!is_array($role_map) || !isset($role_map[PP_UDC_CSS_KEY])
+                || !is_array($role_map[PP_UDC_CSS_KEY])) {
+                continue;
+            }
+            $role_name = (string) $role_name;
+            $states    = pp_udc_states();
+
+            // Flatten `_css` to (state, property) pairs so a `:hover` declaration is
+            // reported as precisely as a resting one. A state map is the only nesting
+            // this key has, so one level is the whole walk.
+            $declared = [];
+            foreach ($role_map[PP_UDC_CSS_KEY] as $key => $value) {
+                if (isset($states[(string) $key]) && is_array($value)) {
+                    foreach ($value as $property => $ignored) {
+                        $declared[] = [(string) $key, (string) $property];
+                    }
+                    continue;
+                }
+                $declared[] = ['', (string) $key];
+            }
+
+            foreach ($declared as [$state, $property]) {
+                if (!pp_udc_valid_css_property($property)
+                    || isset(pp_udc_css_excluded_properties()[$property])) {
+                    continue; // Refused at write; a stored one is the emitter's ledger.
+                }
+                $typed = _pp_udc_css_param_for_property($property);
+
+                // (a) THE COLLISION. `_css` outranks a group value at the same
+                // coordinate — the rank the freedom frame requires, since an escape
+                // that loses to the thing it escapes cannot escape anything. Reported
+                // only when the author actually wrote BOTH, because that is the only
+                // case where something they declared did not paint.
+                if ($typed !== null) {
+                    $group_map = $role_map[$typed['_group']] ?? null;
+                    $branch    = is_array($group_map) && $state !== ''
+                        ? ($group_map[$state] ?? null)
+                        : $group_map;
+                    if (is_array($branch) && array_key_exists($typed['_param'], $branch)) {
+                        $findings[] = [
+                            'type'    => 'udc_css_overrides_group_value',
+                            'message' => sprintf(
+                                'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" outranks the '
+                                . '%s.%s you also set, so the raw value is what paints. Remove one of the two '
+                                . '— prefer %s.%s, which the engine can check.',
+                                $component,
+                                _pp_udc_reflect($role_name),
+                                $state !== '' ? ' ' . $state : '',
+                                _pp_udc_reflect($property),
+                                PP_UDC_CSS_KEY,
+                                $typed['_group'],
+                                $typed['_param'],
+                                $typed['_group'],
+                                $typed['_param']
+                            ),
+                            'index'   => is_int($i) ? $i : null,
+                        ];
+                    }
+                    continue; // A typed property is checked; nothing unchecked to report.
+                }
+
+                // (b) THE UNCHECKED SET. This is the design doc's
+                // `custom_styling_conventions_only` in honest form, and the difference
+                // is that it is TRUE on every band it fires on: R1 refused to ship that
+                // code name because under typed-everything nothing would have been
+                // conventions-only and the finding would have lied. It is also the
+                // ladder's escape telemetry arriving as a by-product — a count of these
+                // is a count of escapes — rather than as a mechanism of its own.
+                $findings[] = [
+                    'type'    => 'udc_css_unchecked_property',
+                    'message' => sprintf(
+                        'Component "%s" role "%s"%s: "%s" is not a property the design vocabulary '
+                        . 'knows, so its value was checked for safety only and is emitted exactly as '
+                        . 'written. Nothing verifies that the browser accepts it.',
+                        $component,
+                        _pp_udc_reflect($role_name),
+                        $state !== '' ? ' ' . $state : '',
+                        _pp_udc_reflect($property)
+                    ),
+                    'index'   => is_int($i) ? $i : null,
+                ];
+            }
+        }
+
+        // THE TOKEN SECTION BELOW EARLY-OUTS ON A BAND WITH NO `_tokens`, WHICH IS WHY
+        // EVERY DISCLOSURE ABOVE HAS TO COME FIRST. Caught by probe, not by reading: the
+        // Layer-2 findings were written after this `continue` and produced NOTHING for
+        // the overwhelmingly common band — one that declares raw CSS and mints no token.
+        // The guard is right for what it guards; it is just not the end of the item's
+        // business any more.
         $tokens = isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])
             ? $item['udc']['_tokens']
             : [];
@@ -5857,6 +5973,7 @@ function pp_udc_composition_findings(array $items): array {
                 'index'   => is_int($i) ? $i : null,
             ];
         }
+
     }
 
     return $findings;
