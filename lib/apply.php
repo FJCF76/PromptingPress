@@ -1048,26 +1048,17 @@ function _pp_validate_shadow(string $value): bool {
  * @return array<string>  Trimmed segments, in order.
  */
 function _pp_split_top_level_commas(string $value): array {
-    $parts = [];
-    $depth = 0;
-    $current = '';
-    $len = strlen($value);
-    for ($i = 0; $i < $len; $i++) {
-        $char = $value[$i];
-        if ($char === '(') {
-            $depth++;
-        } elseif ($char === ')') {
-            $depth--;
-        }
-        if ($char === ',' && $depth === 0) {
-            $parts[] = trim($current);
-            $current = '';
-        } else {
-            $current .= $char;
-        }
-    }
-    $parts[] = trim($current);
-    return $parts;
+    // ONE PAREN-DEPTH WALKER IN THIS FILE, not two. #1084 added
+    // _pp_css_split_top_level() for track lists without noticing this one 800 lines
+    // up doing the same job in comma mode — caught by the pre-landing
+    // simplification pass, which is rung 1 of the reuse ladder working late.
+    //
+    // THE CONTRACT HERE IS UNCHANGED, including for input the newer walker calls
+    // malformed: it returns segments, never null, and an unbalanced value comes
+    // back as ONE segment. Both callers hand it an already-parsed function body,
+    // and an unbalanced one is refused by the grammar that parsed it, so the
+    // fallback is a shape guarantee rather than a judgement.
+    return _pp_css_split_top_level($value, ',') ?? [trim($value)];
 }
 
 /**
@@ -1768,16 +1759,6 @@ function _pp_validate_track_repeat(string $body): ?int {
  */
 function _pp_validate_grid_track(string $track): bool {
     $track = trim($track);
-    if ($track === '') {
-        return false;
-    }
-    $lower = strtolower($track);
-    if (in_array($lower, ['auto', 'min-content', 'max-content'], true)) {
-        return true;
-    }
-    if (preg_match('/^(\d+(?:\.\d+)?)fr\z/', $lower, $m)) {
-        return (float) $m[1] > 0.0; // `0fr` is a track that paints nothing.
-    }
     if (preg_match('/^minmax\((.*)\)\z/is', $track, $m)) {
         $pair = _pp_css_split_top_level($m[1], ',');
         if ($pair === null || count($pair) !== 2) {
@@ -1802,7 +1783,11 @@ function _pp_validate_grid_track(string $track): bool {
         return _pp_validate_track_breadth($pair[0], false)
             && _pp_validate_track_breadth($pair[1], true);
     }
-    return _pp_css_length($track, ['signed' => false, 'percent' => true, 'functions' => false]);
+    // EVERYTHING ELSE IS A BREADTH, and the flexible one: a bare track takes the
+    // same lengths, percentages, keywords and `<n>fr` that a minmax() maximum
+    // takes. Those were two copies of one grammar until the pre-landing
+    // simplification pass pointed at them.
+    return _pp_validate_track_breadth($track, true);
 }
 
 /**

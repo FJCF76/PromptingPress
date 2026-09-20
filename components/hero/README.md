@@ -79,7 +79,7 @@ outranks whatever the prop selected — at every breakpoint, in every variant.
 | `surface` | `.hero__surface` | the split layout's proof panel |
 | `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
 
-**Which roles carry `layout` (#1084):** `inner`, `content`, `cta-group`, `proof`, `surface`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and this list is checked against a derivation from the stylesheet (tests/js/css-lint.test.js), in both directions, so it cannot drift from the schema or the CSS. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+**Which roles carry `layout` (#1084):** `inner`, `content`, `cta-group`, `proof`, `surface`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ### The two CTA roles are deliberately asymmetric
 

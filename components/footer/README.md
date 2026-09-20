@@ -109,7 +109,7 @@ dark footer, so a dark brand mark is invisible on a dark footer; set a light var
 `pp_footer_logo_id` (an image attachment ID, never a URL) while `pp_logo_id` stays the **header**
 logo. Unset, the footer falls back to `pp_logo_id`.
 
-**Which roles carry `layout` (#1084):** `inner`, `columns`, `brand`, `social`, `social-link`, `nav-list`, `bottom-row`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and this list is checked against a derivation from the stylesheet (tests/js/css-lint.test.js), in both directions, so it cannot drift from the schema or the CSS. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+**Which roles carry `layout` (#1084):** `inner`, `columns`, `brand`, `social`, `social-link`, `nav-list`, `bottom-row`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ## Usage
 

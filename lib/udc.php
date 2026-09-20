@@ -2282,9 +2282,14 @@ function _pp_udc_grid_columns_companion(array $declarations, bool $base_tier_has
     if ($base_tier_has_display) {
         return $declarations;
     }
+    // THE VALUE COMES FROM THE REGISTRY, so the flag means what its shape promises.
+    // It read `'companion' => 'grid'` while this function hardcoded `grid` and
+    // every consumer tested it with `!empty()` — a table advertising configuration
+    // it did not have, which the pre-landing simplification pass called out.
+    $value = (string) $declarations['grid-template-columns']['companion'];
     $declarations['display'] = [
-        'css'     => 'grid',
-        'literal' => 'grid',
+        'css'     => $value,
+        'literal' => $value,
         'source'  => 'engine-companion',
     ];
     return $declarations;
@@ -4873,9 +4878,10 @@ function _pp_udc_place(
         // being a grid. The raw value still wins the property (and the envelope
         // still discloses that with `udc_css_overrides_group_value`); it just does
         // not un-declare the display the group value implied.
-        if ($companion
-            || ($may_carry_companion && !empty($resolved[$state][$bp][$property]['companion']))) {
-            $entry['companion'] = true;
+        if ($companion) {
+            $entry['companion'] = $definition['companion'];
+        } elseif ($may_carry_companion && !empty($resolved[$state][$bp][$property]['companion'])) {
+            $entry['companion'] = $resolved[$state][$bp][$property]['companion'];
         }
         $resolved[$state][$bp][$property] = $entry;
     }

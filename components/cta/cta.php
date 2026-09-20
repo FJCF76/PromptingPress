@@ -147,9 +147,7 @@ $has_button2 = is_scalar($button2_text) && (string) $button2_text !== '';
 // -> `background.image` + `background.overlay` (ruling A2), and the `button` /
 // `button-secondary` roles or a button preset.
 //
-// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
-// This comment used to read "the taxonomy carries no layout group". It does now, so
-// the reason `layout` stays is the one that was always underneath it: the prop
+// WHAT REMAINS A PROP, AND WHY (#1084, when the Layout group arrived). The prop
 // selects a MECHANISM BUNDLE — `.cta--inline` sets a direction, a packing and an
 // alignment together at >=768px only, and `.cta--full-width` centres the text block
 // and its buttons — while a role carries breakpoints and states but no variant

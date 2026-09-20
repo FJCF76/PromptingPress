@@ -182,10 +182,7 @@ if (!in_array($layout, $allowed_layouts, true)) {
 // directly: `_band` spacing, the `content` role's `sizing.max-width`, and a `_preset`
 // on the CTA roles.
 //
-// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
-// This comment used to read "the taxonomy carries no layout group". It does now
-// (`layout`: columns, orientation, wrap, justify, align, plus `sizing.align-self`),
-// so the old reason is gone and a truer one takes its place: `layout`,
+// WHAT REMAINS A PROP, AND WHY (#1084, when the Layout group arrived). `layout`,
 // `split_ratio` and `vertical_align` each select a MECHANISM BUNDLE, not a value.
 // `layout` swaps a whole geometry (and on `cover`, a band-root rule); `split_ratio`
 // and `vertical_align` derive attribute-scoped rules that a flat role address

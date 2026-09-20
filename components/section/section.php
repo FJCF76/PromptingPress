@@ -228,9 +228,8 @@ if ($layout === 'text-panel') {
 // on the text roles, the `header` role's `typography.align`, `_band` ->
 // `background.image` (ruling A2), and the `panel-cta` role or a button preset.
 //
-// WHAT REMAINS A PROP, AND WHY — RESTATED AT #1084, WHEN THE LAYOUT GROUP ARRIVED.
-// This comment used to read "the taxonomy carries no layout group". It does now, so
-// the honest reason is the one that survives it: both props select a MECHANISM
+// WHAT REMAINS A PROP, AND WHY (#1084, when the Layout group arrived). Both props
+// select a MECHANISM
 // BUNDLE rather than a value. `layout` swaps a whole geometry, and
 // `body_items_align` picks a wrap TECHNIQUE — a justify-content value AND the
 // ::before -> ::after separator switch that technique requires, which no role value
