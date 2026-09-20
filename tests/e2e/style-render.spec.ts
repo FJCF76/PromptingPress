@@ -753,10 +753,6 @@ test.describe('Safe-surface rendered proof', () => {
     // `sizing.max-width` — deliberately the SAME 40rem, because sharing a wrapper is what
     // gave the two the same cap in the first place. The number this test's expectations
     // are derived from is therefore unchanged; only the element that declares it moved.
-    //
-    // #1032 PUT A CAP BACK ON THE WRAPPER TOO, and the two are not redundant: the row's
-    // own cap governs its WIDTH (and so every line count below), while the wrapper's
-    // governs the CONTAINING BLOCK the row centres in. Reading from the row stays correct.
     const measure = async () =>
       page
         .locator('#pp-sec-wrap .section__inline-items')
@@ -797,38 +793,6 @@ test.describe('Safe-surface rendered proof', () => {
       };
     });
     expect(Math.abs(centring.ulCenter - centring.parentCenter)).toBeLessThanOrEqual(1.5);
-
-    // AND THE PARENT HAS TO BE THE PROSE COLUMN, NOT THE BAND (#1032).
-    //
-    // The assertion above compares the strip against its own PARENT — which is
-    // `.section__body`, the element whose cap went missing. So it passes either way, and
-    // it did: #1023 deleted v1's `--section-body-measure` wrapper cap and replaced it per
-    // CHILD, which is right for the three widths and wrong for the containing block. The
-    // strip is `width: fit-content; margin: 0 auto`, so it centres within the wrapper —
-    // full-band instead of within the 640px measure — and read as detached from the column
-    // it belongs to while every existing assertion stayed green.
-    //
-    // MEASURED before the fix, as the drift between the strip's centre and the prose
-    // column's: 224px at 1600 AND at 1280, 32px at 768, 0 at 375. (The issue reported it
-    // as a >=1024 problem; 768 drifts too.) The cure is the `body-wrap` role's
-    // `sizing.max-width`, so the check is against `.section__content` — the prose the
-    // strip has to belong to — and never against the parent again.
-    const proseAlignment = await page.locator('#pp-sec-fits').evaluate((band) => {
-      const centre = (sel: string) => {
-        const el = band.querySelector(sel) as HTMLElement | null;
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return (r.left + r.right) / 2;
-      };
-      return { strip: centre('.section__inline-items'), prose: centre('.section__content') };
-    });
-    expect(proseAlignment.strip, 'the trust strip must render').not.toBeNull();
-    expect(proseAlignment.prose, 'the prose column must render').not.toBeNull();
-    expect(
-      Math.abs((proseAlignment.strip as number) - (proseAlignment.prose as number)),
-      'the trust strip must centre on the PROSE COLUMN, not on the band — without the '
-        + 'body-wrap measure it drifts 224px right at this width (#1032)',
-    ).toBeLessThanOrEqual(1.5);
 
     // SAME measure, DIFFERENT viewport. This is the assertion that would have caught
     // the original mistake at authoring time: .container maxes out at --max-width

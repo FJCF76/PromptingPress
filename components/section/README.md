@@ -85,7 +85,6 @@ one, so there is nothing for a role parameter to hold.
 | Role | Selector | What it owns |
 |---|---|---|
 | `_band` | the `<section>` | band padding, background (`fill`, `image`, `overlay`, `position`), border, radius, shadow |
-| `body-wrap` | `.section__body` | **sizing only** — the prose column's own width, and the containing block everything inside it centres within (#1032) |
 | `header` | `.section__header` | the header block's own spacing and alignment |
 | `eyebrow` | `.section__eyebrow` | the kicker pill: background, border, radius, casing, ink |
 | `heading` | `.section__title` | the `<h2>`'s type, colour, measure and the rhythm below it |

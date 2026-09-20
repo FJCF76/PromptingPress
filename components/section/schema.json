@@ -255,18 +255,6 @@
         }
       }
     },
-    "body-wrap": {
-      "selector": ".section__body",
-      "description": "THE PROSE COLUMN'S OWN WIDTH — the wrapper around `header`, `body` and the `inline-items` strip, and the containing block everything inside it centres within (#1032). IT EXISTS FOR ONE REASON AND CARRIES ONE GROUP. v1 declared `max-width: var(--section-body-measure, 40rem)` on this element, and #1023 replaced it per CHILD — correctly for the three widths, but a containing block is not a width. `.section__inline-items` is `width: fit-content; margin: 0 auto`, so it centres within THIS element: with the cap gone the strip centred on the BAND while the prose above it stayed 640px and left-aligned, reading as detached from the column it belongs to. MEASURED in Chromium before the fix, as the drift between the strip's centre and `.section__content`'s centre: 224px at 1600 and at 1280, 32px at 768, 0 at 375 — so the defect is not confined to the widest tier as first reported, and it is invisible to the shipped centring assertion, which compares the strip against its own parent (this element) and therefore passes either way. SIZING ONLY, DELIBERATELY: the faithful port of `--section-body-measure` is a max-width and nothing else, and TYPOGRAPHY here is specifically what ruling B (#1023) ruled against — the strip declares no type default so it inherits 16px/400 from this wrapper, and feeding it `body`'s 17.04px/430 is exactly the restyle that ruling avoided. Re-pointing `body` at this element reproduces the geometry and reintroduces that, which is why this is a separate role rather than a moved selector.",
-      "groups": [
-        "sizing"
-      ],
-      "defaults": {
-        "sizing": {
-          "max-width": "40rem"
-        }
-      }
-    },
     "header": {
       "selector": ".section__header",
       "description": "The heading block wrapper (eyebrow + heading + subheading). Its `typography.align` is what the v1 `title_align` prop set: the eyebrow, heading and subheading inherit it.",
