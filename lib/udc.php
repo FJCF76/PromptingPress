@@ -673,6 +673,63 @@ function pp_udc_groups(): array {
             // than read off the flag. Do not infer a constraint from this key on a
             // non-length param; the type's validator owns the grammar.
             'object-position' => ['property' => 'object-position', 'type' => 'position', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            // ALIGN-SELF (#1084). How this box places itself in the row or column
+            // its parent lays out — the approved coverage table's own placement
+            // ("Sizing | width, max/min-width, height, min-height, ALIGNMENT"),
+            // and the honest one.
+            //
+            // IT IS NOT IN `layout`, AND THE REASON IS THE EXPOSURE GRAIN RATHER
+            // THAN TASTE. `groups` is a group-grain list: a role that declares
+            // `layout` gets every one of its params. `layout` is what a CONTAINER
+            // does to its children, so on a role whose box is a child but not a
+            // container — `section.panel`, `hero.content` — four of its five
+            // params would paint nothing at any value, which is the #1006/#1048
+            // inert class this group exists to avoid creating. `sizing` is
+            // already declared on every geometry-bearing role and is about the
+            // box ITSELF, which is exactly what this property is.
+            'align-self' => ['property' => 'align-self', 'type' => 'align-self', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+        ]],
+        // ── LAYOUT (#1084) ──────────────────────────────────────────────────
+        //
+        // The approved coverage table's 1st-cut group that was never built, and the
+        // one the program's own code kept routing around in writing: ten shipped
+        // sites said "the UDC taxonomy carries no layout group" and three issues
+        // (#658, #905, #588) asked for it. The full contract is
+        // docs/v2/LAYOUT-GROUP-CONTRACT.md; three things belong here, where the
+        // data lives.
+        //
+        // 1. IT IS AN OVERLAY, NOT A MIGRATION. These five properties stay in the
+        //    css-lint STRUCTURAL set and stay in components.css. ~35 of the shipped
+        //    declarations are variant- or tier-scoped mechanism (`.cta--inline
+        //    .cta__inner`, `.hero--split[data-pp-split-ratio="60-40"]`) that a flat
+        //    role address cannot express at any value, and a role DEFAULT — which
+        //    emits unlayered — would not replace those rules but OUTRANK them,
+        //    killing the variant. So the group emits AUTHORED values only, no role
+        //    may declare a layout default, and a registry-derived schema test
+        //    enforces that rather than a convention.
+        //
+        // 2. WHAT MAKES THE DUAL HOME LEGAL. The one-home rule
+        //    (`aspect-ratio`/`object-position`) guarantees REACHABILITY: a value in
+        //    CSS that no role owns is one no author can reach. A structural rule for
+        //    a property the registry owns is reachable by definition, because an
+        //    authored band block is unlayered and beats it. The exception carries
+        //    its own condition so it cannot be copied for convenience: the registry
+        //    must own the property AND its stylesheet occurrences must be
+        //    variant-/tier-conditioned. An unconditioned value on a bare role
+        //    selector still has to move.
+        //
+        // 3. WHY THERE IS NO `gap` HERE, though the coverage table lists one: the
+        //    `spacing` group has carried `gap`/`row-gap`/`column-gap` since Sprint 0.
+        //    That is the one-home rule working, not a missing parameter.
+        'layout' => ['params' => [
+            // COLUMNS. A count (`4`) or a track list; the count becomes
+            // `repeat(4, minmax(0, 1fr))` at emit, and `display: grid` rides with
+            // it as an engine companion — see _pp_udc_grid_columns_companion().
+            'columns'     => ['property' => 'grid-template-columns', 'type' => 'track-list', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            'orientation' => ['property' => 'flex-direction',  'type' => 'flex-direction',  'signed' => false, 'max_values' => 1, 'keywords' => []],
+            'wrap'        => ['property' => 'flex-wrap',       'type' => 'flex-wrap',       'signed' => false, 'max_values' => 1, 'keywords' => []],
+            'justify'     => ['property' => 'justify-content', 'type' => 'justify-content', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            'align'       => ['property' => 'align-items',     'type' => 'align-items',     'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
         //
@@ -2103,6 +2160,50 @@ function _pp_udc_background_image_companions(array $declarations): array {
             'source'  => 'engine-companion',
         ];
     }
+    return $declarations;
+}
+
+/**
+ * The `display: grid` an authored column count needs to mean anything (#1084).
+ *
+ * WHY THE ENGINE SUPPLIES IT, stated the way its background sibling above states
+ * its own case. `grid-template-columns` does nothing to a flex container, and the
+ * components' structural CSS is full of boxes that are a flex column at one tier
+ * and a grid at another: `.section__grid` is `display: flex` at base and
+ * `display: grid` only from 768px. So an authored `layout.columns` would paint
+ * nothing below 768px — and PHP cannot read the stylesheet, so _pp_udc_place()'s
+ * drop ledger could not even report it. A value that validates, stores, and
+ * paints nothing on no channel is the I19/I35 class; building one deliberately
+ * was not an option, so the companion makes "N columns" true at every tier the
+ * author wrote it for.
+ *
+ * WHAT THE AUTHOR IS TOLD, because this is a mechanism switch rather than a pure
+ * retune: on a box the stylesheet lays out with flexbox, setting `columns` makes
+ * it a grid, so `orientation` and `wrap` stop applying to it. The schema
+ * descriptions, the how-to and the AI-facing context all say so.
+ *
+ * SOURCE-AGNOSTIC SUPPRESSION. The companion is skipped whenever `display` is
+ * already in this bucket, whatever put it there — today only a `_css`
+ * declaration can, but the check does not depend on that staying true.
+ *
+ * ROLES WHOSE `display` IS A VISIBILITY SWITCH NEVER REACH THIS, and that
+ * exclusion is upstream, in the exposure roster (tests/js/css-lint.test.js):
+ * `nav.menu` and `nav.toggle` use `display` as behaviour — `.nav__menu[hidden]`
+ * against the JS that adds and removes `hidden`, and a hamburger that is
+ * `display: none` from 768px. The `hidden` attribute is honoured only by the UA
+ * stylesheet, which ANY author declaration outranks, so an unlayered `display:
+ * grid` there would pin an open mobile menu open: a styling write defeating a
+ * keyboard and screen-reader affordance. Those roles do not declare `layout`.
+ */
+function _pp_udc_grid_columns_companion(array $declarations): array {
+    if (!isset($declarations['grid-template-columns']) || isset($declarations['display'])) {
+        return $declarations;
+    }
+    $declarations['display'] = [
+        'css'     => 'grid',
+        'literal' => 'grid',
+        'source'  => 'engine-companion',
+    ];
     return $declarations;
 }
 
@@ -4032,6 +4133,12 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // AFTER the compose, so the overlay has already been folded into
                 // background-image and the companions see the final layer list.
                 $declarations = _pp_udc_background_image_companions($declarations);
+                // The layout companion joins the same stage, after the sort, for
+                // the same reason the background trio is appended rather than
+                // sorted in: a companion is the engine's addition to a finished
+                // set, and `display` has no shorthand relationship with anything
+                // here, so its position cannot erase a sibling.
+                $declarations = _pp_udc_grid_columns_companion($declarations);
                 if ($declarations === []) {
                     continue;
                 }
@@ -4546,6 +4653,31 @@ function _pp_udc_place(
         // value the engine just decided it would not paint.
         if ($band_ref_name !== null) {
             $referenced[$band_ref_name] = $params[$param_name];
+        }
+
+        // A COLUMN COUNT BECOMES A TRACK LIST HERE, downstream of both gates, for
+        // the same reason the url() above is built here: what an author wrote and
+        // what reaches the stylesheet are different strings, and the engine owns
+        // the second one.
+        //
+        // DECIDE FROM THE LITERAL, EMIT THE CSS — the rule
+        // _pp_udc_compose_background_layers() records, and the reason is identical:
+        // the two differ whenever the value came through a token, and a RESPONSIVE
+        // value always does, because write-time normalization mints
+        // `{"columns": {"d": 3, "p": 1}}` into band tokens and rewrites it as
+        // references. Testing $css for digits would therefore see `var(--pp-…)` and
+        // silently skip the synthesis on exactly the maps most likely to use it.
+        //
+        // The emitted form is then `repeat(var(--pp-…), minmax(0, 1fr))`, which is
+        // valid: custom properties substitute before the property's grammar is
+        // checked at computed-value time. Verified in Chromium at 375/768/1280
+        // before this was built (rule 14.3), not inferred from the spec.
+        //
+        // `minmax(0, …)` rather than a bare `1fr` is this repo's own grid lesson: a
+        // `1fr` track has an `auto` minimum, so one long unbroken token widens the
+        // track and scrolls the page sideways (#1043/#1067).
+        if (($params[$param_name]['type'] ?? '') === 'track-list' && preg_match('/^\d{1,2}\z/', trim($literal))) {
+            $css = 'repeat(' . $css . ', minmax(0, 1fr))';
         }
 
         $resolved[$state][$bp][$property] = [

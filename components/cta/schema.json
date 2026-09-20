@@ -116,7 +116,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -267,7 +268,8 @@
       "groups": [
         "spacing",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {

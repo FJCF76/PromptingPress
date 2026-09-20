@@ -225,7 +225,8 @@
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -243,7 +244,8 @@
         "background",
         "sizing",
         "shadow",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {
@@ -294,7 +296,8 @@
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "layout"
       ],
       "defaults": {
         "spacing": {

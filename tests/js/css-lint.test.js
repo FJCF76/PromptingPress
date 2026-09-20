@@ -2926,6 +2926,66 @@ describe('CSS lint: v2 components keep NO designable value in their stylesheet',
         'overscroll-behavior-x', '-webkit-overflow-scrolling',
     ]);
 
+    // ── THE LAYOUT GROUP'S FIVE, AND THE ONE-HOME AMENDMENT (#1084) ──────────
+    //
+    // These five are in STRUCTURAL above AND owned by the `layout` registry group
+    // (lib/udc.php). That is the ONLY place in this file where a property has two
+    // homes, the one-home rule stated on `object-position` and `aspect-ratio` says
+    // never two, and this is the argument for the exception rather than a note that
+    // one was taken.
+    //
+    // WHAT THE ONE-HOME RULE IS FOR. Read its own words at the top of this
+    // describe: "a value in CSS that no role owns is a value no author can reach
+    // and no envelope can report on — which is exactly the #901 defect." The rule
+    // protects REACHABILITY. A structural rule for a property the registry OWNS is
+    // reachable by definition: an authored band block is unlayered, this stylesheet
+    // is in `@layer pp-v1`, so the author's value beats it at any specificity, in
+    // any variant, at any tier. The harm the rule names cannot occur here.
+    //
+    // WHY MOVING THEM INSTEAD WOULD DELETE A CAPABILITY. ~35 of the shipped
+    // declarations of these five are variant- or attribute-scoped mechanism —
+    // `.cta--inline .cta__inner`, `.hero--split[data-pp-split-ratio="60-40"]`,
+    // `.section--text-panel .section__grid`, `.testimonials--stack`. A role's
+    // `defaults` carry a breakpoint dimension and a state dimension and NO variant
+    // dimension, so none of those rules has a role address at any value. Worse, a
+    // default emits UNLAYERED: moving `.cta__inner { flex-direction: column }` into
+    // a default would not replace the variant rule, it would OUTRANK it, and
+    // `.cta--inline` would silently stop being a row. That is ruling D5's collision
+    // arriving from the other side.
+    //
+    // THE EXCEPTION CARRIES ITS OWN CONDITION so it cannot be copied for
+    // convenience. A property may hold both homes only when BOTH hold:
+    //   (1) the registry owns it — so every occurrence here is overridable by an
+    //       authored value; and
+    //   (2) its group declares NO defaults for it, which makes this stylesheet the
+    //       only possible home for the UNAUTHORED behaviour. Deleting a rule here
+    //       would then delete behaviour rather than move it.
+    //
+    // Condition 2 is what does the work, and it is asserted rather than described —
+    // by the registry-derived test in tests/UdcLayoutGroupTest.php, which walks
+    // every component's role defaults for these five PROPERTIES (not parameter
+    // names: `typography.align` emits `text-align` and legitimately defaults on
+    // `logos.label`). The moment the Layout group takes a default, its properties
+    // stop satisfying the condition and belong in ALWAYS_DESIGN like everything
+    // else. An earlier draft of this comment claimed condition 2 was "every
+    // occurrence is variant-conditioned"; that is FALSE and the file disproves it —
+    // `.hero__cta-group { flex-wrap: wrap }` and `.cta__buttons { justify-content:
+    // flex-start }` are unconditioned base values, and they stay here precisely
+    // BECAUSE no default may hold them.
+    //
+    // A property in a group that DOES default still has exactly one home. Nothing
+    // about the ordinary boundary case changes.
+    //
+    // NOT ON THIS LIST, DELIBERATELY: `gap`/`row-gap`/`column-gap` stay in
+    // ALWAYS_DESIGN. The `spacing` group has owned them since Sprint 0, a
+    // stylesheet gap is still split authority, and the coverage table's "Layout:
+    // …gap…" is already satisfied there. `display` is not on it either: no group
+    // emits it, and the `display: grid` the engine pairs with an authored
+    // `layout.columns` is an engine companion, not a parameter.
+    const REGISTRY_OWNED_STRUCTURAL = new Set([
+        'grid-template-columns', 'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+    ]);
+
     // Properties that are NEVER structural, whatever value they carry. A
     // structural property with a designable value (`margin: 0 auto` vs
     // `margin-bottom: 2rem`) is caught by the value check below instead.
@@ -3104,6 +3164,46 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
                 offences.join('\n  ')
             ).toEqual([]);
         });
+    });
+
+    /**
+     * THE AMENDMENT'S OWN GUARDS (#1084). Three claims the comment above makes
+     * that a reader should not have to take on trust.
+     */
+    test('the registry-owned five keep exactly one classification here, and gap is not among them', () => {
+        REGISTRY_OWNED_STRUCTURAL.forEach(prop => {
+            expect(STRUCTURAL.has(prop), `${prop} must stay STRUCTURAL: the stylesheet holds the unauthored behaviour`).toBe(true);
+            expect(ALWAYS_DESIGN.has(prop), `${prop} must not be in ALWAYS_DESIGN too — that is two homes in ONE set`).toBe(false);
+        });
+        // The line the amendment must not be read as crossing: `spacing` owns the
+        // gap family, so a gap in the stylesheet is still split authority.
+        ['gap', 'row-gap', 'column-gap'].forEach(prop => {
+            expect(ALWAYS_DESIGN.has(prop), `${prop} belongs to the spacing group, not to this stylesheet`).toBe(true);
+            expect(REGISTRY_OWNED_STRUCTURAL.has(prop), `${prop} is not part of the Layout amendment`).toBe(false);
+        });
+        // `display` is an engine companion, never a parameter, so it is plain
+        // structure with no amendment attached.
+        expect(STRUCTURAL.has('display')).toBe(true);
+        expect(REGISTRY_OWNED_STRUCTURAL.has('display')).toBe(false);
+    });
+
+    /**
+     * REGRESSION PIN (#1084 amends this file; #986 wrote the rule it must not
+     * widen). The layout-modifier carve-out admits `text-align` on a `--variant`
+     * selector and NOTHING else. An amendment that accidentally generalised it to
+     * "layout properties on any selector" would silently reopen the split
+     * authority the whole boundary exists to close.
+     */
+    test('regression: the text-align carve-out stayed exactly as narrow as #986 left it', () => {
+        // Still exempt: text-align on a pure modifier rule.
+        expect(designOffencesIn(parseRules('.hero--centered .hero__inner { text-align: center }'))).toEqual([]);
+        // Still an offence: the same property on a ROLE selector.
+        expect(designOffencesIn(parseRules('.hero__title { text-align: center }'))).not.toEqual([]);
+        // Still an offence: a designable value riding a modifier selector.
+        expect(designOffencesIn(parseRules('.hero--centered .hero__title { font-size: 2rem }'))).not.toEqual([]);
+        // And the carve-out did NOT generalise to the five: a designable family is
+        // still caught on a modifier selector.
+        expect(designOffencesIn(parseRules('.cta--inline .cta__inner { gap: 2rem }'))).not.toEqual([]);
     });
 
     /**
@@ -4618,3 +4718,174 @@ describe('CSS lint: dark-band focus ring routes through the AA accent roles (#54
 // `border` group and a hover ring is that group's `:hover`, both authored rather than
 // slot-ordered, so there is no chain left to pin an order in. Hero's equivalent rows
 // left the same way at #986.
+/**
+ * THE LAYOUT GROUP'S EXPOSURE ROSTER (#1084).
+ *
+ * `layout` is what a CONTAINER does to its children, so the roles that expose it
+ * are decided by a fact about the box rather than by a judgement about the
+ * component — and a fact can be derived. This reads the shipped stylesheet and
+ * the shipped schemas and asserts they agree, in both directions:
+ *
+ *   clause 1  the role's own selector is declared `display: flex|grid` (either
+ *             tier) somewhere in its component's block, and
+ *   clause 2  that `display` is NOT a visibility switch — no `display: none` on
+ *             the selector, and no attribute-qualified form of it carrying a
+ *             display at all.
+ *
+ * CLAUSE 2 EXISTS BECAUSE OF A VERIFIED HAZARD, not for symmetry. `nav` uses
+ * `display` as behaviour: `.nav__toggle` is `display: none` from 768px, and
+ * `.nav__menu[hidden] { display: flex }` at 768px sits against the JS that adds
+ * and removes `hidden` on mobile. The `hidden` attribute is honoured only by the
+ * UA stylesheet — ANY author declaration outranks it, and base.css carries no
+ * `[hidden]` rule of its own — so an authored `layout.columns` on `nav.menu`
+ * would emit an unlayered `display: grid` companion (lib/udc.php,
+ * _pp_udc_grid_columns_companion) and PIN AN OPEN MOBILE MENU OPEN. That is a
+ * styling write defeating a keyboard and screen-reader affordance, which is not a
+ * thing to document — it is a thing to make unreachable.
+ *
+ * FAIL-CLOSED, because a selector parse that quietly degrades would pass
+ * vacuously: the derived set is compared against a RECORDED roster, the same
+ * anti-vacuity shape STRUCTURAL_RULE_COUNT uses above. A parse that stops
+ * matching fails loudly instead of agreeing with an empty schema walk.
+ */
+describe('CSS lint: the Layout group is exposed by box fact, not by judgement', () => {
+    const componentsDir = path.resolve(__dirname, '../../components');
+    const CONTAINER = /^(flex|inline-flex|grid|inline-grid)$/;
+    const norm = (s) => s.trim().replace(/\s+/g, ' ');
+
+    /** Every `display` value declared against each normalized selector in a block. */
+    const displaysIn = (block) => {
+        const map = new Map();
+        const rules = /([^{}]+)\{([^{}]*)\}/g;
+        let rule;
+        while ((rule = rules.exec(block)) !== null) {
+            const selectors = rule[1].trim();
+            if (selectors.startsWith('@')) continue; // the media wrapper itself
+            const decls = /(^|;)\s*display\s*:\s*([^;]+)/g;
+            let decl;
+            while ((decl = decls.exec(rule[2])) !== null) {
+                selectors.split(',').forEach(sel => {
+                    const key = norm(sel);
+                    if (!map.has(key)) map.set(key, new Set());
+                    map.get(key).add(decl[2].trim());
+                });
+            }
+        }
+        return map;
+    };
+
+    const componentBlock = (component) => {
+        const css = COMPONENTS_CSS;
+        const start = css.indexOf(`COMPONENT: ${component}`);
+        if (start === -1) return '';
+        const bodyStart = css.indexOf('*/', start);
+        const next = css.indexOf('/* =====', bodyStart);
+        return stripComments(css.slice(bodyStart + 2, next === -1 ? undefined : next));
+    };
+
+    // THE RECORDED ROSTER. Derived from the two clauses at #1084 and written down,
+    // so a schema change and a stylesheet change each have to meet it.
+    const RECORDED = {
+        cta: ['inner', 'buttons'],
+        faq: ['list', 'question'],
+        footer: ['inner', 'columns', 'brand', 'social', 'social-link', 'nav-list', 'bottom-row'],
+        hero: ['inner', 'content', 'cta-group', 'proof', 'surface'],
+        logos: ['list', 'item'],
+        nav: ['container', 'logo', 'menu-list'],
+        section: ['columns', 'inline-items', 'panel-row'],
+        stats: ['list', 'item'],
+        table: [],
+        testimonials: ['list', 'card', 'attribution'],
+        embed: [],
+    };
+
+    const derive = (component) => {
+        const block = componentBlock(component);
+        const schema = JSON.parse(
+            fs.readFileSync(path.join(componentsDir, component, 'schema.json'), 'utf-8'),
+        );
+        const displays = displaysIn(block);
+        const eligible = [];
+        const excluded = [];
+        Object.entries(schema.roles || {}).forEach(([role, def]) => {
+            const selector = norm(def.selector || '');
+            if (selector === '') return; // `_band` has no element selector
+            let container = false;
+            let switched = false;
+            displays.forEach((values, sel) => {
+                if (sel === selector) {
+                    values.forEach(v => {
+                        if (CONTAINER.test(v)) container = true;
+                        if (v === 'none') switched = true;
+                    });
+                } else if (sel.includes(selector + '[')) {
+                    // An attribute-qualified form of the same box carrying a
+                    // display: that IS the visibility switch, whatever its value.
+                    switched = true;
+                }
+            });
+            if (container && !switched) eligible.push(role);
+            if (container && switched) excluded.push(role);
+        });
+        return { eligible, excluded, schema };
+    };
+
+    const v2Components = Object.keys(RECORDED);
+
+    test('the roster derivation reads real CSS and real schemas', () => {
+        // Anti-vacuity: the parse must find containers at all, and must find the
+        // component blocks it is slicing.
+        const { eligible } = derive('hero');
+        expect(eligible.length, 'the display parse found no container in hero — it is reading nothing').toBeGreaterThan(3);
+        expect(componentBlock('nav'), 'the block slicer lost nav').not.toBe('');
+    });
+
+    v2Components.forEach(component => {
+        test(`${component}'s layout exposure matches the box facts`, () => {
+            const { eligible, schema } = derive(component);
+            const declared = Object.entries(schema.roles || {})
+                .filter(([, def]) => (def.groups || []).includes('layout'))
+                .map(([role]) => role);
+
+            expect(
+                eligible.sort(),
+                `${component}'s derived container roles no longer match the recorded roster. If the ` +
+                'stylesheet deliberately made a box a container (or stopped), update RECORDED in the ' +
+                'same commit so the change is reviewed rather than silent.',
+            ).toEqual([...RECORDED[component]].sort());
+
+            expect(
+                declared.sort(),
+                `${component}'s schema exposes layout on roles that are not containers, or omits one ` +
+                'that is. Exposure is a box fact: a container role must declare the group, and a ' +
+                'non-container role must not (a justify-content on a block box paints nothing at any ' +
+                'value, which is the #1006 inert class).',
+            ).toEqual([...RECORDED[component]].sort());
+        });
+    });
+
+    /**
+     * THE HAZARD ITSELF, PINNED. Not "nav.menu is absent from a list" — the
+     * mechanism that makes its absence necessary, so the next person who reads
+     * `RECORDED` and wonders why the menu is missing finds the answer in a test
+     * rather than in a git log.
+     */
+    test('a role whose display is a visibility switch is excluded, and nav is why', () => {
+        const { excluded, schema } = derive('nav');
+        expect(excluded.sort()).toEqual(['menu', 'toggle']);
+        ['menu', 'toggle'].forEach(role => {
+            expect(
+                (schema.roles[role].groups || []).includes('layout'),
+                `nav.${role} must NOT expose layout: an authored columns value emits an unlayered ` +
+                'display:grid companion, which outranks the UA stylesheet\'s [hidden] rule and pins ' +
+                'an open mobile menu open — a styling write breaking a keyboard/AT affordance.',
+            ).toBe(false);
+        });
+
+        // The mechanics the exclusion depends on, asserted rather than assumed:
+        // the menu's hidden state really is attribute-driven, and the theme really
+        // does not carry its own [hidden] rule that would survive an author value.
+        expect(COMPONENTS_CSS).toContain('.nav__menu[hidden]');
+        expect(BASE_CSS.includes('[hidden]')).toBe(false);
+    });
+});
