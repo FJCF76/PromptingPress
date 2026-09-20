@@ -6,10 +6,10 @@
   contract review"). Written under issue #1079, BEFORE any implementation, and
   reviewed by /plan-eng-review in the same pass.
 
-  STATUS: DRAFTED. NOT IMPLEMENTED. NOT RULED.
-  §8 carries four open questions to the owner, and Q0 asks whether Layer 2 should
-  be built at all — the demand evidence in §0.5 says its allowlist has no
-  admissible member. This file is the record of that contract and that evidence,
+  STATUS: DRAFTED. NOT IMPLEMENTED. Q1, Q2 and Q3 RULED (§8.R); Q0 OPEN.
+  §8 carried four questions. Three are answered and recorded in §8.R. Q0 — whether
+  Layer 2 should be built at all — is with the owner, because the demand evidence
+  in §0.5 says its allowlist has no member that passes the admission POLICY. This file is the record of that contract and that evidence,
   so whoever builds Layer 2 (this sprint or a later one) starts from the answers
   rather than re-deriving them, and so the reason it was deferred (if it is) is
   written down rather than remembered.
@@ -466,9 +466,64 @@ That Layer 2 is a general CSS escape. It is not: a short allowlist, no selectors
 
 ---
 
-## 8 — THE 7A
+## 8.R — RULINGS (orchestrator, 2026-09-20)
 
-**Nothing is implemented until Q0 is answered. Q1-Q3 only matter if Q0 says build.**
+Q1, Q2 and Q3 are ruled. Q0 is with the owner as a blocking composition decision and
+nothing is implemented until it returns. The questions are kept below in full rather than
+rewritten, so the ruling can be read against what was actually asked.
+
+### R1 — Q1 is **A: TYPED**. C's named `raw` escape is NOTED as a future valve, not built.
+
+**This is a deliberate departure from an APPROVED design document, and the reason is
+recorded here rather than left to be rediscovered.** The approved UDC design doc
+(`wfroot-n5i9y-main-design-20260910-224118.md`, rev 4) specifies Layer 2 as
+*"conventions-checked, not proof-checked"*, with a `custom_styling_conventions_only`
+finding. That is overridden. What overrides it is not a preference; it is **this repo's own
+recorded invariants**, which postdate the design doc's paragraph and are the standard every
+other v2 surface is already held to:
+
+- **I19** — nothing validates green and renders nothing.
+- **I30** — every value-bearing input has a declared grammar; no value may report success and then silently no-op.
+- **I31** — what the schema advertises is exactly what the write and render grammars accept.
+- **The #570 ruling-6 convergence rule** — where the write-accept set and the render-reject set diverge, the value is rejected at write (quoted at lib/apply.php:1502-1506).
+
+And one consequence the design doc could not have anticipated, because the mechanism did
+not exist when it was written: an untyped Layer 2 would **delete an existing check**.
+`_pp_udc_validate_scalar()` resolves an `@name` and then calls
+`_pp_udc_reference_check($resolved, $param)` (lib/udc.php:2600) to refuse a colour token
+used on a length param — the accepted-but-dead class rejected since #230, routed through
+one predicate by ruling D3 (#972). With no declared type there is nothing to check against.
+
+**The precedent this sets, stated so it is usable and bounded:** an approved design document
+loses to a recorded invariant of the same program when the two conflict on a question the
+invariant was written about. It does not lose to an implementer's preference, and it does
+not lose quietly — the conflict is written down at the point of departure, which is what
+this section is. Ruling A3's sub-ruling took the same shape one layer up.
+
+`type: 'raw'` (option C) stays on the record as the valve if a future property's grammar the
+shared owner genuinely lacks ever makes it necessary. **It is not built**, and if it ever is,
+it is the one place `custom_styling_conventions_only` would be TRUE rather than false.
+
+### R2 — Q2 is **CITED DEMAND** for admission, and §2.5's rule structure is PERMANENT.
+
+The SAFETY / COHERENCE / POLICY separation that the outside review forced is kept as the
+shape of the contract, not as a one-off correction. It is what makes the answer honest in
+both directions: the list is small because **demand** is small, and the contract says so
+plainly instead of letting a safety argument carry a prioritisation decision it cannot bear.
+Under this ruling the allowlist is empty today — which is the Q0 input, not a Q0 answer.
+
+### R3 — Q3 is **CONFIRMED**: `_css` as a pseudo-group at role and `_band` grain inside `udc`.
+
+Settled by the verified fact rather than by taste: a new top-level composition-item key is
+gated by nothing and would be **accepted, stored and ignored** (lib/admin.php:4138-4142
+records exactly that about `udc` itself). Layer 2 must not build on a silently-ignored
+address. Item grain stays out pending Addendum B (#1024).
+
+---
+
+## 8 — THE 7A (as asked; R1-R3 above answer Q1-Q3)
+
+**Nothing is implemented until Q0 is answered. Q1-Q3 are ruled in §8.R.**
 
 ### Q0 — Is Layer 2 the right next build, given §0.5?
 
@@ -501,7 +556,10 @@ I am still not recommending **Option 1**: admitting `opacity` contradicts eight 
 1. **#1069 is two schema lines.** *"No role can reach a link inside a rich-text surface"* — but the role-selector charset already admits space and dot, and **section and cta already ship `.section__content a` and `.cta__body a` as roles today.** faq and hero need the same two declarations. The issue currently ships a documented dark-panel write at **3.21:1**.
 2. **#1032 is one schema line** — a missing role on `.section__body`; `max-width` is already emitted.
 
-Neither is in this task's scope and I have not touched them; they are named here because the sweep found them while looking for something else, and they are the cheapest measured wins in the area. Route as you see fit.
+**BOTH WERE APPROVED AND HAVE SHIPPED** on this branch, independently of Q0 — see the two commits after this contract's own. Neither turned out to be quite the one-liner this section promised, and the difference is recorded because it is the useful part:
+
+- **#1069 was two roles, not two lines**, plus a false sentence to delete, plus the prompt paragraph that obligation needs in order to reach the model at all (#1059's lesson), plus a fixture that made `hero.proof-link` verifiable — it had passed the engine's selector sweep VACUOUSLY, because that sweep looks for a bare `<a` anywhere in the rendered html and hero renders its CTAs as anchors (filed as **#1081**).
+- **#1032's one line had a cost the issue did not name.** Restoring the wrapper's `max-width` fixes the strip's centring (measured: 224px adrift at 1280 and 1600, 32px at 768, 0 after) — and, because the children have carried their own caps since #1023, it makes a wrapper cap a CEILING they cannot exceed. The four-role widening recipe this repo's own how-to taught now renders 640px instead of 736px, accepted, with no finding. The how-to teaches five roles now and says so; the missing engine disclosure is filed as **#1080**. That interaction was found by A/B-ing the cap in the browser, not by reading the issue.
 
 A third, smaller thing worth ruling while you are here, because §0.5d found it and it is nobody's task: **`Layout` is a FIRST-CUT group in the approved coverage table and no group exists**, with four in-code workarounds and open demand (#658, #588, #905). It is grid-adjacent, so it may belong with the Addendum-B/grid work — but it is currently unscheduled and unrecorded as a gap. Under Option 3 it becomes T8; under every other option it still needs a home.
 
