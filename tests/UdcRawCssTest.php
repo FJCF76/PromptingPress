@@ -391,6 +391,22 @@ class UdcRawCssTest extends TestCase
         );
         $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($unchecked),
             'the disclosure channel must bound its own allocation, as the drop ledger does');
+
+        // BOUNDED ACROSS THE COMPOSITION, not per band. Scoped per item the cap bounded
+        // nothing that matters: 400 bands x 400 properties measured 80,000 findings and
+        // +56 MB in one call, on paths with no size gate in front of them. The ledger it
+        // cites as precedent shares one collector across every band.
+        $many = [];
+        for ($b = 0; $b < 40; $b++) {
+            $props = [];
+            for ($k = 0; $k < 40; $k++) {
+                $props['zz-p-' . $k] = '1';
+            }
+            $many[] = ['component' => 'faq', 'id' => 'pp-b' . $b, 'props' => [],
+                       'udc' => ['answer' => [PP_UDC_CSS_KEY => $props]]];
+        }
+        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count(pp_udc_composition_findings($many)),
+            'the cap is global across the composition, not per band');
         $this->assertNotSame([], $unchecked, 'and must still report — a cap is not a mute');
 
         $this->assertSame(
@@ -506,6 +522,57 @@ class UdcRawCssTest extends TestCase
         $this->assertCount(1, $unchecked, 'only the property that actually emits is disclosed');
         $this->assertStringContainsString('mix-blend-mode', $unchecked[0]['message'],
             'and the legitimate sibling still is — a skip is not a mute');
+    }
+
+    /**
+     * A RAW SHORTHAND RESETS THE LONGHANDS A GROUP OWNS, and that is a collision.
+     *
+     * Untyped properties sort after every registry property, so `border: 1px solid red`
+     * written raw wipes an authored `border.width`/`style`/`color` that emitted three
+     * declarations earlier in the same block. Measured: all three dead, one
+     * unchecked-property finding, nothing saying anything was overridden.
+     */
+    public function testARawShorthandDisclosesEveryGroupLonghandItResets(): void
+    {
+        $findings = pp_udc_composition_findings([[
+            'component' => 'faq', 'id' => 'pp-1079sh', 'props' => [],
+            'udc' => ['answer' => [
+                'border'       => ['width' => '2px', 'style' => 'solid', 'color' => '#111111'],
+                PP_UDC_CSS_KEY => ['border' => '1px solid red'],
+            ]],
+        ]]);
+        $overrides = array_values(array_filter(
+            $findings,
+            static fn(array $f): bool => $f['type'] === 'udc_css_overrides_group_value'
+        ));
+        $this->assertCount(3, $overrides,
+            'one per authored longhand the shorthand kills — silence here is the I35 class '
+            . '`_pp_udc_property_rank()`\'s own docblock names');
+        foreach (['border-width', 'border-style', 'border-color'] as $longhand) {
+            $this->assertStringContainsString(
+                $longhand,
+                implode(' ', array_column($overrides, 'message'))
+            );
+        }
+    }
+
+    /** `_band._css` gets the same inheritance disclosure the group form gets. */
+    public function testABandRawDeclarationIsDisclosedWhenARoleDefaultCancelsIt(): void
+    {
+        $types = static fn(array $band): array => array_column(
+            pp_udc_composition_findings([[
+                'component' => 'faq', 'id' => 'pp-1079bnd', 'props' => [], 'udc' => ['_band' => $band],
+            ]]),
+            'type'
+        );
+        $this->assertContains('udc_band_value_shadowed_by_role_default',
+            $types([PP_UDC_CSS_KEY => ['color' => '#ff0000']]),
+            'byte-identical emitted CSS must not be reported oppositely depending on which '
+            . 'surface the author used to write it');
+        $this->assertContains('udc_band_value_shadowed_by_role_default',
+            $types(['typography' => ['color' => '#ff0000']]),
+            'red-proofed: the group form still reports, so the assertion above is not '
+            . 'passing because the helper reports everything');
     }
 
     /** The collision disclosure is per STATE; a raw `:hover` does not contest a resting value. */
@@ -635,6 +702,98 @@ class UdcRawCssTest extends TestCase
         }
     }
 
+    /**
+     * A state-shaped key with a NON-MAP value gets the same diagnosis at both gates.
+     *
+     * The write gate calls `{":hover": "red"}` a state whose value must be an object. The
+     * emitter used to gate on `isset($states[$key]) && is_array($value)`, so the same
+     * bytes fell through to the property branch and were ledgered as "not an available CSS
+     * property" — two names for one defect, sending an operator reading a restore report
+     * to the wrong question. Found by the adversarial pass.
+     */
+    public function testAStateHoldingSomethingOtherThanAMapIsDiagnosedAsAStateAtBothGates(): void
+    {
+        $error = $this->validate([':hover' => 'red']);
+        $this->assertInstanceOf(\WP_Error::class, $error);
+        $this->assertStringContainsString('must be an object', $error->get_error_message());
+
+        $drops = [];
+        pp_udc_compile_band([
+            'component' => 'faq', 'id' => 'pp-1079stx', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => [':hover' => 'red']]],
+        ], 'authored', $drops);
+        $this->assertCount(1, $drops);
+        $this->assertStringContainsString('state', $drops[0]['reason'],
+            'the emitter must call it a state too, not "not an available CSS property"');
+    }
+
+    /**
+     * TWO COORDINATES MUST NEVER MINT ONE NAME AND DESTROY EACH OTHER.
+     *
+     * Mint names join segments with `-` and escape nothing, so two coordinates collide as
+     * soon as a segment can contain `-`. Unreachable while every parameter came from the
+     * registry — none ends in a state name — and ordinary the moment `_css` let the author
+     * name it. Measured before the fix, on ONE accepted write: the first value existed
+     * nowhere in storage afterwards, the base declaration painted the hover value, the
+     * stored form re-validated clean, and two findings said otherwise. Found by the
+     * adversarial pass.
+     */
+    public function testTwoCoordinatesThatWouldMintOneNameBothSurvive(): void
+    {
+        $normalized = pp_udc_normalize_band([
+            'component' => 'faq', 'id' => 'pp-1079col', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => [
+                'x-hover' => ['d' => 'AAA', 'p' => 'BBB'],
+                ':hover'  => ['x' => ['d' => 'CCC', 'p' => 'DDD']],
+            ]]],
+        ]);
+
+        $stored = json_encode($normalized);
+        foreach (['AAA', 'BBB', 'CCC', 'DDD'] as $literal) {
+            $this->assertStringContainsString($literal, $stored,
+                "\"{$literal}\" must survive normalization — a mint collision must never "
+                . 'destroy an author value');
+        }
+        $this->assertNull(pp_udc_validate_map($normalized['udc'], 'faq'),
+            'and the stored form must still validate: the decoders have to agree that an '
+            . 'AMBIGUOUS mint name is the engine\'s own, which needs both readings of the '
+            . 'tail, not just the greedy one');
+
+        $css = pp_udc_band_css($normalized);
+        $this->assertStringContainsString('x-hover:', $css, 'the at-rest declaration paints');
+        $this->assertStringContainsString(':hover', $css, 'and the hover one does too');
+    }
+
+    /** `_css` must not escape the reduced-motion guard the motion group gets. */
+    public function testRawMotionDeclarationsAreNeutralisedUnderReducedMotion(): void
+    {
+        foreach (['transition' => '2s all', 'animation-duration' => '2s'] as $property => $value) {
+            $this->assertStringContainsString(
+                'prefers-reduced-motion',
+                $this->emit(['answer' => [PP_UDC_CSS_KEY => [$property => $value]]]),
+                "\"{$property}\" animates, so the engine's accessibility guarantee must "
+                . 'follow the PROPERTY rather than the registry parameter list'
+            );
+        }
+        $this->assertStringNotContainsString(
+            'prefers-reduced-motion',
+            $this->emit(['answer' => [PP_UDC_CSS_KEY => ['opacity' => '0.5']]]),
+            'red-proofed: a property that does not animate gets no guard'
+        );
+    }
+
+    /** An exclusion survives a vendor prefix; a legitimate prefixed property does not. */
+    public function testAnExcludedPropertyCannotBeReachedThroughAVendorPrefix(): void
+    {
+        foreach (['-webkit-all', '-ms-behavior', '-webkit-content'] as $property) {
+            $this->assertInstanceOf(\WP_Error::class, $this->validate([$property => 'initial']),
+                "\"{$property}\" must inherit its unprefixed form's exclusion — the charset "
+                . 'admits one vendor prefix, which made an exact-string exclusion set sidesteppable');
+        }
+        $this->assertNull($this->validate(['-webkit-line-clamp' => '3']),
+            'red-proofed: a prefixed property that is NOT excluded stays writable');
+    }
+
     // ── The disclosures ─────────────────────────────────────────────────────
 
     public function testTheCollisionIsDisclosedNamingTheParameterThatLost(): void
@@ -723,6 +882,24 @@ class UdcRawCssTest extends TestCase
             . 'does not know the `_css` pseudo-group reads this as an author squatting the '
             . 'mint namespace and refuses every band that holds one, permanently.'
         );
+
+        // AND IT MUST PAINT. This assertion is the one that was missing, and its absence
+        // let the feature's ordinary documented case ship completely broken: the emitter's
+        // untyped-`@reference` guard — added one round earlier to close the OPPOSITE
+        // divergence — had no engine-mint carve-out, so a responsive raw value minted,
+        // validated, and emitted nothing at all. Checking that a normalized map VALIDATES
+        // is not the same claim as checking that it RENDERS, and only the second one is
+        // what an author gets. Caught by the adversarial pass.
+        $drops = [];
+        $css   = pp_udc_band_css($normalized);
+        pp_udc_compile_band($normalized, 'authored', $drops);
+
+        $this->assertStringContainsString('opacity:var(--pp-answer-_css-opacity-d)', $css,
+            'the minted desktop value must reach the page');
+        $this->assertStringContainsString('@media (max-width: 767px)', $css,
+            'and the phone tier must too — this is the whole point of minting a responsive value');
+        $this->assertSame([], $drops,
+            'and nothing may be ledgered as dropped: the engine minted these names itself');
     }
 
     /** The other direction: the namespace is still reserved against an author squatting it. */

@@ -818,6 +818,46 @@ function _pp_udc_css_param_for_property(string $property): ?array {
 }
 
 /**
+ * The longhands a CSS shorthand resets, for the collision disclosure (#1079).
+ *
+ * WHY THIS TABLE EXISTS AT ALL, since the contract deleted the rule that needed it. The
+ * pre-ruling design forbade `_css` from naming any property in a registry shorthand
+ * FAMILY, which made this collision impossible; R2′ deleted that rule in favour of
+ * ranking and disclosure. The ranking shipped and the disclosure did not follow the
+ * property into its family, so a raw `border` silently killed three authored values and
+ * reported only that `border` was unchecked.
+ *
+ * SCOPED TO WHAT THE REGISTRY ACTUALLY EMITS. This is not a general CSS shorthand map and
+ * must not grow into one: every entry here exists because a group parameter owns the
+ * longhand, so a shorthand over it is a collision an author can act on. A shorthand whose
+ * longhands no group emits collides with nothing and belongs nowhere near this list.
+ */
+function _pp_udc_css_shorthand_longhands(string $property): array {
+    static $families = null;
+    if ($families === null) {
+        $families = [
+            'border'      => ['border-width', 'border-style', 'border-color'],
+            'border-top'  => ['border-top-width', 'border-top-style', 'border-top-color'],
+            'border-right' => ['border-right-width', 'border-right-style', 'border-right-color'],
+            'border-bottom' => ['border-bottom-width', 'border-bottom-style', 'border-bottom-color'],
+            'border-left' => ['border-left-width', 'border-left-style', 'border-left-color'],
+            'font'        => ['font-family', 'font-size', 'font-style', 'font-weight', 'line-height'],
+            'background'  => ['background-image', 'background-position', 'background-size', 'background-repeat'],
+            'gap'         => ['row-gap', 'column-gap'],
+            'padding'     => ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+            'margin'      => ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+            'border-radius' => [
+                'border-top-left-radius', 'border-top-right-radius',
+                'border-bottom-right-radius', 'border-bottom-left-radius',
+            ],
+            'transition'  => ['transition-duration', 'transition-timing-function'],
+            'inset'       => [],
+        ];
+    }
+    return $families[$property] ?? [];
+}
+
+/**
  * Is this property writable through `_css` at all? (contract §2′.2, §6.0.)
  *
  * ONE NAME FOR ONE DECISION. The compiler and the disclosure walk had this as a
@@ -834,7 +874,38 @@ function _pp_udc_css_param_for_property(string $property): ?array {
  */
 function pp_udc_css_property_admissible(string $property): bool {
     return pp_udc_valid_css_property($property)
-        && !isset(pp_udc_css_excluded_properties()[$property]);
+        && _pp_udc_css_exclusion_reason($property) === null;
+}
+
+/**
+ * Why this property is excluded, or null when it is not — ONE lookup, two callers.
+ *
+ * AN EXCLUSION SURVIVES A VENDOR PREFIX (#1079). The charset deliberately admits one
+ * leading `-<vendor>-` so a real prefixed property is writable, which made the exclusion
+ * set — an exact-string lookup — trivially sidesteppable: `all` was refused while
+ * `-webkit-all` was accepted and EMITTED, though `all`'s stated reason is that it resets
+ * every other declaration in the block. `-ms-behavior` and `-webkit-content` passed the
+ * same way. Found by the adversarial pass.
+ *
+ * The unprefixed form carries the reason, so the prefix is stripped and the same lookup
+ * asked again, and the REASON comes back rather than a boolean — the write gate quotes it
+ * so the refusal says why, which is the whole point of a short, argued exclusion set. That
+ * is also why the write gate cannot simply call `pp_udc_css_property_admissible()`: a
+ * boolean cannot tell an author whether they hit the charset or an exclusion, and those
+ * want different advice.
+ *
+ * Costs nothing: no shipped value uses a prefixed form of any excluded property, and a
+ * prefixed property that is not excluded is untouched.
+ */
+function _pp_udc_css_exclusion_reason(string $property): ?string {
+    $excluded = pp_udc_css_excluded_properties();
+    if (isset($excluded[$property])) {
+        return $excluded[$property];
+    }
+    if (preg_match('/^-[a-z]+-(.+)\z/', $property, $m) && isset($excluded[$m[1]])) {
+        return $excluded[$m[1]];
+    }
+    return null;
 }
 
 /**
@@ -876,6 +947,27 @@ function _pp_udc_motion_properties(): array {
         $properties = [];
         foreach (pp_udc_groups()['motion']['params'] as $param) {
             $properties[$param['property']] = true;
+        }
+        // THE GUARD FOLLOWS THE PROPERTY, NOT THE REGISTRY (#1079).
+        //
+        // Derived from the motion GROUP's params, this set covered every way motion could
+        // be authored — until `_css` let an author write `transition`, `animation` or their
+        // longhands directly. Measured: `motion.transition-duration` emitted its
+        // `prefers-reduced-motion` neutralisation and `_css: {"transition": "2s all"}`
+        // emitted none, so a sanctioned channel defeated an accessibility guarantee the
+        // engine states, disclosed only as "a property the vocabulary does not know".
+        //
+        // The shorthands and longhands below are the CSS properties that animate; they are
+        // listed rather than derived because the registry does not own them — that is the
+        // whole point. `animation-*` names that only shape an animation (name, fill-mode,
+        // direction) are omitted: neutralising duration and iteration-count is what
+        // base.css's global kill switch already does, and what stops motion.
+        foreach ([
+            'transition', 'transition-duration', 'transition-delay',
+            'animation', 'animation-duration', 'animation-delay', 'animation-iteration-count',
+            'scroll-behavior', 'view-transition-name',
+        ] as $property) {
+            $properties[$property] = true;
         }
     }
     return $properties;
@@ -2753,8 +2845,7 @@ function _pp_udc_validate_css_map(
         ));
     }
 
-    $states   = pp_udc_states();
-    $excluded = pp_udc_css_excluded_properties();
+    $states = pp_udc_states();
 
     foreach ($css_map as $key => $value) {
         $key = (string) $key;
@@ -2807,12 +2898,13 @@ function _pp_udc_validate_css_map(
             ));
         }
 
-        if (isset($excluded[$key])) {
+        $exclusion = _pp_udc_css_exclusion_reason($key);
+        if ($exclusion !== null) {
             return new WP_Error('unknown_udc_css_property', sprintf(
                 '%s property "%s" is not available: %s.',
                 $mine,
                 $key,
-                $excluded[$key]
+                $exclusion
             ));
         }
 
@@ -3208,6 +3300,37 @@ function _pp_udc_mint_value(
             continue;
         }
         $name           = pp_udc_mint_name($role, $group, $param, $state, (string) $bp);
+        // A MINT NAME MUST NOT LAND ON A NAME ALREADY HOLDING A DIFFERENT VALUE.
+        //
+        // Mint names join their segments with `-` and escape nothing, so two distinct
+        // coordinates can produce one name as soon as a segment can itself contain `-`.
+        // That was unreachable while every segment came from the registry: no declared
+        // parameter ends in `-hover`, `-active` or `-focus-visible`. Layer 2 makes the
+        // parameter segment AUTHOR-CHOSEN, and an unknown property name is the advertised
+        // capability — so `{"x-hover": {…}, ":hover": {"x": {…}}}` mints
+        // `<role>-_css-x-hover-<bp>` TWICE, and the second write destroyed the first.
+        //
+        // Measured before this guard, on one ordinary accepted write: the author's first
+        // value existed nowhere in storage afterwards, the base declaration painted the
+        // hover value, the stored form re-validated clean, and the envelope reported
+        // `udc_token_minted` naming only the survivor while `udc_css_unchecked_property`
+        // said the property "is emitted exactly as written". Silent destruction of author
+        // data with two disclosures saying otherwise — the I35 class the disclosure layer
+        // exists to prevent. Found by the adversarial pass.
+        //
+        // THE COLLIDING COORDINATE IS LEFT UNMINTED RATHER THAN REFUSED OR RENAMED.
+        // Minting is a normalization convenience, never a requirement: a literal
+        // breakpoint map emits perfectly well without it (that is exactly what this
+        // function produces when a value is not responsive). So the second coordinate
+        // keeps its literals, both values survive, and both paint. Renaming was rejected
+        // because mint names are deterministic on purpose — a generated suffix would make
+        // pp_composition_content_hash() see a different value on every write, which is the
+        // defect that put the props.id strip in the hash. Refusing was rejected because
+        // nothing is wrong with what the author wrote; only the engine's own shortcut
+        // cannot be applied to both.
+        if (array_key_exists($name, $tokens) && (string) $tokens[$name] !== $literal) {
+            return null;
+        }
         $tokens[$name]  = $literal;
         $rewritten[$bp] = '@' . $name;
         $changed        = true;
@@ -3688,7 +3811,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     // written before this layer existed and restore_composition (#233)
                     // all arrive at this line directly.
                     $css_place = static function (string $st, $map) use (
-                        &$resolved, &$referenced, &$drops, $source, $css_tokens, $breakpoints, $css_where
+                        &$resolved, &$referenced, &$drops, $source, $css_tokens, $breakpoints, $css_where, $udc
                     ): void {
                         if (!is_array($map)) {
                             return;
@@ -3720,7 +3843,26 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             if (!empty($param['untyped'])) {
                                 $unresolvable = false;
                                 foreach (is_array($value) ? $value : [$value] as $leaf) {
-                                    if (is_scalar($leaf) && pp_udc_parse_reference((string) $leaf) !== null) {
+                                    if (!is_scalar($leaf)) {
+                                        continue;
+                                    }
+                                    $leaf_ref = pp_udc_parse_reference((string) $leaf);
+                                    // THE ENGINE'S OWN MINT IS NOT AN AUTHOR'S REFERENCE — the
+                                    // same carve-out the write gate carries, and leaving it out
+                                    // here broke the feature's ordinary documented case.
+                                    //
+                                    // A responsive value on an untyped property is REWRITTEN at
+                                    // write-time normalization into `@<role>-_css-<property>-<bp>`.
+                                    // So `{"_css": {"opacity": {"d": "1", "p": "0.6"}}}` minted,
+                                    // validated, and then emitted NOTHING. Caught by the
+                                    // adversarial pass; my own regression test had checked that
+                                    // the minted map VALIDATES and never that it PAINTS.
+                                    //
+                                    // This guard was added one round earlier to close the
+                                    // opposite divergence (refused at write, painted from
+                                    // storage) — and opened this one in the same stroke.
+                                    if ($leaf_ref !== null
+                                        && !_pp_udc_name_is_the_engines_own_mint($leaf_ref, $udc)) {
                                         $unresolvable = true;
                                         break;
                                     }
@@ -3744,8 +3886,23 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                         }
                     };
                     foreach ($group_map as $key => $value) {
-                        if (isset($states[(string) $key]) && is_array($value)) {
-                            $css_place((string) $key, $value);
+                        if (isset($states[(string) $key])) {
+                            // A KNOWN STATE KEY IS A STATE, WHATEVER ITS VALUE. Gating on
+                            // `is_array($value)` too meant `{":hover": "red"}` fell through
+                            // to the property branch and was ledgered as "not an available
+                            // CSS property" — while the write gate calls the same bytes a
+                            // state whose value must be an object. Two names for one defect
+                            // sends an operator reading a restore report to the wrong
+                            // question. Found by the adversarial pass.
+                            if (is_array($value)) {
+                                $css_place((string) $key, $value);
+                            } elseif ($drops !== null && $source !== 'defaults'
+                                && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                $drops[] = [
+                                    'where'  => $css_where . ' ' . _pp_udc_reflect((string) $key),
+                                    'reason' => 'a state must hold a map of properties',
+                                ];
+                            }
                             continue;
                         }
                         $css_place('', [$key => $value]);
@@ -5809,6 +5966,13 @@ function pp_udc_composition_findings(array $items): array {
         return [];
     }
     $findings = [];
+    // BOUNDED ACROSS THE WHOLE COMPOSITION, not per band — the precedent this cap cites
+    // is the emit-drop ledger, and `$drops` is shared across every band for exactly this
+    // reason. Scoped per item it bounded nothing that matters: measured at 400 bands ×
+    // 400 unknown properties, 80,000 findings and +56 MB in one call, on the
+    // `wp pp check page` and restore paths its own comment names as having no size gate
+    // in front of them. Found by the adversarial pass.
+    $css_disclosed = 0;
 
     foreach ($items as $i => $item) {
         if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
@@ -5977,7 +6141,6 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
-        $css_disclosed = 0;
         // ── LAYER 2 DISCLOSURES (contract §2′.3, §2′.4) ─────────────────────
         //
         // R2′ made both of these real by removing the two rules that had made them
@@ -6046,6 +6209,55 @@ function pp_udc_composition_findings(array $items): array {
                 // that loses to the thing it escapes cannot escape anything. Reported
                 // only when the author actually wrote BOTH, because that is the only
                 // case where something they declared did not paint.
+                // A RAW SHORTHAND RESETS THE LONGHANDS IT OWNS, and reporting the
+                // collision on exact property equality alone missed every instance.
+                //
+                // Untyped `_css` properties sort AFTER every registry property (they are
+                // unranked, so `_pp_udc_sort_declarations()` puts them last), and CSS then
+                // does what CSS does: `border: 1px solid red` written raw wipes an
+                // authored `border.width`, `border.style` and `border.color` that emitted
+                // three declarations earlier in the same block. Measured — all three
+                // authored values dead, one `udc_css_unchecked_property` finding, and
+                // nothing saying anything was overridden. `_pp_udc_property_rank()`'s own
+                // docblock calls this shape "exactly what invariant I35 forbids".
+                //
+                // `border` and `font` are the two a model reaches for first, which is why
+                // this is reported rather than left to the unchecked-property disclosure.
+                foreach (_pp_udc_css_shorthand_longhands($property) as $longhand) {
+                    $owner = _pp_udc_css_param_for_property($longhand);
+                    if ($owner === null) {
+                        continue;
+                    }
+                    $owner_map = $role_map[$owner['_group']] ?? null;
+                    $owner_br  = is_array($owner_map) && $state !== ''
+                        ? ($owner_map[$state] ?? null)
+                        : $owner_map;
+                    if (!is_array($owner_br) || !array_key_exists($owner['_param'], $owner_br)) {
+                        continue;
+                    }
+                    if ($css_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break;
+                    }
+                    $css_disclosed++;
+                    $findings[] = [
+                        'type'    => 'udc_css_overrides_group_value',
+                        'message' => sprintf(
+                            'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" is a '
+                            . 'shorthand that resets %s, so the %s.%s you also set does not '
+                            . 'paint. Write the whole treatment in one place.',
+                            $component,
+                            _pp_udc_reflect($role_name),
+                            $state !== '' ? ' ' . $state : '',
+                            _pp_udc_reflect($property),
+                            PP_UDC_CSS_KEY,
+                            $longhand,
+                            $owner['_group'],
+                            $owner['_param']
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
+                }
+
                 if ($typed !== null) {
                     $group_map = $role_map[$typed['_group']] ?? null;
                     $branch    = is_array($group_map) && $state !== ''
@@ -6268,6 +6480,42 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
                 continue;
             }
             $declared[$param['property']] = true;
+        }
+    }
+
+    // `_band._css` DECLARES INHERITED PROPERTIES TOO, and this walk was registry-only
+    // (#1079). Byte-identical emitted CSS reported oppositely: `_band` -> `typography.color`
+    // produced the shadow disclosure, `_band` -> `_css` -> `color` produced nothing at all,
+    // while both emit `[data-pp-band=…]{color:…}` and both are cancelled by exactly the
+    // same role defaults. Found by the adversarial pass.
+    //
+    // The grammar check the registry arm applies has no counterpart here by design: an
+    // untyped raw value HAS no grammar, so there is nothing to be invalid against, and
+    // refusing to disclose it would mean the least-checked values are also the least
+    // reported. A typed one keeps its check through pp_udc_css_param().
+    $band_css = $udc['_band'][PP_UDC_CSS_KEY] ?? null;
+    if (is_array($band_css)) {
+        $states = pp_udc_states();
+        foreach ($band_css as $property => $value) {
+            // Resting declarations only: a `:hover` value on the band is not what a role
+            // default cancels at rest, and reporting it here would name the wrong contest.
+            if (isset($states[(string) $property])) {
+                continue;
+            }
+            $property = (string) $property;
+            if (!pp_udc_css_property_admissible($property) || !isset($inherited[$property])) {
+                continue;
+            }
+            $scalar = is_array($value) ? ($value['d'] ?? null) : $value;
+            if (!is_scalar($scalar)) {
+                continue;
+            }
+            $param = pp_udc_css_param($property);
+            if (empty($param['untyped'])
+                && pp_udc_validate_value((string) $scalar, $param) !== true) {
+                continue;
+            }
+            $declared[$property] = true;
         }
     }
     if ($declared === []) {
@@ -6561,6 +6809,35 @@ function _pp_udc_delimiters_balanced(string $value): bool {
  * before it name a real group and one of that group's parameters.
  */
 /**
+ * Every (state, remaining-segments) reading a mint name's tail admits.
+ *
+ * A NAME CAN DECODE MORE THAN ONE WAY, and assuming it decodes once is a real defect
+ * rather than a theoretical one. `<role>-_css-x-hover-d` is BOTH "parameter `x` in the
+ * `:hover` state" AND "parameter `x-hover` at rest" — unreachable while every parameter
+ * came from the registry (none ends in a state name), and ordinary the moment Layer 2 let
+ * an author name the parameter. `_pp_udc_state_from_mint()` returns the greedy reading
+ * only, so a token minted for the at-rest coordinate was judged against the hover one,
+ * found absent, and refused as an author squatting the namespace — on the engine's own
+ * output.
+ *
+ * Both readings are offered, state-stripped first (the greedy one, which is what the
+ * decoder has always returned), so behaviour is unchanged for every name that decodes one
+ * way and the ambiguous ones simply get their second chance.
+ *
+ * @param array $parts Name segments, breakpoint already popped.
+ * @return array<int, array{0: string, 1: array}>
+ */
+function _pp_udc_mint_readings(array $parts): array {
+    $readings          = [];
+    [$state, $stripped] = _pp_udc_state_from_mint($parts);
+    if ($state !== '') {
+        $readings[] = [$state, $stripped];
+    }
+    $readings[] = ['', $parts];
+    return $readings;
+}
+
+/**
  * Every way a mint name's segments can split into <role>-<group>-<param>.
  *
  * ONE SPLITTER, TWO CALLERS, AND THAT IS THE POINT. _pp_udc_is_mint_shaped_name() and
@@ -6606,9 +6883,14 @@ function _pp_udc_mint_splits(array $parts): array {
         // CSS property, judged by the same charset gate the write path applies, so a
         // squatted name and an engine mint are separated by exactly the rule that
         // decided what could be written in the first place.
+        // ADMISSIBLE, NOT MERELY WELL-FORMED. The charset gate alone let an excluded
+        // property (`all`, `content`, the overlay carrier) look like an engine mint, so a
+        // stored token named `x-_css-all-d` read as reserved in both decoders. `_css`
+        // could never mint one — the write gate refuses those properties — so the
+        // classifier uses the predicate that decides what `_css` can hold.
         $known = $registry
             ? isset($groups[$group]['params'][$param])
-            : pp_udc_valid_css_property($param);
+            : pp_udc_css_property_admissible($param);
         if ($known) {
             $splits[] = [implode('-', array_slice($parts, 0, $g)), $group, $param];
         }
@@ -6638,16 +6920,17 @@ function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc): bool {
     // POP BY SEGMENT COUNT, never by one. `focus-visible` is two segments, and
     // the single-array_pop() idiom that served one state called `hover` reads
     // such a name as a param ending in `-focus` inside a state called `visible`.
-    [$state, $parts] = _pp_udc_state_from_mint($parts);
-    foreach (_pp_udc_mint_splits($parts) as [$role, $group, $param]) {
-        $branch = $udc[$role][$group] ?? null;
-        if ($state !== '') {
-            $branch = is_array($branch) ? ($branch[$state] ?? null) : null;
-        }
-        $value = is_array($branch) ? ($branch[$param] ?? null) : null;
-        if (is_array($value) && isset($value[$bp]) && is_scalar($value[$bp])
-            && (string) $value[$bp] === '@' . $name) {
-            return true;
+    foreach (_pp_udc_mint_readings($parts) as [$state, $reading]) {
+        foreach (_pp_udc_mint_splits($reading) as [$role, $group, $param]) {
+            $branch = $udc[$role][$group] ?? null;
+            if ($state !== '') {
+                $branch = is_array($branch) ? ($branch[$state] ?? null) : null;
+            }
+            $value = is_array($branch) ? ($branch[$param] ?? null) : null;
+            if (is_array($value) && isset($value[$bp]) && is_scalar($value[$bp])
+                && (string) $value[$bp] === '@' . $name) {
+                return true;
+            }
         }
     }
     return false;
@@ -6666,10 +6949,18 @@ function _pp_udc_is_mint_shaped_name(string $name): bool {
     // two functions decide together whether a stored token name is the engine's
     // own, and a disagreement between them is exactly the shape that turns every
     // already-written band into a permanent false refusal.
-    [, $parts] = _pp_udc_state_from_mint($parts);
     // Walk every split of the remainder into <role...>-<group>-<param...>: group
-    // and param names both contain hyphens, so the boundary is not positional.
-    return _pp_udc_mint_splits($parts) !== [];
+    // and param names both contain hyphens, so the boundary is not positional — and
+    // every READING of the tail, because a name can decode more than one way (see
+    // _pp_udc_mint_readings()). These two decoders must agree or every band holding an
+    // ambiguous name becomes a permanent false refusal; the shared helpers are what
+    // makes that structural rather than a promise.
+    foreach (_pp_udc_mint_readings($parts) as [, $reading]) {
+        if (_pp_udc_mint_splits($reading) !== []) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
