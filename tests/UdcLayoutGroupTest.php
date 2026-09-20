@@ -292,6 +292,49 @@ class UdcLayoutGroupTest extends TestCase
         $this->assertStringContainsString('align-self:center', $css);
     }
 
+    /**
+     * THE ROSTER IS A GATE AT EMIT, NOT ONLY AT WRITE (found by the pre-landing
+     * security pass, with a probe rather than a reading).
+     *
+     * The write gate refuses a group a role does not permit, and the emitter used
+     * to place it anyway — so stored bytes that never passed a gate painted. On
+     * `nav.menu` that meant an unlayered `display: grid` over the UA stylesheet's
+     * `[hidden]` rule: an open mobile menu, pinned open, by a raw meta write. The
+     * drop ledger was empty, so no channel said anything.
+     *
+     * Raw meta is the point of this fixture. A composition written before a rule
+     * existed, a restore (#233, which reports without blocking) and a hand-edited
+     * row all arrive at the emitter the same way.
+     */
+    public function testAGroupTheRoleDoesNotPermitIsRefusedAtEmitAndReported(): void
+    {
+        $band = [
+            'component' => 'nav',
+            'id'        => 'pp-1a2b3c4d',
+            'props'     => [],
+            'udc'       => ['menu' => ['layout' => ['columns' => '2']]],
+        ];
+
+        // The write gate's answer, for the record: this never validated.
+        $this->assertInstanceOf(WP_Error::class, pp_udc_validate_map($band['udc'], 'nav'));
+
+        $this->assertSame('', pp_udc_band_css($band),
+            'a group the role does not permit must not paint, however the bytes got into storage');
+
+        $drops = [];
+        pp_udc_compile_band($band, 'authored', $drops);
+        $this->assertNotEmpty($drops, 'and the drop has to reach the pre-mutation channel, not vanish');
+        $this->assertStringContainsString('layout', $drops[0]['where']);
+        $this->assertStringContainsString('does not permit', $drops[0]['reason']);
+
+        // The legitimate route is untouched: same group, a role that permits it.
+        $this->assertStringContainsString(
+            'grid-template-columns',
+            $this->css(['columns' => ['layout' => ['columns' => 3]]]),
+            'the gate must refuse the unpermitted role, not the group'
+        );
+    }
+
     // ── 3. columns: the synthesis and the companion ──────────────────────────
 
     public function testAColumnCountBecomesATrackListWithTheOverflowSafeMinimum(): void

@@ -199,6 +199,15 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no('minmax(0, 1fr, 2fr)', 'track-list', 'minmax() takes exactly two tracks');
         $this->no('-10px 1fr', 'track-list', 'a negative LENGTH track, distinct from the -1fr case above');
         $this->no('1fr -10px', 'track-list', 'and in either position');
+        // EMPTY PARTS, found by the pre-landing security pass. Each of these
+        // validated and reached the stylesheet verbatim: the browser drops the
+        // malformed declaration and KEEPS the engine's display:grid companion, so a
+        // flex row silently became an untracked grid with nothing reported.
+        $this->no('repeat(2, )', 'track-list', 'a repeat() with no track is not a track list');
+        $this->no('repeat(2,,1fr)', 'track-list', 'two commas are two delimiters with an empty item between');
+        $this->no('repeat(2,1fr,)', 'track-list', 'a trailing comma leaves an empty track');
+        $this->no('minmax(0,)', 'track-list', 'minmax() needs both of its two tracks');
+        $this->no('minmax(,1fr)', 'track-list', 'in either position');
 
         // The shared reject set still owns the injection classes, ahead of the
         // grammar — pinned here because this is the first type whose values carry

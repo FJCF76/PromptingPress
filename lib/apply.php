@@ -1669,8 +1669,23 @@ function _pp_validate_track_repeat(string $body): bool {
         }
     }
     // The tracks inside. A nested repeat() dies here: `repeat` is not a track.
+    //
+    // AN EMPTY PART IS A REFUSAL, NOT AN EMPTY LOOP (found by the pre-landing
+    // security pass). `?: []` turned both null and `[]` into a vacuous PASS — no
+    // iteration, no validation — and `_pp_css_split_top_level()` drops zero-length
+    // parts, so a doubled or trailing comma left a well-formed part list. Probed:
+    // `repeat(2, )`, `repeat(2,,1fr)` and `repeat(2,1fr,)` all validated and emitted
+    // verbatim. The browser then drops the malformed `grid-template-columns` and
+    // KEEPS the engine's `display: grid` companion, so the box silently stops being
+    // a flex row and becomes a one-column grid with no track definition at all —
+    // the I19/I35 class the companion exists to avoid, arriving through the
+    // companion itself.
     foreach ($parts as $track) {
-        foreach (_pp_css_split_top_level($track) ?: [] as $one) {
+        $inner = _pp_css_split_top_level($track);
+        if ($inner === null || $inner === []) {
+            return false;
+        }
+        foreach ($inner as $one) {
             if (!_pp_validate_grid_track($one)) {
                 return false;
             }
@@ -1743,7 +1758,18 @@ function _pp_css_split_top_level(string $value, string $separator = ' '): ?array
         $split = $depth === 0
             && ($separator === ' ' ? ($ch === ' ' || $ch === "\t" || $ch === "\n") : $ch === $separator);
         if ($split) {
-            if ($buf !== '') {
+            // WHITESPACE COLLAPSES; A REAL DELIMITER DOES NOT. Two spaces are one
+            // separator, so an empty run between them is nothing. Two COMMAS are
+            // two separators with an empty item between them, and that item is a
+            // refusal — `repeat(2,,1fr)` is not `repeat(2,1fr)`.
+            //
+            // Both were dropped until the pre-landing security pass probed it: the
+            // empty part vanished here, the arity count upstream saw a well-formed
+            // list, and `repeat(2,,1fr)` / `repeat(2,1fr,)` validated and reached
+            // the stylesheet verbatim. The browser drops the malformed declaration
+            // and keeps the engine's `display: grid` companion, which turns a flex
+            // row into an untracked grid with nothing reported.
+            if ($separator !== ' ' || $buf !== '') {
                 $parts[] = $buf;
                 $buf     = '';
             }
@@ -1754,7 +1780,7 @@ function _pp_css_split_top_level(string $value, string $separator = ' '): ?array
     if ($depth !== 0) {
         return null;
     }
-    if ($buf !== '') {
+    if ($buf !== '' || ($separator !== ' ' && $parts !== [])) {
         $parts[] = $buf;
     }
     return array_map('trim', $parts);

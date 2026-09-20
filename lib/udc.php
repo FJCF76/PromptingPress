@@ -2188,14 +2188,28 @@ function _pp_udc_background_image_companions(array $declarations): array {
  * already in this bucket, whatever put it there — today only a `_css`
  * declaration can, but the check does not depend on that staying true.
  *
- * ROLES WHOSE `display` IS A VISIBILITY SWITCH NEVER REACH THIS, and that
- * exclusion is upstream, in the exposure roster (tests/js/css-lint.test.js):
+ * ROLES WHOSE `display` IS A VISIBILITY SWITCH DO NOT REACH THIS THROUGH THE
+ * GROUP, and the claim is scoped to that door on purpose — the first draft of this
+ * docblock said "never reach this", which was wider than the code and is exactly
+ * the kind of invariant a later change gets built on.
+ *
  * `nav.menu` and `nav.toggle` use `display` as behaviour — `.nav__menu[hidden]`
  * against the JS that adds and removes `hidden`, and a hamburger that is
  * `display: none` from 768px. The `hidden` attribute is honoured only by the UA
  * stylesheet, which ANY author declaration outranks, so an unlayered `display:
- * grid` there would pin an open mobile menu open: a styling write defeating a
- * keyboard and screen-reader affordance. Those roles do not declare `layout`.
+ * grid` there pins an open mobile menu open: a styling write defeating a keyboard
+ * and screen-reader affordance. Three doors, and what closes each:
+ *
+ *   - the `layout` GROUP — those roles do not declare it (the exposure roster),
+ *     and the emitter enforces the roster too, not just the write gate;
+ *   - a raw `_css` TRACK LIST — the companion rides the `layout.columns`
+ *     parameter, so a raw declaration brings no `display` with it;
+ *   - a raw `_css` `display` ITSELF — NOT closed here, and not this change's to
+ *     close: `display` is absent from pp_udc_css_excluded_properties(), so
+ *     `{"menu": {"_css": {"display": "grid"}}}` defeats `[hidden]` on this branch
+ *     and on main alike. Filed rather than fixed in passing, because the exclusion
+ *     set is the Layer-2 contract's (#1079 §6.0) and widening it is that
+ *     contract's ruling to make.
  */
 function _pp_udc_grid_columns_companion(array $declarations): array {
     // `companion` is set by _pp_udc_place() only for the `layout.columns`
@@ -4048,6 +4062,54 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             'reason' => !isset($groups[$group_name])
                                 ? 'there is no such group in the design vocabulary'
                                 : 'the group is not a map of parameters',
+                        ];
+                    }
+                    continue;
+                }
+                // THE ROLE'S OWN ROSTER, ENFORCED AT EMIT AS WELL AS AT WRITE
+                // (#1084, found by the pre-landing security pass with a probe).
+                //
+                // This arm checked that the GROUP exists in the registry and never
+                // that THIS ROLE permits it — `$permitted` was computed above and
+                // applied to presets alone. So stored bytes the write gate refuses
+                // painted anyway: `{"menu": {"layout": {"columns": "2"}}}` on nav is
+                // refused at write ("role menu does not permit the UDC group
+                // layout") and, before this, emitted an unlayered `display: grid` on
+                // `.nav__menu` — which outranks the UA stylesheet's `[hidden]` rule
+                // and PINS AN OPEN MOBILE MENU OPEN. Probed on the branch: emitted,
+                // with an EMPTY drop ledger, so no channel said a word.
+                //
+                // The write gate is not the only way data arrives here, and this
+                // file says so a few hundred lines up: a raw meta write, a
+                // composition written before a rule existed, and
+                // restore_composition (which reports findings without blocking,
+                // #233) all reach this line directly. A gate that runs only at write
+                // is a gate the emitter disagrees with, which is the I29
+                // write/render disagreement the engine exists to prevent.
+                //
+                // GENERAL, NOT LAYOUT-SHAPED. The hazard was found through `layout`
+                // because that group is the first whose value can defeat an
+                // accessibility affordance, but the hole was never layout's: every
+                // group had it. Gating the group here is the same predicate presets
+                // already take (_pp_udc_split_preset_by_permitted), applied to the
+                // band's own map, so the two tiers stop disagreeing.
+                //
+                // ZERO IMPACT ON SHIPPED DATA, verified rather than assumed: no role
+                // in any shipped schema defaults a group its own `groups` list omits,
+                // and every write that passed the gate satisfies this by definition.
+                // What changes is stored data the gate would refuse — which now
+                // reports instead of painting.
+                if (!in_array((string) $group_name, $permitted, true)) {
+                    if ($drops !== null && $source !== 'defaults'
+                        && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                        $drops[] = [
+                            'where'  => sprintf(
+                                'role "%s" group "%s"',
+                                _pp_udc_reflect((string) $role_name),
+                                _pp_udc_reflect((string) $group_name)
+                            ),
+                            'reason' => 'this role does not permit that group, so the write gate '
+                                . 'refuses it and the page does not paint it',
                         ];
                     }
                     continue;
