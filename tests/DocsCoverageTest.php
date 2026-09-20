@@ -902,4 +902,51 @@ class DocsCoverageTest extends TestCase
     {
         return array_map(static fn ($c) => [$c], self::allComponents());
     }
+    /**
+     * THE PROMPT CLAIMS A SLOT FAMILY IS EXTINCT — SO THE REGISTRY HAS TO AGREE (#1066 PR2).
+     *
+     * pp_ai_system_prompt() tells the authoring model that `--stats-bg-position` "was the
+     * last one" of the `position`-typed style slots and that a band background's focal point
+     * is `_band` -> `background.position` on every component now. Nothing asserted the first
+     * half, and it is the half that rots: the day someone adds a `position` slot to grid, the
+     * prompt keeps saying the family is extinct and an author is told to reach for a role
+     * parameter on a component that has a slot for it.
+     *
+     * Derived from the registry rather than read from the prose, so it fails on the FACT
+     * changing rather than on the sentence changing. The same shape as this file's v2-roster
+     * test: the prompt's claim and the schemas are checked against each other, in the
+     * direction that catches a schema gaining something the prompt has written off.
+     */
+    public function testNoPositionTypedStyleSlotSurvivesTheClaimThatTheFamilyIsExtinct(): void
+    {
+        $carriers = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            foreach (($schema['styling']['style_slots'] ?? []) as $slot => $definition) {
+                if (is_array($definition) && ($definition['type'] ?? null) === 'position') {
+                    $carriers[] = basename(dirname($file)) . ' ' . $slot;
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $carriers,
+            "pp_ai_system_prompt() states that `--stats-bg-position` was the LAST "
+            . "position-typed style slot and that a focal point is now the `_band` role's "
+            . '`background.position` everywhere. These slots contradict it: '
+            . implode(', ', $carriers)
+            . '. Either retire them or correct the prompt in the same change.'
+        );
+
+        // FAIL-CLOSED ON THE OTHER SIDE: an empty result is only meaningful while the prompt
+        // still makes the claim. If that sentence is ever rewritten, this test should be
+        // revisited rather than left asserting an absence nobody depends on.
+        $this->assertStringContainsString(
+            'was the last one and retired with stats at #1066',
+            pp_ai_system_prompt(),
+            'the prompt no longer makes the claim this test exists to protect — reconcile them'
+        );
+    }
+
 }

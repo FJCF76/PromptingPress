@@ -7555,9 +7555,13 @@ class SchemaValidationTest extends TestCase
         }
 
         // A registry that silently emptied would pass every assertion above. Raised from 6
-        // to the real floor at #1026: the roster is 14 keys across four components, and a
-        // floor of 6 would have survived losing cta's entire block.
-        $this->assertGreaterThanOrEqual(14, $checked, 'the shipped registry must still be covered');
+        // to the real floor at #1026 (14 keys across four components, where 6 would have
+        // survived losing cta's entire block) and RAISED AGAIN at #1066 PR2: the roster is
+        // 19 keys across eight components now, and 14 would have survived losing stats' AND
+        // logos' entire `retired_props` blocks — both added in the same change that should
+        // have moved this number. A floor left behind by its own roster is the defect this
+        // PR fixed twice elsewhere; 17 keeps a margin for one deliberate removal.
+        $this->assertGreaterThanOrEqual(17, $checked, 'the shipped registry must still be covered');
     }
 
     /**

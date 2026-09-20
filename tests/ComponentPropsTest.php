@@ -1933,15 +1933,84 @@ class ComponentPropsTest extends TestCase
      * declaration into the rendered style attribute. Section carries the surviving
      * position-typed slot, so the red proof moves there rather than being deleted.
      */
+    /**
+     * RE-HOMED ONTO THE FIXTURE (#1066 PR2) BECAUSE IT HAD GONE VACUOUS — and it is an
+     * INJECTION test, which is the worst kind to lose quietly.
+     *
+     * It rendered `section` with `--section-bg-position`. section became a v2 component at
+     * #1023 and emits no `style` attribute at all, so the lone
+     * `assertStringNotContainsString('url(evil)', $html)` was asserting the absence of a
+     * payload in a string that could never contain anything: it passed on an empty subject,
+     * for three rebuilds. Its docblock still claimed "section carries the surviving
+     * position-typed slot", which stopped being true at #1023.
+     *
+     * The #1025 fixture is exactly the right home: the claim is about the ENGINE's render
+     * boundary, not about any component, and `ppfixture` declares `--ppfixture-bg-position`
+     * so the claim stops moving house at every rebuild.
+     *
+     * AND THE REBUILD FOUND OUT WHICH GATE ACTUALLY REFUSES THE PAYLOAD, which the old test
+     * never established. It is NOT the `position` grammar. `pp_render_style_value_allowed()`
+     * (lib/wp.php) runs two layers, and the payload dies at LAYER 1 —
+     * `_pp_forbidden_css_construct()`, the shared reject set, which is type-INDEPENDENT.
+     * Measured: making `_pp_validate_position()` (Layer 2) return true for everything does
+     * NOT reopen the injection. That ordering is the thing worth pinning, and Layer 1's own
+     * comment says why it is a separate call — "a slot with no declared type never reaches
+     * Layer 2 and this is its sole line of defense". So a future widening of any value
+     * grammar cannot let a second declaration through, and this test proves that rather
+     * than assuming it.
+     *
+     * THREE ASSERTIONS, because the negative one alone is what went vacuous: the slot is
+     * live (control), the payload is absent, and the whole declaration is DROPPED rather
+     * than escaped — "escaped somehow" and "refused outright" are different contracts and
+     * only one of them ships.
+     */
     public function testPositionSlotRejectsInjectionInStyleSlot(): void
     {
-        $html = $this->render('section', $this->sectionProps([
-            'title'        => 'T',
-            'layout'       => 'text-image',
-            'image_url'    => 'https://example.com/photo.jpg',
-            '__pp_style'   => ['--section-bg-position' => 'top; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
+        // PER-TEST OPT-IN (#1025), same reason as testRenderStyleVarsGradientSurvivesUnmangled
+        // below: this class also holds registry rosters that must see only shipped components.
+        FixtureTheme::activate();
+        try {
+            // THE CONTROL FIRST: a valid value on this slot IS emitted. Without it the
+            // negative assertions below pass on any empty string — a renamed slot, a missing
+            // fixture, a dead code path — which is precisely how this test went vacuous.
+            $clean = pp_render_style_vars(['--ppfixture-bg-position' => 'top left'], 'ppfixture');
+            $this->assertStringContainsString(
+                '--ppfixture-bg-position: top left',
+                $clean,
+                'the fixture must declare a live `position`-typed slot, or this test has no subject'
+            );
+
+            $dirty = pp_render_style_vars(
+                ['--ppfixture-bg-position' => 'top; background:url(evil)'],
+                'ppfixture'
+            );
+            $this->assertStringNotContainsString(
+                'url(evil)',
+                $dirty,
+                'a slot value must not carry a second declaration into the style attribute'
+            );
+            $this->assertStringNotContainsString(
+                '--ppfixture-bg-position',
+                $dirty,
+                'the boundary DROPS the whole declaration rather than escaping it; a version '
+                . 'that starts passing the value through escaped is a contract change to review'
+            );
+
+            // THE LAYER, ASSERTED DIRECTLY. This is what makes the refusal robust against a
+            // grammar widening: the reject set answers before any type is consulted, so it
+            // holds even for a slot whose type is unknown to the engine.
+            $this->assertNotNull(
+                _pp_forbidden_css_construct('top; background:url(evil)'),
+                'Layer 1 must own this refusal; if it stops matching, every type-less slot '
+                . 'loses its only line of defense (see pp_render_style_value_allowed)'
+            );
+            $this->assertFalse(
+                pp_render_style_value_allowed('top; background:url(evil)', null),
+                'with NO declared type the value must still be refused — Layer 1 alone'
+            );
+        } finally {
+            FixtureTheme::deactivate();
+        }
     }
 
     /**
