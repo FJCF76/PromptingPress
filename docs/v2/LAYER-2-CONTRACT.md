@@ -129,7 +129,103 @@ And `_css` must **not** join `pp_udc_reserved_keys()` either, for exactly the re
 
 ---
 
-## 2 — THE ALLOWLIST (the security boundary)
+## 2′ — ADMISSION UNDER R2′ (broad by default) — THIS SUPERSEDES §2.2-§2.5
+
+§2.1 (one owner, one params-table seam) and §2.6 (the function allowlist already exists,
+per type) **survive unchanged**. Everything between them was written under the
+cited-demand policy and is replaced by this section. §2.2-§2.5 are kept below because the
+arguments in them are still the arguments — they simply lost on the freedom question, not
+on their own terms.
+
+### 2′.1 THE PROPERTY NAME IS NOW AUTHOR INPUT, AND THAT IS THE WHOLE SECURITY CHANGE
+
+Under Layer 1 the property string is **looked up from `pp_udc_groups()`, never taken from
+author input** (lib/udc.php:474-478) — the registry's own docblock says an author *"can no
+more influence the property text than they can invent a role"*, and contrasts it with v1,
+which emitted the author's slot key as the property name behind nothing but an `isset()`.
+
+**R2′ removes that protection by design.** An open property set means the author writes the
+property, and the engine interpolates it into CSS **source text** inside a `<style>` block.
+So the property name gets its own hard gate, and it is the single most load-bearing new
+line in this layer:
+
+```
+^-?[a-z][a-z0-9-]{0,63}\z
+```
+
+Read exactly:
+
+- **`\z`, not `$`** — PCRE's `$` matches before a trailing newline, so `$` would admit one
+  byte the charset does not name. Every sibling gate in `lib/udc.php` is anchored this way
+  and this one is interpolated into a selector-adjacent position, so it has to be exact.
+- **lowercase ASCII only.** CSS property names are case-insensitive, so `Color` and `color`
+  are one property with two spellings — and two spellings defeat the collision detection in
+  §2′.3, which is keyed on the string. **Refused, not lower-cased**: I34 is reject-never-
+  coerce, and the refusal names the lowercase form so the fix is obvious.
+- **an optional SINGLE leading hyphen**, which admits vendor prefixes (`-webkit-line-clamp`)
+  and excludes custom properties: `--x` puts a hyphen where the pattern requires a letter,
+  so it cannot match. That is §6.0's first exclusion enforced by the charset itself rather
+  than by a list that could be forgotten.
+- **bounded at 64**, the same bound the token-name and preset-name gates use.
+
+No byte outside `[a-z0-9-]` reaches the sheet as a property. Not a brace, not a semicolon,
+not a colon, not whitespace, not a comment delimiter — the gate is an allowlist of
+characters, so nothing has to be enumerated as forbidden.
+
+### 2′.2 ADMISSION: everything the charset accepts, minus §6.0
+
+There is no property list to maintain and no demand test to pass. A property is admitted
+when it clears §2′.1's charset and is not one of §6.0's named exclusions. **The freedom
+guarantee is the default; the exclusions are the argued exceptions.**
+
+### 2′.3 THE COLLISION §2.3's DISJOINTNESS RULE USED TO PREVENT — ranked, and disclosed
+
+Layer 2 may now name a property a group already emits, so `_css` and a Layer-1 param can
+resolve to the same `$resolved[$state][$bp][$property]` coordinate. One of them has to win,
+and a silent overwrite is the I35 class this contract was built to avoid.
+
+**`_css` WINS, and the overridden value is DISCLOSED.** The rank follows the frame: Layer 2
+is raw-CSS parity with Divi's custom-CSS box, and that box wins over the structured
+controls beside it. It is also the only rank under which the valve works — an escape that
+loses to the thing it is escaping cannot escape anything.
+
+The disclosure is what keeps it honest: a new `udc_css_overrides_group_value` finding names
+the role, the property, the group/param that lost, and the state and breakpoint. The
+authoring principle the AI surface teaches (§7′) is the other half — **structured first,
+`_css` for what structure cannot say** — so the finding reads as "you wrote both; here is
+which one painted", not as a refusal.
+
+**Role `groups` permissions stop bounding what a role can be given.** That is a real
+consequence of R2′ and it is stated rather than buried: a role that does not permit
+`shadow` can still be given a `box-shadow` through `_css`. The `groups` list remains
+authoritative for the STRUCTURED surface — what the schema advertises, what a preset may
+apply, what the catalog lists — and no longer for the raw one.
+
+### 2′.4 TYPED WHERE KNOWN, VERBATIM WHERE NOT — and the disclosure that makes it honest
+
+Per R1′, the value path is:
+
+| the property is… | validation | emission | disclosed? |
+|---|---|---|---|
+| one a `pp_udc_groups()` param emits | the security gates **+ that param's full typed grammar** | as Layer 1 | only if it overrode a group value (§2′.3) |
+| any other admitted property | the security gates **only** | **verbatim** | **yes — `udc_css_unchecked_property`** |
+
+`udc_css_unchecked_property` is the design doc's `custom_styling_conventions_only` in
+honest form, and the difference is that it is now **true on every band it fires on**. R1
+refused to ship that code name because under a typed-everything reading nothing would have
+been conventions-only and the finding would have lied. Under R2′ there is a real
+unchecked-beyond-security set, so the disclosure has a real subject. It is also the
+telemetry the design doc's ladder wanted, arriving as a by-product rather than as a
+separate mechanism: a count of these findings is a count of escapes.
+
+**`@references` are the one place this is strict** (R1′.3): an `@name` needs a declared
+type for `_pp_udc_reference_check()` to judge it against, so a reference on an untyped
+property is **REFUSED**, naming the property and saying a literal is accepted there. This
+is the check R1 existed to protect and it survives the reversal intact.
+
+---
+
+## 2 — THE ALLOWLIST as first drafted (§2.1 and §2.6 stand; §2.2-§2.5 superseded by §2′)
 
 ### 2.1 One owner, beside the unified grammar
 
@@ -313,7 +409,17 @@ A declaration used responsively **mints a band token** exactly as Layer 1 does �
 
 `_css` declarations emit **in the same unlayered band block as the authored Layer-1 values**, at `[data-pp-band="<id>"] <role-selector>`. So, exactly as for Layer 1: `@layer pp-v1` (the v1 stylesheet) cannot outrank them whatever its specificity, `pp-zero` (band-root defaults, designed to lose) sits below both, and `!important` is never emitted.
 
-### 3.3 **Layer 2 introduces no new cascade rung** — and that is the answer to I35/I36
+### 3.3 ⚠️ SUPERSEDED BY R2′ — "no new cascade rung" was true only under disjointness
+
+**This subsection is stale and is kept for its reasoning, not its conclusion.** It argued
+that a `_css` declaration has no competitor in any tier, and that argument rested entirely
+on §2.3's disjointness rule, which R2′ deleted. Under broad admission `_css` CAN collide
+with a Layer-1 param at the same coordinate: **`_css` wins and the loss is disclosed**
+(§2′.3). The provenance half below still holds and is now more important, not less — the
+source name `css` is what lets the new `udc_css_overrides_group_value` finding say which
+mechanism painted. ORIGINAL TEXT FOLLOWS.
+
+#### 3.3 (original) — Layer 2 introduces no new cascade rung
 
 The honest answer to *"where does Layer 2 rank?"* is: **nowhere new, and the rank is unobservable inside the engine.**
 
@@ -386,7 +492,25 @@ This is the class #1048 is open against and the class the task frame forbids add
 
 ## 5 — DISCLOSURE
 
-### 5.1 Layer 2 adds **no new finding type**, and here is why each existing channel covers it
+### 5.1 ⚠️ SUPERSEDED BY R2′ — Layer 2 now adds **TWO** finding types
+
+**Stale conclusion, kept for the channel map below, which is still correct for what it
+covers.** "No new finding type" followed from disjointness (no collision to report) and
+from typed-everything (nothing unchecked to disclose). R2′ removed both premises, so Layer 2
+adds exactly two, each with a real subject:
+
+- **`udc_css_overrides_group_value`** — this `_css` declaration outranked a group value the
+  author also set; names role, property, group/param, state and breakpoint (§2′.3).
+- **`udc_css_unchecked_property`** — this property is not one the unified grammar types, so
+  only the security gates ran and the value emits verbatim (§2′.4). This is the design
+  doc's `custom_styling_conventions_only` in honest form, and it is the escape telemetry
+  the ladder wanted, arriving as a by-product.
+
+§5.2 below argued that a conventions-only finding would be false on every band it fired on.
+That was correct under R1 and is now inverted: under R1′ there is a genuine
+unchecked-beyond-security set, so the finding has a true subject. ORIGINAL TEXT FOLLOWS.
+
+#### 5.1 (original) — the four existing channels
 
 | what an author needs told | channel | fires because |
 |---|---|---|
@@ -407,7 +531,32 @@ The design doc's ladder wants each escape machine-visible so recurring escapes b
 
 ---
 
-## 6 — EXCLUSIONS, each with its reason
+## 6.0 — THE EXCLUSION SET (R2′): named, argued, and short
+
+Broad-by-default means the exclusions carry the whole burden of justification. Each is here
+because it disables a mechanism, not because it looked risky.
+
+| excluded | why |
+|---|---|
+| **Custom properties (`--*`)** | `_tokens` owns that namespace with a charset gate, a literal-only rule, a mint reservation and a balance gate. A raw custom property in `_css` bypasses all four — and would let an author overwrite a name the engine mints for itself. Enforced by §2′.1's charset, so it cannot be forgotten. |
+| **`all`** | it resets **every** other declaration in the block, including the engine's own role defaults and the band's Layer-1 values. That makes emission order semantically load-bearing in an unbounded way, and no disclosure could describe the blast radius honestly. |
+| **`content`** | it puts author bytes into the page **as rendered text**, through a channel that never passes `wp_kses_post()` and never reaches the shared reflected-text cleaner (I37). That is a content mutation wearing a styling channel, and it is the one property here that bypasses the truth machinery rather than merely out-ranking a value. |
+| **`behavior`, `-moz-binding`** | historical script-execution vectors (IE's HTC behaviours, Gecko's XBL bindings). Dead in every shipping browser, and named anyway: an exclusion set is only as good as the things it bothers to name. |
+| **`-pp-background-overlay`** | not a CSS property at all — it is the engine's internal carrier for the `background.overlay` param, folded into `background-image` by `_pp_udc_compose_background_layers()`. An author writing it would collide with that fold and reach a code path no author input was ever meant to enter. |
+
+**What is NOT on this list, deliberately:** every `url()`-bearing property
+(`background-image`, `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion
+because `url(` is banned in every **value** by `_pp_forbidden_css_construct()`, which runs
+ahead of everything. Excluding the properties as well would be theatre — it would suggest
+the property was the risk when the value always was.
+
+**And `position`, `z-index`, `transform`, `overflow` and the rest of the escape-the-box
+family are ADMITTED**, per R2′, with the `udc_css_unchecked_property` disclosure. The author
+owns the outcome. §6.8 argued for excluding them under the old policy and is superseded.
+
+---
+
+## 6 — EXCLUSIONS as first drafted (§6.1-§6.5, §6.9-§6.15 stand; §6.6-§6.8 superseded by §6.0)
 
 | # | excluded | reason |
 |---|---|---|
@@ -466,64 +615,124 @@ That Layer 2 is a general CSS escape. It is not: a short allowlist, no selectors
 
 ---
 
-## 8.R — RULINGS (orchestrator, 2026-09-20)
+## 8.R — RULINGS
 
-Q1, Q2 and Q3 are ruled. Q0 is with the owner as a blocking composition decision and
-nothing is implemented until it returns. The questions are kept below in full rather than
-rewritten, so the ruling can be read against what was actually asked.
+Q1, Q2 and Q3 were ruled by the orchestrator on 2026-09-20. **Q0 was then ruled by the
+owner, and his frame re-ruled two of the three.** Superseded rulings are kept in full
+beside their replacements — the same traceability discipline R1 established, and for the
+same reason: a ruling that is edited away takes its reasoning with it, and the next reader
+re-derives the losing argument from scratch.
 
-### R1 — Q1 is **A: TYPED**. C's named `raw` escape is NOTED as a future valve, not built.
+### R0 — Q0: **BOTH THIS SPRINT** (owner, 2026-09-20)
 
-**This is a deliberate departure from an APPROVED design document, and the reason is
-recorded here rather than left to be rediscovered.** The approved UDC design doc
-(`wfroot-n5i9y-main-design-20260910-224118.md`, rev 4) specifies Layer 2 as
-*"conventions-checked, not proof-checked"*, with a `custom_styling_conventions_only`
-finding. That is overridden. What overrides it is not a preference; it is **this repo's own
-recorded invariants**, which postdate the design doc's paragraph and are the standard every
-other v2 surface is already held to:
+Layer 2 builds now, in this task. The `Layout` group follows as its own task (S2-T9) after
+this lands. **The governing frame, in the owner's words: Layer 2 is a STANDING FREEDOM
+GUARANTEE — raw-CSS parity with Divi's custom-CSS boxes, so that v2 never rebuilds v1's
+ceiling.**
 
-- **I19** — nothing validates green and renders nothing.
-- **I30** — every value-bearing input has a declared grammar; no value may report success and then silently no-op.
-- **I31** — what the schema advertises is exactly what the write and render grammars accept.
-- **The #570 ruling-6 convergence rule** — where the write-accept set and the render-reject set diverge, the value is rejected at write (quoted at lib/apply.php:1502-1506).
+That frame is what re-rules R2 and R1 below, and it is worth stating why rather than just
+recording that it did. §0.5's evidence answered the question *"what is demanded today"* and
+answered it correctly. The frame asks a different question — *"what must never again be
+un-expressible"* — and a demand sweep cannot answer that one, by construction. Both my
+recommendation and the outside review's `"do not conclude the allowlist has no admissible
+member"` were arguing inside the first question. §0.5 therefore **stays in this contract as
+CONTEXT — it is why the structured groups are where they are, and it sizes the Layout task
+— and stops being the gate.**
 
-And one consequence the design doc could not have anticipated, because the mechanism did
-not exist when it was written: an untyped Layer 2 would **delete an existing check**.
-`_pp_udc_validate_scalar()` resolves an `@name` and then calls
-`_pp_udc_reference_check($resolved, $param)` (lib/udc.php:2600) to refuse a colour token
-used on a length param — the accepted-but-dead class rejected since #230, routed through
-one predicate by ruling D3 (#972). With no declared type there is nothing to check against.
+### R2′ — Q2 REVERSED: **BROAD-BY-DEFAULT ADMISSION** (supersedes R2)
 
-**The precedent this sets, stated so it is usable and bounded:** an approved design document
-loses to a recorded invariant of the same program when the two conflict on a question the
-invariant was written about. It does not lose to an implementer's preference, and it does
-not lose quietly — the conflict is written down at the point of departure, which is what
-this section is. Ruling A3's sub-ruling took the same shape one layer up.
+The allowlist admits **every CSS property** except a small, **named and argued** exclusion
+set (§6.0): the security constructs the gates already ban, and anything that could disable
+the truth machinery. **`STRUCTURAL` properties are admitted WITH a disclosure** — the
+author owns the outcome, which is the contrast posture generalized.
 
-`type: 'raw'` (option C) stays on the record as the valve if a future property's grammar the
-shared owner genuinely lacks ever makes it necessary. **It is not built**, and if it ever is,
-it is the one place `custom_styling_conventions_only` would be TRUE rather than false.
+The SAFETY / COHERENCE / POLICY separation **stays as the contract's shape**. What changes
+is the POLICY line: it was *cited demand*; it is now **freedom-first, with exclusions named
+and argued**. The safety rules are unchanged and are now doing all of the load-bearing
+work, which is the right place for them.
 
-### R2 — Q2 is **CITED DEMAND** for admission, and §2.5's rule structure is PERMANENT.
+Two of this contract's own rules die with this ruling, and they die explicitly rather than
+by being quietly dropped:
 
-The SAFETY / COHERENCE / POLICY separation that the outside review forced is kept as the
-shape of the contract, not as a one-off correction. It is what makes the answer honest in
-both directions: the list is small because **demand** is small, and the contract says so
-plainly instead of letting a safety argument carry a prioritisation decision it cannot bear.
-Under this ruling the allowlist is empty today — which is the Q0 input, not a Q0 answer.
+- **§2.3's DISJOINTNESS rule is GONE.** Layer 2 may now name a property a group already
+  emits. That was the rule the whole no-collision argument rested on, so the collision it
+  prevented is now real and must be *ranked and disclosed* instead of made impossible —
+  see §2.3′.
+- **§2.4's ONE-HOME rule no longer disqualifies.** A `STRUCTURAL` property is admitted and
+  disclosed rather than refused. The css-lint boundary keeps its own job unchanged (what
+  may live in `assets/css/`); it stops being an admission gate for authored values.
 
-### R3 — Q3 is **CONFIRMED**: `_css` as a pseudo-group at role and `_band` grain inside `udc`.
+> **SUPERSEDED — R2 (orchestrator, 2026-09-20):** *"Q2 is CITED DEMAND for admission, and
+> §2.5's rule structure is PERMANENT… Under this ruling the allowlist is empty today —
+> which is the Q0 input, not a Q0 answer."* Correct against the demand question it was
+> asked; overtaken by the freedom frame. Its rule STRUCTURE survives; its policy LINE does
+> not.
+
+### R1′ — Q1 REVISED: **GENERIC VALUES THROUGH THE SECURITY GATES, TYPED WHERE KNOWN** (revises R1)
+
+A per-property typed grammar cannot cover an open property set — that is arithmetic, not
+preference. So:
+
+1. **Every value passes the byte-level security gates**, without exception: the forbidden
+   constructs (`_pp_forbidden_css_construct()`), delimiter balance
+   (`_pp_udc_delimiters_balanced()`), the `\z`-anchored charset gates, and the
+   reflected-text bounds at every sink.
+2. **A property whose type the unified grammar already knows ALSO gets typed validation.**
+   Typed-where-known, so nothing that is checkable today becomes unchecked tomorrow.
+3. **An `@reference` REQUIRES a declared type.** This preserves the check R1 was written to
+   protect: `_pp_udc_reference_check()` needs a `$param` to judge against, so an `@name` on
+   a property the grammar does not type is **refused**, naming why. A literal is accepted
+   there; a reference is not.
+4. **An unknown property's value emits VERBATIM after the security gates.**
+
+**The invariant reconciliation, recorded because this is the part that looks like a
+contradiction and is not.** R1 argued that untyped acceptance breaches I19/I30/I31. Under
+R1′ it does not, and the distinguishing fact is *honesty about what was checked*:
+
+- **I30** requires a declared grammar and no silent no-op. The grammar IS declared here —
+  it is the security grammar, stated exactly, and the docs and refusals claim **no more
+  than it checks**. The breach R1 named was a system claiming proof it did not have.
+- **I19/I31** are satisfied by the refusal envelopes covering exactly what is checked and
+  the AI surface advertising exactly that. A browser dropping a malformed value an author
+  wrote *deliberately, through a channel documented as verbatim* is the author's outcome,
+  not a system that validated green and rendered nothing behind their back.
+- **The #570 convergence rule still binds**, and is now the sharpest constraint in the
+  contract: **whatever the write gate accepts, the emitter emits or DISCLOSES.** The
+  write-accept/emit-drop mismatch class — the T6 finding, #1048's class — must not gain a
+  new instance. §4.3 is re-aimed at exactly this.
+
+> **SUPERSEDED IN PART — R1 (orchestrator, 2026-09-20):** *"Q1 is A: TYPED… an approved
+> design document loses to a recorded invariant of the same program when the two conflict
+> on a question the invariant was written about."* **That precedent stands and is not
+> disturbed.** What changes is its application here: with an open property set the typed
+> reading is not available, and the invariants are satisfied by honest scope-of-check
+> instead. R1's clause 3 — `@references` require a declared type — **survives verbatim** as
+> R1′.3, which is the half that was actually protecting something.
+
+### R3 — Q3 **CONFIRMED** (unchanged): `_css` as a pseudo-group at role and `_band` grain inside `udc`
 
 Settled by the verified fact rather than by taste: a new top-level composition-item key is
 gated by nothing and would be **accepted, stored and ignored** (lib/admin.php:4138-4142
 records exactly that about `udc` itself). Layer 2 must not build on a silently-ignored
 address. Item grain stays out pending Addendum B (#1024).
 
+### R1 (original) — the design-doc override, kept because its precedent is load-bearing
+
+The approved UDC design doc specifies Layer 2 as *"conventions-checked, not proof-checked"*.
+R1 overrode that on this repo's own recorded invariants — I19, I30, I31, the #570
+convergence rule — and on the fact that an untyped reading would **delete** an existing
+check (`_pp_udc_reference_check()`). R1′ keeps the deletion closed (clause 3) and reaches
+the design doc's posture for the open set by a different route: honest scope-of-check
+rather than unchecked acceptance. **The precedent R1 set is unchanged: an approved design
+loses to a recorded invariant of the same program when the two conflict on a question the
+invariant was written about; it does not lose to an implementer's preference, and it does
+not lose quietly.**
+
 ---
 
-## 8 — THE 7A (as asked; R1-R3 above answer Q1-Q3)
+## 8 — THE 7A (as asked; §8.R answers it — kept unrewritten so the rulings read against the real question)
 
-**Nothing is implemented until Q0 is answered. Q1-Q3 are ruled in §8.R.**
+**All four questions are ruled. See §8.R.**
 
 ### Q0 — Is Layer 2 the right next build, given §0.5?
 
