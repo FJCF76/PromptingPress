@@ -175,6 +175,44 @@ class RichTextLinkRoleTest extends TestCase
     }
 
     /**
+     * 14.1 AUTHORING-PATH MANDATE — the roles must be WRITABLE, not merely declared.
+     *
+     * Every other test here reads the schema or the emitter. None of them went through the
+     * gate an author's write actually traverses, so all of them would have stayed green if
+     * `pp_validate_composition()` refused the new roles outright — the emit side cannot
+     * tell an accepted role from a refused one. Found by the pre-landing testing pass,
+     * which measured that `_css` had this proof and the roles did not.
+     */
+    public function testEveryLinkRoleIsWritableThroughTheRealCompositionPath(): void
+    {
+        foreach ($this->surfaces() as $component => $surface) {
+            $composition = [[
+                'component' => $component,
+                'id'        => 'pp-1069feed',
+                'props'     => $surface['props'],
+                'udc'       => [$surface['role'] => ['typography' => [
+                    'color'  => '#ffd479',
+                    ':hover' => ['color' => '#ffffff'],
+                ]]],
+            ]];
+            $this->assertTrue(
+                pp_validate_composition($composition),
+                "{$component}.{$surface['role']} must be writable through the gate every "
+                . 'ingress path traverses'
+            );
+
+            $composition[0]['udc'] = [
+                $surface['role'] . '-nope' => ['typography' => ['color' => '#ffd479']],
+            ];
+            $this->assertNotTrue(
+                pp_validate_composition($composition),
+                'red-proofed: a role that does not exist is still refused there, so the '
+                . 'assertion above is not passing because the gate accepts everything'
+            );
+        }
+    }
+
+    /**
      * THE SELECTOR CAN ACTUALLY MATCH, checked UNDER THE ROLE'S OWN ANCESTOR.
      *
      * This is the check `hero.proof-link` would have passed vacuously: the engine's own

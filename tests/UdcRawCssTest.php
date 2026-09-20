@@ -404,6 +404,148 @@ class UdcRawCssTest extends TestCase
         );
     }
 
+    /**
+     * THE WHOLE STATE DIMENSION OF THE WRITE GATE, which was entirely unpinned.
+     *
+     * Measured by the testing pass: neutering `_pp_udc_validate_css_map()`'s state arm,
+     * its nested-state refusal AND its `:`-key route left the full suite at 5191 tests /
+     * 32882 assertions, byte-identical. All three branches were correct — and unguarded,
+     * which is the same thing as untested. `:hover` was reaching only `pp_udc_band_css()`
+     * and the findings, never `validate()`, so a broken state arm would have refused every
+     * author writing a hover map with nothing to notice.
+     */
+    public function testAStateNestsInsideRawDeclarationsAndOnlyOneLevelDeep(): void
+    {
+        $this->assertNull($this->validate([':hover' => ['opacity' => '0.5']]),
+            'a state reaches `_css` on the same terms as a group — the WRITE half of the '
+            . 'emission test below, which until now was the only half that existed');
+
+        $nested = $this->validate([':hover' => [':focus-visible' => ['opacity' => '0.5']]]);
+        $this->assertInstanceOf(\WP_Error::class, $nested);
+        $this->assertStringContainsString('States do not nest', $nested->get_error_message());
+
+        $pseudo = $this->validate(['::before' => ['opacity' => '0.5']]);
+        $this->assertInstanceOf(\WP_Error::class, $pseudo);
+        $this->assertSame('invalid_prop_value', $pseudo->get_error_code(),
+            'a state-SHAPED key is a STATE refusal, not a property-charset one: `::before` '
+            . 'and `:disabled` are things an author will try, and answering with the charset '
+            . 'rule sends them to the wrong question entirely');
+        $this->assertStringContainsString('does not exist', $pseudo->get_error_message());
+    }
+
+    /**
+     * THE REFUSAL LOCATOR IS LAYER 2'S OWN VOCABULARY, and it was unpinned — the branch
+     * could be reverted to the group spelling with the suite green.
+     *
+     * Spelled the group way it read `role "answer" "_css" group "_css" parameter "opacity"`:
+     * the key named twice and the word "group" applied to something that is not one. A
+     * diagnostic that names the wrong KIND of thing sends an operator to the wrong surface,
+     * which is what I27's one-canonical-vocabulary rule is about.
+     */
+    public function testARawDeclarationRefusalNamesTheKeyOnceAndNeverCallsItAGroup(): void
+    {
+        $message = $this->validate([':hover' => ['color' => '3rem']])->get_error_message();
+        $this->assertStringContainsString('"_css" :hover property "color"', $message);
+        $this->assertStringNotContainsString('group "_css"', $message,
+            'the group spelling named the key twice and called it a group');
+        $this->assertStringNotContainsString('parameter "color"', $message,
+            '`_css` keys are properties, not parameters');
+    }
+
+    /**
+     * A STORED HOSTILE **VALUE**, which the emit-side proof was missing entirely — it
+     * covered hostile property NAMES and one excluded property, and nothing else.
+     *
+     * The write-gate sweep above never runs for a raw `_pp_composition` meta write, a
+     * composition written before this layer, or `restore_composition` (#233). This file's
+     * whole thesis is that the value reaches CSS source text; the emitter has to hold on
+     * its own.
+     */
+    public function testAStoredHostileValueIsRefusedAtEmitToo(): void
+    {
+        $hostile = [
+            'a typed property, declaration break' => ['color' => 'red;} body{display:none'],
+            'an untyped property, rule break'     => ['mix-blend-mode' => 'multiply;} body{display:none'],
+            'an untyped property, url()'          => ['mask-image' => 'url(https://example.invalid/x.svg)'],
+            'the image-set() spelling'            => ['mask-image' => 'image-set("https://example.invalid/x.png" 1x)'],
+            'a style-tag break'                   => ['mix-blend-mode' => '</style><script>alert(1)</script>'],
+        ];
+        foreach ($hostile as $why => $map) {
+            $this->assertSame(
+                '',
+                $this->emit(['answer' => [PP_UDC_CSS_KEY => $map]]),
+                "a stored hostile VALUE must never reach the sheet: {$why}"
+            );
+        }
+        $this->assertNotSame('', $this->emit(['answer' => [PP_UDC_CSS_KEY => ['mix-blend-mode' => 'multiply']]]),
+            'red-proofed: a clean stored value on the same property still paints');
+    }
+
+    /**
+     * A STORED PROPERTY THE EMITTER DROPS MUST NOT BE DISCLOSED AS EMITTED VERBATIM.
+     *
+     * The unknown-ROLE guard beside this one is tested; the property equivalent was not,
+     * and neutering it made the findings tell an author that a stored `all` or `opa}city`
+     * is "emitted exactly as written" while the compiler drops both. Same wrong-subject
+     * defect, one field over.
+     */
+    public function testAStoredPropertyTheEmitterDropsIsNotDisclosedAsEmittedVerbatim(): void
+    {
+        $findings = pp_udc_composition_findings([[
+            'component' => 'faq', 'id' => 'pp-1079drop', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => [
+                'opa}city'       => '1',
+                'all'            => 'unset',
+                'mix-blend-mode' => 'multiply',
+            ]]],
+        ]]);
+        $unchecked = array_values(array_filter(
+            $findings,
+            static fn(array $f): bool => $f['type'] === 'udc_css_unchecked_property'
+        ));
+        $this->assertCount(1, $unchecked, 'only the property that actually emits is disclosed');
+        $this->assertStringContainsString('mix-blend-mode', $unchecked[0]['message'],
+            'and the legitimate sibling still is — a skip is not a mute');
+    }
+
+    /** The collision disclosure is per STATE; a raw `:hover` does not contest a resting value. */
+    public function testTheCollisionIsDisclosedPerStateAndNotAcrossStates(): void
+    {
+        $find = static fn(array $udc): array => array_column(
+            pp_udc_composition_findings([[
+                'component' => 'faq', 'id' => 'pp-1079st', 'props' => [], 'udc' => ['answer' => $udc],
+            ]]),
+            'type'
+        );
+
+        $this->assertContains('udc_css_overrides_group_value', $find([
+            'typography'   => [':hover' => ['color' => '#111111']],
+            PP_UDC_CSS_KEY => [':hover' => ['color' => '#ff0000']],
+        ]), 'a collision inside a state is still a collision');
+
+        $this->assertNotContains('udc_css_overrides_group_value', $find([
+            'typography'   => ['color' => '#111111'],
+            PP_UDC_CSS_KEY => [':hover' => ['color' => '#ff0000']],
+        ]), 'but a raw `:hover` and a resting group value are different coordinates, so '
+          . 'nothing the author wrote lost and reporting one would be a false collision');
+    }
+
+    /** A `_css` that is not a map: refused at write, and LEDGERED rather than dropped silently. */
+    public function testARawDeclarationListThatIsNotAMapIsRefusedAndLedgered(): void
+    {
+        $error = pp_udc_validate_map(['answer' => [PP_UDC_CSS_KEY => 'color:red']], 'faq');
+        $this->assertInstanceOf(\WP_Error::class, $error);
+        $this->assertStringContainsString('must be an object of CSS property => value', $error->get_error_message());
+
+        $drops = [];
+        pp_udc_compile_band([
+            'component' => 'faq', 'id' => 'pp-1079shp', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => 'color:red']],
+        ], 'authored', $drops);
+        $this->assertCount(1, $drops, 'stored data the write gate never saw must be ledgered, not silent');
+        $this->assertStringContainsString(PP_UDC_CSS_KEY, $drops[0]['where']);
+    }
+
     // ── Emission: breakpoints, states, and the ruled rank ───────────────────
 
     public function testBreakpointsAndStatesEmitThroughTheEngineSMachinery(): void

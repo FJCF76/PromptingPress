@@ -62,10 +62,20 @@ test.describe('Layer 2 — raw `_css` declarations, rendered', () => {
           body: '<p>Prose under a raw declaration.</p>',
         },
         udc: {
-          // The group parameter and the raw declaration name the SAME property. §2′.3
-          // rules that the raw one wins; this asserts the browser agrees, which is the
-          // half our resolution table cannot prove about itself.
-          body: { typography: { color: '#111111' } },
+          // The group parameter and the raw declaration name the SAME property ON THE SAME
+          // ROLE. §2′.3 rules that the raw one wins; this asserts the BROWSER agrees, which
+          // is the half our resolution table cannot prove about itself.
+          //
+          // THIS COMMENT WAS TRUE BEFORE THE FIXTURE WAS: the first version paired
+          // `typography.color` on one role with `_css.opacity` on another — different role,
+          // different property, no contest anywhere in the spec — while the header
+          // advertised the cascade claim and the only assertion on the pair read "the group
+          // value still paints", which is its opposite. Caught by the pre-landing testing
+          // pass.
+          body: {
+            typography: { color: '#111111' },
+            _css: { color: '#ff0000', ':hover': { color: '#00ff00' } },
+          },
           // `_css` sits INSIDE a role, beside that role's groups — `_band` is the role
           // for the band element itself. A top-level `_css` is refused at write, and the
           // refusal says exactly this, because it is the mistake the shape invites.
@@ -104,12 +114,18 @@ test.describe('Layer 2 — raw `_css` declarations, rendered', () => {
       'the raw `opacity` must compute on the band the role selects',
     ).toBe('0.5');
 
-    const bodyColour = await page
-      .locator('#pp-rawcss .section__content')
-      .evaluate((el) => getComputedStyle(el as HTMLElement).color);
-    expect(bodyColour, 'the group value still paints where no raw twin contests it').toBe(
-      'rgb(17, 17, 17)',
-    );
+    const prose = page.locator('#pp-rawcss .section__content');
+    expect(
+      await prose.evaluate((el) => getComputedStyle(el as HTMLElement).color),
+      'the raw declaration must outrank its group twin in the BROWSER cascade, not merely '
+        + 'in our resolution table — that is the half a unit test cannot make',
+    ).toBe('rgb(255, 0, 0)');
+
+    await prose.hover();
+    expect(
+      await prose.evaluate((el) => getComputedStyle(el as HTMLElement).color),
+      'and a raw `:hover` must actually apply under the cursor — nothing rendered one before',
+    ).toBe('rgb(0, 255, 0)');
 
     // ── the dark band's unknown properties ────────────────────────────────
     const darkBody = await page
