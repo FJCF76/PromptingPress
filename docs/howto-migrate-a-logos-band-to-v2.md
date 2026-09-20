@@ -191,7 +191,9 @@ strip (some tiles labelled, some not) is the shape most likely to reveal a half-
   structural), so a client logo is shown whole. That is the deliberate contrast with the
   testimonials avatar, which is a **crop** model. If you need a crop, you need a different
   component.
-- **`opacity` has no group.** Write the composite colour (Step 5).
+- **`opacity` has no group — but since #1079 a role's `"_css"` map reaches it, and you
+  should still not use it here.** Write the composite colour (Step 5). The engine will take
+  the alpha; it will not keep the label above the contrast floor for you.
 - **The band cannot re-ink the logo images.** It never could.
 
 ## Related

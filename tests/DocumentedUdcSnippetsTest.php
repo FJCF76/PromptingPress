@@ -55,6 +55,22 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
 
+        // THE TUTORIAL WAS NOT WALKED, AND IT IS THE FIRST DOC AN AUTHOR READS (#1079).
+        //
+        // The same vacuity the article bug above caused, arriving by a different route:
+        // this guard's whole claim is that a `udc` map a human can copy is a map the write
+        // path accepts, and the tutorial is nothing BUT maps a human is invited to copy —
+        // it is the one doc written to be typed out verbatim. It was skipped because the
+        // globs were named after the surfaces that existed when the guard was written.
+        //
+        // It is keyed to `testimonials` because that is the component the tutorial builds
+        // on; a snippet there that names another component's role would fail here, which
+        // is the correct outcome for a tutorial.
+        $tutorial = $root . '/docs/tutorial-style-a-band-on-the-design-contract.md';
+        if (is_file($tutorial)) {
+            $map['testimonials'][] = $tutorial;
+        }
+
         return $map;
     }
 

@@ -121,7 +121,9 @@ band will fail the rendered contrast pins. On the SOLID inverted band there is r
 headroom — and THE THEME NO LONGER SPENDS IT WITH AN `opacity` LITERAL. The last two were
 the inverted stats and logos labels at `0.75`, and both left at #1066 with the `theme` prop
 whose class they were keyed on (a cta body at 12.76:1 was the third until #1026). `opacity`
-has no UDC group at all, so on a dark v2 band the de-emphasis is a real colour: write the
+has no UDC group of its own, and since #1079 a role's `"_css"` map reaches it anyway — so
+the ban above is now YOURS to keep, not the engine's. On a dark v2 band the de-emphasis is
+still a real colour rather than an alpha, for the reason measured above: write the
 PIXEL-MEASURED COMPOSITE of v1's paint, **`rgb(192, 195, 201)`**, on `label` ->
 `typography.color`. It measures **10.11:1** on `--color-bg-inverted` — the composite is
 192.75 / 195.5 / 201.75 and Chromium floors each channel, which is why it is not the 10.2:1

@@ -53,6 +53,7 @@ band — see `item` below.
 | `question` | `.faq__question` | the `<summary>` row **at rest** — ink, type, padding, gap |
 | `question-open` | `.faq__item[open] > .faq__question` | the `<summary>` row **when its item is open** |
 | `answer` | `.faq__answer` | the answer body: ink, type, padding |
+| `answer-link` | `.faq__answer a` | links inside the answer — **no defaults**, and the only address that reaches them |
 | `empty` | `.faq__empty` | the "No questions yet." line |
 
 ### The two roles that are one control
@@ -84,8 +85,23 @@ be spelled; that widening admits attribute PRESENCE terms only, never value matc
 `item` → `background.fill` is `@color-bg`: the accordion panels stay light even on a dark
 band, which is what v1 did and what grid still does with its cards. So `question` and
 `answer` pin their ink rather than following the band. **If you darken the item, set
-`question`, `question-open` AND `answer` in the same write** — otherwise dark text stays on
-a dark panel. A dark BAND on its own is one write (`_band` → `typography.color`), because
+`question`, `question-open`, `answer` AND `answer-link` in the same write** — otherwise dark
+text stays on a dark panel.
+
+**`answer-link` is the fourth write, and it is new (#1069).** Before it, this README and the
+schema both said an authored colour on `answer` covered the links inside it. That was false:
+`answer`'s selector is the container, so it reaches an `<a>` only by inheritance, and
+base.css's `a { color: … }` matches the anchor *directly* — a direct declaration beats an
+inherited one whatever the cascade layer. Measured at 1280, the darkened-item write these
+docs prescribe left a link at **3.21:1** while the prose around it reached 14.33:1, reported
+accepted with no findings. Set `answer-link` → `typography.color` and its `:hover` too.
+
+`answer-link` declares **no defaults**, on purpose: a default would restate base.css's anchor
+values as an unlayered declaration and outrank the premium button rules, repainting an
+author-written `<a class="btn">` inside an answer (the #545 defect through a role selector).
+Empty defaults emit nothing at rest, so an unauthored link keeps the global treatment.
+
+A dark BAND on its own is one write (`_band` → `typography.color`), because
 the heading follows it through `currentColor`.
 
 `question-open` is the one people leave out, and it fails in the state nobody screenshots:

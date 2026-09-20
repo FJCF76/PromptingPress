@@ -137,14 +137,15 @@ So a dark BAND with items is one write:
 "udc": { "_band": { "background": { "fill": "#0f172a" }, "typography": { "color": "#fcfdff" } } }
 ```
 
-but dark PANELS are four — and the fourth is the one that is easy to miss:
+but dark PANELS are five — and the last two are the ones that are easy to miss:
 
 ```json
 "udc": {
   "item":          { "background": { "fill": "#111827" }, "border": { "color": "#374151" } },
   "question":      { "typography": { "color": "#f9fafb" } },
   "question-open": { "typography": { "color": "#a5b4fc" } },
-  "answer":        { "typography": { "color": "#d1d5db" } }
+  "answer":        { "typography": { "color": "#d1d5db" } },
+  "answer-link":   { "typography": { "color": "#fcd34d", ":hover": { "color": "#ffffff" } } }
 }
 ```
 
@@ -153,6 +154,15 @@ the band looks right until a reader OPENS an item, at which point the row revert
 default accent — **measured at 3.21:1 against a `#111827` panel**, which is a real contrast
 failure that only exists in the open state. That number is not hypothetical: it is what the
 three-role version of this example rendered when it was checked at 375 and 1280.
+
+**`answer-link` is the fifth write, and it is new (#1069).** This example shipped with four
+roles and a link in any answer stranded at **the same 3.21:1** — the number above, on a
+different element, from the same map. `answer`'s selector is the container, so its colour
+reaches an `<a>` only by inheritance, and the stylesheet's own `a` rule matches the anchor
+directly; a direct declaration beats an inherited one whatever the cascade layer. Set the
+`:hover` too: every anchor also gets an accent hover, so re-inking only the rest state flips
+the link back under the cursor. If your answers carry no links, the write is harmless — the
+role emits nothing until something matches it.
 
 ### The empty state is the one a dark band leaves behind
 

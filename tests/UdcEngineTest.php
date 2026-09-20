@@ -1684,7 +1684,13 @@ final class UdcEngineTest extends TestCase
                     'title'        => 'Common objections',
                     'title_accent' => 'objections',
                     'items'        => [
-                        ['question' => 'Does this replace our workflow?', 'answer' => '<p>It replaces the part that breaks.</p>'],
+                        // A LINK IN THE ANSWER ON PURPOSE (#1069), the same reason table's
+                        // first set carries one in a cell: `answer-link` declares no
+                        // defaults, so no emission test could fail on it, but its SELECTOR
+                        // (`.faq__answer a`) still has to match something the template
+                        // renders. Without this the element half of the sweep below has
+                        // nothing to find and the role is a silent skip.
+                        ['question' => 'Does this replace our workflow?', 'answer' => '<p>It replaces the part that <a href="/docs">breaks</a>.</p>'],
                     ],
                 ],
                 ['title' => 'Common objections', 'items' => []],
@@ -1789,7 +1795,15 @@ final class UdcEngineTest extends TestCase
                     'button2_text' => 'Docs',
                     'button2_url'  => '#b',
                     'layout'       => 'centered',
-                    'proof'        => '<p>Trusted by teams</p>',
+                    // A LINK IN THE PROOF ROW ON PURPOSE (#1069), and hero is the case that
+                    // shows why this cannot be left to chance: hero renders its CTAs as
+                    // `<a class="btn">`, so the element half of the sweep below — which
+                    // looks for a bare `<a` in the WHOLE rendered html, not under the
+                    // role's own ancestor — was already satisfied by a button. `proof-link`
+                    // would have passed VACUOUSLY with no anchor in the proof row at all.
+                    // Filed as a 7B: the element check is unscoped, so any `*-link` role on
+                    // a component that renders a button anywhere is unverified.
+                    'proof'        => '<p>Trusted by <a href="/customers">teams</a></p>',
                 ],
                 [
                     'title'     => 'Ship it',

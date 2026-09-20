@@ -2857,6 +2857,21 @@ function pp_component_schema_report(string $component): array|WP_Error {
             ];
         }
         $report['udc_groups'] = pp_udc_group_summary();
+        // RAW DECLARATIONS ARE PART OF THE AUTHORING SURFACE, so they belong in the
+        // report that documents it (#1079). `_css` is not a group and cannot appear in
+        // `roles[].groups`, so without this a CLI operator or an SSH-only agent — the
+        // audience this function's own docblock names — had no discovery route to it at
+        // all. DERIVED from the engine, the same way lib/ai-context.php derives its copy,
+        // so the two surfaces cannot drift apart.
+        $report['udc_raw_css'] = [
+            'key'       => PP_UDC_CSS_KEY,
+            'grain'     => 'Any role, and `_band`. Sits beside that role\'s groups.',
+            'property'  => 'Lowercase letters, digits and hyphens, 1-64 characters, '
+                . 'optionally starting with ONE hyphen for a vendor prefix.',
+            'typed'     => 'A property a group already emits keeps that parameter\'s grammar; '
+                . 'any other property is checked for safety only and emitted verbatim.',
+            'excluded'  => array_keys(pp_udc_css_excluded_properties()),
+        ];
     }
 
     return $report;

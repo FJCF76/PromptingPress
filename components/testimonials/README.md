@@ -41,6 +41,8 @@ A role is a named part of the component. Each one accepts the groups listed here
 
 A role can also take a shared look by name through a `_preset` key. Write the name **bare**: `"_preset": "button"`, never `"@button"`, because an `@name` always means a design token.
 
+**The `Groups` column below is not the whole of what a role accepts (#1079).** Beside the groups, every role — and `_band` — takes a `"_css"` map of CSS property => value for a property no group owns (`"quote": {"_css": {"opacity": "0.75"}}`), on the same breakpoint maps, `@token` references and three states as everything else. Use the group when one exists: a property a group already emits keeps that parameter's grammar inside `_css` anyway, and writing it raw costs you the catalog entry and buys nothing. A preset may **not** carry `_css`.
+
 | Role | What it is | Groups |
 |---|---|---|
 | `_band` | The band itself (the `<section>`) | typography, spacing, border, background, sizing, shadow, motion |

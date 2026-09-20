@@ -212,14 +212,88 @@ re-stating the whole rule three times. Second, and you did not ask for it:
 Declare a transition anywhere and the engine writes the reduced-motion guard beside it.
 Accessibility affordances are the engine's job, not yours to remember.
 
+## Step 6: When the vocabulary cannot say it — raw CSS
+
+Everything above went through a **group** and a **parameter**: `typography.size`,
+`background.fill`. That is the surface you should reach for first, every time. Those values
+are type-checked, they show up in the catalog, they can be reviewed and changed by name, and
+the engine can tell you when one of them cannot take effect.
+
+Sometimes there is no parameter for what you want. For that there is `_css`, which sits
+beside a role's groups and takes CSS properties directly:
+
+```json
+{
+  "quote": {
+    "typography": { "size": "1.25rem" },
+    "_css": { "mix-blend-mode": "multiply", "opacity": { "d": "0.85", "p": "1" } }
+  }
+}
+```
+
+Same breakpoint maps, same `":hover"` / `":focus-visible"` / `":active"` states, same engine
+writing the media queries. It is available on every role and on `_band`, and no component
+has to opt in.
+
+**The rule for choosing is one line: structured first, `_css` for what structure cannot
+say.** A raw declaration buys you reach and costs you everything the vocabulary was giving
+you, so it is the right answer when — and only when — there is no parameter for the job.
+
+Five things worth knowing before you use it, and the first is the one that surprises people.
+
+**A property the vocabulary already knows keeps its parameter's grammar.** `_css` is not a
+way around a grammar — it is a way to reach a property that has none. `color` in `_css`
+still takes hex, `rgb()` or `hsl()` and still refuses `red`; `width` and `border-radius`
+still take lengths and refuse `fit-content`; `background-image` still takes a Media Library
+attachment id and refuses a gradient. If a group owns the property, writing it raw buys you
+nothing and costs you the catalog, the type check and the ability to change it by name.
+
+**If you set both, the raw one wins.** A `_css` `color` outranks `typography.color` on the
+same role. That is deliberate — an escape hatch that lost to the thing it was escaping would
+be useless — but it means writing both is always a mistake, and the write envelope tells you
+so with a `udc_css_overrides_group_value` finding naming the parameter that lost.
+
+**A property the vocabulary does not know is checked for safety only.** It is screened for
+anything that could break out of the declaration, and then emitted exactly as you wrote it.
+Nothing verifies that the browser accepts it — if you typo `mixx-blend-mode`, it goes out
+verbatim and simply does nothing. You get a `udc_css_unchecked_property` finding saying the
+value went out unverified. Read those findings; they are the only signal you will get.
+
+**`@token` references only work on properties the vocabulary knows**, because the engine has
+to check that the token's value fits the property before it can hand it over. On any other
+property, write the literal — an `@name` there is refused rather than quietly resolved.
+
+**Property names are lowercase** letters, digits and hyphens, optionally starting with one
+hyphen for a vendor prefix. `-webkit-line-clamp` is fine. `Color` is refused (write
+`color`); `--my-var` is refused (band tokens go in `_tokens`). A handful of properties are
+unavailable — `all`, `content` and two long-dead scripting hooks — and the refusal says why
+in each case.
+
+What you cannot write here: selectors, `@media` or `@supports` blocks, and pseudo-elements.
+`_css` is a declaration **list** on the role you put it on; the engine owns everything
+around it. And no value may name an external resource — `url()`, `image-set()`, `image()`
+and `src()` are all refused on every property, because the Media Library is the only source
+of external assets. A background image is an attachment id on `background.image`.
+
+**`!important` is refused.** The engine keeps specificity flat by construction: your value
+wins because of where it is emitted, never because of weight. An `!important` here would be
+unbeatable by the component's own defaults and by your own next write, so it is turned away
+— the declaration already wins without it.
+
+And one thing the engine cannot do for you: **a raw `background` or `opacity` changes what
+your text sits on, and nothing checks the contrast.** That was true of the groups too, but
+it bites harder here, because a raw value is the one the engine understands least.
+
 ## What you built
 
 A page with a band you designed entirely through data — no CSS file, no class names, no
 stylesheet edit — that is scoped to itself, follows your design tokens when they change,
-responds at three widths and reacts to the pointer.
+responds at three widths and reacts to the pointer. And a way out when the vocabulary runs
+short, so the vocabulary's limits are never your design's limits.
 
 The model in one line: **a component declares roles; you write values onto roles; the
-engine writes the CSS.**
+engine writes the CSS** — through a named parameter when one exists, and through `_css`
+when none does.
 
 Where to go next:
 

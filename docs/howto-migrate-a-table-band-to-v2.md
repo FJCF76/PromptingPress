@@ -197,7 +197,11 @@ phone.
   move is how table keeps its last-row behaviour without one.
 - **Zebra striping is not expressible.** `:nth-child` is in neither set. A per-row tint would need
   a ruling, not a workaround.
-- **`caption-side` is structural.** Where the caption sits is not a value you retune.
+- **`caption-side` has no parameter, and since #1079 `"_css"` reaches it anyway.**
+  `{"caption": {"_css": {"caption-side": "top"}}}` validates and paints — no group types
+  `caption-side`, so it is checked for safety and emitted verbatim, with a
+  `udc_css_unchecked_property` finding on the write envelope saying so. Nothing verifies it
+  does what you meant, which is the trade the raw channel makes.
 
 ## Related
 

@@ -922,6 +922,9 @@ wp pp schema hero
 | `props` | array | One object per declared prop, in declaration order |
 | `style_slots` | array | One object per declared style slot, in declaration order |
 | `recipes` | array | One object per declared recipe, in declaration order |
+| `roles` | array | **Present only when the component declares roles** — every v2 component, plus the `nav` and `footer` chrome. One object per role: `role`, `selector`, `groups`, `description`, in declaration order. A v2 component has NO style slots, so without this the report would read as "nothing to style" about a component with a full design surface |
+| `udc_groups` | object | **Present with `roles`.** The design vocabulary a role's `groups` entries name, derived from the engine (`pp_udc_group_summary()`) rather than restated here |
+| `udc_raw_css` | object | **Present with `roles`** (#1079). The raw-declaration channel, which is not a group and so can never appear in `roles[].groups`: `key` (`_css`), `grain` (any role, and `_band`, beside that role's groups), `property` (the property-name charset), `typed` (a property a group already emits keeps that parameter's grammar; any other is safety-checked and emitted verbatim) and `excluded` (the property names refused by name). Derived from the same engine functions `lib/ai-context.php` derives its copy from, so the CLI and the model read one surface. This is the only discovery route to `_css` for an agent with no filesystem access |
 
 Each entry carries **the schema's own keys and values, verbatim** — nothing injected, nothing dropped, order preserved — plus the map key promoted to `name` (props, recipes) or `slot` (style slots). So a prop object is exactly its `schema.json` declaration with `name` added:
 
@@ -954,7 +957,7 @@ Error: Unknown component "Hero". Available: cta, embed, faq, footer, grid, hero,
 
 ### Scope
 
-`props`, `style_slots` and `recipes`. The remaining `styling` declarations — `root_class`, `variant_classes`, `tokens`, and the `udc_roles` mirror that names `nav`'s and `footer`'s **entire** styling surface — are not emitted, and still need `schema.json` or [`ai-instructions/style-component.md`](../ai-instructions/style-component.md).
+`props`, `style_slots` and `recipes` on every component, plus `roles`, `udc_groups` and `udc_raw_css` wherever roles are declared — which together are the whole authoring surface of a v2 band, raw `_css` declarations included. The remaining `styling` declarations — `root_class`, `variant_classes`, `tokens`, and the `udc_roles` mirror `nav` and `footer` carry — are not emitted, and still need `schema.json` or [`ai-instructions/style-component.md`](../ai-instructions/style-component.md).
 
 ---
 

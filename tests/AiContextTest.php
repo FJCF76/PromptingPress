@@ -1855,6 +1855,88 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * THE RAW-CSS PARAGRAPH IS THE FEATURE'S ONLY DOOR FOR THE SITE-BUILDER MODEL.
+     *
+     * Role `description`s are never injected (#1059), so `lib/ai-context.php` is the one
+     * channel that can tell the authoring model `_css` exists at all. The /ship coverage
+     * audit deleted the whole paragraph as a mutant and the suite stayed byte-identical at
+     * 5204 tests: the feature could have ceased to exist for every AI author without one
+     * red test. That is the same shape as this branch's other repeat offender — a claim
+     * written down and never checked.
+     *
+     * Every assertion below is DERIVED from the engine rather than matched as a string, so
+     * the paragraph cannot drift away from the gates it describes (I43). Pinning the prose
+     * would only pin the prose.
+     */
+    public function testTheRawCssParagraphMatchesTheEngineItDescribes(): void
+    {
+        $prompt = pp_ai_system_prompt();
+
+        $this->assertStringContainsString('`' . PP_UDC_CSS_KEY . '`', $prompt,
+            'the model is never told the escape hatch exists, so it cannot use it');
+
+        // THE EXCLUSION SET IS READ BACK FROM ITS OWNER. A sixth exclusion added without
+        // touching the prompt leaves the model proposing a property that is refused.
+        foreach (array_keys(pp_udc_css_excluded_properties()) as $excluded) {
+            $this->assertStringContainsString($excluded, $prompt, sprintf(
+                'the prompt must name every excluded property; "%s" is missing', $excluded
+            ));
+        }
+
+        // BOTH DISCLOSURES ARE PROMISED, and the model is told to read them back. A
+        // finding type the model is never told about is a finding type it ignores.
+        foreach (['udc_css_overrides_group_value', 'udc_css_unchecked_property'] as $finding) {
+            $this->assertStringContainsString($finding, $prompt, sprintf(
+                'the prompt must name the "%s" finding the write envelope returns', $finding
+            ));
+        }
+
+        // THE TYPED-PROPERTY SURPRISE, which is the clause most likely to be wrong in
+        // practice: the prompt promises a known property keeps its parameter's grammar.
+        // Asserted against the validator, not against the sentence.
+        $this->assertInstanceOf(WP_Error::class,
+            pp_udc_validate_value('red', pp_udc_css_param('color')),
+            'the prompt tells the model a raw `color` still refuses `red` — it must be true');
+        $this->assertTrue(
+            pp_udc_validate_value('multiply', pp_udc_css_param('mix-blend-mode')),
+            'and that an unknown property takes its value verbatim — the paragraph\'s own example');
+
+        // `!important` IS REFUSED, which the prompt states flatly.
+        $this->assertInstanceOf(WP_Error::class,
+            pp_udc_validate_value('0.5 !important', pp_udc_css_param('opacity')),
+            'the prompt says !important is refused; nothing else in the suite reads that claim');
+
+        // NOT WORDPRESS ADDITIONAL CSS. The two are one word apart, and the confusion sends
+        // an operator to clear a global stylesheet that has nothing to do with the band.
+        //
+        // The disambiguation rides the Custom-CSS CONFLICT WARNING, so it is correctly
+        // absent until there is a warning to disambiguate — asserting it unconditionally
+        // is what my first draft of this test got wrong. Pinned where it actually has to
+        // hold: a conflict exists, so the model is being told to clear something.
+        $this->assertStringNotContainsString('WORDPRESS ADDITIONAL CSS ONLY', $prompt,
+            'with no conflict there is no warning, so there is nothing to disambiguate');
+
+        // The selector is DERIVED from the class list the detector actually consults, so
+        // this fixture cannot quietly stop matching (a hand-written `.pp-hero` does not
+        // match — the classes are bare BEM blocks like `hero`).
+        $classes = pp_component_classes();
+        $this->assertNotEmpty($classes, 'the probe needs a real component class to conflict with');
+        $GLOBALS['_pp_test_store']['custom_css'] = '.' . $classes[0] . ' { color: red; }';
+        try {
+            $conflicted = pp_ai_system_prompt();
+        } finally {
+            unset($GLOBALS['_pp_test_store']['custom_css']);
+        }
+
+        $this->assertStringContainsString('clear_custom_css', $conflicted,
+            'the probe needs the conflict warning to actually fire to be meaningful');
+        $this->assertStringContainsString('WORDPRESS ADDITIONAL CSS ONLY', $conflicted,
+            'the moment the model is told to clear Custom CSS it must also be told that '
+            . 'doing so never touches `' . PP_UDC_CSS_KEY . '` — otherwise "clear the CSS" '
+            . 'reads as clearing the band styling it just wrote');
+    }
+
+    /**
      * Extracts just the adjacency-hint lines from the system content so a negative
      * assertion about them can't be fooled by the component index (which also
      * contains "[0] section").

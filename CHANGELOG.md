@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, and raw CSS as a standing freedom guarantee (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,88 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## Raw CSS: any property, on any role, without waiting for a parameter (#1079, #1069)
+
+**The design vocabulary is no longer the ceiling.** Until now, if PromptingPress had no
+parameter for the CSS property your design needed, the answer was to wait for one. A role's
+`udc` map takes a `"_css"` key now — a plain map of CSS property to value, beside the groups:
+
+```json
+"quote": {
+  "typography": {"size": "1.25rem"},
+  "_css": {"opacity": "0.75", "mix-blend-mode": "multiply", "-webkit-line-clamp": "3"}
+}
+```
+
+That is raw-CSS parity with a page builder's custom-CSS box, except it is not loose in a
+global stylesheet: it is scoped to the one band, stored in the composition, and covered by
+the same validation, versioning, undo and rollback as every other value you write. It takes
+the same breakpoint maps, the same `@token` references and the same `:hover` /
+`:focus-visible` / `:active` states as everything else. It works at role grain and on
+`_band`, and on site chrome exactly as on a band.
+
+### What changes for you
+
+**Structured params first; `_css` for what structure cannot say.** If a group owns the
+property, use the parameter. `_css` buys nothing there and costs you the catalog entry and
+the type check.
+
+**A property the vocabulary knows KEEPS its parameter's grammar,** and this is the one that
+will surprise you. `_css` is not a way around a grammar, it is a way to reach a property
+that has none. A raw `color` still refuses `red`; a raw `width` still refuses `fit-content`;
+a raw `background-image` still wants a Media Library attachment id. 61 typed properties
+behave this way, and the refusal names the parameter you should have used.
+
+**Your write tells you what it did.** Two new findings come back on the same channel as
+every other: `udc_css_overrides_group_value` when a raw property outranks a group value you
+also set on that role, and `udc_css_unchecked_property` when the property is one the
+vocabulary does not know, so it reaches the page exactly as written and a typo paints
+nothing. Read them rather than assuming a value landed.
+
+**The layout demand is expressible today.** `display`, `grid-template-columns`, `flex` and
+`order` have no group, so the requests in #658, #588 and #905 are `_css` writes now. The
+migration how-to carries this as the interim path until a Layout group ships.
+
+**`opacity` is reachable.** The stats entry below says it has no group in the design
+vocabulary; that is still true, and it is no longer the same as unreachable. The contrast
+advice around it has not changed and now matters more: on an overlay band the whole
+de-emphasis budget is about 0.07:1, so express de-emphasis as a measured colour, not an
+alpha. Nothing refuses that for you any more.
+
+**Rich text can be styled where it actually lives (#1069).** A link inside a FAQ answer or a
+hero proof line had no address of its own. `faq` gains `answer-link` and `hero` gains
+`proof-link`, both shipping with no defaults so the theme's link treatment is unchanged
+until you write one.
+
+### The boundary
+
+A CSS property name is now author input that reaches CSS source text, so the property name
+itself is validated: lowercase `a-z`, digits and hyphens, one optional leading hyphen for
+vendor prefixes, 64 characters. That makes `--custom-property` unmatchable and refuses a
+name carrying a `:`, `;`, `{`, `}` or a newline rather than sanitising it. Five properties
+are refused by name: `all`, `content`, `behavior`, `-moz-binding`, and the engine's own
+overlay carrier — including their vendor-prefixed spellings. `!important` is refused on
+every surface, because the engine keeps specificity flat by construction.
+
+**Values reach the same gates they always did, which got stricter.** The ban on naming an
+external resource in a value matched only the literal token `url(`. `image-set()` takes a
+bare string as its image and went straight through it. The gate now covers the class:
+`url()`, `image-set()`, `image()`, `src()`, `expression()` and `@import`, on every value
+surface in the theme, not only `_css`.
+
+**The reduced-motion guard follows the property that is emitted,** not the group it came
+from, so a transition written through `_css` is guarded exactly like one written through
+`motion`.
+
+### Known issues
+
+- An ancestor can still clamp an authored `body` measure on `section` (#1080). A fix was
+  built and reverted: it broke two shipped rendered guarantees, and the assertion it would
+  have required rewriting exists to pin the exact behaviour it broke. Three options are on
+  the issue.
 
 ---
 

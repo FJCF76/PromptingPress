@@ -1555,9 +1555,30 @@ function _pp_forbidden_css_construct(string $value): ?string {
     if (strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
         return 'must not contain a CSS comment delimiter (/* or */)';
     }
-    // Function/at-rule primitives: url(...), expression(...), @import.
-    if (preg_match('/url\s*\(|expression\s*\(|@import/i', $value)) {
-        return 'must not contain url(), expression(), or @import';
+    // Function/at-rule primitives. THE RULE IS "NO VALUE MAY NAME AN EXTERNAL
+    // RESOURCE", and `url(` alone was an incomplete enumeration of it.
+    //
+    // CSS has more than one way to write a URL inside a value, and only one of them
+    // contains the token `url(`. `image-set()` takes a BARE STRING as its image
+    // (CSS Images 4: `<image-set-option> = [ <image> | <string> ] …`), and `image()`
+    // and `src()` do the same — so a value could name a third-party host while
+    // carrying no `url(` at all and clear a gate whose whole job was to stop that.
+    // Widened to the intent rather than to the token.
+    //
+    // `image-set\s*\(` also covers `-webkit-image-set(`, which contains it. The
+    // lookbehinds on `image` and `src` keep the ban to the function names themselves
+    // so an ordinary hyphenated identifier is untouched.
+    //
+    // `cross-fade()` and `paint()` are deliberately NOT here: cross-fade's arguments
+    // are themselves images, which now cannot name a URL, and paint() references a
+    // registered worklet rather than a location. Banning them would cost capability
+    // and buy nothing.
+    //
+    // SAFE-DIRECTION WIDENING, verified: no shipped design token, slot default, role
+    // default or documented snippet uses any of these functions, so nothing that
+    // validates today stops validating.
+    if (preg_match('/url\s*\(|image-set\s*\(|(?<![a-z-])image\s*\(|(?<![a-z-])src\s*\(|expression\s*\(|@import/i', $value)) {
+        return 'must not name an external resource: no url(), image-set(), image(), src(), expression(), or @import';
     }
     return null;
 }

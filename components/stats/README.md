@@ -102,7 +102,9 @@ an inherited value, whatever the cascade layer.
 `.stats--inverted .stats__number` re-routed to `@color-accent-on-inverted` (8.33:1) because
 the light-surface `@color-accent` measures only **3.23:1** on that band — passing for large
 text and failing every smaller size. And `.stats--inverted .stats__label` set `@color-bg` at
-`opacity: 0.75`; `opacity` is in none of the seven UDC groups, so that de-emphasis ports as
+`opacity: 0.75`; `opacity` is in none of the seven UDC groups, and since #1079 a role's
+`"_css"` map reaches it anyway — so **do not port the alpha**, even though the engine will
+now take it. That de-emphasis ports as
 the **pixel-measured composite rgb(192, 195, 201)** (measured 10.11:1; the composite is 192.75/195.5/201.75 and Chromium floors each channel). That is the standing rule
 rather than a workaround — this family's earlier `opacity: 0.85` was retired at #577 for
 measuring 3.87:1, replaced by `--color-muted-on-overlay`, and base.css records *"do NOT
