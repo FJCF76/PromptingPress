@@ -267,6 +267,143 @@ class UdcRawCssTest extends TestCase
         );
     }
 
+    /**
+     * THE REFUSAL IS A REFLECTING CHANNEL TOO (I37), and this one had to be bounded
+     * deliberately: `pp_udc_parse_reference()` applies NO charset — it returns everything
+     * after the `@` — so the name in this message is arbitrary author bytes of arbitrary
+     * length. Found by the pre-landing review, probed rather than reasoned: a 227-byte
+     * hostile name produced a 481-byte refusal carrying it verbatim.
+     */
+    public function testTheUntypedReferenceRefusalBoundsAndCleansTheNameItEchoes(): void
+    {
+        $hostile = '@' . str_repeat('A', 200) . '}<script>';
+        $error   = $this->validate(['mix-blend-mode' => $hostile]);
+        $message = $error->get_error_message();
+
+        $this->assertStringNotContainsString(str_repeat('A', 120), $message,
+            'the echoed name must be bounded — every other value this engine reflects is');
+        $this->assertStringNotContainsString('<script>', $message,
+            'and cleaned at the sink, like every other reflected value');
+        $this->assertLessThan(400, strlen($message),
+            'an unbounded name makes an unbounded refusal, which is the shape the '
+            . 'reflected-text owner exists to stop');
+    }
+
+    /**
+     * NO VALUE MAY NAME AN EXTERNAL RESOURCE, and `url(` was an incomplete enumeration
+     * of that rule rather than the rule itself.
+     *
+     * Found by the pre-landing security pass. §6.0 argues that no url()-bearing property
+     * needs excluding because `url(` is refused in every VALUE — so the moment a value can
+     * name a host WITHOUT writing `url(`, that argument collapses and every untyped
+     * image-accepting property becomes a way to point a visitor's browser at a third-party
+     * host from stored content. CSS has three such spellings and only one of them contains
+     * the banned token.
+     */
+    public function testNoValueCanNameAnExternalResourceHoweverItIsSpelled(): void
+    {
+        $spellings = [
+            'mask-image'          => 'image-set("https://example.invalid/x.png" 1x)',
+            '-webkit-mask-image'  => '-webkit-image-set("https://example.invalid/x.png" 1x)',
+            'list-style-image'    => 'image("https://example.invalid/x.png")',
+            'border-image-source' => 'src("https://example.invalid/x.png")',
+            'cursor'              => 'image-set("https://example.invalid/x.png" 1x), auto',
+            'offset-path'         => 'url("https://example.invalid/x.svg#p")',
+        ];
+        foreach ($spellings as $property => $value) {
+            $this->assertInstanceOf(
+                \WP_Error::class,
+                $this->validate([$property => $value]),
+                "\"{$property}\" must not admit an external resource — the Media Library is the "
+                . 'only source of external assets, and §6.0 leaves these properties admissible '
+                . 'precisely because the VALUE gate is supposed to close this'
+            );
+        }
+
+        // RED-PROOFED IN THE OTHER DIRECTION, or the sweep above would pass equally well
+        // against a gate that refused every value on these properties.
+        $this->assertNull($this->validate(['mask-image' => 'linear-gradient(black, transparent)']),
+            'a value that names no resource must still be accepted on the same property');
+        $this->assertNull($this->validate(['cursor' => 'pointer']));
+        $this->assertNull($this->validate(['background-repeat' => 'no-repeat']),
+            'and an ordinary hyphenated identifier containing neither function must be untouched');
+    }
+
+    /**
+     * R1′.3 IS DOUBLED AT EMIT, because the write gate is not the only door.
+     *
+     * The write gate refuses an `@reference` on a property the vocabulary cannot type.
+     * Stored data reaches the emitter without passing it — a raw meta write, a composition
+     * written before this layer, `restore_composition` (#233) — so a rule enforced on one
+     * side only means refused-at-write and PAINTED-from-storage. Found by the pre-landing
+     * security pass: the two gates were disagreeing, which is what the #570 convergence
+     * rule forbids in either direction.
+     */
+    public function testAStoredUntypedReferenceIsDroppedAtEmitAndLedgered(): void
+    {
+        $drops    = [];
+        $compiled = pp_udc_compile_band([
+            'component' => 'faq', 'id' => 'pp-1079ref', 'props' => [],
+            'udc' => [
+                '_tokens' => ['tok' => 'multiply'],
+                'answer'  => [PP_UDC_CSS_KEY => ['mix-blend-mode' => '@tok']],
+            ],
+        ], 'authored', $drops);
+
+        $this->assertStringNotContainsString(
+            'mix-blend-mode',
+            json_encode($compiled),
+            'refused at write means refused from storage too, or the rule is only half a rule'
+        );
+        $this->assertNotSame([], $drops, 'and the emit-time refusal must reach the ledger, not be silent');
+
+        // Red-proof: a TYPED property still takes its reference, so this is a targeted
+        // rule and not a blanket refusal of references inside `_css`.
+        $typed = pp_udc_compile_band([
+            'component' => 'faq', 'id' => 'pp-1079typed', 'props' => [],
+            'udc' => ['_tokens' => ['ink' => '#111111'], 'answer' => [PP_UDC_CSS_KEY => ['color' => '@ink']]],
+        ], 'authored');
+        $this->assertStringContainsString('color', json_encode($typed));
+    }
+
+    /**
+     * THE DISCLOSURE CHANNEL BOUNDS ITS OWN ALLOCATION, and skips a role that cannot paint.
+     *
+     * `_css` is the first finding producer whose key space is the AUTHOR'S rather than the
+     * registry's finite group-by-param table, so it is the first that can be asked for an
+     * unbounded number of findings. Its sibling the drop ledger already caps itself and
+     * says why: slicing the reader's output does not bound the input. `wp pp check page`
+     * and restore reach this function without the write path's size gate in front of them.
+     */
+    public function testTheDisclosuresAreBoundedAndSkipARoleThatCannotPaint(): void
+    {
+        $css = [];
+        for ($i = 0; $i < 5000; $i++) {
+            $css['zz-prop-' . $i] = '1';
+        }
+        $findings = pp_udc_composition_findings([[
+            'component' => 'faq', 'id' => 'pp-1079cap', 'props' => [],
+            'udc' => ['answer' => [PP_UDC_CSS_KEY => $css]],
+        ]]);
+        $unchecked = array_filter(
+            $findings,
+            static fn(array $f): bool => $f['type'] === 'udc_css_unchecked_property'
+        );
+        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($unchecked),
+            'the disclosure channel must bound its own allocation, as the drop ledger does');
+        $this->assertNotSame([], $unchecked, 'and must still report — a cap is not a mute');
+
+        $this->assertSame(
+            [],
+            pp_udc_composition_findings([[
+                'component' => 'faq', 'id' => 'pp-1079ghost', 'props' => [],
+                'udc' => ['no-such-role' => [PP_UDC_CSS_KEY => ['mix-blend-mode' => 'multiply']]],
+            ]]),
+            'a role the component does not declare is never walked by the compiler, so '
+            . 'claiming its CSS "is emitted exactly as written" reports on the wrong subject'
+        );
+    }
+
     // ── Emission: breakpoints, states, and the ruled rank ───────────────────
 
     public function testBreakpointsAndStatesEmitThroughTheEngineSMachinery(): void

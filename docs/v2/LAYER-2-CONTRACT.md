@@ -594,11 +594,22 @@ because it disables a mechanism, not because it looked risky.
 | **`behavior`, `-moz-binding`** | historical script-execution vectors (IE's HTC behaviours, Gecko's XBL bindings). Dead in every shipping browser, and named anyway: an exclusion set is only as good as the things it bothers to name. |
 | **`-pp-background-overlay`** | not a CSS property at all — it is the engine's internal carrier for the `background.overlay` param, folded into `background-image` by `_pp_udc_compose_background_layers()`. An author writing it would collide with that fold and reach a code path no author input was ever meant to enter. |
 
-**What is NOT on this list, deliberately:** every `url()`-bearing property
+**What is NOT on this list, deliberately:** every resource-bearing property
 (`background-image`, `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion
-because `url(` is banned in every **value** by `_pp_forbidden_css_construct()`, which runs
-ahead of everything. Excluding the properties as well would be theatre — it would suggest
-the property was the risk when the value always was.
+because **no value may name an external resource** — `_pp_forbidden_css_construct()` refuses
+`url()`, `image-set()`, `image()` and `src()` alike, ahead of everything. Excluding the
+properties as well would be theatre: it would suggest the property was the risk when the
+value always was.
+
+⚠️ **That premise was false when this section was first written, and the section asserted it
+anyway.** The gate banned the token `url(`; this paragraph cited it as covering the class.
+`image-set()` takes a bare string as its image, so a value could name a host while
+containing no `url(` at all — and because §6.0 leaves every image-accepting property
+admissible *on the strength of this paragraph*, every untyped one inherited the hole. Found
+by the pre-landing security pass and closed at the value level. Recorded rather than
+silently corrected, because the failure mode is the interesting part: an exclusion set is
+only as good as the premise that lets it stay short, and this contract had written the
+premise down without checking it.
 
 **And `position`, `z-index`, `transform`, `overflow` and the rest of the escape-the-box
 family are ADMITTED**, per R2′, with the `udc_css_unchecked_property` disclosure. The author

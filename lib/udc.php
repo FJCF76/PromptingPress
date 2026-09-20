@@ -721,11 +721,18 @@ const PP_UDC_CSS_KEY = '_css';
  * Broad-by-default means these five carry the whole burden of justification, so each
  * is here because it disables a mechanism rather than because it looked risky.
  *
- * WHAT IS DELIBERATELY ABSENT: every `url()`-bearing property (`background-image`,
- * `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion because
- * `url(` is refused in every VALUE by _pp_forbidden_css_construct(), which runs ahead
- * of everything. Excluding the properties too would suggest the property was the risk
- * when the value always was — and would cost an author `mask` for nothing.
+ * WHAT IS DELIBERATELY ABSENT: every resource-bearing property (`background-image`,
+ * `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion because NO
+ * VALUE MAY NAME AN EXTERNAL RESOURCE — _pp_forbidden_css_construct() refuses `url()`,
+ * `image-set()`, `image()` and `src()` alike, ahead of everything.
+ *
+ * THAT PREMISE WAS ONCE FALSE AND THE COMMENT SAID IT ANYWAY, which is why it is
+ * spelled out now. The gate banned the token `url(` and this docblock cited it as
+ * covering the whole class — but `image-set()` takes a bare STRING as its image, so a
+ * value could name a host while containing no `url(` at all, and every untyped
+ * image-accepting property inherited the hole. Found by the pre-landing security pass
+ * and closed at the VALUE level, where the rule already lived. Excluding the properties
+ * instead would suggest the property was the risk when the value always was.
  *
  * Custom properties (`--x`) are NOT listed either, and that is not an omission: the
  * charset in pp_udc_valid_css_property() cannot match them, so the exclusion is
@@ -2785,13 +2792,19 @@ function _pp_udc_validate_css_map(
                     continue;
                 }
                 if ($ref !== null) {
+                    // BOUNDED AND CLEANED AT THE SINK (I37). `pp_udc_parse_reference()`
+                    // applies NO charset — it returns everything after the `@` — so this
+                    // name is arbitrary author bytes of arbitrary length. Probed: a
+                    // 227-byte hostile name produced a 481-byte refusal carrying it
+                    // verbatim. Every other value this engine reflects goes through this
+                    // sink; a refusal is no exception just because it is a refusal.
                     return new WP_Error('invalid_prop_value', sprintf(
                         '%s property "%s" cannot take the reference "@%s". This property has no '
                         . 'declared grammar in the design vocabulary, so the engine cannot check '
                         . 'that a token\'s value is usable here. Write the literal value instead.',
                         $mine,
                         $key,
-                        $ref
+                        _pp_udc_reflect($ref)
                     ));
                 }
             }
@@ -3618,8 +3631,40 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                                 }
                                 continue;
                             }
+                            $param = pp_udc_css_param($property);
+                            // R1′.3 IS DOUBLED HERE, because every other emit-time rule in
+                            // this file is. The write gate refuses an `@reference` on a
+                            // property the vocabulary cannot type — there is no grammar to
+                            // judge the token's value against — but the emitter reaches
+                            // stored data the write gate never saw (a raw meta write, a
+                            // composition written before this layer, restore_composition
+                            // #233). Without this the one class of value R1′.3 calls
+                            // uncheckable was refused at write and PAINTED from storage,
+                            // with no ledger entry: the two gates disagreeing, which is the
+                            // convergence the #570 rule forbids. Found by the pre-landing
+                            // security pass.
+                            if (!empty($param['untyped'])) {
+                                $unresolvable = false;
+                                foreach (is_array($value) ? $value : [$value] as $leaf) {
+                                    if (is_scalar($leaf) && pp_udc_parse_reference((string) $leaf) !== null) {
+                                        $unresolvable = true;
+                                        break;
+                                    }
+                                }
+                                if ($unresolvable) {
+                                    if ($drops !== null && $source !== 'defaults'
+                                        && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                        $drops[] = [
+                                            'where'  => $css_where . ' ' . _pp_udc_reflect($property),
+                                            'reason' => 'a raw declaration on a property the design vocabulary '
+                                                . 'does not know cannot take an @reference',
+                                        ];
+                                    }
+                                    continue;
+                                }
+                            }
                             _pp_udc_place(
-                                $resolved, $st, [$property => pp_udc_css_param($property)], $property,
+                                $resolved, $st, [$property => $param], $property,
                                 $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where
                             );
                         }
@@ -5858,6 +5903,7 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
+        $css_disclosed = 0;
         // ── LAYER 2 DISCLOSURES (contract §2′.3, §2′.4) ─────────────────────
         //
         // R2′ made both of these real by removing the two rules that had made them
@@ -5868,8 +5914,15 @@ function pp_udc_composition_findings(array $items): array {
         // of this layer: whatever the write gate accepts, the emitter emits or
         // DISCLOSES.
         foreach ($item['udc'] as $role_name => $role_map) {
+            // THE UNKNOWN-ROLE GUARD BOTH SIBLING LOOPS CARRY, and it is a truth rule
+            // rather than a tidiness one: pp_udc_compile_band() walks only roles the
+            // component DECLARES, so a stored map naming a role that does not exist paints
+            // nothing at all — and a confident "this is emitted exactly as written" finding
+            // about CSS that can never emit is the wrong-subject defect these disclosures
+            // exist to prevent.
             if (!is_array($role_map) || !isset($role_map[PP_UDC_CSS_KEY])
-                || !is_array($role_map[PP_UDC_CSS_KEY])) {
+                || !is_array($role_map[PP_UDC_CSS_KEY])
+                || !isset($roles[(string) $role_name])) {
                 continue;
             }
             $role_name = (string) $role_name;
@@ -5894,6 +5947,18 @@ function pp_udc_composition_findings(array $items): array {
                     || isset(pp_udc_css_excluded_properties()[$property])) {
                     continue; // Refused at write; a stored one is the emitter's ledger.
                 }
+                // BOUNDED AT THE SOURCE, for the reason the drop ledger states about
+                // itself: slicing the reader's output does not bound the ALLOCATION.
+                // Every other finding producer here is bounded by the registry — a finite
+                // group x param table — and `_css` is the first whose key space is the
+                // author's. Measured at 20,000 distinct properties on one role: 20,000
+                // findings and +13.8 MB from ~320 KB of input, while the emitter capped
+                // itself at 200. `wp pp check page` and restore_composition reach this
+                // function without the write path's 1 MB pre-engine gate in front of them.
+                if ($css_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    continue;
+                }
+                $css_disclosed++;
                 $typed = _pp_udc_css_param_for_property($property);
 
                 // (a) THE COLLISION. `_css` outranks a group value at the same

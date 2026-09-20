@@ -264,7 +264,9 @@ in each case.
 
 What you cannot write here: selectors, `@media` or `@supports` blocks, and pseudo-elements.
 `_css` is a declaration **list** on the role you put it on; the engine owns everything
-around it.
+around it. And no value may name an external resource — `url()`, `image-set()`, `image()`
+and `src()` are all refused on every property, because the Media Library is the only source
+of external assets. A background image is an attachment id on `background.image`.
 
 And one thing the engine cannot do for you: **a raw `background` or `opacity` changes what
 your text sits on, and nothing checks the contrast.** That was true of the groups too, but
