@@ -156,10 +156,16 @@ Whether some of those props should now retire is filed as its own question.
 
 `grid-template-columns`, `flex-direction`, `flex-wrap`, `justify-content`, `align-items` and
 `align-self` belong to the vocabulary, so a `_css` write of one is validated against its parameter's
-grammar instead of passed through. The grammars were deliberately made wide enough that anything CSS
-accepts still validates — the full box-alignment vocabulary, `safe`/`unsafe` prefixes included — so a
-value you already stored does not start failing. If you set both a parameter and a raw declaration
-for the same property, the raw one wins and the write envelope tells you so.
+grammar instead of passed through. The alignment grammars were deliberately widened so that
+anything CSS accepts still validates — the full box-alignment vocabulary, `safe`/`unsafe` prefixes
+included — so an alignment value you already stored does not start failing. The track-list grammar is
+narrower than CSS on purpose and says so: no `calc()` inside a track, one `repeat()` per list, at most
+12 tracks once resolved. If you had written one of those raw, it is refused now with a message naming
+the accepted forms. If you set both a parameter and a raw declaration
+for the same property, the raw one wins and the write envelope tells you so — and the box stays a
+grid, because the companion the parameter earned survives. A raw track list on its own brings no
+`display: grid` with it: companions belong to the named parameter, and the raw valve emits what you
+wrote and nothing else.
 
 ### Fixed along the way
 

@@ -80,6 +80,14 @@ Rules for editing `assets/css/`:
   lint enforces this per component and is fail-closed on a property it does not
   recognise, so a property in neither classification has no legal home until it is
   classified. As of #1066 that covers testimonials, hero, section, cta, faq, table, embed, stats, logos, nav and footer.
+  **One narrow amendment, #1084:** six layout properties (`grid-template-columns`,
+  `flex-direction`, `flex-wrap`, `justify-content`, `align-items`, `align-self`) stay in
+  the stylesheet AND are owned by the `layout` group / `sizing.align-self`. The rule the
+  one-home policy protects is reachability, and an authored value is unlayered, so it
+  beats the stylesheet at any specificity — the value is reachable, which is what the
+  rule is for. Its condition is that the group declares NO defaults for them, which is
+  what keeps the stylesheet the only home for the unauthored behaviour; a
+  registry-derived test enforces that. See `docs/v2/LAYOUT-GROUP-CONTRACT.md` §2.3.
 - **Put new rules INSIDE the existing `@layer` block** of the file you are editing. Every
   rule in `base.css`, `components.css` and `utilities.css` is inside one. A rule added
   after the closing brace is unlayered and will outrank the entire theme, including the

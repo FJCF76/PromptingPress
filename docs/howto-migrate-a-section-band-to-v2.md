@@ -241,6 +241,11 @@ you leave both in place, the raw declaration wins and the envelope says so with 
 `udc_css_overrides_group_value` finding. Move the value to the parameter and delete the
 `_css` entry.
 
+**One behavioural difference worth knowing:** the `display: grid` companion belongs to the
+`layout.columns` PARAMETER. Write the same property raw through `_css` and you get the track list
+alone, which paints only where the box is already a grid. Set both and the raw value wins the
+property while the companion survives, so the box stays a grid.
+
 **What `_css` is still for here:** properties no group owns, such as
 `{"media": {"_css": {"object-fit": "contain"}}}`. Those still report
 `udc_css_unchecked_property` on the write envelope, which is the honest signal that the
