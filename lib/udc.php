@@ -2268,7 +2268,7 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
             // which §6.13a shows is a silent hole.
             if ((string) $group_name === PP_UDC_CSS_KEY) {
                 $error = _pp_udc_validate_css_map(
-                    $component, $role_name, $group_map, $band_tokens, ''
+                    $component, $role_name, $group_map, $band_tokens, '', $udc
                 );
                 if ($error !== null) {
                     return $error;
@@ -2648,7 +2648,8 @@ function _pp_udc_validate_css_map(
     string $role,
     $css_map,
     array $band_tokens,
-    string $state
+    string $state,
+    array $udc = []
 ): ?WP_Error {
     // THE LOCATOR IS BUILT FOR THE MESSAGE IT ENDS UP INSIDE. _pp_udc_validate_param()
     // appends `group "<g>" parameter "<p>"` to whatever subject it is handed, so passing
@@ -2685,7 +2686,7 @@ function _pp_udc_validate_css_map(
                     $mine, $key, $state
                 ));
             }
-            $error = _pp_udc_validate_css_map($component, $role, $value, $band_tokens, $key);
+            $error = _pp_udc_validate_css_map($component, $role, $value, $band_tokens, $key, $udc);
             if ($error !== null) {
                 return $error;
             }
@@ -2745,6 +2746,25 @@ function _pp_udc_validate_css_map(
                     continue; // Shape errors are reported by the param validator below.
                 }
                 $ref = pp_udc_parse_reference((string) $candidate);
+                // THE ENGINE'S OWN MINT IS NOT AN AUTHOR'S REFERENCE, and missing this
+                // turned R1′.3 into a permanent false refusal on its own output.
+                //
+                // A responsive value is rewritten at write-time normalization into
+                // `@<role>-_css-<property>-<bp>` — so the moment an author wrote
+                // `{"opacity": {"d": "1", "p": "0.6"}}` on an UNTYPED property, the engine
+                // minted a reference and then refused it, on every later read: the
+                // post-write envelope, `wp pp check page`, and restore all re-validate
+                // STORED compositions. Caught by the regression pin, not by reading.
+                //
+                // The refusal's own reason is what shows the carve-out is right rather than
+                // convenient: R1′.3 exists because the engine cannot check that a TOKEN's
+                // value fits a property it has no grammar for. An engine mint is not a
+                // token someone else defined — it holds the author's own literal, for this
+                // exact property and breakpoint, already validated as that literal on the
+                // way in. There is nothing left to check.
+                if ($ref !== null && _pp_udc_name_is_the_engines_own_mint($ref, $udc)) {
+                    continue;
+                }
                 if ($ref !== null) {
                     return new WP_Error('invalid_prop_value', sprintf(
                         '%s property "%s" cannot take the reference "@%s". This property has no '

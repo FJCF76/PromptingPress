@@ -301,6 +301,41 @@ function pp_ai_system_prompt(): string {
         . 'cursor. These roles ship with NO defaults, which is deliberate: an unauthored link '
         . 'keeps the site\'s normal anchor treatment, and nothing changes until you write '
         . 'here. Read each component\'s roles with `wp pp schema <component>`.';
+    // LAYER 2 (#1079). The valve only exists for the model if it is stated HERE: a role
+    // or schema description is never injected into this prompt (#1059), so a capability
+    // documented only in the schema is a capability the site-builder AI does not have.
+    // The exclusion list is DERIVED from the engine rather than restated, for the reason
+    // pp_udc_group_summary()'s docblock gives about v1's four hand-maintained copies of
+    // the unit set — an exclusion added later has to reach the model on the day it lands.
+    $parts[] = 'RAW CSS (`"_css"`) — THE ESCAPE HATCH, AND WHEN NOT TO USE IT. Beside a role\'s '
+        . 'groups you may write `"_css"`, a plain map of CSS property => value: '
+        . '`"quote": {"typography": {"size": "1.25rem"}, "_css": {"opacity": "0.75", "mix-blend-mode": "multiply"}}`. '
+        . 'It takes the SAME breakpoint maps and the SAME `":hover"` / `":focus-visible"` / `":active"` '
+        . 'states as any group, the engine writes the media queries, and it is available on EVERY '
+        . 'role and on `_band` — no role has to declare it. THE RULE FOR CHOOSING: STRUCTURED '
+        . 'FIRST, `_css` FOR WHAT STRUCTURE CANNOT SAY. If a group and parameter exist for what you '
+        . 'want — a colour, a size, a padding, a border, a shadow, a background — USE THEM: those '
+        . 'values are type-checked, they appear in the catalog, they can be reviewed and changed by '
+        . 'name, and the engine can tell you when one cannot take effect. Reach for `_css` when the '
+        . 'vocabulary genuinely has no way to say it. Almost every CSS property is accepted, '
+        . 'including vendor-prefixed ones like `-webkit-line-clamp`. FOUR THINGS TO KNOW. (1) IF YOU '
+        . 'SET BOTH, `_css` WINS — a raw `color` outranks `typography.color` on the same role, and '
+        . 'the write envelope tells you so with a `udc_css_overrides_group_value` finding naming the '
+        . 'parameter that lost. Do not write both; pick one. (2) A PROPERTY THE VOCABULARY DOES NOT '
+        . 'KNOW IS CHECKED FOR SAFETY ONLY and emitted exactly as you wrote it — nothing verifies the '
+        . 'browser accepts it, and you get a `udc_css_unchecked_property` finding saying so. Read '
+        . 'those findings: they are the only signal that a value went out unverified. (3) `@token` '
+        . 'REFERENCES ONLY WORK ON PROPERTIES THE VOCABULARY KNOWS, because the engine has to check '
+        . 'that the token\'s value fits the property. On any other property write the literal — an '
+        . '`@name` there is REFUSED. (4) PROPERTY NAMES ARE LOWERCASE letters, digits and hyphens, '
+        . 'up to 64 characters, optionally starting with ONE hyphen for a vendor prefix. `Color` is '
+        . 'refused (write `color`); `--my-var` is refused (band tokens go in `_tokens`, not here). '
+        . 'These properties are NOT available: ' . implode(', ', array_keys(pp_udc_css_excluded_properties())) . '. '
+        . 'Neither is `url()` in any value anywhere — a background image is an attachment id on '
+        . '`background.image`, as above. Selectors, `@media`/`@supports` blocks and pseudo-elements '
+        . '(`::before`) are not written here either: `_css` is a declaration LIST on the role you '
+        . 'put it on, and the engine owns everything around it. YOU STILL OWN CONTRAST: a raw '
+        . '`background` or `opacity` changes what text sits on, and nothing checks that for you.';
     // The dark-band expression, and the contrast obligation that comes with it.
     // v2 components have no `theme` prop: a tone preset is a bundle of designable
     // values, and the whole point of this contract is that the model can now say
