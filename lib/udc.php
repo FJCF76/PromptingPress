@@ -3643,6 +3643,23 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 if ((string) $group_name === PP_UDC_PRESET_KEY) {
                     continue;
                 }
+                // MEASURED COST OF THIS BRANCH AND THE REORDER ABOVE, on a page that uses
+                // NO `_css` at all — the overwhelmingly common page, and the one that must
+                // not pay for a feature it does not use. A realistic 50-band fixture went
+                // 11.69 → 12.04 ms (+0.34 ms, +2.9%), CSS byte-identical, across 8
+                // interleaved process pairs with a duplicate-of-before control measuring a
+                // 0.04 ms noise floor. Attributed by ablation: this group arm 0.22 ms
+                // (evaluated once per role per source per group), the reorder 0.11 ms. The
+                // `!important` gate added to pp_udc_validate_value() costs nothing
+                // measurable — its `!empty($param['untyped'])` short-circuits first.
+                //
+                // ACCEPTED RATHER THAN OPTIMISED. The lever, if it is ever wanted: compute
+                // `array_key_exists(PP_UDC_CSS_KEY, $declared)` once per role before the
+                // `$sources` loop and skip both checks when it is false. Left alone because
+                // half a millisecond does not justify another conditional across the
+                // hottest loop in the engine, and because the number is recorded here so
+                // the next reader can disagree with evidence rather than re-measure.
+                //
                 // LAYER 2 (contract §2′). A synthesized params table keyed by the
                 // author's own property names, resolved through the SAME predicate the
                 // write gate used — so a property the gate typed is a property the
@@ -6558,6 +6575,20 @@ function _pp_udc_mint_splits(array $parts): array {
     $count  = count($parts);
     for ($g = 1; $g < $count; $g++) {
         $group = $parts[$g];
+        // SHORT-CIRCUIT BEFORE THE IMPLODE, which is what both originals did and what the
+        // first version of this shared walk lost. Extracting the duplication moved the
+        // `implode(array_slice(…))` ABOVE the cheap hash lookup, so every split position
+        // paid an O(N) string build whether or not its segment could possibly be a group —
+        // turning an O(N) walk into O(N²) in segment count. Measured at the 64-character
+        // token-name bound (32 segments): 1.51 µs before the extraction, 9.54 µs after,
+        // 2.15 µs with this guard restored. Off the render path (this is reached only from
+        // the write gate, `wp pp check page` and restore), but an adversarial composition
+        // of 10,000 long token names moved findings 13.7 → 25.3 ms before the guard and
+        // 16.3 ms after it. Found by the pre-landing performance pass.
+        $registry = isset($groups[$group]);
+        if (!$registry && $group !== PP_UDC_CSS_KEY) {
+            continue;
+        }
         $param = implode('-', array_slice($parts, $g + 1));
         if ($param === '') {
             continue;
@@ -6566,9 +6597,9 @@ function _pp_udc_mint_splits(array $parts): array {
         // CSS property, judged by the same charset gate the write path applies, so a
         // squatted name and an engine mint are separated by exactly the rule that
         // decided what could be written in the first place.
-        $known = isset($groups[$group])
+        $known = $registry
             ? isset($groups[$group]['params'][$param])
-            : ($group === PP_UDC_CSS_KEY && pp_udc_valid_css_property($param));
+            : pp_udc_valid_css_property($param);
         if ($known) {
             $splits[] = [implode('-', array_slice($parts, 0, $g)), $group, $param];
         }

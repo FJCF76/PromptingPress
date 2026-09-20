@@ -480,7 +480,31 @@ The obligation is therefore small and is about stability rather than correctness
 
 ### 3.6 Emitted-size posture
 
-Layer 2's contribution is bounded by construction: at most `|allowlist|` declarations × 3 breakpoints × 4 states per role — a small multiple of what a role can already emit through its groups. **#1062 (emitted head CSS is uncapped) is not made worse in kind** and is not addressed here.
+⚠️ **"BOUNDED BY CONSTRUCTION" WAS TRUE OF THE ALLOWLIST DESIGN AND IS FALSE OF THE SHIPPED
+ONE.** That sentence counted `|allowlist| × 3 breakpoints × 4 states` — a bound that existed
+because the property set was finite. R2′ made the key space the AUTHOR'S, and the
+pre-landing performance pass measured what that means:
+
+| | measured |
+|---|---|
+| one `section` band, no `_css` | 1,628 B |
+| the same band, realistic `_css` (5 declarations over 2 roles) | 1,785 B (**+31 B per declaration**) |
+| `_css` on all seven roles (32 declarations) | 2,596 B |
+| per-declaration emitter cost | 4.75 µs, the same as a registry group param, scaling linearly |
+| **pathological: 20,000 stored properties on one band** | **352 KB of CSS in 96 ms, on the front end** |
+
+So the ≤2 KB typical-per-band budget holds for a realistic band — and that band was already
+spending 1.63 KB of it before Layer 2 existed — and is breached only when every role carries
+raw declarations.
+
+**The honest statement of the exposure**, since the original sentence cannot stand: the
+DISCLOSURE channel caps itself at 200 per band, and the EMITTER does not. Unlike `_tokens`,
+which emits only what is referenced (20,000 tokens produce 3,174 bytes), every stored `_css`
+entry paints. This is the one place Layer 2 opens a front-end cost proportional to an
+unbounded author key space. It is bounded in practice by stored composition size and it is
+self-inflicted — an author cannot reach it by accident — which is why it is recorded here
+rather than capped. **#1062 (emitted head CSS is uncapped) is the existing issue for this
+class, and Layer 2 makes it reachable by a new route rather than worse in kind.**
 
 **Measured against the recorded baseline, not asserted (P2).** The engine already carries numbers for this loop — lib/udc.php:3124-3135 records 12.0 → 44.0 ms on a 50-band page at twelve preset roles per band, and #973 measures UDC value re-validation at 34-38% of page CSS build. `_css` adds entries to that same loop, so the evidence must be the same 50-band harness, before and after, reported in the handoff. An unmeasured "bounded by construction" is the claim the preset tier's own re-measurement (*"the number above should not be read as still describing a preset-using page"*) exists to warn against.
 
