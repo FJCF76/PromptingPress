@@ -327,6 +327,18 @@ class UdcRawCssTest extends TestCase
         $this->assertNull($this->validate(['cursor' => 'pointer']));
         $this->assertNull($this->validate(['background-repeat' => 'no-repeat']),
             'and an ordinary hyphenated identifier containing neither function must be untouched');
+
+        // THE LOOKBEHINDS ARE LOAD-BEARING, and nothing pinned them. `image(` and `src(`
+        // are banned as WHOLE function names, so `(?<![a-z-])` is what stops the ban
+        // swallowing any function whose name merely ENDS in one of them. Dropping both
+        // lookbehinds left the suite byte-identical in the /ship coverage audit's mutation
+        // run — a silent capability loss, which is the failure direction a security gate
+        // is least likely to have its hand caught in.
+        $this->assertNull($this->validate(['mask-image' => 'cross-fade(linear-gradient(red, blue) 50%, linear-gradient(blue, red))']),
+            'cross-fade() names no external resource; the ban is on `image(`, not on any '
+            . 'function whose name happens to contain it');
+        $this->assertNull($this->validate(['mix-blend-mode' => 'my-image(1)']),
+            'and a hyphenated function ending in `image(` is not `image(`');
     }
 
     /**
@@ -764,17 +776,57 @@ class UdcRawCssTest extends TestCase
         $this->assertStringContainsString(':hover', $css, 'and the hover one does too');
     }
 
-    /** `_css` must not escape the reduced-motion guard the motion group gets. */
+    /**
+     * `_css` must not escape the reduced-motion guard the motion group gets.
+     *
+     * DERIVED FROM THE ENGINE'S OWN SET, not a hand-picked pair. Two of the nine entries
+     * were pinned and seven were not, so most of a stated accessibility guarantee could
+     * have regressed silently — the /ship coverage audit narrowed the list to two entries
+     * as a mutant and the suite stayed byte-identical. Walking
+     * `_pp_udc_motion_properties()` means an entry added to the engine without a value
+     * here fails loudly instead of arriving untested.
+     */
     public function testRawMotionDeclarationsAreNeutralisedUnderReducedMotion(): void
     {
-        foreach (['transition' => '2s all', 'animation-duration' => '2s'] as $property => $value) {
+        // A writable value per animating property. Typed entries (the registry's own) must
+        // satisfy their parameter grammar; untyped ones take their value verbatim.
+        $values = [
+            'transition'                 => '2s all',
+            'transition-duration'        => '2s',
+            'transition-delay'           => '1s',
+            'transition-timing-function' => 'ease',
+            'animation'                  => '2s linear pulse',
+            'animation-duration'         => '2s',
+            'animation-delay'            => '1s',
+            'animation-iteration-count'  => 'infinite',
+            'scroll-behavior'            => 'smooth',
+            'view-transition-name'       => 'card',
+        ];
+
+        $motion = array_keys(_pp_udc_motion_properties());
+        $this->assertNotEmpty($motion, 'the probe needs the engine\'s real motion set');
+
+        foreach ($motion as $property) {
+            $this->assertArrayHasKey($property, $values, sprintf(
+                'the engine treats "%s" as animating but this test has no value for it — '
+                . 'add one rather than letting a new motion property ship unpinned', $property
+            ));
             $this->assertStringContainsString(
                 'prefers-reduced-motion',
-                $this->emit(['answer' => [PP_UDC_CSS_KEY => [$property => $value]]]),
+                $this->emit(['answer' => [PP_UDC_CSS_KEY => [$property => $values[$property]]]]),
                 "\"{$property}\" animates, so the engine's accessibility guarantee must "
                 . 'follow the PROPERTY rather than the registry parameter list'
             );
         }
+
+        // AND ON THE BAND ITSELF, whose guard takes the other branch of the root-vs-element
+        // split — untouched by any other test.
+        $this->assertStringContainsString(
+            'prefers-reduced-motion',
+            $this->emit(['_band' => [PP_UDC_CSS_KEY => ['transition' => '2s all']]]),
+            'a raw transition on `_band` is guarded exactly as one on a role is'
+        );
+
         $this->assertStringNotContainsString(
             'prefers-reduced-motion',
             $this->emit(['answer' => [PP_UDC_CSS_KEY => ['opacity' => '0.5']]]),

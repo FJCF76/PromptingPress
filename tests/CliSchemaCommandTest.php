@@ -1000,4 +1000,35 @@ class CliSchemaCommandTest extends TestCase
             $this->assertStringStartsNotWith('pp schema', $command);
         }
     }
+
+    /**
+     * `wp pp schema <component>` IS THE CLI OPERATOR'S ONLY ROUTE TO `_css`.
+     *
+     * The report is read-only and needs no run token, which is exactly why it is the
+     * discovery surface for someone on SSH with no chat session. The /ship coverage audit
+     * deleted the whole `udc_raw_css` block as a mutant and the suite stayed green at
+     * 5204 tests — the feature could have vanished from the CLI without one red test, the
+     * same shape as the AI-prompt paragraph pinned in AiContextTest.
+     *
+     * Every field is DERIVED from the engine rather than matched as prose, so this cannot
+     * become a copy that drifts from the gate it describes (I43) — which is the entire
+     * reason `excluded` is built from `pp_udc_css_excluded_properties()` in the first place.
+     */
+    public function testTheSchemaReportTellsAnOperatorRawCssExists(): void
+    {
+        $report = pp_component_schema_report('faq');
+
+        $this->assertArrayHasKey('udc_raw_css', $report,
+            'a v2 component\'s schema report must name the raw-CSS escape hatch');
+
+        $this->assertSame(PP_UDC_CSS_KEY, $report['udc_raw_css']['key'],
+            'the key an operator has to type comes from the constant, never a literal');
+
+        $this->assertSame(
+            array_keys(pp_udc_css_excluded_properties()),
+            $report['udc_raw_css']['excluded'],
+            'THE DRIFT CLASS: a sixth exclusion added to the engine must appear here '
+            . 'without anyone remembering to update a list'
+        );
+    }
 }
