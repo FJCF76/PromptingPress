@@ -696,6 +696,152 @@ function pp_udc_groups(): array {
     return $groups;
 }
 
+// ── LAYER 2: raw declarations (`_css`) ──────────────────────────────────────
+//
+// See docs/v2/LAYER-2-CONTRACT.md §2′ and §6.0. The one-line frame: Layer 2 is a
+// STANDING FREEDOM GUARANTEE — raw-CSS parity with Divi's custom-CSS box — so the
+// admission rule is "every property except a named few", not "a curated list".
+//
+// THE SECURITY CHANGE THIS MAKES, STATED WHERE IT LIVES. Everywhere else in this
+// engine the CSS property text is looked up from pp_udc_groups() and an author
+// "can no more influence the property text than they can invent a role". Here the
+// author WRITES it, and it is interpolated into CSS source text inside a <style>
+// block. v1 did exactly that with slot keys behind nothing but an isset() check,
+// and the registry's docblock above records it as the mistake the registry exists
+// to prevent. So the charset gate below is not a tidiness rule: it is the whole
+// boundary, and it is an ALLOWLIST OF CHARACTERS, so no construct has to be
+// enumerated as forbidden to be excluded.
+
+/** The key that carries a role's raw declaration list, beside its groups. */
+const PP_UDC_CSS_KEY = '_css';
+
+/**
+ * The §6.0 exclusion set: property => why it is excluded, for the refusal message.
+ *
+ * Broad-by-default means these five carry the whole burden of justification, so each
+ * is here because it disables a mechanism rather than because it looked risky.
+ *
+ * WHAT IS DELIBERATELY ABSENT: every `url()`-bearing property (`background-image`,
+ * `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion because
+ * `url(` is refused in every VALUE by _pp_forbidden_css_construct(), which runs ahead
+ * of everything. Excluding the properties too would suggest the property was the risk
+ * when the value always was — and would cost an author `mask` for nothing.
+ *
+ * Custom properties (`--x`) are NOT listed either, and that is not an omission: the
+ * charset in pp_udc_valid_css_property() cannot match them, so the exclusion is
+ * structural rather than a list entry someone could forget to check.
+ */
+function pp_udc_css_excluded_properties(): array {
+    return [
+        'all' => 'it resets every other declaration in the same block — including this '
+            . 'component\'s own role defaults and this band\'s other values — which makes '
+            . 'emission order load-bearing in a way no disclosure could describe honestly',
+        'content' => 'it puts author text into the page as rendered content through a '
+            . 'styling channel, bypassing wp_kses_post() and the shared reflected-text '
+            . 'cleaner every other author string passes through',
+        'behavior' => 'it is a historical script-execution vector (Internet Explorer HTC behaviours)',
+        '-moz-binding' => 'it is a historical script-execution vector (Gecko XBL bindings)',
+        PP_UDC_BACKGROUND_OVERLAY_CARRIER => 'it is not a CSS property: it is this engine\'s '
+            . 'internal carrier for the background.overlay parameter, folded into '
+            . 'background-image before emission',
+    ];
+}
+
+/**
+ * THE PROPERTY-NAME GATE (contract §2′.1). The security centrepiece of this layer.
+ *
+ *     ^-?[a-z][a-z0-9-]{0,63}\z
+ *
+ * Every piece of that is load-bearing:
+ *
+ * `\z`, NOT `$`. PCRE's `$` matches before a trailing newline, so `$` would admit one
+ * byte the charset does not name — on a string that is interpolated into CSS source
+ * text next to a `:`. Every sibling gate in this file is anchored the same way
+ * (pp_udc_valid_preset_name(), pp_udc_valid_band_id(), the `_tokens` name check).
+ *
+ * LOWERCASE ONLY. CSS property names are case-INsensitive, so `Color` and `color` are
+ * one property with two spellings — and two spellings defeat the collision detection
+ * in _pp_udc_css_param_for_property(), which is keyed on the string. Refused rather
+ * than lower-cased, because I34 is reject-never-coerce, and the refusal names the
+ * lowercase form so the fix is one keystroke.
+ *
+ * ONE OPTIONAL LEADING HYPHEN. This admits vendor prefixes (`-webkit-line-clamp`,
+ * which is exactly the kind of thing a freedom guarantee has to allow) while making
+ * `--custom-property` unmatchable: after the optional `-` the pattern requires a
+ * LETTER, and `--x` offers another hyphen. §6.0's first exclusion is therefore
+ * enforced by the charset itself rather than by a list someone could forget.
+ *
+ * BOUNDED AT 64, the same bound the token-name and preset-name gates carry.
+ */
+function pp_udc_valid_css_property(string $name): bool {
+    return (bool) preg_match('/^-?[a-z][a-z0-9-]{0,63}\z/', $name);
+}
+
+/**
+ * The registry parameter that already emits a given CSS property, or null.
+ *
+ * THE ONE PREDICATE both gates share (contract §2.1). The write gate uses it to decide
+ * whether a `_css` value gets typed validation; the compiler uses it to decide what to
+ * place and whether an author's group value was overridden. Two copies of this lookup
+ * would let a write say "typed" and the emitter emit untyped, which is the
+ * write-accept/emit-drop divergence the #570 convergence rule forbids.
+ *
+ * First declaration wins, matching _pp_udc_property_rank()'s own rule for the same
+ * reason: no two params share a property today, and if one ever did, the earlier
+ * declaration is the one the registry order was reasoned about.
+ *
+ * @return array|null The param definition, carrying `_group` and `_param` for messages.
+ */
+function _pp_udc_css_param_for_property(string $property): ?array {
+    static $index = null;
+    if ($index === null) {
+        $index = [];
+        foreach (pp_udc_groups() as $group => $definition) {
+            foreach ($definition['params'] as $param_name => $param) {
+                if (!isset($index[$param['property']])) {
+                    $index[$param['property']] = $param + [
+                        '_group' => (string) $group,
+                        '_param' => (string) $param_name,
+                    ];
+                }
+            }
+        }
+    }
+    return $index[$property] ?? null;
+}
+
+/**
+ * The parameter definition `_css` uses for one property: TYPED WHERE KNOWN (R1′.2),
+ * untyped otherwise (R1′.4).
+ *
+ * The untyped shape is what makes "security gates only, then emit verbatim" fall out
+ * of the existing engine with no new validation code at all: pp_udc_validate_value()
+ * runs _pp_forbidden_css_construct(), _pp_udc_delimiters_balanced() and the empty
+ * check unconditionally, and then `type => null` reaches _pp_validate_token_value()'s
+ * documented "No type metadata, generic validation only" arm. `max_values => 1` keeps
+ * the whole value as ONE token, so a compound like `1px solid red` is passed through
+ * intact rather than split and judged word by word.
+ *
+ * A TYPED PROPERTY KEEPS ITS WHOLE CONTRACT, including the ones that surprise: naming
+ * `background-image` here routes to the `background.image` param, so the value must be
+ * a Media Library attachment id (ruling A2) and not a URL — which is the right answer
+ * rather than an accident, since author-written `url()` is refused everywhere anyway.
+ */
+function pp_udc_css_param(string $property): array {
+    $typed = _pp_udc_css_param_for_property($property);
+    if ($typed !== null) {
+        return $typed;
+    }
+    return [
+        'property'   => $property,
+        'type'       => null,
+        'signed'     => true,
+        'max_values' => 1,
+        'keywords'   => [],
+        'untyped'    => true,
+    ];
+}
+
 /** The motion properties the engine guards under `prefers-reduced-motion`. */
 function _pp_udc_motion_properties(): array {
     static $properties = null;
@@ -1113,6 +1259,38 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
     if (isset($preset['udc'][PP_UDC_PRESET_KEY])) {
         return _pp_udc_nested_preset_error(sprintf('Preset "%s"', $name), null);
     }
+
+    // A PRESET MAY NOT CARRY RAW DECLARATIONS (contract §6.13/§6.13a), and this has to
+    // be refused HERE, before dispatch, rather than left to the group walk below.
+    //
+    // Today the `$permitted` list is `array_keys($groups)`, so `_css` would fail the
+    // membership test by accident. That accident is exactly what cannot be relied on:
+    // §1.5 requires `_pp_udc_validate_group_map()` to stop applying that test to `_css`
+    // (every role carries the valve, and `_css` is in no role's `groups` list), and the
+    // moment anyone implements that exemption inside the shared validator, the preset
+    // path silently gains raw declarations. The band path routes around that validator
+    // entirely for `_css`, which keeps the two separable — and this check is what makes
+    // the separation a decision instead of a coincidence.
+    //
+    // WHY PRESETS ARE EXCLUDED AT ALL: a preset is a site-wide named bundle applied by
+    // reference. Raw declarations inside one would be an escape nobody can attribute to
+    // the band that used it — the ladder's whole point is that an escape is visible
+    // where it is taken.
+    if (is_array($preset['udc']) && isset($preset['udc'][PP_UDC_CSS_KEY])) {
+        return new WP_Error('invalid_param_value', sprintf(
+            'Preset "%s" may not carry "%s". A preset is a named bundle of DESIGN GROUP values '
+            . 'shared across the site; raw CSS declarations belong on the band that needs them, '
+            . 'where they stay attributable. Write "%s" in the band\'s own udc map instead.',
+            $name,
+            PP_UDC_CSS_KEY,
+            PP_UDC_CSS_KEY
+        ));
+    }
+    // The GRAIN half needs no check of its own: the grain gate above already refuses
+    // anything that is not "role" or a registry group name, and `_css` is neither — its
+    // refusal lists the grains that exist, which is the more useful message anyway. Said
+    // here rather than left silent, because "presets may not carry _css at EITHER grain"
+    // is the rule, and half of it being enforced somewhere else is worth one sentence.
 
     $subject   = sprintf('Preset "%s"', $name);
     $permitted = array_keys($groups);
@@ -2082,6 +2260,21 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
             if ($group_name === PP_UDC_PRESET_KEY) {
                 continue; // Already validated above.
             }
+            // LAYER 2. Not a group, and deliberately not routed through the group
+            // validator: that function is shared with presets and chrome, and its
+            // `$permitted` check is exactly what `_css` must NOT be subject to
+            // (§1.5 — every role carries the valve). Threading an exemption through
+            // it would have made the preset path accept `_css` as a side effect,
+            // which §6.13a shows is a silent hole.
+            if ((string) $group_name === PP_UDC_CSS_KEY) {
+                $error = _pp_udc_validate_css_map(
+                    $component, $role_name, $group_map, $band_tokens, ''
+                );
+                if ($error !== null) {
+                    return $error;
+                }
+                continue;
+            }
             $error = _pp_udc_validate_group_map(
                 $component, $role_name, (string) $group_name, $group_map, $permitted, $band_tokens, '', true
             );
@@ -2438,6 +2631,148 @@ function _pp_udc_validate_group_map(
 }
 
 /**
+ * Validates one role's `_css` map: the Layer-2 write gate (contract §2′).
+ *
+ * Mirrors _pp_udc_validate_group_map()'s SHAPE — the same state nesting, the same
+ * delegation to _pp_udc_validate_param() for the breakpoint dimension — while
+ * differing in the three places R2′ requires: the keys are CSS PROPERTIES rather than
+ * declared parameters, there is no `$permitted` membership test, and the parameter
+ * definition is resolved per property by pp_udc_css_param() instead of read from a
+ * fixed table.
+ *
+ * @param string $state The state this map sits in, or `''` for the base state.
+ * @return WP_Error|null
+ */
+function _pp_udc_validate_css_map(
+    string $component,
+    string $role,
+    $css_map,
+    array $band_tokens,
+    string $state
+): ?WP_Error {
+    // THE LOCATOR IS BUILT FOR THE MESSAGE IT ENDS UP INSIDE. _pp_udc_validate_param()
+    // appends `group "<g>" parameter "<p>"` to whatever subject it is handed, so passing
+    // a subject that already said `_css` produced `role "answer" "_css" group "_css"
+    // parameter "opacity"` — the key named twice and the word "group" applied to
+    // something that is not one. This file's own refusals are the locator an operator
+    // reads, so the subject stays plain here and the `_css`-shaped refusals below say it
+    // once, themselves.
+    $who = sprintf('Component "%s" role "%s"', $component, $role);
+    $mine = sprintf('%s "%s"', $who, PP_UDC_CSS_KEY);
+
+    if (!is_array($css_map)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            '%s must be an object of CSS property => value; got %s.',
+            $mine,
+            _pp_schema_value_for_message($css_map)
+        ));
+    }
+
+    $states   = pp_udc_states();
+    $excluded = pp_udc_css_excluded_properties();
+
+    foreach ($css_map as $key => $value) {
+        $key = (string) $key;
+
+        // A STATE NESTS HERE EXACTLY AS IT DOES IN A GROUP, so `:hover` reaches raw
+        // declarations too. Without this the key would fall through to the property
+        // branch and be refused as a bad property name, sending an author who wrote
+        // a perfectly ordinary hover map to read about the property charset.
+        if (isset($states[$key])) {
+            if ($state !== '') {
+                return new WP_Error('invalid_prop_value', sprintf(
+                    '%s may not contain the state "%s" inside the state "%s". States do not nest.',
+                    $mine, $key, $state
+                ));
+            }
+            $error = _pp_udc_validate_css_map($component, $role, $value, $band_tokens, $key);
+            if ($error !== null) {
+                return $error;
+            }
+            continue;
+        }
+
+        // A state-SHAPED key that is not one of the three gets the group map's own
+        // wording, for the same reason it has it there: `:disabled` and `::before`
+        // are things an author will reasonably try, and answering "that is not a
+        // valid CSS property name" sends them to entirely the wrong question.
+        if ($key !== '' && $key[0] === ':') {
+            return new WP_Error('invalid_prop_value', sprintf(
+                '%s names the state %s, which does not exist. Available states: %s. '
+                . 'Pseudo-elements (::before), disabled and ancestor states are not supported.',
+                $mine,
+                _pp_render_undeclared_prop_keys([$key]),
+                implode(', ', array_keys($states))
+            ));
+        }
+
+        // ── THE SECURITY BOUNDARY (§2′.1) ───────────────────────────────────
+        if (!pp_udc_valid_css_property($key)) {
+            $hint = ($key !== '' && strtolower($key) !== $key && pp_udc_valid_css_property(strtolower($key)))
+                ? sprintf(' CSS property names are case-insensitive, so write "%s".', strtolower($key))
+                : '';
+            return new WP_Error('unknown_udc_css_property', sprintf(
+                '%s property %s is not a valid CSS property name. Write 1-64 characters of '
+                . 'lowercase letters, digits and hyphens, optionally starting with one hyphen '
+                . 'for a vendor prefix (for example "opacity" or "-webkit-line-clamp").%s '
+                . 'Custom properties ("--name") are not written here: band tokens live in "_tokens".',
+                $mine,
+                _pp_render_undeclared_prop_keys([$key]),
+                $hint
+            ));
+        }
+
+        if (isset($excluded[$key])) {
+            return new WP_Error('unknown_udc_css_property', sprintf(
+                '%s property "%s" is not available: %s.',
+                $mine,
+                $key,
+                $excluded[$key]
+            ));
+        }
+
+        $param = pp_udc_css_param($key);
+
+        // R1′.3 — AN `@reference` REQUIRES A DECLARED TYPE, and this is the clause
+        // that survived the Q1 reversal verbatim. _pp_udc_reference_check() judges a
+        // resolved token against the parameter's grammar; with no grammar there is
+        // nothing to judge, so a colour token on a length-ish property would resolve
+        // to nonsense the browser drops — the accepted-but-dead class refused since
+        // #230. A literal is accepted here; a reference is not.
+        if (!empty($param['untyped'])) {
+            foreach (is_array($value) ? $value : [$value] as $candidate) {
+                if (!is_scalar($candidate)) {
+                    continue; // Shape errors are reported by the param validator below.
+                }
+                $ref = pp_udc_parse_reference((string) $candidate);
+                if ($ref !== null) {
+                    return new WP_Error('invalid_prop_value', sprintf(
+                        '%s property "%s" cannot take the reference "@%s". This property has no '
+                        . 'declared grammar in the design vocabulary, so the engine cannot check '
+                        . 'that a token\'s value is usable here. Write the literal value instead.',
+                        $mine,
+                        $key,
+                        $ref
+                    ));
+                }
+            }
+        }
+
+        // The PLAIN subject goes down: _pp_udc_validate_param() renders the `_css`
+        // vocabulary itself when the group is this key, so passing an already-`_css`-
+        // shaped subject would name it twice.
+        $error = _pp_udc_validate_param(
+            $component, $role, PP_UDC_CSS_KEY, $key, $value, [$key => $param], $band_tokens, $state, '', $who
+        );
+        if ($error !== null) {
+            return $error;
+        }
+    }
+
+    return null;
+}
+
+/**
  * Validates one param entry — the value may be a scalar, an `@reference`, or a
  * breakpoint-keyed map of either.
  *
@@ -2468,14 +2803,30 @@ function _pp_udc_validate_param(
     // never wrote. Invariant I24 asks for a stated reason AND a route back, and
     // the route back here is the preset's name.
     $who   = $subject ?? sprintf('Component "%s" role "%s"', $component, $role);
-    $where = sprintf(
-        '%s group "%s"%s%s parameter "%s"',
-        $who,
-        $group,
-        $origin,
-        $state !== '' ? ' ' . $state : '',
-        $param_name
-    );
+    // LAYER 2 IS NOT A GROUP AND ITS KEYS ARE NOT PARAMETERS, so it gets the same
+    // locator in its own vocabulary rather than a second locator builder. Spelled the
+    // group way it read `role "answer" "_css" group "_css" parameter "opacity"` — the
+    // key named twice and the word "group" applied to something that is not one. One
+    // builder, two vocabularies: a diagnostic that names the wrong kind of thing sends
+    // an operator to the wrong surface, which is the whole point of I27's one-canonical-
+    // vocabulary rule.
+    $where = $group === PP_UDC_CSS_KEY
+        ? sprintf(
+            '%s "%s"%s%s property "%s"',
+            $who,
+            PP_UDC_CSS_KEY,
+            $origin,
+            $state !== '' ? ' ' . $state : '',
+            $param_name
+        )
+        : sprintf(
+            '%s group "%s"%s%s parameter "%s"',
+            $who,
+            $group,
+            $origin,
+            $state !== '' ? ' ' . $state : '',
+            $param_name
+        );
 
     if (!isset($params[$param_name])) {
         return new WP_Error('invalid_prop_value', sprintf(
@@ -3164,6 +3515,67 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // the headline authoring affordance, on a value that renders
                 // correctly. The C2 helper skips this key for the same reason.
                 if ((string) $group_name === PP_UDC_PRESET_KEY) {
+                    continue;
+                }
+                // LAYER 2 (contract §2′). A synthesized params table keyed by the
+                // author's own property names, resolved through the SAME predicate the
+                // write gate used — so a property the gate typed is a property the
+                // emitter types, and a property it accepted is a property the emitter
+                // places or ledgers. That is the #570 convergence rule, which R1′ makes
+                // the sharpest constraint in this layer: whatever the write gate
+                // accepts, the emitter emits or discloses.
+                if ((string) $group_name === PP_UDC_CSS_KEY) {
+                    if (!is_array($group_map)) {
+                        if ($drops !== null && $source !== 'defaults'
+                            && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                            $drops[] = [
+                                'where'  => sprintf('role "%s" "%s"', _pp_udc_reflect((string) $role_name), PP_UDC_CSS_KEY),
+                                'reason' => 'the raw declaration list is not a map of properties',
+                            ];
+                        }
+                        continue;
+                    }
+                    $css_where = $drops === null ? '' : sprintf(
+                        'role "%s" "%s"', _pp_udc_reflect((string) $role_name), PP_UDC_CSS_KEY
+                    );
+                    $css_tokens = strncmp($source, 'preset:', 7) === 0 ? [] : $band_tokens;
+                    // The state walk is the group loop's, so `:hover` reaches raw
+                    // declarations on the same terms. Stored data is re-gated here and
+                    // not trusted from the write path: a raw meta write, a composition
+                    // written before this layer existed and restore_composition (#233)
+                    // all arrive at this line directly.
+                    $css_place = static function (string $st, $map) use (
+                        &$resolved, &$referenced, &$drops, $source, $css_tokens, $breakpoints, $css_where
+                    ): void {
+                        if (!is_array($map)) {
+                            return;
+                        }
+                        foreach ($map as $property => $value) {
+                            $property = (string) $property;
+                            if (!pp_udc_valid_css_property($property)
+                                || isset(pp_udc_css_excluded_properties()[$property])) {
+                                if ($drops !== null && $source !== 'defaults'
+                                    && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                    $drops[] = [
+                                        'where'  => $css_where . ' ' . _pp_udc_reflect($property),
+                                        'reason' => 'it is not an available CSS property here',
+                                    ];
+                                }
+                                continue;
+                            }
+                            _pp_udc_place(
+                                $resolved, $st, [$property => pp_udc_css_param($property)], $property,
+                                $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where
+                            );
+                        }
+                    };
+                    foreach ($group_map as $key => $value) {
+                        if (isset($states[(string) $key]) && is_array($value)) {
+                            $css_place((string) $key, $value);
+                            continue;
+                        }
+                        $css_place('', [$key => $value]);
+                    }
                     continue;
                 }
                 if (!isset($groups[$group_name]) || !is_array($group_map)) {
@@ -5846,6 +6258,48 @@ function _pp_udc_delimiters_balanced(string $value): bool {
  * before it name a real group and one of that group's parameters.
  */
 /**
+ * Every way a mint name's segments can split into <role>-<group>-<param>.
+ *
+ * ONE SPLITTER, TWO CALLERS, AND THAT IS THE POINT. _pp_udc_is_mint_shaped_name() and
+ * _pp_udc_name_is_the_engines_own_mint() decide TOGETHER whether a stored token name is
+ * the engine's own, and both of their docblocks record that a disagreement between them
+ * turns every already-written band into a permanent false refusal. They had two copies of
+ * this walk. Layer 2 adds a second kind of group — the `_css` pseudo-group, whose "params"
+ * are CSS property names rather than registry entries — and teaching that to one copy and
+ * not the other is precisely the disagreement those comments warn about, so the walk is
+ * shared before it is widened.
+ *
+ * Role names, group names and property names all contain hyphens, so the boundary is not
+ * positional and every split has to be offered.
+ *
+ * @param array $parts Name segments, breakpoint and state already popped.
+ * @return array<int, array{0: string, 1: string, 2: string}> [role, group, param] triples.
+ */
+function _pp_udc_mint_splits(array $parts): array {
+    $groups = pp_udc_groups();
+    $splits = [];
+    $count  = count($parts);
+    for ($g = 1; $g < $count; $g++) {
+        $group = $parts[$g];
+        $param = implode('-', array_slice($parts, $g + 1));
+        if ($param === '') {
+            continue;
+        }
+        // A REGISTRY GROUP names a declared parameter; the `_css` pseudo-group names a
+        // CSS property, judged by the same charset gate the write path applies, so a
+        // squatted name and an engine mint are separated by exactly the rule that
+        // decided what could be written in the first place.
+        $known = isset($groups[$group])
+            ? isset($groups[$group]['params'][$param])
+            : ($group === PP_UDC_CSS_KEY && pp_udc_valid_css_property($param));
+        if ($known) {
+            $splits[] = [implode('-', array_slice($parts, 0, $g)), $group, $param];
+        }
+    }
+    return $splits;
+}
+
+/**
  * True when a mint-shaped token name is the ENGINE'S OWN, not an author squatting it.
  *
  * The reservation above cannot be a blanket refusal, and finding that out cost a
@@ -5868,18 +6322,7 @@ function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc): bool {
     // the single-array_pop() idiom that served one state called `hover` reads
     // such a name as a param ending in `-focus` inside a state called `visible`.
     [$state, $parts] = _pp_udc_state_from_mint($parts);
-    $groups = pp_udc_groups();
-    $count  = count($parts);
-    for ($g = 1; $g < $count; $g++) {
-        $group = $parts[$g];
-        if (!isset($groups[$group])) {
-            continue;
-        }
-        $param = implode('-', array_slice($parts, $g + 1));
-        $role  = implode('-', array_slice($parts, 0, $g));
-        if ($param === '' || !isset($groups[$group]['params'][$param])) {
-            continue;
-        }
+    foreach (_pp_udc_mint_splits($parts) as [$role, $group, $param]) {
         $branch = $udc[$role][$group] ?? null;
         if ($state !== '') {
             $branch = is_array($branch) ? ($branch[$state] ?? null) : null;
@@ -5909,19 +6352,7 @@ function _pp_udc_is_mint_shaped_name(string $name): bool {
     [, $parts] = _pp_udc_state_from_mint($parts);
     // Walk every split of the remainder into <role...>-<group>-<param...>: group
     // and param names both contain hyphens, so the boundary is not positional.
-    $groups = pp_udc_groups();
-    $count  = count($parts);
-    for ($g = 1; $g < $count; $g++) {
-        $group = $parts[$g];
-        if (!isset($groups[$group])) {
-            continue;
-        }
-        $param = implode('-', array_slice($parts, $g + 1));
-        if ($param !== '' && isset($groups[$group]['params'][$param])) {
-            return true;
-        }
-    }
-    return false;
+    return _pp_udc_mint_splits($parts) !== [];
 }
 
 /**
