@@ -273,12 +273,34 @@ function pp_ai_system_prompt(): string {
         . 'open row specifically, so it outranks anything you set on `question`. Set a colour '
         . 'on `question` alone and the row reverts to the accent the moment a reader opens it '
         . '— measured at 3.21:1 on a darkened `item` panel, under the 4.5:1 floor for that '
-        . 'summary. So DARKENING faq\'s `item` FILL COSTS THREE WRITES, not two: `question`, '
-        . '`question-open` AND `answer` in the same map. The same applies to a `:hover` or '
+        . 'summary. So DARKENING faq\'s `item` FILL COSTS FOUR WRITES, not two: `question`, '
+        . '`question-open`, `answer` AND `answer-link` in the same map (#1069 added the '
+        . 'fourth — see the rich-text link rule below). The same applies to a `:hover` or '
         . '`:focus-visible` map — one set on `question` reaches a closed row and not an open '
         . 'one. nav\'s `link`/`link-current` is the same shape for the current-page marker. '
         . 'Until the finding exists (#1059), treat a role whose name extends another\'s as a '
         . 'pair and write both.';
+    // THE RICH-TEXT LINK RULE (#1069). Stated HERE rather than in the six schema role
+    // descriptions that carry the detail, because a role `description` is never injected
+    // into this prompt (#1059) — the obligation would be invisible exactly where it has to
+    // be read. The measured cost of leaving it unstated was a 3.21:1 link under 14.33:1
+    // prose on the write faq's own schema prescribed, reported accepted with no findings.
+    $parts[] = 'A LINK INSIDE RICH TEXT HAS ITS OWN ROLE, AND THE CONTAINER ROLE DOES NOT '
+        . 'REACH IT. Six roles take author-written HTML — `section.body`, `cta.body`, '
+        . '`faq.answer`, `hero.proof`, `embed.content` and a `table` cell — and each has a '
+        . 'paired `*-link` role for the anchors inside it: `section.body-link`, '
+        . '`cta.body-link`, `faq.answer-link`, `hero.proof-link`, `embed.content-link`, '
+        . '`table.cell-link`. WHY THE PAIR IS MANDATORY: the container role\'s selector '
+        . 'matches the WRAPPER, so a colour you set there reaches an `<a>` inside it only by '
+        . 'INHERITANCE, and the stylesheet gives every anchor its own DIRECT colour rule — a '
+        . 'direct declaration always beats an inherited one, whatever the layer. So an '
+        . 'authored colour on the container leaves every link in it untouched. ANY TIME YOU '
+        . 'DARKEN A SURFACE THAT CARRIES PROSE, set `typography.color` on its `*-link` role '
+        . 'too, AND on that role\'s `":hover"` — the stylesheet also gives every anchor an '
+        . 'accent hover, so re-inking only the rest state flips the link back under the '
+        . 'cursor. These roles ship with NO defaults, which is deliberate: an unauthored link '
+        . 'keeps the site\'s normal anchor treatment, and nothing changes until you write '
+        . 'here. Read each component\'s roles with `wp pp schema <component>`.';
     // The dark-band expression, and the contrast obligation that comes with it.
     // v2 components have no `theme` prop: a tone preset is a bundle of designable
     // values, and the whole point of this contract is that the model can now say

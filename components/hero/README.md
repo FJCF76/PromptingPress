@@ -65,6 +65,7 @@ layout group: removing them would delete the capability rather than move it.
 | `cta` | `.hero__cta--primary` | the primary button |
 | `cta-secondary` | `.hero__cta--secondary` | the second button — the only role with a colour-bearing default (see below) |
 | `proof` | `.hero__proof` | the trust-signal row |
+| `proof-link` | `.hero__proof a` | links inside the proof markup — **no defaults**, and the only address that reaches them (#1069). A `cover` hero puts this row over a photograph, so a dark scrim needs a colour here as well as on `proof` |
 | `surface` | `.hero__surface` | the split layout's proof panel |
 | `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
 

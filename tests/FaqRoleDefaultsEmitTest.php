@@ -608,12 +608,55 @@ class FaqRoleDefaultsEmitTest extends TestCase
         }
         $this->assertGreaterThan(30, $checked, 'the property sweep must actually read the emitted declarations');
 
-        // There is no role for the answer's links at all — measured, they render exactly
-        // what base.css gives every anchor, and a role block here would outrank the shared
-        // premium button rules for an author-written <a class="btn"> inside an answer
-        // (#545, reintroduced through a role selector — the trap cta recorded at #1026).
-        $this->assertArrayNotHasKey('answer-link', pp_udc_component_roles('faq'));
-        $this->assertStringNotContainsString('.faq__answer a', $this->css);
+        // THE ANSWER'S LINKS NOW HAVE A ROLE, AND IT MUST STILL EMIT NOTHING (#1069).
+        //
+        // This assertion used to read `assertArrayNotHasKey('answer-link', …)`, which
+        // conflated two different claims: that faq has no link ADDRESS, and that faq
+        // emits no link DEFAULT. Only the second is the rule. Rule 2 forbids a default,
+        // because a role block is unlayered and would outrank the shared premium button
+        // rules for an author-written <a class="btn"> inside an answer (#545 through a
+        // role selector — the trap cta recorded at #1026). It does not forbid the role:
+        // with `defaults: {}` nothing is emitted at rest, and an author who needs a link
+        // colour on a darkened item finally has somewhere to put it. Without the address
+        // the measured cost was a 3.21:1 link under 14.33:1 prose, reported clean.
+        $roles = pp_udc_component_roles('faq');
+        $this->assertArrayHasKey('answer-link', $roles, 'faq must expose an address for the answer\'s links (#1069)');
+        $this->assertSame([], $roles['answer-link']['defaults'] ?? null,
+            'answer-link gained a default and will repaint author .btn anchors (#545)');
+        $this->assertStringNotContainsString('.faq__answer a', $this->css,
+            'answer-link must emit NO block: base.css already gives every anchor its treatment, '
+            . 'and restating it unlayered takes the premium button rules with it');
+
+        // THE OTHER HALF, AND IT IS THE HALF THAT MATTERS TO AN AUTHOR (#1069).
+        //
+        // "Emits nothing" is only correct as a statement about DEFAULTS. A role that
+        // emitted nothing when WRITTEN to would be the write-accept-paint-nothing class
+        // (I19/#1048), and asserting only the absence above is exactly how such a role
+        // could ship: every assertion in this file would stay green while the address the
+        // schema advertises reached no page at all. Both states are pinned, in both
+        // states, including the `:hover` a dark item needs.
+        $authoredLink = pp_udc_band_css([
+            'component' => 'faq',
+            'id'        => 'pp-11feed01',
+            'props'     => [],
+            'udc'       => ['answer-link' => ['typography' => [
+                'color'   => '#ffd479',
+                ':hover'  => ['color' => '#ffffff'],
+            ]]],
+        ]);
+        $this->assertStringContainsString(
+            '[data-pp-band="pp-11feed01"] .faq__answer a{color:#ffd479;}',
+            $authoredLink,
+            'an authored answer-link colour must reach the page — this is the address the '
+            . 'darkened-item write needs, and the whole point of the role existing'
+        );
+        $this->assertStringContainsString(
+            '[data-pp-band="pp-11feed01"] .faq__answer a:hover{color:#ffffff;}',
+            $authoredLink,
+            'the hover half must reach the page too: base.css gives every anchor an '
+            . 'accent-hover, so a dark item that re-inks only the rest state still flips '
+            . 'back to the accent under the cursor'
+        );
     }
 
     /**
@@ -679,7 +722,7 @@ class FaqRoleDefaultsEmitTest extends TestCase
     {
         $roles = pp_udc_component_roles('faq');
         $this->assertSame(
-            ['_band', 'eyebrow', 'heading', 'heading-accent', 'list', 'item', 'question', 'question-open', 'answer', 'empty'],
+            ['_band', 'eyebrow', 'heading', 'heading-accent', 'list', 'item', 'question', 'question-open', 'answer', 'answer-link', 'empty'],
             array_keys($roles),
             'the role roster changed — every claim in this file is scoped to it'
         );
@@ -688,6 +731,16 @@ class FaqRoleDefaultsEmitTest extends TestCase
             $selector = (string) ($definition['selector'] ?? '');
             if ($selector === '') {
                 continue; // `_band` is asserted by its own test above.
+            }
+            // THE CARVE-OUT IS DERIVED, NOT NAMED (#1069). A role with an EMPTY defaults
+            // block emits nothing BY DESIGN — `answer-link` is the first on faq — so
+            // asserting its selector appears would be asserting the opposite of the rule.
+            // Reading `defaults` rather than listing role names is what keeps this test
+            // correct when the next such role lands: a hardcoded exception list would
+            // have to be edited, and the edit is exactly what gets forgotten. The absence
+            // itself is asserted in testNoRoleRestatesAGlobalValue.
+            if (($definition['defaults'] ?? []) === []) {
+                continue;
             }
             $this->assertStringContainsString(
                 $selector . '{',
