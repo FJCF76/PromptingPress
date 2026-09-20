@@ -19,11 +19,19 @@
  * author "that slot belongs to grid, not to this band". A root holding only the fixture
  * would make those assertions pass for the wrong reason.
  *
- * WHY SYMLINKS RATHER THAN COPIES: a copy goes stale the moment a component's schema
- * changes, and a stale copy is the worst possible fixture - it passes while the real
- * schema has moved. Symlinks cannot drift. Where the filesystem refuses a symlink the
- * helper falls back to a recursive copy and says so, because a silently-degraded fixture
- * is the failure this whole file exists to end.
+ * WHY SYMLINKS RATHER THAN COPIES: a symlink cannot drift from the schema it points at,
+ * and a reader of this file should not have to wonder whether the fixture registry matches
+ * the real one. Where the filesystem refuses a symlink (Windows without developer mode, a
+ * container without the capability) the helper falls back to a recursive copy.
+ *
+ * THAT FALLBACK IS SILENT, AND THE ORIGINAL VERSION OF THIS PARAGRAPH CLAIMED IT "SAYS SO"
+ * — it never did, and #1066's adversarial pass caught the promise rather than the code. The
+ * promise is removed instead of implemented, because the staleness it guarded against
+ * cannot happen: the root is per-process (`uniqid()`), built fresh on first use and removed
+ * by a shutdown hook, so a copy lives for one PHPUnit run and is rebuilt from the real
+ * components on the next. A warning would be noise about a risk that is structurally
+ * absent. What WOULD reintroduce the risk is caching the root across runs — if that ever
+ * happens, the announcement has to come back with it.
  *
  * DELETION: this file dies with `ppfixture` when grid is rebuilt. See
  * tests/fixtures/components/ppfixture/README.md.
@@ -113,7 +121,7 @@ final class FixtureTheme
         }
 
         // Every REAL component, by reference so it can never drift from the shipped schema.
-        foreach (scandir($repo . '/components') as $name) {
+        foreach (scandir($repo . '/components') ?: [] as $name) {
             if ($name === '.' || $name === '..') {
                 continue;
             }

@@ -379,4 +379,55 @@ class StatsLogosV2BandContractTest extends TestCase
             );
         }
     }
+    /**
+     * A STORED SCALAR `items` MUST NOT WARN — the container guard, added at #1066's
+     * outside adversarial pass.
+     *
+     * `foreach` over a string raises `foreach() argument must be of type array|object`. Not
+     * a fatal, but a visible PHP warning on a public page and a log line on every render.
+     * The write path refuses a scalar under a declared `array` prop (#744), so this is
+     * reachable only through STORED STATE — a raw `_pp_composition` meta write, or a restore,
+     * which #233 requires to report rather than block. That is the same reachability
+     * argument the retired-prop tests above rest on, which is why it is guarded rather than
+     * assumed away, and `faq` set the precedent one rebuild earlier (#1046).
+     *
+     * THE OUTSIDE REVIEW REPORTED THIS AS A FATAL ON THE ITEM OFFSETS and that half was
+     * wrong: measured in PHP 8.3, `$item['number'] ?? ''` on a scalar returns the default
+     * because the null-coalescing operator suppresses the offset error. Every field read in
+     * both templates already uses `??`. The real defect was one level up, at the loop. Both
+     * halves are asserted here so the next reader does not have to re-derive which it was.
+     *
+     * @dataProvider rebuiltComponents
+     */
+    public function testAStoredScalarItemsListWarnsNothingAndRendersTheBand(string $component): void
+    {
+        foreach (['a string', 42, true, 3.5] as $bad) {
+            $errors = [];
+            set_error_handler(static function (int $no, string $msg) use (&$errors): bool {
+                $errors[] = $msg;
+                return true;
+            });
+            try {
+                $html = $this->render($component, ['title' => 'Stored damage'] + ['items' => $bad]);
+            } finally {
+                restore_error_handler();
+            }
+
+            $shown = var_export($bad, true);
+            $this->assertSame(
+                [],
+                $errors,
+                "{$component}: a stored scalar `items` ({$shown}) raised " . implode(' | ', $errors)
+            );
+            // The band still renders — a damaged items list is not a reason to lose the band.
+            $this->assertStringContainsString("data-pp-component=\"{$component}\"", $html, $component);
+            $this->assertStringContainsString('Stored damage', $html, $component);
+        }
+
+        // POSITIVE CONTROL: a well-formed list still renders its items, or the assertions
+        // above pass on a template that stopped emitting the list at all.
+        $good = $this->render($component, $this->contentProps($component));
+        $this->assertStringContainsString("{$component}__list", $good, $component);
+    }
+
 }

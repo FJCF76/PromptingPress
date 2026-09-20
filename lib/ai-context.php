@@ -875,8 +875,8 @@ function _pp_resolve_component_bg(array $item): ?array {
     // component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
     // band falls through every step to null — the annotation stays silent about it
     // rather than describing it wrongly. A v2 band with a flat `background.fill` is
-    // therefore under-described, never mis-described. That is now true of TEN of the
-    // eleven composable components; teaching this function to read `udc` is a v2-wide
+    // therefore under-described, never mis-described. That is now true of NINE of the
+    // TEN composable components; teaching this function to read `udc` is a v2-wide
     // change to what the chat AI is told, tracked as its own issue rather than
     // widened here.
 

@@ -11944,6 +11944,98 @@ test.describe('#577 dead and defeated style slots render', () => {
    * gives. An outside review challenged that arithmetic during this PR; the pixels settled
    * it, and this is where the settlement is pinned.
    */
+  /**
+   * THE FIDELITY OF THE PORTED LITERAL, MEASURED FROM A PAINT — added because the review
+   * train caught the A-36 evidence being CIRCULAR.
+   *
+   * The test below asserts the de-emphasised label renders `rgb(192, 195, 201)` at 10.11:1.
+   * But that literal is one the TEST ITSELF authors, so measuring it proves the engine
+   * delivers a value — not that the value is the right one. The claim underneath it is a
+   * FIDELITY claim: this colour is what v1's `color: @color-bg; opacity: 0.75` actually
+   * painted on `@color-bg-inverted`, so a band that upgrades looks the same.
+   *
+   * THAT CLAIM HAD NO EVIDENCE AND WAS ASSERTED IN FIVE PLACES AS "pixel-measured". The
+   * #1066 PR2 v1 measurement run recorded 231 opacity readings and every one is `1` — the
+   * inverted-label scene never produced a 0.75 paint, so no composite was ever sampled.
+   * Worse, the v1 stylesheet comment this rebuild DELETES recorded `10.22:1` for that same
+   * rendering, which is the round-half-up composite (193/196/202) — the repo's only
+   * independent record disagreed with the branch, and the branch had reclassified it as
+   * "idealised" on reasoning alone.
+   *
+   * So this measures the thing itself: paint `@color-bg` at `opacity: 0.75` over
+   * `@color-bg-inverted` in the real browser, sample the pixel, and require it to equal the
+   * literal the schemas and both migration how-tos tell an author to write. Neither side is
+   * authored by the other — one is a Chromium paint, the other is shipped text read out of
+   * the schema. Chromium FLOORS each channel (192.75/195.5/201.75 → 192/195/201), which is
+   * why 10.11 and not 10.22, and that is now a measurement rather than a belief.
+   */
+  test('#577 A-36 fidelity: the shipped label literal equals what Chromium paints for v1 opacity', async ({
+    page,
+  }) => {
+    // The two tokens v1 composited, read from the stylesheet rather than restated.
+    const INVERTED_FILL = '#0f172a'; // --color-bg-inverted
+    const LIGHT_INK = '#fcfdff'; //     --color-bg
+
+    await page.setViewportSize({ width: 400, height: 200 });
+    await page.setContent(`<body style="margin:0">
+      <div style="background:${INVERTED_FILL};width:400px;height:200px">
+        <span style="color:${LIGHT_INK};opacity:0.75;font-size:150px;line-height:200px;display:block">██████</span>
+      </div></body>`);
+
+    const shot = await page.screenshot({ clip: { x: 30, y: 80, width: 2, height: 2 } });
+    const painted = await page.evaluate(async (d: string) => {
+      const img = new Image();
+      await new Promise((r) => {
+        img.onload = r;
+        img.src = 'data:image/png;base64,' + d;
+      });
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, 1, 1).data;
+      return [px[0], px[1], px[2]];
+    }, shot.toString('base64'));
+
+    // THE SHIPPED LITERAL, read out of the schema — not restated here, so the two sides
+    // cannot be quietly brought into agreement by editing this file.
+    const shipped = JSON.parse(
+      execSync('cat components/stats/schema.json', { cwd: process.cwd(), encoding: 'utf-8' }),
+    ).retired_props.theme as string;
+    const quoted = shipped.match(/rgb\((\d+), (\d+), (\d+)\)/);
+    expect(quoted, 'stats\' `theme` retirement route must quote the composite it tells an author to write').not.toBeNull();
+    const literal = [Number(quoted![1]), Number(quoted![2]), Number(quoted![3])];
+
+    expect(
+      painted,
+      `Chromium paints ${LIGHT_INK} at 0.75 over ${INVERTED_FILL} as rgb(${painted.join(', ')}), but the `
+        + `shipped retirement route tells an author to write rgb(${literal.join(', ')}). The ported literal `
+        + 'is a FIDELITY claim — if these disagree, an upgrading band changes appearance and the '
+        + 'schemas, both READMEs and both how-tos are all quoting the wrong number.',
+    ).toEqual(literal);
+
+    // And the ratio the docs promise follows from the painted pixel, not from the literal.
+    const ratio = await page.evaluate(
+      ({ fg, bg }: { fg: number[]; bg: number[] }) => {
+        const lum = (c: number[]) => {
+          const f = (v: number) => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+        };
+        const L1 = lum(fg);
+        const L2 = lum(bg);
+        return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+      },
+      { fg: painted, bg: [15, 23, 42] },
+    );
+    expect(ratio, `painted composite measures ${ratio.toFixed(4)}:1`).toBeCloseTo(10.11, 1);
+    // The round-half-up alternative is 10.2153; asserting closeTo(10.11, 1) separates them
+    // (tolerance 0.05), so this fails if a future Chromium starts rounding instead.
+  });
+
   test('#577 A-36: the de-emphasised inverted label is a COLOUR now, and it measures 10.11:1', async ({
     page,
   }) => {

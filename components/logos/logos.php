@@ -11,7 +11,12 @@
 
 $id      = $props['id']      ?? '';
 $title   = $props['title']   ?? '';
-$items   = $props['items']   ?? [];
+// The container guard, following faq's precedent at #1046 — see the longer note in
+// components/stats/stats.php, which this change made in the same pass. A scalar `items`
+// is unreachable through the write path (#744 refuses it) and reachable through stored
+// state, exactly like the retired props.
+$raw_items = $props['items']   ?? [];
+$items   = is_array($raw_items) ? $raw_items : [];
 
 // ── v2: the band id, and the one attribute this template emits for it (#1066) ──
 //
@@ -26,13 +31,36 @@ $items   = $props['items']   ?? [];
 // though the engine mints on WRITE - a raw `_pp_composition` meta write is not gated, and
 // restore_composition reports without blocking (#233). Validate, then emit or emit
 // nothing. Pinned behaviourally in StatsLogosV2BandContractTest.
+//
+// WHAT THIS GUARD DOES NOT DO, stated because the engine's own docblock overstates it:
+// `pp_udc_promote_band_identity()` says a band with no usable id "promotes NOTHING, so the
+// component emits no `data-pp-band`". That is true of the PROMOTION but not of the props —
+// it never clears a `__pp_udc_band` already present, so a stored one passes this charset
+// check on its way through and the band can wear ANOTHER band's compiled block. The check
+// here is a grammar check, not a provenance check; only the engine can tell a minted id
+// from a copied one. Filed as #1073 with the overlay half.
 $raw_band  = $props['__pp_udc_band'] ?? '';
 $band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
 $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
-// The engine decides whether a scrim is being painted; the template just consumes the
-// flag. It is what switches the focus ring to the on-overlay accent, where the ordinary
-// `--color-accent` measures 1.17:1 over a dark scrim (#986's mechanism, #1035's defect).
+// THE ENGINE DECIDES whether a scrim is being painted; the template just consumes the flag.
+//
+// TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
+// stood here claimed a benefit this component cannot have:
+//
+// 1. IT HAS NO CONSUMER ON THIS BAND TODAY. The attribute's only readers are
+//    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`. Neither stats nor
+//    logos renders a `.btn`, a `.faq__question`, or ANY focusable child — so there is no
+//    focus ring here to switch, and the 1.17:1 contrast defect the old comment cited
+//    (#986's mechanism, #1035's defect) is unreachable on these two components. It is
+//    emitted for consistency with the other v2 bands and to be correct the day one of
+//    these grows a focusable child, not because it fixes something now.
+// 2. THE FLAG IS AN INPUT-SHAPED PROP AND IS NOT VALIDATED AGAINST THE COMPILED MAP. The
+//    engine sets it, but `pp_udc_promote_band_identity()` never CLEARS a value already in
+//    `$props`, so a raw `_pp_composition` write or a restore (#233) can carry a forged
+//    `__pp_udc_overlay` and switch the hook on a band painting no scrim at all. Filed as
+//    #1073 rather than patched here: the fix belongs in the engine's promotion step, which
+//    is shared by all v2 templates, and a local guard here would leave the other nine.
 $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos" data-pp-component="logos"<?php echo $band_attr; ?><?php echo $overlay_attr; ?>>
