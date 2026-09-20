@@ -215,3 +215,38 @@ that loop rather than to a change narrowing a gate. Tracked separately.
 - `docs/v2/INVARIANTS.md` — I4 (one gate every ingress traverses), I16 and I17 (nothing
   fatals on stored data), I24 (a stated reason AND a route back), I35 (no silently
   ignored input).
+
+## Layer 2: what "validated" means for a raw declaration
+
+`_css` (the raw declaration list beside a role's groups) changed the answer to "is this
+value validated?" from yes/no to **a scope you can read**, and this page is where that scope
+is stated, because a promise that is not written down is not a promise.
+
+| | checked | not checked |
+|---|---|---|
+| the property NAME | the charset `^-?[a-z][a-z0-9-]{0,63}\z`, plus a short exclusion list | nothing else is reachable — the charset is an allowlist of characters, not a list of banned constructs |
+| any value | forbidden constructs, delimiter balance, emptiness, reflected-text bounds | — |
+| a value on a property the design vocabulary **types** | that parameter's full grammar, and whether an `@token` fits it | — |
+| a value on any **other** property | *(the gates above, and nothing more)* | whether the browser accepts it |
+
+The last row is the one that matters, and it is **disclosed rather than hidden**: every such
+declaration produces a `udc_css_unchecked_property` finding on the write envelope naming the
+role, the property and the state. An author who writes `mixx-blend-mode` gets an accepted
+write, a verbatim emission, a browser that ignores it, and a finding saying the value went
+out unverified.
+
+**Why that is not the "validates green, renders nothing" defect this codebase spends so much
+effort closing.** That defect is a system claiming a proof it does not have — a value
+accepted under a grammar the engine advertises and then silently dropped somewhere
+downstream. Here the grammar IS the security grammar, it is stated exactly, the refusals
+cover exactly it, the AI-facing instructions claim exactly it, and the envelope says so per
+declaration. The author chose a channel documented as verbatim. What is forbidden is the
+gap between what is claimed and what is checked, and closing it by narrowing the claim is as
+honest as closing it by widening the check — and it is the only option available once the
+property set is open, which is a design decision recorded in
+[the Layer-2 contract](v2/LAYER-2-CONTRACT.md) §8.R rather than one made here.
+
+**The write-accept / emit-drop rule still binds absolutely:** whatever the write gate
+accepts, the emitter emits or discloses. Stored data the gate never saw — a raw meta write,
+a composition written before a rule existed, a restore — is re-gated at emission and every
+discard is ledgered.

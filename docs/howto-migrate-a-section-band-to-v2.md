@@ -223,6 +223,29 @@ of the four no role reaches: glyph colour, prose paragraph rhythm, the list inde
 phone-only gap between stacked panel rows. All four are listed in
 [section's README](../components/section/README.md#what-no-role-reaches).
 
+## Layout values: `_css` now, a group later
+
+The approved coverage table specifies a **Layout** group — columns, gap, orientation, wrap —
+and `Sizing → alignment`, and neither has been built yet. Four places in the shipped
+component code route around that gap in writing, and three open issues ask for it (#658
+vertical alignment on the panel and grid, #588 media fit and cropping, #905 grid columns).
+
+Until the group ships, **those values are expressible through `_css` today**:
+
+```json
+{"columns": {"_css": {"align-items": "start"}},
+ "panel":   {"_css": {"align-self": "center"}},
+ "media":   {"_css": {"object-fit": "contain"}}}
+```
+
+That is exactly what the escape hatch is for, and it is worth being clear about the trade:
+these are raw declarations, so they are checked for safety and emitted verbatim, and each
+one produces a `udc_css_unchecked_property` finding on the write envelope. When the Layout
+group lands they become named, type-checked parameters, and the `_css` versions should be
+migrated to them — a raw declaration and a group parameter for the same property is always
+a mistake, and the engine will tell you so with a `udc_css_overrides_group_value` finding if
+you leave both in place.
+
 ## Related
 
 - **[Tutorial — style a band on the design contract](tutorial-style-a-band-on-the-design-contract.md)** — if you have not written a `udc` map before, start there.

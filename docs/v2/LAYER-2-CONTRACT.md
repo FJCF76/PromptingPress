@@ -450,7 +450,57 @@ Layer 2's contribution is bounded by construction: at most `|allowlist|` declara
 
 ---
 
-## 4 — VALIDATION
+## 4′ — VALIDATION UNDER R1′ (what is checked, and the promise that it says so)
+
+§4.1 (one gate, every ingress) and §4.2 (reflected-text bounds) stand. §4.3 and §4.4 are
+replaced by this section; the originals follow.
+
+### 4′.1 The scope of check, stated so the docs can claim exactly it and no more
+
+| | checked | not checked |
+|---|---|---|
+| property NAME | the `^-?[a-z][a-z0-9-]{0,63}\z` charset; the §6.0 exclusions | — nothing else is possible: the charset is an allowlist |
+| value, any property | forbidden constructs, delimiter balance, emptiness, reflected-text bounds | — |
+| value, property the vocabulary TYPES | **+ that parameter's full grammar**, and `@reference` type-fitness | — |
+| value, any other property | *(the security gates only)* | whether the browser accepts it — **disclosed** as `udc_css_unchecked_property` |
+
+**This table IS the declared grammar I30 asks for.** The breach R1 named was a system
+claiming proof it did not have; the honesty is in the fourth row saying so on the envelope
+and in the AI surface, not in pretending the row is empty.
+
+### 4′.2 The write-accept / emit-drop prohibition, re-aimed
+
+R1′ makes the #570 convergence rule the sharpest constraint here: **whatever the write gate
+accepts, the emitter emits or DISCLOSES.** Three mechanisms, and the third is what makes it
+checkable rather than hoped for:
+
+1. **One predicate.** `_pp_udc_css_param_for_property()` decides "typed or not" for the gate
+   and for the compiler. Two copies would let a write say typed and an emit say verbatim.
+2. **The emitter re-gates stored data**, because a raw meta write, a pre-rule composition
+   and `restore_composition` all reach it directly — and ledgers every discard, so data the
+   gate never saw is reported rather than silently dropped.
+3. **Both-direction pins.** `tests/UdcRawCssTest.php` asserts each refused shape is refused
+   at write AND dropped-with-a-ledger-entry at emit, and the hostile-byte sweep is
+   red-proofed by planting the `$`-for-`\z` defect (48 assertions → failure at 13).
+
+**One pre-existing instance Layer 2 inherits and does not fix:** `_pp_udc_place()` silently
+skips a role whose schema-declared selector fails its charset (#1048). A `_css` value on
+such a role is inert for the same reason a Layer-1 one is.
+
+### 4′.3 What the test suite covers
+
+The property-name gate hostile-byte by hostile-byte with a paired accept for each; every
+exclusion with its stated reason; typed-where-known in both directions; the `@reference`
+rule including inside a breakpoint map; the rank in **both key orders**; both disclosures
+including the no-`_tokens` band; the mint round trip in both directions (the CRITICAL
+regression); presets; chrome; the real authoring path; and the emit-drop ledger. Rendered
+claims — that a declaration computes, that the raw value wins in the browser's own cascade,
+and that breakpoints key to the viewport — are `tests/e2e/raw-css.spec.ts`, because an
+unknown property is emitted verbatim and only a browser can say whether it was accepted.
+
+---
+
+## 4 — VALIDATION as first drafted (§4.1-§4.2 stand; §4.3-§4.4 superseded by §4′)
 
 ### 4.1 One gate, already traversed by every ingress
 
@@ -595,7 +645,32 @@ Those three issues remain Layer-3 / role-taxonomy work. Anyone reading this cont
 
 ---
 
-## 7 — THE AI-AUTHORING SURFACE
+## 7′ — THE AI-AUTHORING SURFACE UNDER R2′ (structured first)
+
+§7.1's premise is unchanged and is now more binding, not less: `lib/ai-context.php` is the
+only channel the model reads, so a valve documented anywhere else does not exist for it
+(#1059). What changes is that there is much more to say.
+
+**The principle the surface teaches, in the owner's framing:** *structured first, `_css` for
+what structure cannot say.* A group parameter is type-checked, appears in the catalog, can
+be reviewed and changed by name, and the engine can report when it cannot take effect. A
+raw declaration has none of that and is the right answer only when the vocabulary genuinely
+has no way to say the thing. The prompt leads with that rule, then the shape, then the four
+facts an author cannot infer: `_css` wins a collision (with the finding that says so); an
+unknown property is checked for safety only (with the finding that says so); `@references`
+need a declared type; and property names are lowercase with one optional leading hyphen.
+
+**Derived, not restated.** The exclusion list in the prompt is built from
+`pp_udc_css_excluded_properties()` at runtime, for the reason `pp_udc_group_summary()`'s
+docblock gives about v1's four hand-maintained copies of the unit set: an exclusion added
+later has to reach the model on the day it lands.
+
+**One thing the surface says that the engine cannot enforce:** *you still own contrast.* A
+raw `background` or `opacity` changes what text sits on, and nothing checks that.
+
+---
+
+## 7 — THE AI-AUTHORING SURFACE as first drafted (§7.1's premise stands)
 
 ### 7.1 #1059's finding binds this section
 
@@ -798,7 +873,21 @@ Recommendation: **cited demand.** It is the *benchmark-detects-never-specifies* 
 
 ## 9 — Acceptance criteria
 
-*These apply if Q0 is answered Option 1, 2 or 4. Under Option 3 this issue closes as the recorded contract and the acceptance criteria travel with it to the sprint that builds it.*
+*Q0 was answered BUILD (R0), so these bind. Re-derived against R1′/R2′ — the original list
+assumed a typed, disjoint allowlist and three of its seven items described a layer that is
+not the one being built.*
+
+1. Broad admission implemented as the §2′.1 charset plus the §6.0 exclusions, with **no
+   property list to maintain**; the charset red-proofed hostile-byte by hostile-byte.
+2. Typed-where-known, verbatim-where-not, and `@references` refused on untyped properties.
+3. `_css` outranks a group value **in both key orders**, and the collision is disclosed.
+4. The unchecked set is disclosed, and the disclosure fires on a band that mints no token.
+5. The mint round trip works in both directions (accept the engine's own, refuse a squat).
+6. Whatever the write gate accepts, the emitter emits or ledgers — pinned both ways.
+7. Presets refused at both grains; chrome reached through the same engine.
+8. `lib/ai-context.php` carries the structured-first principle and a derived exclusion list.
+9. Rendered evidence at 375/768/1280 including a dark band and a stressed value.
+10. Both suites green at every commit.
 
 1. The contract above, as ruled, implemented with **zero new validators** and **zero forked grammar**: one registry function, one params-table seam, the existing write gate, the existing emitter, the existing findings channels.
 2. Disjointness (by shorthand family), the one-home rule, and every allowlist type's existence in the shared grammar owner: each pinned by a test.
@@ -876,6 +965,12 @@ The contract's central engineering claim is that Layer 2 is **almost entirely ex
 **Sequential implementation, no parallelization opportunity.** Every task touches `lib/udc.php` as its primary module; the docs and `lib/ai-context.php` work derives from the registry function and cannot start before it. One note if the work is ever split: the family map (T2) and the registry (T1) are the same file and the same commit — splitting them produces a map with nothing to classify.
 
 ## 15 — Implementation Tasks
+
+**SUPERSEDED BY THE BUILD.** This list was derived under the typed/disjoint rulings and
+several of its tasks describe work that no longer exists (T2's shorthand-family map died
+with disjointness; T5's `enum` pass-through is unnecessary once values are generic). What
+was actually built, and why, is in the commit series on this branch and in §2′/§4′ above.
+Kept unedited because the delta between a plan and its build is worth being able to read.
 
 **All conditional on §8 Q0 being answered Option 1, 2 or 4.** Under Option 3 this issue closes as the recorded contract and these tasks travel with it. No task is invented: each derives from a section or a review finding above.
 
