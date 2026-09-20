@@ -114,6 +114,8 @@ one, so there is nothing for a role parameter to hold.
 | `panel-row-value` | `.section__panel-row-value` | the right-hand value's type |
 | `panel-cta` | `.section__panel-cta` | the panel button, usually via `"_preset": "button"` |
 
+**Which roles carry `layout` (#1084):** `columns`, `inline-items`, `panel-row`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
 **Nineteen roles is deliberate, and it was argued down and back up again.** A mid-sprint
 draft collapsed the five `panel-*` text roles into the `panel` role on the grounds that
 one panel needs one design. That is wrong for the thing the panel is actually used for: a

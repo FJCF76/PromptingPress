@@ -79,6 +79,8 @@ outranks whatever the prop selected — at every breakpoint, in every variant.
 | `surface` | `.hero__surface` | the split layout's proof panel |
 | `media` | `.hero__image` | the split layout's image: radius, and its crop ratio |
 
+**Which roles carry `layout` (#1084):** `inner`, `content`, `cta-group`, `proof`, `surface`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
 ### The two CTA roles are deliberately asymmetric
 
 Role defaults outrank presets. A default on `cta` would suppress exactly the part of a

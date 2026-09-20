@@ -93,6 +93,8 @@ byte-identical to v1. **An `inline` cta now paints them too.** For the v1 inline
 | `button` | `.cta__button--primary` | the primary button, and only it — **declares nothing** (see below) |
 | `button-secondary` | `.cta__button--secondary` | the second button — the only role here with colour-bearing defaults |
 
+**Which roles carry `layout` (#1084):** `inner`, `buttons`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+
 ### Two roles declare nothing, and that is the deliberate part
 
 **`button`.** Measured in Chromium, every resting and hover value the primary renders — the

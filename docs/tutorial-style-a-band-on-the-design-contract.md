@@ -212,6 +212,25 @@ re-stating the whole rule three times. Second, and you did not ask for it:
 Declare a transition anywhere and the engine writes the reduced-motion guard beside it.
 Accessibility affordances are the engine's job, not yours to remember.
 
+## Step 5b: Arranging, not just painting
+
+Everything so far set how a box LOOKS. The `layout` group sets how a container arranges its
+children, on the roles whose box is one — here the card `list`, and the `attribution` row inside
+a card (each component's README lists its own):
+
+```json
+{
+  "list":        { "layout": { "columns": { "d": 3, "p": 1 } } },
+  "attribution": { "layout": { "align": "center" } },
+  "avatar":      { "sizing": { "align-self": "flex-start" } }
+}
+```
+
+Two things to know before you use it. `columns` takes a count or a track list, and setting it
+makes that box a grid — so `orientation` and `wrap`, which are flexbox parameters, stop applying
+to it at the breakpoints you set. And a box placing ITSELF is `sizing.align-self`, not a layout
+parameter: `layout` is what a container does to its children.
+
 ## Step 6: When the vocabulary cannot say it — raw CSS
 
 Everything above went through a **group** and a **parameter**: `typography.size`,
