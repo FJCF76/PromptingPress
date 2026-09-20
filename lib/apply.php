@@ -1631,43 +1631,20 @@ function _pp_css_grid_count(string $value): ?int {
 }
 
 /**
- * How many tracks a validated list actually RESOLVES to.
+ * The byte bound on a whole track list, before anything walks it.
  *
- * The bound is stated to authors in four places — this file's docblocks, the
- * refusal message, the contract and the AI-facing prompt — as "at most 12 tracks",
- * and it was enforced on neither: the count bounded top-level ENTRIES, and a
- * repeat() count bounded itself, so `repeat(12, 1fr 1fr)` passed and emitted 24.
- * Found by the pre-landing maintainability pass. A claim that four texts make is a
- * claim the code should keep.
+ * A 12-track list of the longest legitimate shape — `minmax(20rem, 1fr)` twelve
+ * times, with separators — is about 230 characters; `repeat(auto-fit, minmax(20rem,
+ * 1fr))` is 36. 400 is generous against both and refuses the pathological input
+ * class outright, ahead of any per-character walk. Found by the pre-landing
+ * performance pass, which measured a 400 KB flat value being walked in full (45 ms)
+ * before the 12-track count refused it.
  */
-function _pp_css_resolved_track_count(array $tracks): int {
-    $total = 0;
-    foreach ($tracks as $track) {
-        if (preg_match('/^repeat\((.*)\)\z/is', $track, $m)) {
-            $parts = _pp_css_split_top_level($m[1], ',');
-            if ($parts === null || count($parts) < 2) {
-                return PHP_INT_MAX; // Malformed; the validator refuses it anyway.
-            }
-            $count = strtolower(array_shift($parts));
-            // `auto-fit` / `auto-fill` resolve against the container at layout
-            // time, so the engine cannot count them. They contribute their
-            // WRITTEN track count: the author wrote one pattern, not forty.
-            $repeats = _pp_css_grid_count($count) ?? 1;
-            $inner   = 0;
-            foreach ($parts as $part) {
-                $inner += count(_pp_css_split_top_level($part) ?: []);
-            }
-            $total += $repeats * max(1, $inner);
-            continue;
-        }
-        $total++;
-    }
-    return $total;
-}
+const PP_CSS_MAX_TRACK_LIST_BYTES = 400;
 
 function _pp_validate_track_list(string $value): bool {
     $value = trim($value);
-    if ($value === '') {
+    if ($value === '' || strlen($value) > PP_CSS_MAX_TRACK_LIST_BYTES) {
         return false;
     }
 
@@ -1692,24 +1669,32 @@ function _pp_validate_track_list(string $value): bool {
         return false;
     }
 
-    $repeats = 0;
+    // ONE WALK, COUNTING AS IT GOES. The resolved count used to be a second pass
+    // that re-split every repeat() body and every track the first pass had already
+    // split — measured at 28-35% of the validation cost for the repeat() forms, and
+    // paid again at emit, on every request, for every stored track list.
+    $repeats  = 0;
+    $resolved = 0;
     foreach ($tracks as $track) {
         if (preg_match('/^repeat\((.*)\)\z/is', $track, $m)) {
             if (++$repeats > 1) {
                 return false; // One repeat() per list: the bound, stated.
             }
-            if (!_pp_validate_track_repeat($m[1])) {
+            $count = _pp_validate_track_repeat($m[1]);
+            if ($count === null) {
                 return false;
             }
+            $resolved += $count;
             continue;
         }
         if (!_pp_validate_grid_track($track)) {
             return false;
         }
+        $resolved++;
     }
     // The bound the docs actually state, enforced on what the list RESOLVES to
     // rather than on how it was spelled.
-    return _pp_css_resolved_track_count($tracks) <= PP_CSS_MAX_GRID_TRACKS;
+    return $resolved <= PP_CSS_MAX_GRID_TRACKS;
 }
 
 /** The upper bound on tracks in one authored list, and on a `repeat()` count. */
@@ -1722,23 +1707,27 @@ const PP_CSS_MAX_GRID_TRACKS = 12;
  * the whole reason the list form exists (#905). A numeric count carries the same
  * 1-12 bound as a written-out list, so `repeat(40, 1fr)` is refused with a
  * number an author recognises rather than by exhausting a parser.
+ *
+ * @return int|null The tracks this repeat() resolves to, or null when it is not a
+ *                  valid repeat() at all. Counting here rather than in a second
+ *                  pass is what keeps the list validated and measured in one walk.
  */
-function _pp_validate_track_repeat(string $body): bool {
+function _pp_validate_track_repeat(string $body): ?int {
     $parts = _pp_css_split_top_level($body, ',');
     if ($parts === null || count($parts) < 2) {
-        return false;
+        return null;
     }
-    $count = strtolower(array_shift($parts));
+    $count   = strtolower(array_shift($parts));
+    $repeats = 1;
     if (!in_array($count, ['auto-fit', 'auto-fill'], true)) {
-        if (!preg_match('/^\d{1,2}\z/', $count)) {
-            return false;
+        $n = _pp_css_grid_count($count);
+        if ($n === null) {
+            return null;
         }
-        $n = (int) $count;
-        if ($n < 1 || $n > PP_CSS_MAX_GRID_TRACKS) {
-            return false;
-        }
+        $repeats = $n;
     }
-    // The tracks inside. A nested repeat() dies here: `repeat` is not a track.
+    // The tracks inside, counted as they are validated. A nested repeat() dies
+    // here: `repeat` is not a track.
     //
     // AN EMPTY PART IS A REFUSAL, NOT AN EMPTY LOOP (found by the pre-landing
     // security pass). `?: []` turned both null and `[]` into a vacuous PASS — no
@@ -1750,18 +1739,23 @@ function _pp_validate_track_repeat(string $body): bool {
     // a flex row and becomes a one-column grid with no track definition at all —
     // the I19/I35 class the companion exists to avoid, arriving through the
     // companion itself.
+    $inner_tracks = 0;
     foreach ($parts as $track) {
         $inner = _pp_css_split_top_level($track);
         if ($inner === null || $inner === []) {
-            return false;
+            return null;
         }
         foreach ($inner as $one) {
             if (!_pp_validate_grid_track($one)) {
-                return false;
+                return null;
             }
+            $inner_tracks++;
         }
     }
-    return true;
+    // `auto-fit` / `auto-fill` resolve against the container at layout time, so the
+    // engine cannot know the real count — they contribute the ONE pattern the
+    // author wrote, which is the honest reading of the 12-track bound.
+    return $repeats * max(1, $inner_tracks);
 }
 
 /**
@@ -1789,14 +1783,54 @@ function _pp_validate_grid_track(string $track): bool {
         if ($pair === null || count($pair) !== 2) {
             return false;
         }
-        foreach ($pair as $side) {
-            if (!_pp_validate_grid_track($side)) {
-                return false;
-            }
-        }
-        return true;
+        // NOT RECURSIVE, AND THAT IS BOTH CORRECTNESS AND COST.
+        //
+        // This used to call back into _pp_validate_grid_track(), which re-split the
+        // inner body at every level — so `minmax(0, minmax(0, minmax(0, …)))`
+        // validated in O(len²) with no depth bound, was ACCEPTED at the write gate,
+        // and was then re-validated on EVERY front-end request. Measured by the
+        // pre-landing performance pass: a 2.2 KB value cost 14.5 ms per validation
+        // and 765 ms of page CSS on a 50-band page; a 22 KB value 1.34 s; a 220 KB
+        // value did not finish in 120 s. One ordinary authenticated write, and every
+        // later page view pays it.
+        //
+        // The recursion bought nothing even before the cost: CSS Grid defines
+        // minmax() as `minmax(<inflexible-breadth>, <track-breadth>)`, and neither
+        // side may be another minmax() or a repeat(). A nested one was never legal
+        // CSS — it validated green here and the browser dropped the declaration,
+        // which is the dead-value class this grammar exists to refuse.
+        return _pp_validate_track_breadth($pair[0], false)
+            && _pp_validate_track_breadth($pair[1], true);
     }
     return _pp_css_length($track, ['signed' => false, 'percent' => true, 'functions' => false]);
+}
+
+/**
+ * ONE SIDE of a minmax(), non-recursively.
+ *
+ * `<inflexible-breadth>` (the minimum) is a length, a percentage, or one of the
+ * three sizing keywords. `<track-breadth>` (the maximum) additionally takes an
+ * `<n>fr`. That asymmetry is CSS's, not an invention here: `minmax(1fr, 2fr)` is
+ * invalid — a flexible minimum has no meaning — so accepting it would store a value
+ * the browser drops, with the whole declaration going with it.
+ *
+ * @param bool $flexible Whether this side accepts an `<n>fr` (the maximum does).
+ */
+function _pp_validate_track_breadth(string $side, bool $flexible): bool {
+    $side  = trim($side);
+    $lower = strtolower($side);
+    if ($side === '') {
+        return false;
+    }
+    if (in_array($lower, ['auto', 'min-content', 'max-content'], true)) {
+        return true;
+    }
+    if (preg_match('/^(\d+(?:\.\d+)?)fr\z/', $lower, $m)) {
+        // A zero fraction is a track that paints nothing, refused on both sides for
+        // the same reason it is refused as a whole track.
+        return $flexible && (float) $m[1] > 0.0;
+    }
+    return _pp_css_length($side, ['signed' => false, 'percent' => true, 'functions' => false]);
 }
 
 /**

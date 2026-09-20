@@ -252,6 +252,15 @@ a second validator.
 | `box-align` (align-items / align-self) | `flex-start`, `flex-end`, `start`, `end`, `self-start`, `self-end`, `center`, `baseline`, `first baseline`, `last baseline`, `stretch`, `normal`, `safe`/`unsafe` + positional; `align-self` additionally `auto` |
 | `track-list` | a positive integer 1–12, **or** a bounded track list |
 
+**Bounds the grammar enforces, corrected at the pre-landing performance pass.** `minmax()` does
+**not** nest — its two sides take breadths (a length/percentage, a sizing keyword, and an `<n>fr` on
+the maximum only), which is what CSS Grid says and what stops the validator recursing. A nested one
+used to validate in O(len²) with no depth bound, be ACCEPTED and stored by an ordinary write, and be
+re-validated on **every front-end request**: measured at 765 ms of page CSS for a 2.2 KB value on a
+50-band page, and no result at all in 120 s for 220 KB. A whole track list is also bounded at 400
+bytes before anything walks it, and the 12-track bound is enforced on what a list **resolves** to
+rather than on how it was spelled (`repeat(12, 1fr 1fr)` is 24 tracks, and is refused).
+
 **`track-list`, precisely.** An integer 1–12 is synthesised to `repeat(N, minmax(0, 1fr))` — the
 repo's own grid lesson (a track needs `minmax(0,…)` or its content cannot shrink, the #1043/#1067
 class). An explicit list is a sequence of 1–12 tracks, each one of: a length with the shared unit

@@ -223,6 +223,54 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no('100', 'track-list', 'an out-of-range count is a mistake, not a single 100-unit track');
         $this->ok('0%', 'track-list');
 
+        // NESTED minmax(): refused, and this is the one the pre-landing performance
+        // pass found. The validator used to recurse into each side and re-split the
+        // body at every level, which is O(len^2) with no depth bound — and the value
+        // was ACCEPTED, stored, and re-validated on every front-end request. A 2.2 KB
+        // string cost 765 ms of page CSS on a 50-band page; a 220 KB one did not
+        // finish in 120 s. It was never legal CSS either: Grid defines minmax()'s
+        // arguments as breadths, never another minmax().
+        $this->no('minmax(0, minmax(0, 1fr))', 'track-list', 'minmax() does not nest, in CSS or here');
+        $this->no('minmax(minmax(0, 1fr), 1fr)', 'track-list', 'in either position');
+        $this->no('minmax(0, repeat(2, 1fr))', 'track-list', 'and a repeat() is not a breadth');
+        // A FLEXIBLE MINIMUM is invalid CSS — `minmax(1fr, 2fr)` is dropped by the
+        // browser, taking the whole declaration with it, which is the dead-value
+        // class this grammar refuses.
+        $this->no('minmax(1fr, 2fr)', 'track-list', 'the minimum of a minmax() takes no fr');
+        $this->ok('minmax(0, 1fr)', 'track-list');
+        $this->ok('minmax(min-content, max-content)', 'track-list');
+
+        // THE BYTE BOUND, ahead of any walk. A 12-track list has no legitimate need
+        // for more than a few hundred characters, and a pathological value must be
+        // refused before anything walks it character by character.
+        $this->no(str_repeat('minmax(0, ', 200) . '1fr' . str_repeat(')', 200), 'track-list',
+            'past the byte bound, and refused without a quadratic walk');
+        $this->no(str_repeat('1fr ', 200), 'track-list', 'a long flat list is bounded too');
+    }
+
+    /**
+     * THE REFUSAL IS FAST, which for this grammar is a correctness property rather
+     * than a nicety: the value is re-validated at emit on every front-end request,
+     * so a stored string that takes seconds to refuse is a page that takes seconds
+     * to build. 44 KB of nested minmax() refused in well under a millisecond here;
+     * before the fix, 4.4 KB took 57 ms and 220 KB did not finish in two minutes.
+     */
+    public function testAPathologicalTrackListIsRefusedWithoutBurningCpu(): void
+    {
+        $hostile = str_repeat('minmax(0, ', 4000) . '1fr' . str_repeat(')', 4000);
+        $this->assertGreaterThan(40000, strlen($hostile), 'the fixture must actually be large');
+
+        $started = microtime(true);
+        $result  = _pp_validate_token_value($hostile, 'track-list');
+        $elapsed = microtime(true) - $started;
+
+        $this->assertInstanceOf(\WP_Error::class, $result);
+        $this->assertLessThan(
+            0.05,
+            $elapsed,
+            sprintf('refusing a %d-byte value took %.1f ms; this runs at emit on every request', strlen($hostile), $elapsed * 1000)
+        );
+
         // The shared reject set still owns the injection classes, ahead of the
         // grammar — pinned here because this is the first type whose values carry
         // parentheses AND commas, the shape those gates exist for.

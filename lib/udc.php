@@ -2231,13 +2231,55 @@ function _pp_udc_background_image_companions(array $declarations): array {
  *     set is the Layer-2 contract's (#1079 §6.0) and widening it is that
  *     contract's ruling to make.
  */
-function _pp_udc_grid_columns_companion(array $declarations): array {
+/**
+ * The properties any registry parameter marks as companion-bearing.
+ *
+ * Derived once per request from pp_udc_groups(), so the emitter's hot loop can ask
+ * "can this property carry a companion at all?" with one isset() instead of reading
+ * four levels into the resolution table on every declaration it places. The
+ * pre-landing performance pass measured that unguarded read at 0.23 ms of a 0.47 ms
+ * regression on a 50-band page WITH NO LAYOUT VALUES — a page paying for a feature
+ * it does not use, which is the cost this file's other hot-loop notes exist to
+ * refuse.
+ *
+ * @return array<string, true>
+ */
+function _pp_udc_companion_properties(): array {
+    static $properties = null;
+    if ($properties === null) {
+        $properties = [];
+        foreach (pp_udc_groups() as $definition) {
+            foreach ($definition['params'] as $param) {
+                if (!empty($param['companion'])) {
+                    $properties[$param['property']] = true;
+                }
+            }
+        }
+    }
+    return $properties;
+}
+
+function _pp_udc_grid_columns_companion(array $declarations, bool $base_tier_has_display = false): array {
     // `companion` is set by _pp_udc_place() only for the `layout.columns`
     // PARAMETER. Keying on the property instead let a raw `_css` declaration pull
     // the companion onto any role at all, including the two the exposure roster
     // excludes precisely because their `display` is a visibility switch — see the
     // note at the marker for the probe that found it.
     if (empty($declarations['grid-template-columns']['companion']) || isset($declarations['display'])) {
+        return $declarations;
+    }
+    // A NARROWER TIER BORROWS THE BASE TIER'S COMPANION instead of repeating it.
+    //
+    // The `d` bucket emits unlayered with no media query, so its `display: grid`
+    // already applies at every width — a copy inside `@media (max-width: 767px)`
+    // changes nothing and costs bytes. Measured by the pre-landing performance
+    // pass: a responsive `{"d":3,"t":2,"p":1}` emitted it three times, and on a
+    // layout-heavy 50-band page the repeats were 5.2% of the emitted CSS, against a
+    // file where emitted size is already a live concern (#1062/#1054).
+    //
+    // The author who sets columns ONLY at a narrow tier still gets it there, which
+    // is the case that makes the companion necessary at all.
+    if ($base_tier_has_display) {
         return $declarations;
     }
     $declarations['display'] = [
@@ -4194,6 +4236,12 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 }
             }
 
+            // Computed once per state, not per bucket: whether the base tier
+            // already carries a `display` (authored or an earlier companion) that
+            // every narrower tier inherits. See _pp_udc_grid_columns_companion().
+            $base_tier_has_display = isset($by_bp['d']['display'])
+                || !empty($by_bp['d']['grid-template-columns']['companion']);
+
             foreach ($by_bp as $bp => $declarations) {
                 // THE DROP. In the authored layer a declaration whose winner is
                 // a role default is not the band's contribution — it is the
@@ -4222,7 +4270,10 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // sorted in: a companion is the engine's addition to a finished
                 // set, and `display` has no shorthand relationship with anything
                 // here, so its position cannot erase a sibling.
-                $declarations = _pp_udc_grid_columns_companion($declarations);
+                $declarations = _pp_udc_grid_columns_companion(
+                    $declarations,
+                    $bp !== 'd' && $base_tier_has_display
+                );
                 if ($declarations === []) {
                     continue;
                 }
@@ -4583,6 +4634,20 @@ function _pp_udc_place(
         return;
     }
 
+    // PARAM FACTS, HOISTED. None of these depend on the breakpoint, and this is the
+    // hottest loop in the engine — they were being recomputed per bucket.
+    //
+    // THE REGISTRY IS THE DISCRIMINATOR for the companion, not the parameter's name.
+    // A group parameter carries `companion` in pp_udc_groups(); the `_css` route
+    // builds its param from pp_udc_css_param(), which COPIES the registry entry for
+    // a claimed property — so the flag would come with it, and `_group` (the key
+    // pp_udc_css_param() adds and a registry param never has) is what tells the two
+    // routes apart honestly.
+    $definition         = $params[$param_name];
+    $companion          = !empty($definition['companion']) && !isset($definition['_group']);
+    $is_track_list      = ($definition['type'] ?? '') === 'track-list';
+    $may_carry_companion = isset(_pp_udc_companion_properties()[$property]);
+
     $per_bp = is_array($value) ? $value : ['d' => $value];
     foreach ($per_bp as $bp => $raw) {
         if (!isset($breakpoints[$bp]) || !is_scalar($raw)) {
@@ -4766,8 +4831,7 @@ function _pp_udc_place(
         // synthesise would emit a bare `grid-template-columns: 100`, which the
         // browser drops while keeping the companion below — the dead-value class
         // the companion exists to prevent.
-        if (($params[$param_name]['type'] ?? '') === 'track-list'
-            && _pp_css_grid_count($literal) !== null) {
+        if ($is_track_list && _pp_css_grid_count($literal) !== null) {
             $css = 'repeat(' . $css . ', minmax(0, 1fr))';
         }
 
@@ -4790,30 +4854,30 @@ function _pp_udc_place(
         // emits a track list; if the box is not already a grid, that is the same
         // inertness any raw declaration can have on an element it does not suit.
         //
-        // THE REGISTRY IS THE DISCRIMINATOR, not the parameter's name. A group
-        // parameter carries `companion` in pp_udc_groups(); the `_css` route builds
-        // its param from pp_udc_css_param(), which copies the registry entry for a
-        // claimed property — so the flag would come with it, and the name check that
-        // used to sit here was doing the real work by accident. `_group` is the key
-        // pp_udc_css_param() adds and a registry param never has, which is what
-        // tells the two routes apart honestly.
-        $companion = !empty($params[$param_name]['companion'])
-            && !isset($params[$param_name]['_group']);
-
-        $resolved[$state][$bp][$property] = [
+        $entry = [
             'css'     => $css,
             'source'  => $source,
             'literal' => $literal,
-            // A LATER WRITER AT THE SAME COORDINATE KEEPS THE MARKER. `_css` places
-            // after the groups by rank, so a band carrying BOTH `layout.columns` and
-            // a raw `grid-template-columns` would otherwise lose the companion the
-            // group value earned — the author would set two values and watch the
-            // box stop being a grid. The raw value still wins the property (and the
-            // envelope still discloses that with `udc_css_overrides_group_value`);
-            // it just does not un-declare the display the group value implied.
-            'companion' => $companion
-                || !empty($resolved[$state][$bp][$property]['companion']),
         ];
+        // THE MARKER IS WRITTEN ONLY WHEN IT IS TRUE, and the inheritance read runs
+        // only for a property that can carry one. Both were unconditional, and the
+        // pre-landing performance pass measured the four-level read at 0.23 ms of a
+        // 0.47 ms regression ON A PAGE WITH NO LAYOUT VALUES AT ALL — the `||` never
+        // short-circuits, because `$companion` is false for 66 of the 67 parameters.
+        // A page must not pay for a feature it does not use.
+        //
+        // A LATER WRITER AT THE SAME COORDINATE KEEPS THE MARKER. `_css` places
+        // after the groups by rank, so a band carrying BOTH `layout.columns` and a
+        // raw `grid-template-columns` would otherwise lose the companion the group
+        // value earned — the author would set two values and watch the box stop
+        // being a grid. The raw value still wins the property (and the envelope
+        // still discloses that with `udc_css_overrides_group_value`); it just does
+        // not un-declare the display the group value implied.
+        if ($companion
+            || ($may_carry_companion && !empty($resolved[$state][$bp][$property]['companion']))) {
+            $entry['companion'] = true;
+        }
+        $resolved[$state][$bp][$property] = $entry;
     }
 }
 

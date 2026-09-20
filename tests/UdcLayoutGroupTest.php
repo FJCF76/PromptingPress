@@ -391,6 +391,28 @@ class UdcLayoutGroupTest extends TestCase
         $this->assertStringContainsString('display:grid', $this->tier($css, 'p'));
     }
 
+    /**
+     * A NARROWER TIER BORROWS THE BASE TIER'S COMPANION instead of repeating it.
+     *
+     * The `d` bucket emits unlayered with no media query, so its `display: grid`
+     * already applies at every width. Measured by the pre-landing performance pass:
+     * the repeats were 5.2% of the emitted CSS on a layout-heavy 50-band page, in a
+     * file where emitted size is already a live concern (#1062/#1054).
+     */
+    public function testTheCompanionIsNotRepeatedInEveryTier(): void
+    {
+        $responsive = $this->css(['columns' => ['layout' => ['columns' => ['d' => 3, 't' => 2, 'p' => 1]]]]);
+        $this->assertSame(1, substr_count($responsive, 'display:grid'),
+            'the base tier already applies at every width; a copy per tier is bytes that change nothing');
+        $this->assertStringContainsString('repeat(1, minmax(0, 1fr))', $this->tier($responsive, 'p'),
+            'the per-tier TRACKS still differ, which is the whole point of a responsive map');
+
+        // The author who sets columns only at one narrow tier still needs it there:
+        // there is no base declaration to inherit.
+        $phoneOnly = $this->css(['columns' => ['layout' => ['columns' => ['p' => 1]]]]);
+        $this->assertStringContainsString('display:grid', $this->tier($phoneOnly, 'p'));
+    }
+
     /** The other half of the bucket claim: a state is a bucket too. */
     public function testTheCompanionRidesAStateBucketAsWell(): void
     {
