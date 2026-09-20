@@ -410,6 +410,22 @@ class UdcRawCssTest extends TestCase
             . 'would, so it is a squat and the author\'s value would be overwritten');
     }
 
+    /**
+     * `_css` AT THE TOP LEVEL IS THE MISTAKE THE SHAPE INVITES, so the refusal routes
+     * rather than merely refusing. Raw declarations feel band-wide and `_tokens` really
+     * does sit at that level, so "no role called _css; available roles are …" answers a
+     * question the author did not ask. I24 wants a stated reason AND a route back.
+     */
+    public function testATopLevelCssKeyIsRefusedWithTheRoleItBelongsInside(): void
+    {
+        $error = pp_udc_validate_map([PP_UDC_CSS_KEY => ['opacity' => '0.5']], 'faq');
+        $this->assertInstanceOf(\WP_Error::class, $error);
+        $this->assertSame('unknown_udc_role', $error->get_error_code());
+        $this->assertStringContainsString('"_band"', $error->get_error_message(),
+            'the refusal must name the role that styles the band itself, which is what an '
+            . 'author reaching for a top-level `_css` almost always meant');
+    }
+
     // ── Presets, chrome, and the authoring path ─────────────────────────────
 
     public function testAPresetMayNotCarryRawDeclarations(): void

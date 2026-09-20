@@ -2226,6 +2226,25 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
             continue;
         }
         if (!isset($roles[$role_name])) {
+            // `_css` AT THE TOP LEVEL IS THE ONE WRONG PLACE WORTH NAMING (#1079).
+            //
+            // It is the mistake the shape invites — raw declarations feel band-wide, and
+            // `_tokens` really does sit at this level — and the generic message answers a
+            // question the author did not ask ("no role called _css; available roles are
+            // …"), sending them to look for a role rather than to move a key one level in.
+            // I24 asks for a stated reason AND a route back; this is the route back.
+            if ((string) $role_name === PP_UDC_CSS_KEY) {
+                return new WP_Error('unknown_udc_role', sprintf(
+                    'Component "%s": "%s" is not a role — it sits INSIDE one, beside that role\'s '
+                    . 'groups. For the band itself write {"_band": {"%s": {…}}}; for a part of the '
+                    . 'component write {"<role>": {"%s": {…}}}. Available roles: %s',
+                    $component,
+                    PP_UDC_CSS_KEY,
+                    PP_UDC_CSS_KEY,
+                    PP_UDC_CSS_KEY,
+                    implode(', ', array_keys($roles)) ?: '(none)'
+                ));
+            }
             return new WP_Error('unknown_udc_role', sprintf(
                 'Component "%s" has no UDC role %s. Available roles: %s',
                 $component,
