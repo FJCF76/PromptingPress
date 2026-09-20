@@ -87,7 +87,9 @@ class UdcLayoutGrammarTest extends TestCase
      */
     public function testTheBoxAlignmentVocabularyIsSharedButItsPerPropertyExtrasAreNot(): void
     {
-        foreach (['center', 'start', 'end', 'flex-start', 'flex-end', 'stretch', 'normal', 'baseline'] as $shared) {
+        // `baseline` is NOT in the shared set — it belongs to the block-axis
+        // properties only, and it has its own loop below.
+        foreach (['center', 'start', 'end', 'flex-start', 'flex-end', 'stretch', 'normal'] as $shared) {
             $this->ok($shared, 'justify-content');
             $this->ok($shared, 'align-items');
             $this->ok($shared, 'align-self');
@@ -103,13 +105,25 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no('auto', 'align-items', '"auto" is a self-property value');
         $this->no('auto', 'justify-content', '"auto" is a self-property value');
 
-        $this->ok('self-start', 'align-self');
-        $this->ok('self-end', 'align-self');
-        $this->no('self-start', 'align-items', 'self-* positions an item, not a container\'s children');
+        // `<self-position>` INCLUDES self-start/self-end, and it is the value space
+        // of align-items as well as align-self — an earlier cut refused them on the
+        // container property, which was this grammar inventing a constraint CSS
+        // does not have. Found by the pre-landing adversarial pass; it matters
+        // because claiming the property types every `_css` write of it, so a
+        // refusal here refuses an author's stored value.
+        foreach (['self-start', 'self-end'] as $selfPosition) {
+            $this->ok($selfPosition, 'align-items');
+            $this->ok($selfPosition, 'align-self');
+            $this->no($selfPosition, 'justify-content', 'self-* is a self-position, not a content position');
+        }
 
-        foreach (['first baseline', 'last baseline'] as $twoWord) {
-            $this->ok($twoWord, 'align-items');
-            $this->ok($twoWord, 'align-self');
+        // `<baseline-position>` is the block-axis properties'. `justify-content:
+        // baseline` is NOT valid CSS, and the same pass caught it being accepted —
+        // a value that stores green and is dropped by the browser.
+        foreach (['baseline', 'first baseline', 'last baseline'] as $baseline) {
+            $this->ok($baseline, 'align-items');
+            $this->ok($baseline, 'align-self');
+            $this->no($baseline, 'justify-content', 'a baseline is not a content position');
         }
     }
 
@@ -246,6 +260,19 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no(str_repeat('minmax(0, ', 200) . '1fr' . str_repeat(')', 200), 'track-list',
             'past the byte bound, and refused without a quadratic walk');
         $this->no(str_repeat('1fr ', 200), 'track-list', 'a long flat list is bounded too');
+
+        // TWO INVALID repeat() FORMS the adversarial pass found, both of which
+        // produced the same outcome: the browser drops `grid-template-columns`
+        // while the engine's `display: grid` companion still flips the box to a
+        // grid — tracks gone, layout changed, nothing reported.
+        $this->no('repeat(2, 1fr, 2fr)', 'track-list',
+            'CSS separates repeat()\'s count from its tracks with a comma and the tracks with spaces');
+        $this->no('repeat(auto-fit, 1fr)', 'track-list',
+            'an auto-repeat needs a fixed size — the browser cannot count repetitions of a flexible track');
+        $this->no('repeat(auto-fill, auto)', 'track-list', 'nor of an auto one');
+        $this->ok('repeat(auto-fit, minmax(20rem, 1fr))', 'track-list');
+        $this->ok('repeat(auto-fill, 200px)', 'track-list');
+        $this->ok('repeat(3, 1fr 2fr)', 'track-list');
     }
 
     /**

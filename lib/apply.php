@@ -1507,56 +1507,53 @@ function _pp_validate_flex_wrap(string $value): bool {
 }
 
 /**
- * The shared CSS Box Alignment vocabulary, used by `justify-content`,
- * `align-items` and `align-self`.
+ * The CSS Box Alignment vocabulary, per property.
  *
- * ONE FUNCTION, THREE PROPERTIES, because CSS Box Alignment 3 gives them one
- * value space with per-property extras: distribution values are
- * justify-content's, `auto` is a self-property's, and `self-start`/`self-end`
- * are meaningless on a container. The extras are parameters rather than three
- * near-identical copies, which is what a fourth copy-paste of a keyword list
- * always turns into.
+ * ONE FUNCTION, THREE PROPERTIES, because CSS gives them one value space with
+ * per-property parts — and the parts are the point. An earlier cut shared a
+ * `$distribution` / `$self` pair of flags and got two of them wrong in opposite
+ * directions: it REFUSED `align-items: self-start`, which is valid, and ACCEPTED
+ * `justify-content: baseline`, which is not. Both matter beyond tidiness, because
+ * claiming these properties types every `_css` write of them: the first refused an
+ * author's stored value, the second stored one the browser drops.
  *
- * `safe` / `unsafe` ARE ACCEPTED, and that is the point of the docblock above:
- * `align-items: safe center` is valid CSS, it is the value an author reaches for
- * when a centred item would otherwise overflow its container unreachably, and
- * `_css` accepted it before this grammar existed.
+ * `safe` / `unsafe` ARE accepted on a positional value: `align-items: safe center`
+ * is what an author reaches for when a centred item would otherwise overflow its
+ * container unreachably, and `_css` took it before this grammar existed.
  *
- * `first baseline` / `last baseline` are the two-word forms CSS allows beside
- * bare `baseline`; everything else is one word.
- *
- * @param bool $distribution Accept the space-* / stretch distribution values (justify-content).
- * @param bool $self         Accept `auto` and the self-* positional forms (align-self).
+ * @param string $property One of justify-content, align-items, align-self.
  */
-function _pp_validate_box_align(string $value, bool $distribution = false, bool $self = false): bool {
+function _pp_validate_box_align(string $value, string $property): bool {
     $value = strtolower(trim($value));
     if ($value === '') {
         return false;
     }
 
-    $positional = ['center', 'start', 'end', 'flex-start', 'flex-end'];
-    if ($self) {
-        $positional[] = 'self-start';
-        $positional[] = 'self-end';
-    }
-    if ($distribution) {
-        // The inline-axis physical forms are justify-content's alone: `left` and
-        // `right` are meaningless on the block axis, where align-* lives.
-        $positional[] = 'left';
-        $positional[] = 'right';
+    // `<self-position>` — the positional keywords all three properties share.
+    $positions = ['center', 'start', 'end', 'flex-start', 'flex-end'];
+    $bare      = ['normal', 'stretch'];
+
+    if ($property === 'justify-content') {
+        // `<content-distribution>`, plus the INLINE-AXIS physical keywords. No
+        // baseline: `justify-content: baseline` is not valid CSS, and accepting it
+        // stored a declaration the browser drops — the dead-value class this
+        // grammar exists to refuse. Found by the pre-landing adversarial pass.
+        $bare      = array_merge($bare, ['space-between', 'space-around', 'space-evenly']);
+        $positions = array_merge($positions, ['left', 'right']);
+    } else {
+        // align-items / align-self take `<self-position>` — which INCLUDES
+        // `self-start` / `self-end`, on the container property too; refusing them
+        // there was this grammar inventing a constraint CSS does not have — and
+        // `<baseline-position>`. Neither takes a distribution, and neither takes
+        // the inline-axis `left`/`right`.
+        $positions = array_merge($positions, ['self-start', 'self-end']);
+        $bare      = array_merge($bare, ['baseline', 'first baseline', 'last baseline']);
+        if ($property === 'align-self') {
+            $bare[] = 'auto';
+        }
     }
 
-    $bare = ['normal', 'stretch', 'baseline', 'first baseline', 'last baseline'];
-    if ($self) {
-        $bare[] = 'auto';
-    }
-    if ($distribution) {
-        $bare[] = 'space-between';
-        $bare[] = 'space-around';
-        $bare[] = 'space-evenly';
-    }
-
-    if (in_array($value, $bare, true) || in_array($value, $positional, true)) {
+    if (in_array($value, $bare, true) || in_array($value, $positions, true)) {
         return true;
     }
 
@@ -1564,10 +1561,30 @@ function _pp_validate_box_align(string $value, bool $distribution = false, bool 
     // `normal`, a baseline or a distribution, which is what CSS says and what
     // keeps this from becoming "two words, whatever they are".
     if (preg_match('/^(safe|unsafe)\s+(\S+)\z/', $value, $m)) {
-        return in_array($m[2], $positional, true);
+        return in_array($m[2], $positions, true);
     }
 
     return false;
+}
+
+/**
+ * Whether a track counts as `<fixed-size>` for an auto-repeat.
+ *
+ * A length or percentage is fixed. A `minmax()` is fixed when its MINIMUM is — a
+ * fixed minimum is what lets the browser compute the repetition count, which is the
+ * whole reason CSS restricts `repeat(auto-fit, …)` to fixed sizes. `1fr`, `auto`
+ * and the content keywords are not fixed.
+ */
+function _pp_css_track_is_fixed(string $track): bool {
+    $track = trim($track);
+    if (preg_match('/^minmax\((.*)\)\z/is', $track, $m)) {
+        $pair = _pp_css_split_top_level($m[1], ',');
+        if ($pair === null || count($pair) !== 2) {
+            return false;
+        }
+        return _pp_css_length(trim($pair[0]), ['signed' => false, 'percent' => true, 'functions' => false]);
+    }
+    return _pp_css_length($track, ['signed' => false, 'percent' => true, 'functions' => false]);
 }
 
 /**
@@ -1705,7 +1722,14 @@ const PP_CSS_MAX_GRID_TRACKS = 12;
  */
 function _pp_validate_track_repeat(string $body): ?int {
     $parts = _pp_css_split_top_level($body, ',');
-    if ($parts === null || count($parts) < 2) {
+    // EXACTLY TWO PARTS: the count and ONE track list. CSS separates the count from
+    // the tracks with a comma and the tracks from each other with SPACES, so
+    // `repeat(2, 1fr, 2fr)` is not "three tracks" — it is invalid, and it used to
+    // validate here. The browser then drops `grid-template-columns` while the
+    // engine's `display: grid` companion still flips the box to a grid: tracks
+    // gone, layout changed, nothing reported. Found by the pre-landing adversarial
+    // pass.
+    if ($parts === null || count($parts) !== 2) {
         return null;
     }
     $count   = strtolower(array_shift($parts));
@@ -1730,6 +1754,14 @@ function _pp_validate_track_repeat(string $body): ?int {
     // a flex row and becomes a one-column grid with no track definition at all —
     // the I19/I35 class the companion exists to avoid, arriving through the
     // companion itself.
+    // AN AUTO-REPEAT NEEDS FIXED TRACKS, which is CSS's rule and not a house one:
+    // `<auto-track-list>` takes `<fixed-size>`, because the browser cannot decide
+    // how many times to repeat a track whose size depends on how many times it
+    // repeated. `repeat(auto-fit, 1fr)` is invalid and used to validate here —
+    // the same "grid with no tracks" outcome as the comma case above.
+    // `repeat(auto-fit, minmax(20rem, 1fr))` is valid precisely because its MINIMUM
+    // is fixed, which is why #905's brand writes it that way.
+    $auto_repeat  = !in_array($count, ['auto-fit', 'auto-fill'], true) ? false : true;
     $inner_tracks = 0;
     foreach ($parts as $track) {
         $inner = _pp_css_split_top_level($track);
@@ -1738,6 +1770,9 @@ function _pp_validate_track_repeat(string $body): ?int {
         }
         foreach ($inner as $one) {
             if (!_pp_validate_grid_track($one)) {
+                return null;
+            }
+            if ($auto_repeat && !_pp_css_track_is_fixed($one)) {
                 return null;
             }
             $inner_tracks++;
@@ -2170,17 +2205,17 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
             }
             break;
         case 'justify-content':
-            if (!_pp_validate_box_align($value, true, false)) {
-                return new WP_Error('invalid_justify_content', 'Value must be a justify-content keyword: center, start, end, flex-start, flex-end, left, right, space-between, space-around, space-evenly, stretch, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
+            if (!_pp_validate_box_align($value, 'justify-content')) {
+                return new WP_Error('invalid_justify_content', 'Value must be a justify-content keyword: center, start, end, flex-start, flex-end, left, right, space-between, space-around, space-evenly, stretch, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center"). Baseline values belong to align-items/align-self, not here.');
             }
             break;
         case 'align-items':
-            if (!_pp_validate_box_align($value, false, false)) {
-                return new WP_Error('invalid_align_items', 'Value must be an align-items keyword: center, start, end, flex-start, flex-end, stretch, baseline, first baseline, last baseline, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
+            if (!_pp_validate_box_align($value, 'align-items')) {
+                return new WP_Error('invalid_align_items', 'Value must be an align-items keyword: center, start, end, self-start, self-end, flex-start, flex-end, stretch, baseline, first baseline, last baseline, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center"). The space-* distributions and left/right belong to justify-content.');
             }
             break;
         case 'align-self':
-            if (!_pp_validate_box_align($value, false, true)) {
+            if (!_pp_validate_box_align($value, 'align-self')) {
                 return new WP_Error('invalid_align_self', 'Value must be an align-self keyword: auto, center, start, end, self-start, self-end, flex-start, flex-end, stretch, baseline, first baseline, last baseline, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
             }
             break;

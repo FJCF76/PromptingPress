@@ -413,6 +413,34 @@ class UdcLayoutGroupTest extends TestCase
         $this->assertStringContainsString('display:grid', $this->tier($phoneOnly, 'p'));
     }
 
+    /**
+     * ONLY A GRID DISPLAY IS INHERITABLE, and the tier de-duplication has to ask
+     * WHICH display the base tier left behind rather than whether it left one.
+     *
+     * Found by the pre-landing adversarial pass: an authored `display: flex` at the
+     * base tier suppressed the phone tier's companion, so the phone got a track
+     * list on a flex box — tracks that paint nothing, which is the class the
+     * companion exists to prevent.
+     */
+    public function testANonGridBaseDisplayDoesNotSuppressANarrowerCompanion(): void
+    {
+        $css = $this->css(['columns' => [
+            '_css'   => ['display' => ['d' => 'flex']],
+            'layout' => ['columns' => ['p' => 2]],
+        ]]);
+        $this->assertStringContainsString('display:flex', $this->tier($css, 'd'));
+        $this->assertStringContainsString('display:grid', $this->tier($css, 'p'),
+            'a flex base tier leaves no grid to inherit, so the phone tier needs its own');
+
+        // The inverse: an authored GRID at the base tier IS inherited, so the
+        // narrower tier does not repeat it.
+        $inherited = $this->css(['columns' => [
+            '_css'   => ['display' => ['d' => 'grid']],
+            'layout' => ['columns' => ['p' => 2]],
+        ]]);
+        $this->assertStringNotContainsString('display:grid', $this->tier($inherited, 'p'));
+    }
+
     /** The other half of the bucket claim: a state is a bucket too. */
     public function testTheCompanionRidesAStateBucketAsWell(): void
     {

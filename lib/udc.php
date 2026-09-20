@@ -4241,11 +4241,33 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 }
             }
 
-            // Computed once per state, not per bucket: whether the base tier
-            // already carries a `display` (authored or an earlier companion) that
-            // every narrower tier inherits. See _pp_udc_grid_columns_companion().
-            $base_tier_has_display = isset($by_bp['d']['display'])
-                || !empty($by_bp['d']['grid-template-columns']['companion']);
+            // WHETHER THE BASE TIER LEAVES A GRID BEHIND for narrower tiers to
+            // inherit. Computed once per state rather than per bucket — and it asks
+            // two questions the first cut got wrong, both found by the pre-landing
+            // adversarial pass.
+            //
+            // WHICH display, not whether one. Any `d` display used to suppress the
+            // narrower tiers' companion, so an authored `_css` `display: flex` at
+            // `d` beside `layout.columns` at `p` emitted tracks onto a FLEX box:
+            // the phone tier had a track list and no grid, which paints nothing.
+            // Only a grid display is inheritable.
+            //
+            // AFTER the defaults drop, not before. The authored layer filters out
+            // declarations whose winner is a role default, so a `d` display that is
+            // about to be dropped must not suppress anything — the flag is computed
+            // from the bucket as it will actually be emitted.
+            $base_bucket = $by_bp['d'] ?? [];
+            if ($defaults_rank_only) {
+                $base_bucket = array_filter(
+                    $base_bucket,
+                    static fn(array $entry): bool => $entry['source'] !== 'defaults'
+                );
+            }
+            $base_display = isset($base_bucket['display'])
+                ? strtolower(trim((string) $base_bucket['display']['css']))
+                : '';
+            $base_tier_has_display = in_array($base_display, ['grid', 'inline-grid'], true)
+                || (!empty($base_bucket['grid-template-columns']['companion']) && $base_display === '');
 
             foreach ($by_bp as $bp => $declarations) {
                 // THE DROP. In the authored layer a declaration whose winner is
