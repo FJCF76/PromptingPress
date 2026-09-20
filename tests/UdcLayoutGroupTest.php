@@ -488,6 +488,37 @@ class UdcLayoutGroupTest extends TestCase
         }
     }
 
+    /**
+     * THE TWO HALVES OF `layout.columns` COME FROM ONE TABLE.
+     *
+     * The synthesis (a count becomes a track list) and the companion (a count
+     * brings `display: grid`) were derived two different ways — one from the
+     * registry's type, one from a hardcoded parameter name — and the count's SHAPE
+     * was a regex copied into two files. Each seam is a silent divergence waiting
+     * to happen: a literal the grammar accepts but the emitter declines to
+     * synthesise emits a bare `grid-template-columns: 100`, which the browser drops
+     * while KEEPING the companion. This pins that both halves follow the registry,
+     * and that every count the grammar accepts survives the round trip.
+     */
+    public function testBothHalvesOfTheColumnsBehaviourComeFromTheRegistry(): void
+    {
+        $param = pp_udc_groups()['layout']['params']['columns'];
+        $this->assertSame('grid', $param['companion'] ?? null,
+            'the companion is a registry fact, not a parameter-name check in the emitter');
+
+        // Every literal the grammar accepts as a count must round-trip to a track
+        // list AND carry the companion — no literal may fall between the two.
+        foreach (['1', '2', '4', '12'] as $count) {
+            $css = $this->css(['columns' => ['layout' => ['columns' => $count]]]);
+            $this->assertStringContainsString(
+                sprintf('grid-template-columns:repeat(%s, minmax(0, 1fr))', $count),
+                $css,
+                sprintf('the count "%s" validates, so it must also synthesise', $count)
+            );
+            $this->assertStringContainsString('display:grid', $css);
+        }
+    }
+
     // ── 4. The Layer-2 interaction ───────────────────────────────────────────
 
     /**

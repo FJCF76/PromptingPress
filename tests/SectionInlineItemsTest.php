@@ -239,9 +239,10 @@ class SectionInlineItemsTest extends TestCase
         );
         // justify-content is `flex-start` outright since #1023. It used to read the
         // --section-inline-items-align SLOT; alignment is the `body_items_align` PROP
-        // now (justify-content is a layout property and the taxonomy carries no layout
-        // group), and the prop derives the --center modifier rather than a raw keyword,
-        // because the modifier also switches the separator from ::before to ::after.
+        // now — and since #1084 that is true for ONE reason rather than two: the prop
+        // derives the --center modifier, which also switches the separator from
+        // ::before to ::after, and no role value can move a pseudo-element. The
+        // packing itself IS a role parameter now (`inline-items.layout.justify`).
         // flex-start is what an unset slot resolved to, so the default row is unchanged
         // — and left-packing is what lets the #489 clip hide line-leading separators.
         $this->assertMatchesRegularExpression(

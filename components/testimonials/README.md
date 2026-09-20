@@ -58,7 +58,7 @@ A role can also take a shared look by name through a `_preset` key. Write the na
 | `meta` | The role/company line under the name | typography, spacing, border, background, sizing, motion |
 | `avatar` | The author's picture | spacing, border, background, sizing, shadow, motion |
 
-**Which roles carry `layout` (#1084):** `list`, `card`, `attribution`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+**Which roles carry `layout` (#1084):** `list`, `card`, `attribution`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and this list is checked against a derivation from the stylesheet (tests/js/css-lint.test.js), in both directions, so it cannot drift from the schema or the CSS. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 `motion` carries `transition-duration` and `timing-function`, both defaulting to the theme's `--transition`. You never write a `prefers-reduced-motion` rule: the engine emits that guard for every motion value it emits, and there is no parameter for it.
 

@@ -56,7 +56,7 @@ band — see `item` below.
 | `answer-link` | `.faq__answer a` | links inside the answer — **no defaults**, and the only address that reaches them |
 | `empty` | `.faq__empty` | the "No questions yet." line |
 
-**Which roles carry `layout` (#1084):** `list`, `question`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+**Which roles carry `layout` (#1084):** `list`, `question`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and this list is checked against a derivation from the stylesheet (tests/js/css-lint.test.js), in both directions, so it cannot drift from the schema or the CSS. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ### The two roles that are one control
 

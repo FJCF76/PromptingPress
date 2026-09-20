@@ -208,6 +208,20 @@ class UdcLayoutGrammarTest extends TestCase
         $this->no('repeat(2,1fr,)', 'track-list', 'a trailing comma leaves an empty track');
         $this->no('minmax(0,)', 'track-list', 'minmax() needs both of its two tracks');
         $this->no('minmax(,1fr)', 'track-list', 'in either position');
+        // THE BOUND THE DOCS STATE, ENFORCED ON WHAT THE LIST RESOLVES TO. Four
+        // texts say "at most 12 tracks" — this file, the refusal message, the
+        // contract and the AI prompt — and the count used to bound top-level
+        // ENTRIES only, so a repeat() over a multi-track pattern sailed past it.
+        // Found by the pre-landing maintainability pass.
+        $this->no('repeat(12, 1fr 1fr)', 'track-list', '12 repeats of a 2-track pattern is 24 tracks');
+        $this->no('1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr repeat(12,1fr)', 'track-list', '11 + 12 is past the bound');
+        $this->ok('repeat(6, 1fr 1fr)', 'track-list');
+        // A BARE INTEGER IS ALWAYS A COUNT, valid or not: `0` must not quietly
+        // become "one collapsed track" because a unitless zero is a legal length.
+        // A UNIT is what says the author meant a length.
+        $this->no('0', 'track-list', 'zero columns is not a layout, and not a one-track list either');
+        $this->no('100', 'track-list', 'an out-of-range count is a mistake, not a single 100-unit track');
+        $this->ok('0%', 'track-list');
 
         // The shared reject set still owns the injection classes, ahead of the
         // grammar — pinned here because this is the first type whose values carry

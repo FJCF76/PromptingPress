@@ -67,6 +67,23 @@ The same statement ships at docs/howto-migrate-a-logos-band-to-v2.md:194 (and :1
 |---|---|---|
 | **Layout** — *"declared per-component flex/grid parameters (columns, gap, orientation, wrap) — grammar shared, exposure declared"* | **1st** | **NO group exists, and this is the largest recorded gap in the program.** Four shipped code sites route around it in writing — hero.php:183, section.php:231, cta.php:150, and section/schema.json:121-128 where `--section-inline-items-align` was demoted to a PROP rather than given a group. Open demand: #658 (`align-items` on `.section__grid`, `align-self` on `.section__panel` — **both role-selected**), #588 (`object-fit`, `grid-template-columns`), #905 (*grid's `columns` silently ignored on `layout="steps"`, a four-across process band is inexpressible*), and grid's own rebuild |
 | **Sizing → "alignment"** | **1st** | shipped without it |
+
+> **ADDENDUM, #1084 (2026-09-21): the two 1st-cut rows above are no longer open.** The **Layout**
+> group shipped — `columns`, `orientation`, `wrap`, `justify`, `align`, plus `sizing.align-self` for
+> the "alignment" row — with exposure declared on 29 roles across 9 components. The four route-around
+> sites this table cites are retired, and #658's two demands (`align-items` on `.section__grid`,
+> `align-self` on `.section__panel`) are role-selected writes today. `docs/v2/LAYOUT-GROUP-CONTRACT.md`
+> is that group's contract. The rest of this table stands as written.
+>
+> **The rule it established, which governs every later group addition (that contract's §3.2):
+> CLAIMING A PROPERTY TYPES ITS `_css` WRITES.** `pp_udc_css_param()` routes a `_css` property the
+> registry owns to that parameter's grammar, so a group that claims a property narrows what `_css`
+> already accepted for it. That is not only a write-time refusal: `update_composition` validates the
+> WHOLE composition and every read surface re-validates STORED ones, so one now-invalid declaration
+> in one band blocks an unrelated band's edit — the #1007 class. A future group must therefore check
+> what `_css` accepts for its properties BEFORE choosing their grammar. Layout's own grammars were
+> widened for exactly this reason (the full CSS Box Alignment vocabulary, `safe`/`unsafe` prefixes
+> included).
 | **Typography → `text-shadow`** | **1st** | **NO param exists** (`shadow` carries `box` only); zero cited demand |
 | Filters & Blend, Transform, Animation, Position | 2nd | no groups exist (as scheduled) |
 

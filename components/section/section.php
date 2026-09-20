@@ -294,10 +294,12 @@ if (!empty($body_items)) {
     // hanging-separator clip — left-packed lines. 'center' derives the --center
     // modifier, which switches the row to per-line centering with a trailing
     // separator (see components.css). In v1 this came from a style slot read out of
-    // the `__pp_style` map; v2 has no slot map, and justify-content is a LAYOUT
-    // property the taxonomy carries no group for, so it is a declared prop now. The
-    // modifier carries what a raw keyword cannot (the separator switch + margin),
-    // which is why the class is derived here rather than left to a role value.
+    // the `__pp_style` map; v2 has no slot map. The prop survives the Layout
+    // group's arrival (#1084) for the reason the block at the top of this file
+    // states: the modifier carries what a raw keyword cannot (the separator switch
+    // + margin), so the class is derived here rather than left to a role value. The
+    // packing ALONE is authorable — `inline-items.layout.justify` — and an authored
+    // value outranks the rule this modifier selects.
     $inline_items_class = 'section__inline-items'
         . ($body_items_align === 'center' ? ' section__inline-items--center' : '');
     $inline_items_html = '<ul class="' . $inline_items_class . '" role="list">' . $items_markup . '</ul>';

@@ -687,6 +687,20 @@ function pp_udc_groups(): array {
             // inert class this group exists to avoid creating. `sizing` is
             // already declared on every geometry-bearing role and is about the
             // box ITSELF, which is exactly what this property is.
+            //
+            // THE ASYMMETRY THAT BUYS, STATED RATHER THAN LEFT TO BE NOTICED.
+            // `layout` exposure is a derived box fact, asserted in both directions
+            // against the stylesheet; `sizing` is declared on almost every role, so
+            // this parameter lands on headings, labels and icons too, and on a child
+            // of a BLOCK container it paints nothing at any value. That is the same
+            // inert class the paragraph above refuses for the container params — the
+            // difference is degree, and it is the honest trade: `align-self` is live
+            // on any child of a flex or grid box (most role boxes in these
+            // components are), whereas a container param on a non-container is dead
+            // in every arrangement. Constraining it further would mean deriving each
+            // role's PARENT from the stylesheet, which the selector text does not
+            // reliably give. Recorded so the next reader meets a decision rather
+            // than an oversight.
             'align-self' => ['property' => 'align-self', 'type' => 'align-self', 'signed' => false, 'max_values' => 1, 'keywords' => []],
         ]],
         // ── LAYOUT (#1084) ──────────────────────────────────────────────────
@@ -725,7 +739,13 @@ function pp_udc_groups(): array {
             // COLUMNS. A count (`4`) or a track list; the count becomes
             // `repeat(4, minmax(0, 1fr))` at emit, and `display: grid` rides with
             // it as an engine companion — see _pp_udc_grid_columns_companion().
-            'columns'     => ['property' => 'grid-template-columns', 'type' => 'track-list', 'signed' => false, 'max_values' => 1, 'keywords' => []],
+            // `companion` is the registry fact behind the `display: grid` the engine
+            // emits beside an authored count (_pp_udc_grid_columns_companion). It
+            // lives HERE rather than as a parameter-name check in the emitter, so
+            // both halves of this parameter's behaviour — the synthesis and the
+            // companion — come from the one table. A second track-list parameter,
+            // or a rename of `columns`, then changes nothing by accident.
+            'columns'     => ['property' => 'grid-template-columns', 'type' => 'track-list', 'signed' => false, 'max_values' => 1, 'keywords' => [], 'companion' => 'grid'],
             'orientation' => ['property' => 'flex-direction',  'type' => 'flex-direction',  'signed' => false, 'max_values' => 1, 'keywords' => []],
             'wrap'        => ['property' => 'flex-wrap',       'type' => 'flex-wrap',       'signed' => false, 'max_values' => 1, 'keywords' => []],
             'justify'     => ['property' => 'justify-content', 'type' => 'justify-content', 'signed' => false, 'max_values' => 1, 'keywords' => []],
@@ -4740,7 +4760,14 @@ function _pp_udc_place(
         // `minmax(0, …)` rather than a bare `1fr` is this repo's own grid lesson: a
         // `1fr` track has an `auto` minimum, so one long unbroken token widens the
         // track and scrolls the page sideways (#1043/#1067).
-        if (($params[$param_name]['type'] ?? '') === 'track-list' && preg_match('/^\d{1,2}\z/', trim($literal))) {
+        // The count SHAPE is owned by the grammar (_pp_css_grid_count), so the
+        // validator and this synthesis cannot drift apart. They were two copies of
+        // one regex; a literal the grammar accepted and this line declined to
+        // synthesise would emit a bare `grid-template-columns: 100`, which the
+        // browser drops while keeping the companion below — the dead-value class
+        // the companion exists to prevent.
+        if (($params[$param_name]['type'] ?? '') === 'track-list'
+            && _pp_css_grid_count($literal) !== null) {
             $css = 'repeat(' . $css . ', minmax(0, 1fr))';
         }
 
@@ -4763,11 +4790,15 @@ function _pp_udc_place(
         // emits a track list; if the box is not already a grid, that is the same
         // inertness any raw declaration can have on an element it does not suit.
         //
-        // THE PARAM NAME IS THE DISCRIMINATOR, and it is a real one rather than a
-        // coincidence: the group route arrives as the parameter `columns`, while the
-        // `_css` route arrives as the PROPERTY `grid-template-columns`
-        // (pp_udc_css_param() keys its synthesized params by property).
-        $companion = $param_name === 'columns' && $property === 'grid-template-columns';
+        // THE REGISTRY IS THE DISCRIMINATOR, not the parameter's name. A group
+        // parameter carries `companion` in pp_udc_groups(); the `_css` route builds
+        // its param from pp_udc_css_param(), which copies the registry entry for a
+        // claimed property — so the flag would come with it, and the name check that
+        // used to sit here was doing the real work by accident. `_group` is the key
+        // pp_udc_css_param() adds and a registry param never has, which is what
+        // tells the two routes apart honestly.
+        $companion = !empty($params[$param_name]['companion'])
+            && !isset($params[$param_name]['_group']);
 
         $resolved[$state][$bp][$property] = [
             'css'     => $css,

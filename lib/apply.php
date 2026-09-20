@@ -1603,17 +1603,85 @@ function _pp_validate_box_align(string $value, bool $distribution = false, bool 
  * `0fr` and `repeat(0, …)` produce a track list the browser keeps and paints as
  * nothing, which is the I19 dead-value class.
  */
+/**
+ * THE COLUMN-COUNT SHAPE, owned in one place because two files decide on it.
+ *
+ * The grammar decides which literals are ACCEPTED as a count; the engine
+ * (_pp_udc_place, lib/udc.php) decides which literals are SYNTHESISED into
+ * `repeat(N, minmax(0, 1fr))`. Those were two copies of one regex, agreeing by
+ * coincidence — and the failure mode if they ever diverged is not cosmetic: a
+ * literal the grammar accepted and the engine did not synthesise emits a bare
+ * `grid-template-columns: 100`, which the browser DROPS while keeping the engine's
+ * `display: grid` companion. A flex row becomes an untracked grid, which is the
+ * dead-value class the companion exists to prevent. Found by the pre-landing
+ * maintainability pass; one owner now, called from both sides.
+ *
+ * Half a column is not a thing, so the shape is an integer rather than
+ * `_pp_validate_number()`, which would accept `2.5`.
+ *
+ * @return int|null The count, or null when the value is not one.
+ */
+function _pp_css_grid_count(string $value): ?int {
+    $value = trim($value);
+    if (!preg_match('/^\d{1,2}\z/', $value)) {
+        return null;
+    }
+    $count = (int) $value;
+    return ($count >= 1 && $count <= PP_CSS_MAX_GRID_TRACKS) ? $count : null;
+}
+
+/**
+ * How many tracks a validated list actually RESOLVES to.
+ *
+ * The bound is stated to authors in four places — this file's docblocks, the
+ * refusal message, the contract and the AI-facing prompt — as "at most 12 tracks",
+ * and it was enforced on neither: the count bounded top-level ENTRIES, and a
+ * repeat() count bounded itself, so `repeat(12, 1fr 1fr)` passed and emitted 24.
+ * Found by the pre-landing maintainability pass. A claim that four texts make is a
+ * claim the code should keep.
+ */
+function _pp_css_resolved_track_count(array $tracks): int {
+    $total = 0;
+    foreach ($tracks as $track) {
+        if (preg_match('/^repeat\((.*)\)\z/is', $track, $m)) {
+            $parts = _pp_css_split_top_level($m[1], ',');
+            if ($parts === null || count($parts) < 2) {
+                return PHP_INT_MAX; // Malformed; the validator refuses it anyway.
+            }
+            $count = strtolower(array_shift($parts));
+            // `auto-fit` / `auto-fill` resolve against the container at layout
+            // time, so the engine cannot count them. They contribute their
+            // WRITTEN track count: the author wrote one pattern, not forty.
+            $repeats = _pp_css_grid_count($count) ?? 1;
+            $inner   = 0;
+            foreach ($parts as $part) {
+                $inner += count(_pp_css_split_top_level($part) ?: []);
+            }
+            $total += $repeats * max(1, $inner);
+            continue;
+        }
+        $total++;
+    }
+    return $total;
+}
+
 function _pp_validate_track_list(string $value): bool {
     $value = trim($value);
     if ($value === '') {
         return false;
     }
 
-    // The count form. `_pp_validate_number()` would accept `2.5`, and half a
-    // column is not a thing, so the integer shape is checked here directly.
-    if (preg_match('/^\d{1,2}\z/', $value)) {
-        $count = (int) $value;
-        return $count >= 1 && $count <= PP_CSS_MAX_GRID_TRACKS;
+    // THE COUNT FORM, through the ONE owner both sides call — and a BARE INTEGER IS
+    // ALWAYS READ AS A COUNT, valid or not.
+    //
+    // Falling through to the track path instead would make `0` mean "one collapsed
+    // track" (a unitless zero is a legal length) and `13` mean nothing at all. An
+    // author who writes a bare number means a column count; reading an out-of-range
+    // one as a one-track list is a silent reinterpretation of an obvious mistake,
+    // and this engine rejects rather than coerces. `0px` and `0%` still reach the
+    // track path, because a UNIT says the author meant a length.
+    if (preg_match('/^\d+\z/', $value)) {
+        return _pp_css_grid_count($value) !== null;
     }
 
     // Split the list into top-level tracks: whitespace separates, but a
@@ -1639,7 +1707,9 @@ function _pp_validate_track_list(string $value): bool {
             return false;
         }
     }
-    return true;
+    // The bound the docs actually state, enforced on what the list RESOLVES to
+    // rather than on how it was spelled.
+    return _pp_css_resolved_track_count($tracks) <= PP_CSS_MAX_GRID_TRACKS;
 }
 
 /** The upper bound on tracks in one authored list, and on a `repeat()` count. */

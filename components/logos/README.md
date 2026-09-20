@@ -29,7 +29,7 @@ slots**; its eight `--logos-*` slots and its `theme` prop are retired.
 | `image-labeled` | `.logos__item--labeled .logos__image` | The logo in a **labelled** tile. |
 | `label` | `.logos__label` | The caption under a labelled logo. |
 
-**Which roles carry `layout` (#1084):** `list`, `item`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and the roster is derived from the stylesheet by a test rather than kept by hand. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
+**Which roles carry `layout` (#1084):** `list`, `item`. Exposure is a box fact — a role carries the group when its own structural CSS makes the box a flex or grid container — and this list is checked against a derivation from the stylesheet (tests/js/css-lint.test.js), in both directions, so it cannot drift from the schema or the CSS. `align-self` is NOT in this group: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
 ## Stated defaults (and what would reopen them)
 
