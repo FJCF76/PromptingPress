@@ -1485,6 +1485,281 @@ function _pp_validate_background_repeat(string $value): bool {
     ], true);
 }
 
+/*
+ * ── THE LAYOUT GRAMMARS (v2, the Layout group — #1084) ──────────────────────
+ *
+ * Six properties that were STRUCTURAL-only until the Layout group claimed them
+ * (docs/v2/LAYOUT-GROUP-CONTRACT.md). They keep their stylesheet home — the group
+ * is an OVERLAY, not a migration, because ~35 of the shipped declarations are
+ * variant- or tier-scoped mechanism no flat role address can express — so these
+ * grammars judge AUTHORED values only.
+ *
+ * WHY THEY ARE WIDE. Claiming a property makes every `_css` write of it typed
+ * (pp_udc_css_param(), lib/udc.php), and a stored value that stops validating does
+ * not fail its own edit alone: update_composition validates the WHOLE composition
+ * and every read surface re-validates STORED compositions, so one refused
+ * declaration locks an unrelated band's edit — the class #1007 is about. So the
+ * rule here is the #988 font-weight lesson applied BEFORE it bites: take what CSS
+ * takes, including the `safe`/`unsafe` overflow-alignment prefixes that no closed
+ * "positional keywords only" set would have admitted. Refusing a value the browser
+ * accepts is this engine inventing a constraint.
+ */
+
+/** flex-direction: the closed set of main-axis directions. */
+function _pp_validate_flex_direction(string $value): bool {
+    return in_array(strtolower(trim($value)), ['row', 'row-reverse', 'column', 'column-reverse'], true);
+}
+
+/** flex-wrap: the closed set of wrapping behaviours. */
+function _pp_validate_flex_wrap(string $value): bool {
+    return in_array(strtolower(trim($value)), ['nowrap', 'wrap', 'wrap-reverse'], true);
+}
+
+/**
+ * The shared CSS Box Alignment vocabulary, used by `justify-content`,
+ * `align-items` and `align-self`.
+ *
+ * ONE FUNCTION, THREE PROPERTIES, because CSS Box Alignment 3 gives them one
+ * value space with per-property extras: distribution values are
+ * justify-content's, `auto` is a self-property's, and `self-start`/`self-end`
+ * are meaningless on a container. The extras are parameters rather than three
+ * near-identical copies, which is what a fourth copy-paste of a keyword list
+ * always turns into.
+ *
+ * `safe` / `unsafe` ARE ACCEPTED, and that is the point of the docblock above:
+ * `align-items: safe center` is valid CSS, it is the value an author reaches for
+ * when a centred item would otherwise overflow its container unreachably, and
+ * `_css` accepted it before this grammar existed.
+ *
+ * `first baseline` / `last baseline` are the two-word forms CSS allows beside
+ * bare `baseline`; everything else is one word.
+ *
+ * @param bool $distribution Accept the space-* / stretch distribution values (justify-content).
+ * @param bool $self         Accept `auto` and the self-* positional forms (align-self).
+ */
+function _pp_validate_box_align(string $value, bool $distribution = false, bool $self = false): bool {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+        return false;
+    }
+
+    $positional = ['center', 'start', 'end', 'flex-start', 'flex-end'];
+    if ($self) {
+        $positional[] = 'self-start';
+        $positional[] = 'self-end';
+    }
+    if ($distribution) {
+        // The inline-axis physical forms are justify-content's alone: `left` and
+        // `right` are meaningless on the block axis, where align-* lives.
+        $positional[] = 'left';
+        $positional[] = 'right';
+    }
+
+    $bare = ['normal', 'stretch', 'baseline', 'first baseline', 'last baseline'];
+    if ($self) {
+        $bare[] = 'auto';
+    }
+    if ($distribution) {
+        $bare[] = 'space-between';
+        $bare[] = 'space-around';
+        $bare[] = 'space-evenly';
+    }
+
+    if (in_array($value, $bare, true) || in_array($value, $positional, true)) {
+        return true;
+    }
+
+    // `safe` / `unsafe` qualify a POSITIONAL value only — never `stretch`,
+    // `normal`, a baseline or a distribution, which is what CSS says and what
+    // keeps this from becoming "two words, whatever they are".
+    if (preg_match('/^(safe|unsafe)\s+(\S+)\z/', $value, $m)) {
+        return in_array($m[2], $positional, true);
+    }
+
+    return false;
+}
+
+/**
+ * grid-template-columns, as a COUNT or a bounded track list.
+ *
+ * THE COUNT IS THE COMMON CASE and the one an authoring model reaches for: `4`
+ * means four equal columns. The engine synthesises `repeat(4, minmax(0, 1fr))`
+ * at emit (lib/udc.php) rather than storing the expansion, so the stored value
+ * stays the author's own literal — §3.1's no-coercion rule. `minmax(0, …)`
+ * rather than a bare `1fr` is this repo's own grid lesson: a `1fr` track has an
+ * `auto` minimum, so one long unbroken token widens the track and scrolls the
+ * page sideways (the #1043/#1067 class).
+ *
+ * THE LIST FORM EXISTS BECAUSE OF A SHIPPED PATH, not for completeness. `_css`
+ * already accepts `grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr))`
+ * today, and #905's brand specifies exactly that; an integer-only grammar would
+ * have silently narrowed a live capability the moment the registry claimed the
+ * property.
+ *
+ * DELIBERATELY BOUNDED, and each bound is a refusal an author can act on rather
+ * than a parser gap: at most 12 tracks, `repeat()` does not nest (CSS forbids it
+ * too), one `repeat()` per list, no `calc()` inside a track (stated in the docs
+ * rather than left to be discovered), and every numeric bound is positive —
+ * `0fr` and `repeat(0, …)` produce a track list the browser keeps and paints as
+ * nothing, which is the I19 dead-value class.
+ */
+function _pp_validate_track_list(string $value): bool {
+    $value = trim($value);
+    if ($value === '') {
+        return false;
+    }
+
+    // The count form. `_pp_validate_number()` would accept `2.5`, and half a
+    // column is not a thing, so the integer shape is checked here directly.
+    if (preg_match('/^\d{1,2}\z/', $value)) {
+        $count = (int) $value;
+        return $count >= 1 && $count <= PP_CSS_MAX_GRID_TRACKS;
+    }
+
+    // Split the list into top-level tracks: whitespace separates, but a
+    // parenthesised body keeps its own spaces. A hand-rolled depth walk rather
+    // than a regex because balance is the one thing a regex cannot count.
+    $tracks = _pp_css_split_top_level($value);
+    if ($tracks === null || $tracks === [] || count($tracks) > PP_CSS_MAX_GRID_TRACKS) {
+        return false;
+    }
+
+    $repeats = 0;
+    foreach ($tracks as $track) {
+        if (preg_match('/^repeat\((.*)\)\z/is', $track, $m)) {
+            if (++$repeats > 1) {
+                return false; // One repeat() per list: the bound, stated.
+            }
+            if (!_pp_validate_track_repeat($m[1])) {
+                return false;
+            }
+            continue;
+        }
+        if (!_pp_validate_grid_track($track)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** The upper bound on tracks in one authored list, and on a `repeat()` count. */
+const PP_CSS_MAX_GRID_TRACKS = 12;
+
+/**
+ * The body of `repeat(<count>, <track>+)`.
+ *
+ * `auto-fit` / `auto-fill` are the two keyword counts CSS defines, and they are
+ * the whole reason the list form exists (#905). A numeric count carries the same
+ * 1-12 bound as a written-out list, so `repeat(40, 1fr)` is refused with a
+ * number an author recognises rather than by exhausting a parser.
+ */
+function _pp_validate_track_repeat(string $body): bool {
+    $parts = _pp_css_split_top_level($body, ',');
+    if ($parts === null || count($parts) < 2) {
+        return false;
+    }
+    $count = strtolower(array_shift($parts));
+    if (!in_array($count, ['auto-fit', 'auto-fill'], true)) {
+        if (!preg_match('/^\d{1,2}\z/', $count)) {
+            return false;
+        }
+        $n = (int) $count;
+        if ($n < 1 || $n > PP_CSS_MAX_GRID_TRACKS) {
+            return false;
+        }
+    }
+    // The tracks inside. A nested repeat() dies here: `repeat` is not a track.
+    foreach ($parts as $track) {
+        foreach (_pp_css_split_top_level($track) ?: [] as $one) {
+            if (!_pp_validate_grid_track($one)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * ONE track: a length/percentage, an `<n>fr`, a sizing keyword, or `minmax()`.
+ *
+ * `functions => false` on the length call is deliberate: `calc()` inside a track
+ * is valid CSS this cut does not accept, and the AI-facing docs say so rather
+ * than leaving the model to discover it from a refusal (the same posture
+ * `text-decoration-line` takes on combinations).
+ */
+function _pp_validate_grid_track(string $track): bool {
+    $track = trim($track);
+    if ($track === '') {
+        return false;
+    }
+    $lower = strtolower($track);
+    if (in_array($lower, ['auto', 'min-content', 'max-content'], true)) {
+        return true;
+    }
+    if (preg_match('/^(\d+(?:\.\d+)?)fr\z/', $lower, $m)) {
+        return (float) $m[1] > 0.0; // `0fr` is a track that paints nothing.
+    }
+    if (preg_match('/^minmax\((.*)\)\z/is', $track, $m)) {
+        $pair = _pp_css_split_top_level($m[1], ',');
+        if ($pair === null || count($pair) !== 2) {
+            return false;
+        }
+        foreach ($pair as $side) {
+            if (!_pp_validate_grid_track($side)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return _pp_css_length($track, ['signed' => false, 'percent' => true, 'functions' => false]);
+}
+
+/**
+ * Splits a CSS value at top-level separators, or null when the parentheses do
+ * not balance.
+ *
+ * NULL RATHER THAN A BEST EFFORT. An unbalanced value is refused at the split
+ * rather than silently truncated into parts that happen to validate —
+ * `minmax(0, 1fr` must fail as a whole, and the engine's own delimiter check
+ * (`_pp_udc_delimiters_balanced()`) covers the same class one layer up. Two
+ * gates, one answer.
+ *
+ * @return array<int, string>|null
+ */
+function _pp_css_split_top_level(string $value, string $separator = ' '): ?array {
+    $parts = [];
+    $depth = 0;
+    $buf   = '';
+    $len   = strlen($value);
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $value[$i];
+        if ($ch === '(') {
+            $depth++;
+        } elseif ($ch === ')') {
+            if (--$depth < 0) {
+                return null;
+            }
+        }
+        $split = $depth === 0
+            && ($separator === ' ' ? ($ch === ' ' || $ch === "\t" || $ch === "\n") : $ch === $separator);
+        if ($split) {
+            if ($buf !== '') {
+                $parts[] = $buf;
+                $buf     = '';
+            }
+            continue;
+        }
+        $buf .= $ch;
+    }
+    if ($depth !== 0) {
+        return null;
+    }
+    if ($buf !== '') {
+        $parts[] = $buf;
+    }
+    return array_map('trim', $parts);
+}
+
 /**
  * The ONE reject set for a CSS value, shared by the write engine and the render
  * boundary (issue #579, A-33).
@@ -1763,6 +2038,40 @@ function _pp_validate_token_value(string $value, ?string $type, ?array $allowed 
         case 'timing-function':
             if (!_pp_validate_timing_function($value)) {
                 return new WP_Error('invalid_timing_function', 'Value must be a transition timing function: a keyword (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end), cubic-bezier() with four numbers whose 1st and 3rd are between 0 and 1 (the 2nd and 4th may be any number, including negative, which is what produces overshoot), or steps() with a positive integer (at most 1000) and an optional jump keyword (jump-start, jump-end, jump-none, jump-both, start, end); jump-none additionally needs two or more steps. Values are case-sensitive: write ease, not EASE.');
+            }
+            break;
+        // ── The Layout group's types (#1084) ────────────────────────────────
+        // Same rule as the Sprint-0 sets above: declared on the ONE dispatcher, so
+        // the render boundary honours them for free — it delegates here and has no
+        // grammar of its own.
+        case 'flex-direction':
+            if (!_pp_validate_flex_direction($value)) {
+                return new WP_Error('invalid_flex_direction', 'Value must be a flex-direction keyword: row, row-reverse, column, or column-reverse.');
+            }
+            break;
+        case 'flex-wrap':
+            if (!_pp_validate_flex_wrap($value)) {
+                return new WP_Error('invalid_flex_wrap', 'Value must be a flex-wrap keyword: nowrap, wrap, or wrap-reverse.');
+            }
+            break;
+        case 'justify-content':
+            if (!_pp_validate_box_align($value, true, false)) {
+                return new WP_Error('invalid_justify_content', 'Value must be a justify-content keyword: center, start, end, flex-start, flex-end, left, right, space-between, space-around, space-evenly, stretch, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
+            }
+            break;
+        case 'align-items':
+            if (!_pp_validate_box_align($value, false, false)) {
+                return new WP_Error('invalid_align_items', 'Value must be an align-items keyword: center, start, end, flex-start, flex-end, stretch, baseline, first baseline, last baseline, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
+            }
+            break;
+        case 'align-self':
+            if (!_pp_validate_box_align($value, false, true)) {
+                return new WP_Error('invalid_align_self', 'Value must be an align-self keyword: auto, center, start, end, self-start, self-end, flex-start, flex-end, stretch, baseline, first baseline, last baseline, normal, or a positional keyword prefixed with "safe" or "unsafe" (e.g. "safe center").');
+            }
+            break;
+        case 'track-list':
+            if (!_pp_validate_track_list($value)) {
+                return new WP_Error('invalid_track_list', sprintf('Value must be a column COUNT (a whole number from 1 to %1$d, which becomes %1$d equal columns) or a track list of at most %1$d tracks, each one of: a length/percentage with a CSS unit (%2$s), an <n>fr, auto, min-content, max-content, or minmax(a, b). One repeat() per list, with a count of 1-%1$d or the keyword auto-fit/auto-fill (e.g. "repeat(auto-fit, minmax(20rem, 1fr))"); repeat() does not nest, calc() inside a track is not accepted in this cut, and a zero or negative track is refused because it paints nothing.', PP_CSS_MAX_GRID_TRACKS, pp_css_grammar_summary()));
             }
             break;
         case 'raw':
