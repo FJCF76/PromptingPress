@@ -6246,6 +6246,408 @@ function pp_udc_group_summary(): string {
     return implode('; ', $lines);
 }
 
+/**
+ * May this role's schema bytes be composed onto a model-facing surface? (#1087)
+ *
+ * ONE GATE FOR EVERY COMPOSER, and it exists because the first cut had two composers and
+ * gated one. The security review probed it: a nav role carrying an unknown definition key
+ * was correctly suppressed from the obligation roster and STILL appeared by name in the
+ * chrome-ink roster, in the same prompt build. That is the write/render-disagreement shape
+ * this repo has already recorded once — in an engine where stored bytes reach the emitter by
+ * several paths, every gate must exist on all of them or they disagree.
+ *
+ * TWO CHECKS, because the review showed the definition gate alone guards the wrong field.
+ * The NAME is composed onto the same line as the values and was bounded nowhere; `with` —
+ * the same identifier from the other end — was bounded. So the name is checked here, and the
+ * definition is delegated to the validator that owns definition shape.
+ *
+ * EVERY admin.php symbol THIS function touches is probed, and only those. It reaches exactly
+ * two — PP_ROLE_NAME_PATTERN and pp_schema_definition_errors() — so those two are guarded and
+ * nothing else is. The first cut also probed pp_udc_is_single_line(), which this function
+ * never calls; a load probe for a symbol on no code path here is noise that reads as rigour.
+ */
+function _pp_udc_role_is_composable(string $component, string $role, $definition): bool {
+    if (!is_array($definition)) {
+        return false;
+    }
+    if (!defined('PP_ROLE_NAME_PATTERN')) {
+        return false;
+    }
+    if (!preg_match(PP_ROLE_NAME_PATTERN, $role)) {
+        return false;
+    }
+    return !function_exists('pp_schema_definition_errors')
+        || pp_schema_definition_errors($definition, 'role', "{$component} role {$role}") === [];
+}
+
+/**
+ * The obligation records ONE role contributes, or [] when it contributes none (#1087).
+ *
+ * A SEAM, extracted so the fail-safe path is reachable from a test. The shapes this has to
+ * survive — a malformed record, an unknown kind, a dangling partner, a non-list container —
+ * exist on a HAND-EDITED install, not in the shipped schemas, so a test that could only go
+ * through the real registry could never reach them without swapping the theme root. The
+ * behaviour being pinned is "renders nothing, warns nothing, fatals nothing", and an
+ * untested fail-safe is not one.
+ *
+ * `$siblings` is passed in rather than re-read so the caller's single registry walk is the
+ * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N. It is a
+ * MAP keyed by role name, not a list, so the partner check is a hash hit rather than a scan.
+ *
+ * @param array<string, true> $siblings  Role names this component declares, as keys.
+ * @return array<int, array{kind: string, with: string, why: string, pair: string}>
+ */
+function _pp_udc_role_obligation_records(
+    string $component,
+    string $role,
+    array $definition,
+    array $siblings
+): array {
+    // THE SKIP IS THE POINT, and it is a DELEGATION rather than a re-derivation — the
+    // pattern pp_ai_format_applies_when_clause() was corrected into after its first draft
+    // re-derived the grammar, accepted shapes the validator rejects, and emitted a PHP
+    // warning into the prompt buffer while its docblock promised it never guessed. A role
+    // whose definition does not validate contributes NOTHING rather than contributing
+    // garbage to a prompt. function_exists because a partial include must degrade to
+    // rendering nothing, not fatal.
+    if (!_pp_udc_role_is_composable($component, $role, $definition)) {
+        return [];
+    }
+
+    $kinds = function_exists('pp_udc_obligation_kinds') ? pp_udc_obligation_kinds() : [];
+    if ($kinds === []) {
+        return [];
+    }
+
+    $obligations = $definition['obligations'] ?? [];
+    if (!is_array($obligations)) {
+        return [];
+    }
+
+    $records = [];
+    foreach ($obligations as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $kind = $entry['kind'] ?? null;
+        $with = $entry['with'] ?? null;
+        $why  = $entry['why']  ?? null;
+        if (!is_string($kind) || !is_string($with) || !is_string($why)
+            || !in_array($kind, $kinds, true)) {
+            continue;
+        }
+        // A partner the component does not declare would compose a prompt sentence about a
+        // role the model cannot write to — worse than silence, because it would try and be
+        // refused with `unknown_udc_role`. The schema walk fails CI on this; here is the
+        // runtime half, for the hand-edited install the CI walk never sees.
+        if (!isset($siblings[$with])) {
+            continue;
+        }
+        $records[] = [
+            'kind' => $kind,
+            'with' => $with,
+            'why'  => $why,
+            // The display form the prompt roster composes. `with` travels beside it so no
+            // consumer has to split this string back apart to recover the partner.
+            'pair' => "{$component}.{$role} -> {$with}",
+        ];
+    }
+    return $records;
+}
+
+/**
+ * Every declared role obligation, grouped for the runtime prompt (#1087).
+ *
+ * THE CHANNEL THIS EXISTS FOR. A role's schema `description` is never injected into the
+ * system prompt — #1059 is the measured proof of what that costs, a 3.21:1 contrast
+ * failure with the warning sitting in a field nobody reads. The in-admin chat AI has no
+ * tools, no function calling and no way to fetch a schema mid-turn, so an obligation that
+ * is not in the prompt is an obligation that model does not have. This is how the
+ * obligations reach it.
+ *
+ * DERIVED, never restated, for the reason pp_udc_group_summary()'s docblock gives above.
+ * The paragraph in lib/ai-context.php keeps its hand-written ARGUMENT — why the cascade
+ * behaves this way is prose a reader needs — and takes its ROSTER from here, so a pair
+ * added by a later rebuild reaches the authoring model on the day it lands rather than
+ * whenever someone remembers to edit a sentence. Five hand-maintained rosters in this
+ * repo's model-facing docs were stale at the time this was written; every pinned one was
+ * correct. That is the whole argument for deriving it.
+ *
+ * WALKS THE FULL REGISTRY, not pp_composable_components(), and this is deliberate rather
+ * than careless: EIGHT of the sixteen shipped records — half of them — are on `nav` and
+ * `footer`, which the prompt's component catalog deliberately EXCLUDES (chrome is not composable, and listing
+ * it there is what led an agent to compose duplicate chrome in #223). A summary built
+ * inside that catalog loop would silently omit exactly the chrome pairs a dark-header
+ * author most needs. The registry read is memoised per theme root
+ * (pp_get_registered_components), so this is one in-memory pass.
+ *
+ * GROUPED BY IDENTICAL `why`, because the six rich-text container/link pairs share one
+ * instruction word for word. Emitting it six times would spend ~800 bytes of every
+ * conversation turn restating a sentence the model already read; grouping states the pairs
+ * once and the instruction once.
+ *
+ * FAIL-SAFE BY DELEGATION, the pattern pp_ai_format_applies_when_clause() was corrected
+ * into after its first draft emitted a PHP "Array to string conversion" warning into the
+ * prompt buffer. A malformed record is SKIPPED, never rendered and never fataled, because
+ * pp_schema_definition_errors() is a repo-CI invariant and not a runtime gate
+ * (lib/admin.php's own docblock says so) — a hand-edited schema on a live install reaches
+ * this function unvalidated. Guarded with function_exists so a partial include degrades to
+ * rendering nothing rather than fataling.
+ *
+ * Assembled from _pp_udc_role_obligation_records(), which owns the per-role fail-safe;
+ * this function owns only the walk and the grouping.
+ *
+ * @return array<string, array<int, array{pairs: string[], why: string}>>
+ *         kind => list of {pairs, why} groups. Empty when nothing is declared.
+ */
+function pp_udc_obligation_groups(): array {
+    $out = [];
+    foreach (array_keys(pp_get_registered_components()) as $component) {
+        $roles = pp_udc_component_roles($component);
+        // HOISTED, and the sibling set is a MAP rather than a list. Rebuilding array_keys()
+        // inside the role loop and then scanning it with in_array() per record are two
+        // O(roles^2) terms on what is now a per-chat-turn path. Invisible at the shipped
+        // maximum of 19 roles, and measured superlinear the moment roles-per-component grows
+        // (2.2-2.7x per doubling, flattened to ~1.9x by this change). This repo's recorded
+        // quadratic-validator incident is the same shape: harmless until something put it on
+        // a per-request path.
+        $siblings = array_fill_keys(array_keys($roles), true);
+        foreach ($roles as $role => $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+            foreach (_pp_udc_role_obligation_records($component, $role, $definition, $siblings) as $record) {
+                $out[$record['kind']][$record['why']][] = $record['pair'];
+            }
+        }
+    }
+
+    $grouped = [];
+    foreach ($out as $kind => $by_why) {
+        foreach ($by_why as $why => $pairs) {
+            $grouped[$kind][] = ['pairs' => $pairs, 'why' => (string) $why];
+        }
+    }
+    return $grouped;
+}
+
+/**
+ * Is `$inner_def`'s selector a descendant of `$outer_selector` that an authored value
+ * cannot reach? (#1087)
+ *
+ * The predicate behind the net documented on pp_udc_derived_descendant_pairs() below.
+ * Extracted so its NEAR-MISSES are testable: a guard tested only on what it should catch is
+ * a guard whose false-positive rate is unmeasured, and this repo has already shipped one
+ * whose trigger matched ordinary prose.
+ *
+ * @param string $outer_selector The containing role's selector.
+ * @param array  $inner_def      The candidate inner role's full definition.
+ */
+function _pp_udc_is_derivable_descendant(string $outer_selector, array $inner_def): bool {
+    $inner_selector = trim((string) ($inner_def['selector'] ?? ''));
+    if ($inner_selector === '' || $outer_selector === '') {
+        return false;
+    }
+
+    // CONTAINMENT: the inner selector continues the outer one ACROSS A COMBINATOR.
+    //
+    // Deliberately NOT a regex. Escaping the outer selector into one would need PHP's
+    // pattern-escaping helper, whose NAME carries a substring this file is forbidden to
+    // contain — UdcEngineTest asserts the engine names no component or role, and it tests
+    // that by substring over comment-stripped source. A plain prefix test is also cheaper
+    // and says the rule more directly.
+    //
+    // The boundary character is the whole point: it is what stops `.faq__heading` being read
+    // as containing `.faq__heading-accent`. Those select DIFFERENT elements, and a bare
+    // substring test reports them as a pair — the false-positive class this repo has already
+    // paid for once, in a guard whose trigger matched ordinary prose and passed 46% of its
+    // subjects by accident.
+    if (!str_starts_with($inner_selector, $outer_selector)) {
+        return false;
+    }
+    $boundary = substr($inner_selector, strlen($outer_selector), 1);
+    if ($boundary === '' || !in_array($boundary, [' ', "\t", '>', '+', '~'], true)) {
+        return false;
+    }
+
+    // Arm 1 — the inner role declares its own typography, so a value inherited from the
+    // outer role loses to it.
+    if (!empty($inner_def['defaults']['typography']) && is_array($inner_def['defaults']['typography'])) {
+        return true;
+    }
+
+    // Arm 2 — the inner role targets an ANCHOR, which base.css gives a direct colour rule
+    // whatever the role declares. WITHOUT THIS ARM THE NET SEES 6 OF 13 PAIRS, all chrome,
+    // and misses every pair #1069 was filed about. The `(?:^|[\s>+~])` prefix is what keeps
+    // it from reading a class that merely ends in the letter `a` (`.media`) as an anchor.
+    return (bool) preg_match('/(?:^|[\s>+~])a$/', $inner_selector);
+}
+
+/**
+ * The descendant pairs a declaration SHOULD exist for — a one-directional net (#1087).
+ *
+ * WHAT IT IS AND WHAT IT IS NOT. This is a safety net over the `obligations` declarations,
+ * not a source of them. It answers "is there a pair here that obviously needs a
+ * declaration and has none?" and it CANNOT answer the reverse, because the declarations
+ * cover cases no selector analysis can see. Treating its output as the complete roster
+ * would be the drift this gate exists to end, arriving through a derivation instead of
+ * through prose.
+ *
+ * WHY ONE-DIRECTIONAL, stated with the evidence rather than as a caveat. One shipped
+ * obligation is INVISIBLE here, and it was found by reading MARKUP, not selectors:
+ *
+ *   footer.social -> social-link   The markup (components/footer/footer.php:148-152) nests
+ *                                  `<a class="site-footer__social-link">` inside
+ *                                  `<ul class="site-footer__social">`, but the two
+ *                                  SELECTORS express no containment at all. Nothing
+ *                                  derivable from selectors can know the anchors are in
+ *                                  there, and `social-link` does declare its own muted
+ *                                  colour and accent hover.
+ * A SECOND BLIND SPOT, not currently exercised: `.faq__item[open] > .faq__question` does
+ * not begin with `.faq__item` followed by a combinator, so this predicate cannot see that
+ * containment either. `faq.item` declares no obligation today — the faq pairing that ships
+ * is `question -> question-open`, which is the OTHER kind and outside this net entirely —
+ * so nothing is missing right now. It is recorded because the shape is real and the next
+ * component to use an attribute-qualified ancestor will land in it.
+ *
+ * THE ANCHOR ARM IS NOT OPTIONAL, and this is the correction that matters most. A net keyed
+ * only on "the descendant declares a typography default" finds SIX of the thirteen shipped
+ * descendant pairs — all six of them chrome — and misses every pair #1069 was actually filed
+ * about. The six composable `*-link` roles declare NO defaults, deliberately, so that an
+ * unauthored link keeps the site's normal anchor treatment; their obligation comes from
+ * base.css giving every `<a>` a DIRECT colour rule, which beats an inherited value whatever
+ * the layer. So a descendant whose last compound is `a` counts whether or not it declares a
+ * default.
+ *
+ * NOT ON ANY RUNTIME PATH, and it must stay that way without someone re-measuring first.
+ * Its only caller is the schema walk in the test suite. It compares every ORDERED PAIR of
+ * roles per component, which the performance specialist measured as cleanly quadratic — 4x
+ * per doubling of roles-per-component, 137ms at 3072 roles, against 15ms for the roster walk
+ * that IS composed into the prompt. Wiring it into pp_ai_system_prompt() would put a
+ * quadratic growth law on every chat turn with nothing bounding roles-per-component. If that
+ * is ever wanted, index roles by selector prefix instead of comparing all pairs.
+ *
+ * @return array<int, array{component: string, role: string, with: string}>
+ */
+function pp_udc_derived_descendant_pairs(): array {
+    $pairs = [];
+    foreach (array_keys(pp_get_registered_components()) as $component) {
+        $roles = pp_udc_component_roles($component);
+        foreach ($roles as $outer => $outer_def) {
+            $outer_selector = is_array($outer_def) ? (string) ($outer_def['selector'] ?? '') : '';
+            if ($outer_selector === '' || $outer === '_band') {
+                continue;
+            }
+            foreach ($roles as $inner => $inner_def) {
+                if ($inner === $outer || !is_array($inner_def)) {
+                    continue;
+                }
+                // The predicate reads and empty-checks the inner selector itself, on the
+                // TRIMMED value — a second check here was the weaker of the two.
+                if (!_pp_udc_is_derivable_descendant($outer_selector, $inner_def)) {
+                    continue;
+                }
+                $pairs[] = ['component' => $component, 'role' => $outer, 'with' => $inner];
+            }
+        }
+    }
+    return $pairs;
+}
+
+/**
+ * The chrome roles that declare their OWN ink, grouped by component (#1087).
+ *
+ * THE CLAIM THIS REPLACES WAS FALSE, and measurably so. The chrome paragraph said "THE ONE
+ * PAIRING THAT IS STILL MANDATORY" and named a single role — while eleven chrome roles
+ * declare their own `typography.color`, so a background change reaches NONE of them. On the
+ * prompt's own worked example fill (#101828) the footer's five muted-ink roles measure
+ * 3.08:1, under the 4.5:1 AA floor. A count whose roster names one member is the #1045
+ * shape exactly, and it was in the runtime prompt.
+ *
+ * DERIVED, so the answer is a fact about the schemas. A rebuild that adds a text role with
+ * a default colour adds it here on the day it lands.
+ *
+ * SCOPED TO CHROME on purpose: a band's text roles are covered by the dark-band paragraph,
+ * which already tells an author to colour every text role. Chrome is the surface where the
+ * prompt asserted the opposite.
+ */
+function pp_udc_chrome_own_ink_summary(): string {
+    $lines = [];
+    foreach (pp_udc_chrome_names() as $component) {
+        $named = [];
+        foreach (pp_udc_component_roles($component) as $role => $definition) {
+            // THE SAME GATE THE OBLIGATION COMPOSER USES. This path had none, so a role the
+            // other roster correctly suppressed still reached the prompt by name here.
+            if (!_pp_udc_role_is_composable($component, (string) $role, $definition)) {
+                continue;
+            }
+            $typography = $definition['defaults']['typography'] ?? [];
+            if (!is_array($typography)) {
+                continue;
+            }
+            // A resting colour OR a state colour: either one is ink the role owns and a
+            // background change will not move.
+            $has_rest  = array_key_exists('color', $typography);
+            $has_state = false;
+            foreach ([':hover', ':focus-visible', ':active'] as $state) {
+                if (isset($typography[$state]['color'])) {
+                    $has_state = true;
+                }
+            }
+            if ($has_rest || $has_state) {
+                $named[] = $role;
+            }
+        }
+        if ($named !== []) {
+            $lines[] = $component . ': ' . implode(', ', $named);
+        }
+    }
+    return implode('; ', $lines);
+}
+
+/**
+ * One obligation kind rendered as prompt prose, or '' when nothing is declared (#1087).
+ *
+ * THE EMPTY ANSWER IS A REAL ANSWER. Returning '' lets the caller suppress the roster
+ * sentence entirely rather than emit a paragraph that asserts instances exist and then
+ * names none — which is what the hand-written stopgap this replaces did on its way to
+ * going stale ("THE INSTANCE THAT SHIPS TODAY IS faq", true when written).
+ */
+function pp_udc_obligation_summary(string $kind): string {
+    // A TEST-FACING CONVENIENCE, not the prompt path. Kept because three tests read one kind
+    // in isolation and the two-call expression adds nothing there; named here so nobody reads
+    // its existence as evidence that production composes rosters one kind at a time.
+    return pp_udc_format_obligation_groups(pp_udc_obligation_groups()[$kind] ?? []);
+}
+
+/**
+ * One kind's group list rendered as prompt prose, or '' when it is empty (#1087).
+ *
+ * SPLIT OUT SO THE WALK RUNS ONCE. pp_udc_obligation_summary() below builds the whole
+ * both-kinds map and indexes one kind out of it, so calling it once per kind — which the
+ * prompt DID, before this split — walked all 125 roles TWICE and threw half the work away:
+ * 250 record extractions and 278 validator calls where 125 and 153 suffice. Measured by the
+ * pre-landing performance specialist at 0.185ms of a 0.650ms warm build, 28%, and 44% of
+ * everything this gate added to a cold build. The prompt now calls pp_udc_obligation_groups()
+ * once and this formatter per kind; the summary wrapper remains for tests only.
+ *
+ * A FORMATTER RATHER THAN A CACHE, deliberately. A `static` memo would have been fewer lines
+ * and would have needed the theme-root keying and invalidate handshake
+ * pp_get_registered_components() carries — and this repo has already paid for a stale
+ * per-root cache leaking across test classes. Computing once at the call site has no
+ * invalidation to get wrong.
+ */
+function pp_udc_format_obligation_groups(array $groups): string {
+    if ($groups === []) {
+        return '';
+    }
+    $parts = [];
+    foreach ($groups as $group) {
+        $parts[] = implode(', ', $group['pairs']) . ' — ' . $group['why'];
+    }
+    return implode(' ', $parts);
+}
+
 // ── Write-side findings: the disclosure channel ─────────────────────────────
 
 /**

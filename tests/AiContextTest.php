@@ -112,16 +112,36 @@ class AiContextTest extends TestCase
         // #377 — the runtime chat prompt must state the var() negative for the
         // literal-only slot types, not only for `position`. The chat AI was
         // misled by the color analogy into setting a length slot to a var()
-        // reference and getting rejected; the prompt now names which types
-        // accept var() and that length/number/duration/position/ratio are literal-only.
+        // reference and getting rejected; the prompt names which types accept
+        // var() and says every other type is literal-only.
+        //
+        // THE NEGATIVE IS NOW STATED AS A COMPLEMENT, NOT A LIST (#1087). The old pin
+        // enumerated `length, length-or-none, number, duration, position, ratio`, and four
+        // of those six had ZERO shipped slot carriers — the prompt was teaching a var()
+        // rule for types no slot could declare. An enumeration also had to be re-edited
+        // every time a carrier retired, which is the hand-maintained-roster drift this gate
+        // exists to end. A complement ("every other type") stays true as the carrier set
+        // moves, so what is pinned here is the SUBSTANCE: the accepting set is named, and
+        // the negative covers everything outside it.
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString(
             'Only the `color`, `gradient`, `shadow`, and `font-family` types accept a `var()` reference',
             $prompt
         );
         $this->assertStringContainsString(
-            'the `length`, `length-or-none`, `number`, `duration`, `position`, and `ratio` types are literal-only',
+            'every other type is literal-only and rejects `var()` in EVERY form',
             $prompt
+        );
+        // And the substance behind the sentence, so this cannot pass on phrasing alone: a
+        // length really does reject a bare token reference, in the engine.
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            \_pp_validate_token_value('var(--space-lg)', 'length', null),
+            'the prompt claims a length rejects var(); the validator must agree'
+        );
+        $this->assertTrue(
+            \_pp_validate_token_value('var(--color-accent)', 'color', null),
+            'and that a colour ACCEPTS one, so the claim is a real distinction'
         );
     }
 
@@ -303,80 +323,533 @@ class AiContextTest extends TestCase
     }
 
     /**
-     * #579 — the `length-or-none` band-geometry grammar must be surfaced, and the
-     * "how do I remove a max-width" guidance must route to the slot's own removal
-     * value instead of the pre-#579 `100%` workaround, which existed only because
-     * the type could not express `none`.
+     * EVERY DECLARED OBLIGATION REACHES THE PROMPT, AND THE PROMPT NAMES NO OTHER (#1087).
+     *
+     * THE GUARANTEE THIS PINS. A role's schema `description` is never injected into the
+     * system prompt, and the in-admin chat AI has no tools with which to fetch one — so an
+     * obligation that does not reach this string is an obligation that model does not have.
+     * #1059 is the measured cost of that gap: a 3.21:1 contrast failure whose warning sat in
+     * a schema field nothing read.
+     *
+     * BOTH DIRECTIONS, because each catches a different failure. Forward catches a pair
+     * declared in a schema that the prompt composition drops. Reverse catches the older and
+     * worse failure — a pair NAMED in the prompt that the registry no longer declares, which
+     * is the hand-maintained-roster drift this whole gate exists to end.
      */
-    public function testSystemPromptStatesTheLengthOrNoneGrammar(): void
+    public function testEveryDeclaredObligationReachesTheRuntimePromptAndNoOthers(): void
+    {
+        $prompt   = pp_ai_system_prompt();
+        $declared = [];
+        foreach (\pp_udc_obligation_groups() as $groups) {
+            foreach ($groups as $group) {
+                foreach ($group['pairs'] as $pair) {
+                    $declared[] = $pair;
+                }
+            }
+        }
+
+        foreach ($declared as $pair) {
+            $this->assertStringContainsString(
+                $pair,
+                $prompt,
+                "the declared obligation `{$pair}` never reaches the runtime prompt, so the "
+                . 'chat AI — which has no way to read a schema — does not have it'
+            );
+        }
+
+        // REVERSE. Every `x.y -> z` the prompt names must be declared. Scoped to that exact
+        // arrow shape so ordinary prose cannot trip it.
+        preg_match_all('/\b([a-z]+)\.([a-z-]+) -> ([a-z-]+)\b/', $prompt, $m, PREG_SET_ORDER);
+        $this->assertNotEmpty($m, 'the prompt no longer carries any obligation pair at all');
+        foreach ($m as $hit) {
+            $this->assertContains(
+                $hit[0],
+                $declared,
+                "the runtime prompt names the pair `{$hit[0]}`, which no role declares — a "
+                . 'hand-typed roster that has gone stale, or a roster left behind by a rebuild'
+            );
+        }
+
+        // Fail-closed: 16 today. A composition step that stopped emitting rosters would make
+        // both loops above vacuous and still pass.
+        $this->assertSame(16, count($declared), 'the obligation corpus changed — update deliberately');
+    }
+
+    /**
+     * EVERY OBLIGATION KIND REACHES THE PROMPT — the enum cannot grow silently (#1087).
+     *
+     * Found by this gate's own pre-landing review, in this gate's own code, which is the
+     * reason it is worth the docblock. `pp_ai_system_prompt()` calls
+     * pp_udc_obligation_summary() TWICE, with the two kind names written out. A third kind
+     * added to pp_udc_obligation_kinds() would be accepted by the validator, stored in a
+     * schema, carried by pp_udc_obligation_groups(), and reported by `wp pp schema` — and
+     * would never reach the runtime prompt. Accepted, stored, ignored: the exact class this
+     * whole gate exists to close, reproduced inside it.
+     *
+     * A GUARD RATHER THAN A DERIVATION, deliberately. Each kind needs its own hand-written
+     * ARGUMENT — why that cascade behaves that way is prose a reader needs, and the rulings
+     * were explicit that only the ROSTER is derived. So the prompt cannot compose a
+     * paragraph for a kind nobody has written about yet. What it CAN do is refuse to ship
+     * until someone has: this fails the moment a kind is added without one.
+     */
+    public function testEveryDeclaredObligationKindIsConsumedByThePrompt(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
-        $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
-        $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--grid-heading-measure`) still rejects it.',
+        $kinds  = \pp_udc_obligation_kinds();
+        $this->assertNotEmpty($kinds);
+
+        foreach ($kinds as $kind) {
+            $summary = \pp_udc_obligation_summary($kind);
+            if ($summary === '') {
+                // A kind nothing declares yet has no roster to place, which is legitimate —
+                // but the prompt must still be able to carry it once something does.
+                continue;
+            }
+            $this->assertStringContainsString(
+                $summary,
+                $prompt,
+                "obligations of kind `{$kind}` are declared and composed, but the assembled "
+                . 'prompt does not carry them. pp_ai_system_prompt() names each kind '
+                . 'explicitly, so a kind added to pp_udc_obligation_kinds() without its own '
+                . 'paragraph is stored, validated, reported on the CLI, and invisible to the '
+                . 'one channel that cannot fetch it — accepted, stored, ignored'
+            );
+        }
+
+        // Fail-closed: both shipped kinds must actually be exercised above, or the loop is
+        // passing because nothing is declared rather than because everything reaches.
+        $nonEmpty = 0;
+        foreach ($kinds as $kind) {
+            if (\pp_udc_obligation_summary($kind) !== '') {
+                $nonEmpty++;
+            }
+        }
+        $this->assertSame(
+            count($kinds),
+            $nonEmpty,
+            'every shipped kind should have at least one declaration today; if a kind is '
+            . 'deliberately unused, say so here rather than letting the loop skip it silently'
+        );
+    }
+
+    /**
+     * CHROME OBLIGATIONS REACH THE PROMPT, though the component catalog excludes chrome
+     * (#1087).
+     *
+     * The single most likely regression in this mechanism, and the reason
+     * pp_udc_obligation_groups() walks the FULL registry rather than reusing the catalog
+     * loop's walk. That loop iterates pp_composable_components(), which deliberately omits
+     * nav and footer (#223 — listing chrome there is what led an agent to compose duplicate
+     * chrome). Eight of the sixteen records — half of them — live on exactly those two components, and they are
+     * the ones a dark-header author most needs. A future refactor that folds this summary
+     * into the catalog loop for efficiency would silently drop all six; this test is what
+     * stops that being silent.
+     */
+    public function testChromeObligationsReachThePromptDespiteTheCatalogExcludingChrome(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        foreach (['nav', 'footer'] as $chrome) {
+            $this->assertArrayHasKey(
+                $chrome,
+                \pp_get_registered_components(),
+                "{$chrome} must be registered for this test to mean anything"
+            );
+            $this->assertArrayNotHasKey(
+                $chrome,
+                \pp_composable_components(),
+                "{$chrome} must be absent from the catalog — that is the premise being guarded"
+            );
+        }
+        $this->assertStringContainsString('nav.menu -> link', $prompt, 'a chrome obligation must reach the prompt');
+        $this->assertStringContainsString('footer.social -> social-link', $prompt, 'including the markup-only one');
+    }
+
+    /**
+     * A MALFORMED ROLE CONTRIBUTES NOTHING — it never renders, warns or fatals (#1087).
+     *
+     * pp_schema_definition_errors() is a repo-CI invariant and NOT a runtime gate
+     * (lib/admin.php says so in those words), so a hand-edited schema on a live install
+     * reaches the prompt composer unvalidated. The sibling that learned this the hard way is
+     * pp_ai_format_applies_when_clause(), whose first draft emitted a PHP "Array to string
+     * conversion" warning into the prompt buffer while promising it never guessed.
+     *
+     * Note the last two cases: an unknown ROLE key and an over-long `why` poison the WHOLE
+     * role, not just the offending record. That is deliberate — the delegation asks "does
+     * this definition validate?", and a definition that does not is not a source to
+     * cherry-pick from.
+     *
+     * @dataProvider malformedRoleProvider
+     */
+    public function testAMalformedRoleContributesNoObligationRecords(array $definition, string $why): void
+    {
+        $records = \_pp_udc_role_obligation_records('c', 'a', $definition, ['a' => true, 'b' => true]);
+        $this->assertSame([], $records, $why);
+    }
+
+    public static function malformedRoleProvider(): array
+    {
+        $base = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $kind = 'reached_only_by_inheritance';
+        return [
+            'no obligations key'   => [$base, 'a role with no key contributes nothing'],
+            'empty list'           => [$base + ['obligations' => []], 'the explicit no-obligations answer'],
+            'container is a scalar' => [$base + ['obligations' => 'none'], 'a non-list container must not be iterated'],
+            'entry is a scalar'    => [$base + ['obligations' => ['x']], 'a scalar member is not a record'],
+            'unknown kind'         => [$base + ['obligations' => [['kind' => 'zzz', 'with' => 'b', 'why' => 'w']]], 'kind is bounded at render too'],
+            'why is an array'      => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => ['a']]]], 'this exact shape is what warned in the prompt buffer before'],
+            'dangling partner'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'nope', 'why' => 'w']]], 'a partner the component does not declare would name an unwritable role'],
+            'unknown role key'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => 'w']], 'type' => 'color'], 'an invalid definition is not a source to cherry-pick from'],
+            'why over the cap'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => str_repeat('x', PP_OBLIGATION_WHY_MAX + 1)]]], 'the bound is enforced at render, not only in CI'],
+        ];
+    }
+
+    /** A valid record DOES produce one, so the provider above is not passing vacuously. */
+    public function testAValidRoleContributesItsObligationRecord(): void
+    {
+        $records = \_pp_udc_role_obligation_records('c', 'a', [
+            'selector'    => '.a',
+            'description' => 'd',
+            'groups'      => ['typography'],
+            'defaults'    => [],
+            'obligations' => [['kind' => 'reached_only_by_inheritance', 'with' => 'b', 'why' => 'Set b too.']],
+        ], ['a' => true, 'b' => true]);
+        $this->assertCount(1, $records);
+        $this->assertSame('c.a -> b', $records[0]['pair']);
+    }
+
+    /** An undeclared kind renders as the empty string, so the caller can suppress (#1087). */
+    public function testAnUndeclaredObligationKindRendersEmptyRatherThanAStub(): void
+    {
+        $this->assertSame('', \pp_udc_obligation_summary('no_such_kind'));
+    }
+
+    /** No PHP diagnostic text ever reaches the assembled prompt (#1087). */
+    public function testThePromptCarriesNoPhpDiagnosticText(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        foreach (['Array to string conversion', 'Undefined array key', 'PHP Warning', 'PHP Notice', 'Deprecated:'] as $leak) {
+            $this->assertStringNotContainsString($leak, $prompt, "PHP diagnostic text leaked into the prompt: {$leak}");
+        }
+    }
+
+    /**
+     * THE PROMPT FITS ITS BYTE BUDGET, measured on an empty store (#1087).
+     *
+     * Nothing measured this before, so every paragraph added to the prompt was free at
+     * authoring time and permanent at runtime — re-sent on every conversation turn, uncached,
+     * on the operator's own API key.
+     *
+     * THE STORE IS SEEDED DELIBERATELY. pp_ai_system_prompt() enumerates pages, menus and
+     * media, so without a seed this both measures somebody's fixtures and emits PHP warnings
+     * into the suite — the trap DocsCoverageTest records in those words. An empty store is
+     * also the only figure that is a property of the CODE rather than of content.
+     *
+     * The failure message reports the margin, because "you are 40 bytes over" and "you are
+     * 4,000 bytes over" call for completely different responses.
+     */
+    public function testTheAssembledPromptFitsItsByteBudget(): void
+    {
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [],
+            'posts'     => [],
+            'options'   => [],
+            'next_id'   => 100,
+        ];
+
+        $bytes  = strlen(pp_ai_system_prompt());
+        $margin = PP_AI_PROMPT_BUDGET - $bytes;
+
+        $this->assertLessThanOrEqual(
+            PP_AI_PROMPT_BUDGET,
+            $bytes,
+            sprintf(
+                "the system prompt is %d bytes on an empty site, %d OVER the %d-byte budget.\n"
+                . "This string is re-sent on every conversation turn with no caching, so growth "
+                . "is not free.\nEither reclaim the bytes (a derived roster is usually smaller "
+                . "than the hand-written one it replaces, and a block gated on a registry fact "
+                . "deletes itself) or raise PP_AI_PROMPT_BUDGET and write down why in its "
+                . 'docblock.',
+                $bytes,
+                -$margin,
+                PP_AI_PROMPT_BUDGET
+            )
+        );
+
+        // Fail-closed the other way: a prompt that collapsed to a stub would satisfy a
+        // ceiling trivially. This is not a second budget, it is a liveness check.
+        $this->assertGreaterThan(
+            60000,
+            $bytes,
+            'the prompt collapsed — a ceiling is satisfied by an empty string, so this floor '
+            . 'is what stops a broken assembly reading as a budget win'
+        );
+    }
+
+    /**
+     * THE CHROME EXAMPLE THE MODEL IS INVITED TO COPY MEETS THE CONTRAST FLOOR (#1087).
+     *
+     * It did not. The example set a `#101828` header fill and then put `@color-accent`
+     * (#3157f4) on the current-page link at rest and on two hover states — 3.21:1 against
+     * its own fill, under the 4.5:1 AA floor, and the same ratio #1059 was filed at. The rest
+     * states passed at 16.7:1, so it LOOKED right; only the accent states failed.
+     *
+     * Computed from base.css rather than hardcoded, so a retuned token cannot leave this
+     * asserting a ratio the theme no longer ships.
+     */
+    public function testTheChromeExampleAccentClearsAaOnItsOwnFill(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('"fill": "#101828"', $prompt, 'the example fill');
+
+        $tokens = \pp_design_tokens();
+        $accent = $tokens['--color-accent']['value'] ?? null;
+        $tuned  = $tokens['--color-accent-on-inverted']['value'] ?? null;
+        $this->assertIsString($accent);
+        $this->assertIsString($tuned, 'the tuned token must exist for the fix to be available');
+
+        $this->assertLessThan(
+            4.5,
+            self::contrast($accent, '#101828'),
+            'premise check: the plain accent must still FAIL on that fill, or this test is '
+            . 'guarding nothing'
+        );
+        $this->assertGreaterThanOrEqual(
+            4.5,
+            self::contrast($tuned, '#101828'),
+            'the tuned token must actually clear AA there'
+        );
+
+        // The example must not put the plain accent anywhere in the nav block.
+        // SLICED BY ITS OWN DELIMITER, not a magic length. A hard-coded 420-byte window over
+        // a 386-byte example leaves 34 bytes of slack: adding one more role pushes the tail
+        // outside the window and the accent check silently stops covering it. The specialist
+        // proved it by appending an AA-failing `toggle` state past byte 420 and watching the
+        // suite stay green.
+        $start = strpos($prompt, 'Example: `{"nav"');
+        $this->assertNotFalse($start);
+        $end = strpos($prompt, '`', $start + strlen('Example: `'));
+        $this->assertNotFalse($end, 'the example must be a closed backtick span');
+        $block = substr($prompt, $start, $end - $start + 1);
+        $this->assertStringNotContainsString(
+            '"@color-accent"',
+            $block,
+            'the chrome example must not put the plain accent on a dark header — it measures '
+            . round(self::contrast($accent, '#101828'), 2) . ':1 there'
+        );
+        $this->assertStringContainsString('@color-accent-on-inverted', $block);
+
+        // AND IT MUST BE WRITABLE. An `@name` that resolves to no registered token is
+        // REFUSED at write, so a contrast 'fix' that reached for a token the theme does
+        // not ship would have turned a legible example into an unwritable one. Run the
+        // real validator rather than trusting the token census.
+        $this->assertNull(
+            \pp_udc_validate_map(
+                ['link-current' => ['typography' => ['color' => '@color-accent-on-inverted']]],
+                'nav'
+            ),
+            'the token the example now uses must be accepted by the write path'
+        );
+    }
+
+    /** WCAG relative-contrast, so the assertions above are measured rather than asserted. */
+    private static function contrast(string $a, string $b): float
+    {
+        $lum = static function (string $hex): float {
+            $hex = ltrim($hex, '#');
+            $out = 0.0;
+            foreach ([[0, 0.2126], [2, 0.7152], [4, 0.0722]] as [$offset, $weight]) {
+                $channel = hexdec(substr($hex, $offset, 2)) / 255;
+                $channel = $channel <= 0.03928 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+                $out += $channel * $weight;
+            }
+            return $out;
+        };
+        $one = $lum($a);
+        $two = $lum($b);
+        return $one > $two ? ($one + 0.05) / ($two + 0.05) : ($two + 0.05) / ($one + 0.05);
+    }
+
+    /**
+     * THE CHROME OWN-INK ROSTER IS DERIVED AND COMPLETE (#1087).
+     *
+     * The claim it replaces was "THE ONE PAIRING THAT IS STILL MANDATORY", naming a single
+     * role — while eleven chrome roles declare their own colour, so a background change
+     * reaches none of them. A count whose roster names one member is the #1045 shape, and it
+     * was in the runtime prompt.
+     */
+    public function testEveryChromeRoleWithItsOwnInkIsNamedInThePrompt(): void
+    {
+        $prompt  = pp_ai_system_prompt();
+        $summary = \pp_udc_chrome_own_ink_summary();
+        $this->assertStringContainsString($summary, $prompt, 'the derived roster must reach the prompt');
+
+        // AN INDEPENDENT ORACLE, read from the raw schema rather than from a copy of the
+        // production predicate. The first cut re-implemented pp_udc_chrome_own_ink_summary()'s
+        // own condition inline, so a wrong predicate would have been wrong identically on both
+        // sides and passed — a chrome role declaring its ink only inside a breakpoint map
+        // would be missed by production AND by the test. A recursive walk for any `color` key
+        // at any depth cannot share that blind spot. (Checked: no shipped chrome role declares
+        // ink that way today, so this is guarding the next one, not fixing a live gap.)
+        $counted = 0;
+        foreach (\pp_udc_chrome_names() as $component) {
+            $schema = json_decode(
+                (string) file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"),
+                true
+            );
+            foreach (($schema['roles'] ?? []) as $role => $definition) {
+                $typography = $definition['defaults']['typography'] ?? [];
+                $owns = false;
+                if (is_array($typography)) {
+                    array_walk_recursive($typography, static function ($value, $key) use (&$owns) {
+                        if ($key === 'color') {
+                            $owns = true;
+                        }
+                    });
+                    // array_walk_recursive visits leaves only, so a `color` whose value is a
+                    // breakpoint map is descended into; catch that shape explicitly.
+                    foreach ($typography as $key => $value) {
+                        if ($key === 'color' || (is_array($value) && array_key_exists('color', $value))) {
+                            $owns = true;
+                        }
+                    }
+                }
+                if ($owns) {
+                    $counted++;
+                    $this->assertMatchesRegularExpression(
+                        '/\b' . preg_quote($role, '/') . '\b/',
+                        $summary,
+                        "{$component}.{$role} declares its own ink but the roster omits it, so an "
+                        . 'author darkening chrome is never told to re-colour it'
+                    );
+                }
+            }
+        }
+        $this->assertGreaterThan(10, $counted, 'the own-ink sweep lost subjects; 11 chrome roles declare their own ink');
+        $this->assertStringNotContainsString(
+            'THE ONE PAIRING THAT IS STILL MANDATORY',
             $prompt,
-            'the widening must be stated as bounded, or the AI will try `none` everywhere'
+            'the false one-member count must not come back'
         );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt had to
-        // name the uncapped measures that were still SLOTS, or an agent reading it would
-        // believe `none` is never valid on a measure and could not restore their declared
-        // default. The set shrank one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026,
-        // and --faq-body-measure at #1046.
-        //
-        // IT IS NOW EMPTY, AND THE PROMPT SAYS SO IN THOSE TERMS. The previous cut kept a
-        // singular phrasing ("the one text measure that ships uncapped") on the argument
-        // that a list of one still reads as a list; the honest successor to a list of one
-        // is not a list of zero, it is a sentence saying the set is empty and naming where
-        // the capability went. An agent that reads a roster it is not on concludes the
-        // capability is gone — which is exactly what this assertion exists to prevent, and
-        // it prevents it better now than a phantom list would.
-        $this->assertStringContainsString(
-            'No text measure ships uncapped any more',
+    }
+
+    /**
+     * THE `length-or-none` SLOT GRAMMAR IS NOT TAUGHT WHILE NOTHING CARRIES IT (#1087).
+     *
+     * This replaces the #579/#578 pin, and the reversal is deliberate and ruled. That pin
+     * required the prompt to keep teaching the type BECAUSE its carrier set had emptied —
+     * the argument being that an agent reading a roster it is not on concludes the
+     * capability is gone. The argument was right about the RISK and wrong about the remedy:
+     * it spent prompt budget every turn on a slot grammar no slot could declare, and it is
+     * one of six such types the v1 block was still teaching.
+     *
+     * The risk is answered directly instead, by the assertion below that the v2 route is
+     * stated. "Remove this cap" is still a real instruction; it is a `udc` write now.
+     *
+     * AND THE CAPABILITY RETURNS BY ITSELF. The third assertion is the one that makes the
+     * deletion safe rather than merely cheap: the grammar is not gone from the code, it is
+     * conditional on a carrier, so the day a slot declares the type the sentence comes back
+     * without anyone remembering it existed.
+     */
+    public function testTheLengthOrNoneSlotGrammarIsConditionalOnACarrier(): void
+    {
+        $this->assertNotContains(
+            'length-or-none',
+            \pp_ai_live_slot_types(),
+            'no shipped slot carries this type — if one does now, this test is the wrong shape'
+        );
+
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringNotContainsString(
+            'A `length-or-none`-typed slot accepts everything',
             $prompt,
-            'the length-or-none carrier set must be stated, including when it empties'
+            'a slot grammar with no carrier must not be taught'
         );
-        // REPRICED AT #1066, ONE LEVEL UP FROM THE NOTE ABOVE, and by its own argument.
-        // That note recorded the TEXT-measure roster emptying at #1046 and concluded that
-        // "the honest successor to a list of one is not a list of zero, it is a sentence
-        // saying the set is empty and naming where the capability went". The SLOT roster
-        // has now emptied the same way: `--stats-max-width` was the last carrier of any
-        // kind and retired with stats' rebuild. So this asserted that the cap "is the only
-        // slot carrier left and must still be named"; it is named as the one that LEFT,
-        // and what must be stated is that nothing carries the type now.
-        //
-        // The danger this guards against is unchanged and is why the assertion is repriced
-        // rather than deleted: an agent told a type exists, shown no carrier and given no
-        // route, concludes the capability is gone and reaches for the pre-#579 `100%`
-        // workaround. So the prompt must say BOTH halves — no slot carries it, and the
-        // route is a role parameter — and both are asserted.
+
+        // The half that MUST survive: where the capability went.
         $this->assertStringContainsString(
-            'NO SHIPPED STYLE SLOT CARRIES IT ANY MORE',
+            'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE',
             $prompt,
-            'an empty carrier set must be stated as empty, not left to be inferred'
+            'without this an agent reads the absence as a removed capability and falls back '
+            . 'to the pre-#579 `100%` workaround'
         );
         $this->assertStringContainsString(
-            '`--stats-max-width` was the last',
+            'the role\'s `sizing.max-width` set to `none`',
             $prompt,
-            'the last carrier must still be named, or an author meeting it on an aged page '
-            . 'has nothing to match it against'
+            'the v2 route must be named, not merely implied'
         );
+
+        // Self-restoring: give the composer a carrier and the grammar comes back.
+        $restored = \pp_ai_slot_type_rules(['length-or-none']);
+        $this->assertStringContainsString('A `length-or-none`-typed slot accepts everything', $restored);
+        $this->assertStringContainsString('PLUS the keyword `none`', $restored);
+        $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
+    }
+
+    /**
+     * EVERY conditional branch restores its own grammar (#1087).
+     *
+     * pp_ai_slot_type_rules() has three branches and the test above exercised one. The other
+     * two — `position` and `ratio` — had ZERO coverage, because no shipped slot carries
+     * either type, so neither branch ever runs against the real registry. The pre-landing
+     * testing specialist mutation-verified it: corrupting both trigger keys to nonsense left
+     * the whole suite green.
+     *
+     * That matters because self-restoration IS the claim. The grammar was deleted from the
+     * prompt on the promise that it returns the day a carrier reappears; a promise verified
+     * for one branch of three is a promise for one branch of three.
+     *
+     * @dataProvider slotTypeRuleBranchProvider
+     */
+    public function testEverySlotTypeRuleBranchIsRestoredByItsCarrier(string $type, string $marker): void
+    {
         $this->assertStringContainsString(
-            'THE TYPE IS NOT GONE, ONLY ITS SLOT CARRIERS ARE',
-            $prompt,
-            'without this an agent reads an empty roster as a removed capability and falls '
-            . 'back to the pre-#579 `100%` workaround'
+            $marker,
+            \pp_ai_slot_type_rules([$type]),
+            "the {$type} rule must come back the day a slot declares the type"
         );
-        $this->assertStringContainsString(
-            'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
-            $prompt,
-            'the v2 route must be stated beside the shrinking slot list'
+        $this->assertStringNotContainsString(
+            $marker,
+            \pp_ai_slot_type_rules([]),
+            "and stay absent while nothing carries {$type}"
         );
-        $this->assertStringContainsString(
-            'use the slot\'s own removal value when its type has one',
-            $prompt
+        // And it must not be emitted by an unrelated carrier.
+        $others = array_values(array_diff(['position', 'ratio', 'length-or-none'], [$type]));
+        $this->assertStringNotContainsString(
+            $marker,
+            \pp_ai_slot_type_rules($others),
+            "the {$type} rule must key off its own type, not any carrier at all"
         );
+    }
+
+    public static function slotTypeRuleBranchProvider(): array
+    {
+        return [
+            'position'       => ['position', 'A `position`-typed slot'],
+            'ratio'          => ['ratio', 'A `ratio`-typed slot'],
+            'length-or-none' => ['length-or-none', 'A `length-or-none`-typed slot'],
+        ];
+    }
+
+    /**
+     * The retired slot NAMES survive the grammar's deletion (#1087).
+     *
+     * Two of these disclosures used to ride inside the `length-or-none` passage, so removing
+     * that passage removed them — and they do a different job, which outlives the type: an
+     * author repairing a page built before the rebuild meets the name in a stored `style`
+     * map and needs to know it is gone and what replaced it. RetiredNamesAreMarkedRetiredTest
+     * enforces the marker rule on them; this pins that they are still NAMED at all.
+     */
+    public function testRetiredSlotNamesAreStillDisclosedForAgedPageRepair(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        foreach (['--stats-max-width', '--faq-body-measure', '--stats-bg-position', '--logos-image-size'] as $name) {
+            $this->assertStringContainsString(
+                $name,
+                $prompt,
+                "an author meeting {$name} on an aged page has nothing to match it against"
+            );
+        }
+        $this->assertStringContainsString('no_style_slots', $prompt, 'and the refusal they will hit');
     }
 
     /**

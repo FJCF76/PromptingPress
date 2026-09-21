@@ -319,6 +319,69 @@ class CliSchemaCommandTest extends TestCase
         $this->assertNotEmpty($report['roles'], 'and its styling surface — its roles — is reported instead');
     }
 
+    /**
+     * A ROLE'S DECLARED OBLIGATIONS REACH THE CLI REPORT (#1087).
+     *
+     * The mechanism is two-channel and this is the half that is easy to forget. The runtime
+     * prompt composes obligations for the chat AI, which has no way to fetch a schema. An
+     * agent WITH filesystem or CLI access is told to run `wp pp schema <component>` instead
+     * of carrying a copy of role detail — so if the command does not emit them, "fetch it
+     * rather than duplicate it" points at a surface that does not have it, and the
+     * duplication it forbids becomes the only way to know.
+     *
+     * Emitted only when a role declares any, matching how every other optional block in this
+     * report behaves: absence must not read as "declared empty".
+     */
+    public function testRoleObligationsAreReportedWhenDeclared(): void
+    {
+        $report = \pp_component_schema_report('faq');
+        $this->assertIsArray($report);
+
+        $byRole = [];
+        foreach ($report['roles'] as $entry) {
+            $byRole[$entry['role']] = $entry;
+        }
+
+        $this->assertArrayHasKey('question', $byRole);
+        $this->assertArrayHasKey(
+            'obligations',
+            $byRole['question'],
+            'faq.question declares an obligation with question-open; the report must carry it'
+        );
+        $obligation = $byRole['question']['obligations'][0];
+        $this->assertSame('outranked_by_default', $obligation['kind']);
+        $this->assertSame('question-open', $obligation['with']);
+        $this->assertNotSame('', trim($obligation['why']), 'the instruction must come with it');
+
+        // And the absence half: a role with none must not carry an empty key.
+        $this->assertArrayHasKey('heading', $byRole);
+        $this->assertArrayNotHasKey(
+            'obligations',
+            $byRole['heading'],
+            'a role that declares none must omit the key rather than report an empty list'
+        );
+
+        // Every declared obligation in the registry reaches this report, derived in both
+        // directions so a component added later cannot be silently skipped.
+        $reported = 0;
+        foreach (array_keys(\pp_get_registered_components()) as $component) {
+            $componentReport = \pp_component_schema_report($component);
+            if (!is_array($componentReport) || !isset($componentReport['roles'])) {
+                continue;
+            }
+            foreach ($componentReport['roles'] as $entry) {
+                $declared = \pp_udc_component_roles($component)[$entry['role']]['obligations'] ?? [];
+                $this->assertSame(
+                    $declared === [] ? null : array_values($declared),
+                    $entry['obligations'] ?? null,
+                    "{$component}.{$entry['role']}'s reported obligations must equal its declaration"
+                );
+                $reported += count($entry['obligations'] ?? []);
+            }
+        }
+        $this->assertGreaterThan(12, $reported, 'the obligations stopped reaching the CLI report');
+    }
+
     // ── applies_when: one vocabulary, all-or-nothing ─────────────────────────
 
     public function testAppliesWhenRenderedUsesTheRuntimeCatalogVocabulary(): void

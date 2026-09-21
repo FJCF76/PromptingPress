@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, and the Layout group (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, and the authoring model told what it has to pair (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,73 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+---
+
+## The authoring model is told what it has to pair (#1087)
+
+**Every obligation a component's design carries now reaches the AI that writes your site.** A role
+could say, in its schema, that setting a colour on it without also setting a partner role produces
+illegible text. The site assistant never saw that sentence: only role names and group lists were
+ever put in front of it. The measured cost: following one component's own documentation produced a link at 3.21:1 on a
+darkened panel, under the accessibility floor, while the write was accepted and the page
+reported no problems.
+
+Roles now declare those pairings as data, and the assistant's instructions are composed from the
+declarations rather than typed out by hand. Sixteen ship today: six inside rich-text
+areas, where a colour on the container never reaches the links in it; seven in the header and
+footer; and three where one part's built-in styling overrides a value you set on another.
+
+### What changes for you
+
+**A dark header or footer no longer needs you to guess which parts to re-colour.** The assistant
+is given every header and footer part that carries its own colour, read from the theme itself,
+so none is left on the light-background value by accident. The example the assistant works from was itself wrong: it set a
+`#101828` header and then put the brand accent on the current-page link and two hover states,
+which measures 3.21:1 against that background. It now uses the tuned colour the theme already
+ships, at 8.28:1.
+
+**`wp pp schema <component>` reports the pairings too**, so an agent working over SSH reads the same
+contract the in-admin assistant does, rather than carrying its own copy that drifts.
+
+**The assistant stopped being taught six styling types nothing can use.** The older styling
+section described twelve when only six had any component still carrying them. It is built from
+what actually ships now, so it shrinks by itself as components are rebuilt, and the section
+goes away entirely once the last one is.
+
+### Why it stays true
+
+Lists typed by hand go stale, and several of these had. Everything above is read from the
+components themselves each time the assistant's instructions are assembled, so a component
+rebuilt tomorrow updates them the day it lands rather than whenever somebody remembers.
+
+### Fixed
+
+- The runtime prompt's worked example for styling a dark site header set the brand accent on the
+  current-page link and on two hover states — 3.21:1 against the example's own background, under the
+  4.5:1 AA floor. It now uses `@color-accent-on-inverted` (8.28:1 there).
+- The same paragraph claimed exactly one pairing was mandatory, while eleven header and footer
+  parts carry their own colour; on a dark footer, five of them sit at 3.08:1. That list is read
+  from the theme now.
+- A component's role definitions were never type-checked, so one malformed entry could stop the
+  in-admin assistant loading at all instead of skipping just the broken part.
+- `wp pp schema` reported a role whose definition is invalid as though it were complete. It now says
+  the role is unreportable, and why.
+
+### Docs
+
+- `docs/v2/AI-INSTRUCTION-CONTRACT.md` records the contract, the measurements behind it, and what
+  implementation changed about the design.
+- The recipe a component author reads covers what a role must now declare, and the CLI reference
+  covers the new report field.
+
+### Tests
+
+- Every declared obligation is asserted to reach the assistant's prompt, in both directions: one that
+  is declared and missing fails, and one the prompt names that nothing declares fails too.
+- Documented examples are checked for contrast, resolving each role's own background before the
+  band's, with both a must-pass and a must-fail case so the check's false-positive rate is measured.
+- The prompt's own JSON examples are validated against the real write path for the first time.
 
 ---
 

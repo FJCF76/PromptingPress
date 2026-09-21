@@ -95,6 +95,25 @@ class DocumentedUdcSnippetsTest extends TestCase
                 $decoded = json_decode('{' . $raw . '}', true);
             }
 
+            // TWO MORE LEGITIMATE DOC STYLES, both found in the shipped instruction files
+            // when this walk was widened to cover them (#1087). Neither doc is wrong; the
+            // extractor was narrow, and a block it cannot read is a block nothing checks.
+            //
+            // A BLOCKQUOTED FENCE. style-component.md puts a `udc` example inside a `>`
+            // quote to set it off from the surrounding prose. The `>` prefixes are markdown,
+            // not JSON.
+            if ($decoded === null && str_starts_with($raw, '>')) {
+                $unquoted = preg_replace('/^>[ \t]?/m', '', $raw) ?? $raw;
+                $decoded  = json_decode($unquoted, true) ?? json_decode('{' . $unquoted . '}', true);
+            }
+
+            // A LIST FRAGMENT. composition.md shows two sibling bands, comma-separated,
+            // without the enclosing brackets — the same abbreviation the `{}` completion
+            // above already accepts for an object fragment, one container up.
+            if ($decoded === null) {
+                $decoded = json_decode('[' . $raw . ']', true);
+            }
+
             $out[] = ['index' => $i, 'raw' => $raw, 'json' => $decoded];
         }
         return $out;
@@ -306,5 +325,536 @@ class DocumentedUdcSnippetsTest extends TestCase
             $checked,
             'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
+    }
+
+    // ── The model-facing surfaces (#1087) ──────────────────────────────────────
+    //
+    // The walk above covers the surfaces a HUMAN reads: component READMEs, the migration
+    // how-tos, the tutorial. It never covered the two surfaces a MODEL reads — the runtime
+    // system prompt and the shipped instruction files — which is the larger blind spot,
+    // because a refused example in those is followed by an agent rather than a person.
+
+    /** The instruction files a filesystem-capable agent executes. */
+    private function instructionFiles(): array
+    {
+        $files = glob(dirname(__DIR__) . '/ai-instructions/*.md') ?: [];
+        $this->assertNotEmpty($files, 'the ai-instructions directory is the model-facing corpus');
+        return $files;
+    }
+
+    /**
+     * EVERY JSON BLOCK IN THE INSTRUCTION FILES PARSES (#1087).
+     *
+     * A block that does not parse is a block nothing downstream can check, so this is the
+     * gate that makes the validation below meaningful rather than optimistic.
+     */
+    public function testEveryInstructionFileJsonBlockParses(): void
+    {
+        $checked = 0;
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file) as $block) {
+                $this->assertNotNull(
+                    $block['json'],
+                    sprintf(
+                        "%s block %d is fenced as ```json and parses in none of the documented "
+                        . "shapes (whole document, object fragment, blockquoted, list fragment):\n%s",
+                        basename($file),
+                        $block['index'],
+                        substr($block['raw'], 0, 400)
+                    )
+                );
+                $checked++;
+            }
+        }
+        $this->assertGreaterThan(20, $checked, 'the instruction-file walk stopped finding blocks');
+    }
+
+    /**
+     * EVERY `udc` MAP AN INSTRUCTION FILE TELLS AN AGENT TO WRITE IS ACCEPTED (#1087).
+     *
+     * Only SELF-IDENTIFYING maps are validated — a block that names its component. An
+     * instruction file is not about one component the way a README is, so there is no
+     * honest fallback to attribute a bare map to, and guessing one would produce refusals
+     * that say more about the guess than about the doc.
+     */
+    public function testEveryInstructionFileUdcMapIsAcceptedByTheWritePath(): void
+    {
+        $checked = 0;
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file) as $block) {
+                foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
+                    if (\pp_udc_component_roles($component) === []) {
+                        continue;
+                    }
+                    [$clean] = $this->stripBackgroundImages($map);
+                    if ($clean === []) {
+                        continue;
+                    }
+                    $result = \pp_udc_validate_map($clean, $component);
+                    $this->assertNull(
+                        $result,
+                        sprintf(
+                            "%s block %d documents a `%s` write the engine REFUSES: %s\nMap: %s",
+                            basename($file),
+                            $block['index'],
+                            $component,
+                            $result instanceof \WP_Error ? $result->get_error_message() : 'unknown',
+                            json_encode($clean)
+                        )
+                    );
+                    $checked++;
+                }
+            }
+        }
+        // 7 self-identifying maps today.
+        $this->assertGreaterThan(6, $checked, 'the instruction-file `udc` walk lost subjects');
+    }
+
+    /** Component-attributed `udc` maps in one decoded block, at either depth. */
+    private function selfIdentifyingUdcMaps($json): array
+    {
+        if (!is_array($json)) {
+            return [];
+        }
+        $found = [];
+        $take  = static function ($entry) use (&$found) {
+            if (is_array($entry)
+                && isset($entry['udc'], $entry['component'])
+                && is_array($entry['udc'])
+                && is_string($entry['component'])) {
+                $found[] = [$entry['component'], $entry['udc']];
+            }
+        };
+        $take($json);
+        if (array_is_list($json)) {
+            foreach ($json as $entry) {
+                $take($entry);
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * EVERY `udc` EXAMPLE IN THE RUNTIME PROMPT IS ACCEPTED BY THE WRITE PATH (#1087).
+     *
+     * The prompt carries its examples as INLINE backticked JSON rather than fenced blocks,
+     * so it needs its own extractor — which is why nothing validated them before. They are
+     * the highest-stakes examples in the repo: the chat AI has no tools, cannot read a
+     * schema, and copies the shape it was shown.
+     */
+    public function testEveryRuntimePromptUdcExampleIsAcceptedByTheWritePath(): void
+    {
+        $GLOBALS['_pp_test_store'] = ['post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100];
+        $prompt  = \pp_ai_system_prompt();
+        $checked = 0;
+
+        foreach ($this->promptUdcExamples($prompt) as [$component, $map, $raw]) {
+            [$clean] = $this->stripBackgroundImages($map);
+            if ($clean === []) {
+                continue;
+            }
+            $result = \pp_udc_validate_map($clean, $component);
+            $this->assertNull(
+                $result,
+                sprintf(
+                    "the runtime prompt shows a `%s` example the engine REFUSES: %s\nExample: %s",
+                    $component,
+                    $result instanceof \WP_Error ? $result->get_error_message() : 'unknown',
+                    $raw
+                )
+            );
+            $checked++;
+        }
+
+        // 4 attributable examples today.
+        $this->assertGreaterThan(3, $checked, 'the prompt example extractor lost subjects');
+    }
+
+    /**
+     * The `udc` examples in the prompt, each attributed to a component.
+     *
+     * Attribution is the hard half: the prompt is one long string, so an example's subject
+     * comes from the roles it names. A map is attributed to the component that declares
+     * EVERY role in it, and skipped when that is ambiguous or unknown — a placeholder like
+     * `{"<role>": {"<group>": ...}}` must not be read as a real example.
+     *
+     * @return array<int, array{0: string, 1: array, 2: string}>
+     */
+    private function promptUdcExamples(string $prompt): array
+    {
+        // TWO SHAPES, because the prompt writes its examples both ways: a whole object
+        // (`{"nav": {...}}`) and a bare key-and-value (`"udc": {...}`). The second was the
+        // one the first cut missed, and it is the shape MOST of the band examples use — so
+        // a pattern that only matched a leading brace validated the chrome example and
+        // almost nothing else.
+        preg_match_all('/`((?:"udc":\s*)?\{.*?\})`/s', $prompt, $m, PREG_SET_ORDER);
+
+        $out = [];
+        foreach ($m as $hit) {
+            $raw     = preg_replace('/^"udc":\s*/', '', $hit[1]) ?? $hit[1];
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            // The chrome shape is keyed by component; a band shape is a bare role map.
+            $candidates = isset($decoded['udc']) && is_array($decoded['udc'])
+                ? [$decoded['udc']]
+                : [$decoded];
+            foreach ($candidates as $map) {
+                foreach ($this->attribute($map) as $pair) {
+                    $out[] = [$pair[0], $pair[1], $hit[1]];
+                }
+            }
+            unset($raw);
+        }
+        return $out;
+    }
+
+    /** @return array<int, array{0: string, 1: array}> */
+    private function attribute(array $map): array
+    {
+        // Chrome: `{"nav": {...}, "footer": {...}}`.
+        $chrome = [];
+        foreach ($map as $key => $value) {
+            if (is_string($key) && is_array($value) && \pp_udc_is_chrome($key)) {
+                $chrome[] = [$key, $value];
+            }
+        }
+        if ($chrome !== []) {
+            return $chrome;
+        }
+
+        $roles = array_keys($map);
+        if ($roles === []) {
+            return [];
+        }
+        // A placeholder, not an example.
+        foreach ($roles as $role) {
+            if (!is_string($role) || !preg_match('/^[a-z_][a-z0-9-]*$/', $role)) {
+                return [];
+            }
+        }
+
+        // AND EVERY VALUE MUST LOOK LIKE A GROUP MAP. This is the guard that separates a
+        // real example from a FRAGMENT that happens to use a role name as a key — the
+        // prompt shows `{"columns": 4}` and `{"columns": {"d": 4, "p": 1}}` to explain the
+        // `columns` PARAMETER, and `columns` is also a role on `section`. Attributing those
+        // to section and validating them produces a refusal that says nothing about the
+        // documentation and everything about the extractor.
+        $groupKeys = array_keys(\pp_udc_groups());
+        foreach ($map as $groups) {
+            if (!is_array($groups) || $groups === []) {
+                return [];
+            }
+            foreach (array_keys($groups) as $group) {
+                $known = in_array($group, $groupKeys, true)
+                    || in_array($group, ['_preset', '_css'], true)
+                    || (is_string($group) && str_starts_with($group, ':'));
+                if (!$known) {
+                    return [];
+                }
+            }
+        }
+
+        $owners = [];
+        foreach (array_keys(\pp_get_registered_components()) as $component) {
+            $declared = \pp_udc_component_roles($component);
+            if ($declared === []) {
+                continue;
+            }
+            $all = true;
+            foreach ($roles as $role) {
+                if (!array_key_exists($role, $declared)) {
+                    $all = false;
+                    break;
+                }
+            }
+            if ($all) {
+                $owners[] = $component;
+            }
+        }
+        // Ambiguous (several components declare all these roles) or unknown: skip rather
+        // than guess. A wrong attribution produces a refusal that says nothing about the doc.
+        return count($owners) === 1 ? [[$owners[0], $map]] : [];
+    }
+
+    /**
+     * A DOCUMENTED EXAMPLE THAT DARKENS A SURFACE MUST STILL CLEAR AA (#1087).
+     *
+     * The regression this exists for shipped in the runtime prompt itself: a chrome example
+     * with a `#101828` fill and `@color-accent` on three states, 3.21:1 against its own
+     * fill. The rest states passed at 16.70:1, so it read as correct — a contrast defect in
+     * an example is invisible to every check that asks only whether the write is accepted.
+     *
+     * SCOPED TO WHAT IS DECIDABLE. Only a map that sets BOTH a literal `_band` fill and a
+     * text colour in the SAME map is checked, because only then is the pairing stated rather
+     * than inferred. `@token` references are resolved against the real token registry;
+     * anything that does not resolve to a hex is skipped rather than guessed at.
+     */
+    public function testNoDocumentedExamplePutsTextUnderTheContrastFloorOnItsOwnFill(): void
+    {
+        $GLOBALS['_pp_test_store'] = ['post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100];
+        $tokens  = \pp_design_tokens();
+        $checked = 0;
+
+        $sources = [['the runtime prompt', $this->promptUdcExamples(\pp_ai_system_prompt())]];
+        foreach ($this->instructionFiles() as $file) {
+            $maps = [];
+            foreach ($this->jsonBlocks($file) as $block) {
+                foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
+                    $maps[] = [$component, $map, 'block ' . $block['index']];
+                }
+            }
+            $sources[] = [basename($file), $maps];
+        }
+
+        foreach ($sources as [$label, $examples]) {
+            foreach ($examples as [$component, $map, $raw]) {
+                $bandFill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
+                foreach ($map as $role => $groups) {
+                    if ($role === '_band' || !is_array($groups)) {
+                        continue;
+                    }
+                    // THE ROLE'S OWN FILL WINS. Measuring every role's ink against the BAND
+                    // fill is wrong in both directions, and the red-team pass proved both with
+                    // plants. False positive: a dark band with a light-filled button and dark
+                    // ink ON that button — the shape components/cta/README.md documents — was
+                    // failed at a bogus 1.00:1, which would have made the first realistic
+                    // dark-band example in the prose PR impossible to write without weakening
+                    // this guard. False negative: a role that sets its own fill and an
+                    // illegible ink on it, with no `_band` fill anywhere, was skipped entirely.
+                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+                    if ($fill === null) {
+                        continue;
+                    }
+                    foreach ($this->inksIn($groups['typography'] ?? []) as $rawInk) {
+                        $ink = $this->hex($rawInk, $tokens);
+                        if ($ink === null) {
+                            continue;
+                        }
+                        $checked++;
+                        $ratio = self::contrastRatio($ink, $fill);
+                        $this->assertGreaterThanOrEqual(
+                            4.5,
+                            $ratio,
+                            sprintf(
+                                '%s documents a %s example putting %s on %s for role `%s` — '
+                                . '%.2f:1, under the 4.5:1 AA floor. Example: %s',
+                                $label,
+                                $component,
+                                $ink,
+                                $fill,
+                                $role,
+                                $ratio,
+                                is_string($raw) ? $raw : json_encode($map)
+                            )
+                        );
+                    }
+                }
+            }
+        }
+
+        // 12 pairings today. A floor set at a token value is a floor that never fires: this
+        // walk could lose ten of its twelve subjects — every chrome subject among them — and
+        // a `> 2` floor would still call it a pass.
+        $this->assertGreaterThan(
+            10,
+            $checked,
+            'the contrast walk found fewer background+ink pairings than the corpus carries; '
+            . 'the extractor or the ink resolver stopped reaching most of its subjects'
+        );
+    }
+
+    /**
+     * EVERY ink a typography map declares, at any depth (#1087).
+     *
+     * The first cut of the contrast walk read exactly two places: the resting `color` and
+     * `:hover.color`. That is half-blind, and the pre-landing testing specialist proved it
+     * by planting a 1.3:1 `:focus-visible` colour on the prompt's own dark-band example —
+     * the example whose prose calls dark-on-dark "the single most common way this goes
+     * wrong" — and watching the whole suite stay green.
+     *
+     * A colour is ink wherever it is declared. The contract permits three states, and a
+     * breakpoint map on every value, so the only honest walk is recursive.
+     *
+     * NOT array_walk_recursive, and the reason is worth keeping: that helper visits LEAVES
+     * only, so a breakpoint map under `color` (`"color": {"d": "#111", "p": "#222"}`) is
+     * descended INTO and its members arrive keyed `d` and `p` — never as ink. The first
+     * version of this fix used it and silently skipped every responsive colour, which the
+     * unchanged assertion count is what exposed. This walk tests the KEY on the way down and
+     * flattens a map found there into its members, so each breakpoint's colour is measured
+     * on its own.
+     *
+     * @return array<int, mixed> Raw values; the caller resolves and filters them.
+     */
+    private function inksIn($typography): array
+    {
+        if (!is_array($typography)) {
+            return [];
+        }
+        $inks = [];
+        foreach ($typography as $key => $value) {
+            if ($key === 'color') {
+                // A literal, or a breakpoint map whose members are each a colour.
+                foreach (is_array($value) ? $value : [$value] as $member) {
+                    if (!is_array($member)) {
+                        $inks[] = $member;
+                    }
+                }
+                continue;
+            }
+            // A state map (`:hover`, `:focus-visible`, `:active`) or any future nesting.
+            if (is_array($value)) {
+                $inks = array_merge($inks, $this->inksIn($value));
+            }
+        }
+        return $inks;
+    }
+
+    /**
+     * The ink walk sees every state and every breakpoint (#1087).
+     *
+     * Pinned directly because the shipped corpus happens to declare its example inks only at
+     * rest — so a regression here would not move any count in the walk above, and the guard
+     * would go quietly blind again exactly as it was found.
+     *
+     * @dataProvider inkWalkProvider
+     */
+    public function testTheInkWalkSeesEveryStateAndBreakpoint(array $typography, array $expected, string $why): void
+    {
+        $this->assertSame($expected, $this->inksIn($typography), $why);
+    }
+
+    public static function inkWalkProvider(): array
+    {
+        return [
+            'resting colour' => [['color' => '#111111'], ['#111111'], 'the simple case'],
+            'hover' => [[':hover' => ['color' => '#222222']], ['#222222'], 'a hover colour is ink'],
+            'focus-visible' => [
+                [':focus-visible' => ['color' => '#2a2a2a']], ['#2a2a2a'],
+                'the state the first cut was blind to — a 1.3:1 plant here stayed green',
+            ],
+            'active' => [[':active' => ['color' => '#333333']], ['#333333'], 'and the third state'],
+            'breakpoint map' => [
+                ['color' => ['d' => '#111111', 'p' => '#222222']], ['#111111', '#222222'],
+                'each breakpoint is its own colour on its own band; array_walk_recursive missed both',
+            ],
+            'breakpoint map inside a state' => [
+                [':hover' => ['color' => ['d' => '#444444', 'p' => '#555555']]], ['#444444', '#555555'],
+                'both dimensions at once, which is what the contract actually permits',
+            ],
+            'everything at once' => [
+                ['color' => '#f7f8fa', ':active' => ['color' => '#333333'], ':hover' => ['color' => ['d' => '#111111', 'p' => '#222222']]],
+                ['#f7f8fa', '#333333', '#111111', '#222222'],
+                'no ink left behind',
+            ],
+            'non-colour parameters are not ink' => [
+                ['size' => '19px', 'weight' => '600'], [], 'only colours are measured for contrast',
+            ],
+            'not an array' => [[], [], 'a role with no typography contributes nothing'],
+        ];
+    }
+
+    /**
+     * THE CONTRAST MODEL, pinned in BOTH directions (#1087).
+     *
+     * The red-team pass found the walk measuring every role's ink against the BAND fill and
+     * ignoring a fill the role declares itself, which is wrong twice over. Both of its plants
+     * ship here as fixtures, because a guard whose false-POSITIVE rate is unmeasured is the
+     * one that gets weakened later to make a legitimate example pass.
+     *
+     * The must-pass case matters most: it is the shape components/cta/README.md already
+     * documents, and it is the first realistic dark-band example the prose PR has to write.
+     * Under the old model that example failed at a bogus 1.00:1, so the only ways forward
+     * would have been weakening this guard, deleting the example, or contorting it.
+     *
+     * @dataProvider contrastModelProvider
+     */
+    public function testTheContrastModelResolvesTheFillPerRole(array $map, ?string $expectFailRole, string $why): void
+    {
+        $tokens = \pp_design_tokens();
+        $bandFill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
+        $failed = null;
+        foreach ($map as $role => $groups) {
+            if ($role === '_band' || !is_array($groups)) {
+                continue;
+            }
+            $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+            if ($fill === null) {
+                continue;
+            }
+            foreach ($this->inksIn($groups['typography'] ?? []) as $rawInk) {
+                $ink = $this->hex($rawInk, $tokens);
+                if ($ink !== null && self::contrastRatio($ink, $fill) < 4.5) {
+                    $failed = (string) $role;
+                }
+            }
+        }
+        $this->assertSame($expectFailRole, $failed, $why);
+    }
+
+    public static function contrastModelProvider(): array
+    {
+        return [
+            'light button on a dark band is LEGIBLE' => [
+                [
+                    '_band'   => ['background' => ['fill' => '#0a0a12']],
+                    'heading' => ['typography' => ['color' => '#f2eee5']],
+                    'button'  => ['background' => ['fill' => '#f2eee5'], 'typography' => ['color' => '#0a0a12']],
+                ],
+                null,
+                'dark ink on the BUTTON\'s own light fill is correct; the old model called it 1.00:1',
+            ],
+            'role-own fill with illegible ink is CAUGHT even with no band fill' => [
+                ['button' => ['background' => ['fill' => '#ff5c2e'], 'typography' => ['color' => '#f2eee5']]],
+                'button',
+                'a real 2.66:1 pairing the old model skipped entirely, because no `_band` fill existed',
+            ],
+            'band fill still governs a role that declares none' => [
+                [
+                    '_band' => ['background' => ['fill' => '#101828']],
+                    'body'  => ['typography' => ['color' => '#1a1f2e']],
+                ],
+                'body',
+                'the original behaviour must survive: a role with no fill of its own sits on the band',
+            ],
+            'a state ink is measured too' => [
+                [
+                    '_band' => ['background' => ['fill' => '#101828']],
+                    'link'  => ['typography' => ['color' => '#f7f8fa', ':focus-visible' => ['color' => '#141a28']]],
+                ],
+                'link',
+                'the state the walk was blind to before, on the fill the role actually sits on',
+            ],
+        ];
+    }
+
+    /** A literal hex, or a hex an `@token` resolves to. Null when it is neither. */
+    private function hex($value, array $tokens): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        if (str_starts_with($value, '@')) {
+            $value = $tokens['--' . substr($value, 1)]['value'] ?? '';
+        }
+        return preg_match('/^#[0-9a-f]{6}$/i', $value) ? strtolower($value) : null;
+    }
+
+    private static function contrastRatio(string $a, string $b): float
+    {
+        $lum = static function (string $hex): float {
+            $hex = ltrim($hex, '#');
+            $out = 0.0;
+            foreach ([[0, 0.2126], [2, 0.7152], [4, 0.0722]] as [$offset, $weight]) {
+                $channel = hexdec(substr($hex, $offset, 2)) / 255;
+                $channel = $channel <= 0.03928 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+                $out += $channel * $weight;
+            }
+            return $out;
+        };
+        $one = $lum($a);
+        $two = $lum($b);
+        return $one > $two ? ($one + 0.05) / ($two + 0.05) : ($two + 0.05) / ($one + 0.05);
     }
 }

@@ -124,7 +124,8 @@
         "background": {
           "fill": "@color-surface"
         }
-      }
+      },
+      "obligations": []
     },
     "inner": {
       "selector": ".site-footer__inner",
@@ -143,7 +144,8 @@
         "spacing": {
           "gap": "@space-lg"
         }
-      }
+      },
+      "obligations": []
     },
     "columns": {
       "selector": ".site-footer__columns",
@@ -166,7 +168,8 @@
             "p": "@space-lg"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "brand": {
       "selector": ".site-footer__brand",
@@ -185,7 +188,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "blurb": {
       "selector": ".site-footer__blurb",
@@ -205,7 +209,8 @@
         "sizing": {
           "max-width": "32ch"
         }
-      }
+      },
+      "obligations": []
     },
     "social": {
       "selector": ".site-footer__social",
@@ -224,7 +229,14 @@
           "margin-top": "@space-sm",
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "social-link",
+          "why": "The icons are anchors INSIDE this list with their own muted colour and accent hover. No selector says so, so nothing derives it: set `social-link` and its `:hover`."
+        }
+      ]
     },
     "social-link": {
       "selector": ".site-footer__social-link",
@@ -245,7 +257,8 @@
             "color": "@color-accent"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".site-footer__heading",
@@ -267,7 +280,8 @@
         "spacing": {
           "margin-bottom": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "nav-list": {
       "selector": ".site-footer__nav ul",
@@ -286,7 +300,14 @@
           "row-gap": "@space-sm",
           "column-gap": "@space-md"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "link",
+          "why": "The paired link role named above declares its own muted colour and accent hover, so a colour set here never reaches it. Set that role and its `:hover`."
+        }
+      ]
     },
     "link": {
       "selector": ".site-footer__nav ul li a",
@@ -309,7 +330,8 @@
             "color": "@color-accent"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "contact": {
       "selector": ".site-footer__contact",
@@ -327,7 +349,8 @@
           "size": "0.9rem",
           "line-height": "1.6"
         }
-      }
+      },
+      "obligations": []
     },
     "address": {
       "selector": ".site-footer__address",
@@ -344,7 +367,14 @@
         "typography": {
           "style": "normal"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "address-link",
+          "why": "The paired link role named above declares its own muted colour and accent hover, so a colour set here never reaches it. Set that role and its `:hover`."
+        }
+      ]
     },
     "address-link": {
       "selector": ".site-footer__address a",
@@ -365,7 +395,8 @@
             "color": "@color-accent"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "copyright": {
       "selector": ".site-footer__copyright",
@@ -383,7 +414,8 @@
           "size": "0.875rem",
           "color": "@color-muted"
         }
-      }
+      },
+      "obligations": []
     },
     "bottom": {
       "selector": ".site-footer__bottom",
@@ -407,7 +439,8 @@
           "style-top": "solid",
           "color-top": "@color-border"
         }
-      }
+      },
+      "obligations": []
     },
     "bottom-row": {
       "selector": ".site-footer__bottom-inner",
@@ -425,7 +458,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "note": {
       "selector": ".site-footer__note",
@@ -443,7 +477,8 @@
           "size": "0.875rem",
           "color": "@color-muted"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

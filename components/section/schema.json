@@ -253,7 +253,8 @@
         "shadow": {
           "box": "none"
         }
-      }
+      },
+      "obligations": []
     },
     "header": {
       "selector": ".section__header",
@@ -266,7 +267,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "eyebrow": {
       "selector": ".section__eyebrow",
@@ -300,7 +302,8 @@
         "background": {
           "fill": "@color-surface-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".section__title",
@@ -334,7 +337,8 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": []
     },
     "heading-accent": {
       "selector": ".section__title-accent",
@@ -351,7 +355,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "subheading": {
       "selector": ".section__subheading",
@@ -374,7 +379,8 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": []
     },
     "body": {
       "selector": ".section__content",
@@ -409,7 +415,14 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "body-link",
+          "why": "A colour here lands on the wrapper and reaches an <a> inside it only by inheritance, while the stylesheet gives every anchor its own direct rule. Set the paired link role named above too, and its `:hover`."
+        }
+      ]
     },
     "body-link": {
       "selector": ".section__content a",
@@ -422,7 +435,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "columns": {
       "selector": ".section__grid",
@@ -441,7 +455,8 @@
             "p": "@space-lg"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "inline-items": {
       "selector": ".section__inline-items",
@@ -464,7 +479,8 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": []
     },
     "media": {
       "selector": ".section__image",
@@ -485,7 +501,8 @@
           "aspect-ratio": "auto",
           "object-position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "panel": {
       "selector": ".section__panel",
@@ -518,7 +535,8 @@
         "shadow": {
           "box": "none"
         }
-      }
+      },
+      "obligations": []
     },
     "panel-heading": {
       "selector": ".section__panel-heading",
@@ -535,7 +553,8 @@
         "spacing": {
           "margin-bottom": "@space-md"
         }
-      }
+      },
+      "obligations": []
     },
     "panel-body": {
       "selector": ".section__panel-body",
@@ -548,7 +567,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "panel-list": {
       "selector": ".section__panel-list",
@@ -566,7 +586,8 @@
           "padding-left": "@space-lg",
           "margin-bottom": "@space-md"
         }
-      }
+      },
+      "obligations": []
     },
     "panel-row": {
       "selector": ".section__panel-row",
@@ -588,7 +609,8 @@
             "p": "@space-xs"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "panel-row-label": {
       "selector": ".section__panel-row-label",
@@ -610,7 +632,8 @@
             "p": "0.04em"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "panel-row-value": {
       "selector": ".section__panel-row-value",
@@ -634,7 +657,8 @@
             "p": "left"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "panel-cta": {
       "selector": ".section__panel-cta",
@@ -652,7 +676,8 @@
         "spacing": {
           "margin-top": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

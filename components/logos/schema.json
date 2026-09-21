@@ -88,7 +88,8 @@
         "background": {
           "position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".logos__heading",
@@ -113,7 +114,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "list": {
       "selector": ".logos__list",
@@ -128,7 +130,8 @@
         "spacing": {
           "gap": "@space-lg"
         }
-      }
+      },
+      "obligations": []
     },
     "item": {
       "selector": ".logos__item",
@@ -143,7 +146,8 @@
         "motion",
         "layout"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "item-labeled": {
       "selector": ".logos__item--labeled",
@@ -163,7 +167,8 @@
         "sizing": {
           "min-width": "6rem"
         }
-      }
+      },
+      "obligations": []
     },
     "image": {
       "selector": ".logos__image",
@@ -180,7 +185,14 @@
         "sizing": {
           "max-height": "3rem"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "image-labeled",
+          "why": "`image-labeled` selects the same <img> through the labelled variant with a heavier selector, so its max-height default beats a size set here on labelled rows."
+        }
+      ]
     },
     "image-labeled": {
       "selector": ".logos__item--labeled .logos__image",
@@ -197,7 +209,8 @@
         "sizing": {
           "max-height": "2.5rem"
         }
-      }
+      },
+      "obligations": []
     },
     "label": {
       "selector": ".logos__label",
@@ -217,7 +230,8 @@
           "color": "@color-muted",
           "align": "center"
         }
-      }
+      },
+      "obligations": []
     }
   }
 }
