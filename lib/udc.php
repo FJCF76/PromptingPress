@@ -4724,7 +4724,210 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     'state'    => $state,
                     'bp'       => $bp,
                     'decls'    => $declarations,
+                    'item'     => '',
                 ];
+            }
+        }
+    }
+
+    // ── THE ITEM TIER (BUILD-SPEC Addendum B) ───────────────────────────────
+    //
+    // ONE MORE SOURCE ROW, NOT A SECOND ENGINE. An item's map resolves through
+    // _pp_udc_place() against the same params table, the same band tokens and
+    // the same breakpoints the band tier just used; all that differs is the
+    // SOURCE name it carries into provenance and the selector it emits under.
+    //
+    // AUTHORED LAYER ONLY, and this is a fact about the contract rather than an
+    // optimisation: items have no defaults tier. A role default is a
+    // COMPONENT-level constant, identical for every band and therefore for every
+    // item, and it already emits once per page under `[data-pp-component]`.
+    // There is no such thing as an item default to compile.
+    //
+    // PRINTS AFTER EVERY BAND BLOCK, which is load-bearing for exactly one case.
+    // For a non-root role the item selector carries one more attribute than the
+    // band's and wins on specificity whatever the order. For the ROOT role the
+    // two are both (0,2,0) — `[data-pp-band] [data-pp-item]` against
+    // `[data-pp-band] .some-class` — so the tie breaks on source order and
+    // nothing else. Appending here, after the role loop has finished, is what
+    // makes B3's "the item tier prints last" true; `_pp_udc_render_blocks()`
+    // buckets by (state, breakpoint) preserving insertion order, so the property
+    // survives the bucketing.
+    if ($layer !== 'defaults') {
+        $declaration = pp_udc_item_roles($component);
+        if ($declaration !== null) {
+            foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
+                foreach ($declaration['roles'] as $role_name) {
+                    $role_def = $roles[$role_name] ?? null;
+                    if (!is_array($role_def)) {
+                        continue;
+                    }
+                    $item_declared = isset($item_map[$role_name]) && is_array($item_map[$role_name])
+                        ? $item_map[$role_name]
+                        : [];
+                    if ($item_declared === []) {
+                        continue;
+                    }
+                    $selector = (string) ($role_def['selector'] ?? '');
+                    if (!_pp_udc_selector_is_emittable($selector)) {
+                        continue;
+                    }
+                    // THE ROOT ROLE EMITS UNDER THE ATTRIBUTE ITSELF, not under the
+                    // attribute plus its own class. The component renders
+                    // `data-pp-item` ON the element the root role maps to, so
+                    // `[data-pp-band] [data-pp-item="…"] .that-class` would look for
+                    // the class INSIDE the element that already carries it and match
+                    // nothing. Blanking the selector here routes it through the same
+                    // `$is_root` arm the band's `_band` role uses.
+                    if ($role_name === $declaration['root']) {
+                        $selector = '';
+                    }
+
+                    $permitted = isset($role_def['groups']) && is_array($role_def['groups'])
+                        ? $role_def['groups']
+                        : [];
+                    $defaults = isset($role_def['defaults']) && is_array($role_def['defaults'])
+                        ? $role_def['defaults']
+                        : [];
+
+                    $resolved    = [];
+                    $sources     = [];
+                    $has_presets = false;
+                    foreach (_pp_udc_preset_sources($item_declared, $permitted) as $preset_source) {
+                        $sources[]   = $preset_source;
+                        $has_presets = true;
+                    }
+                    // Role defaults join ONLY to rank a preset under them, exactly as
+                    // the band tier does and for the same reason: with no preset in
+                    // play every entry they place is either overwritten by the item's
+                    // own value or dropped again, which is pure work for an identical
+                    // result.
+                    $defaults_rank_only = $has_presets;
+                    if ($defaults_rank_only) {
+                        $sources[] = ['defaults', $defaults];
+                    }
+                    $sources[] = ['item', $item_declared];
+
+                    foreach ($sources as [$source, $map]) {
+                        if (!is_array($map)) {
+                            continue;
+                        }
+                        foreach ($map as $group_name => $group_map) {
+                            if ((string) $group_name === PP_UDC_PRESET_KEY) {
+                                continue;
+                            }
+                            // `_css` is refused at write (exclusion 7) and refused
+                            // again here, because the write gate is not the only way
+                            // data arrives: a raw meta write, a composition written
+                            // before this tier, and restore_composition (#233) all
+                            // reach this line directly. A gate that runs only at write
+                            // is a gate the emitter disagrees with.
+                            if ((string) $group_name === PP_UDC_CSS_KEY) {
+                                if ($drops !== null && $source !== 'defaults'
+                                    && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                    $drops[] = [
+                                        'where'  => sprintf(
+                                            'item "%s" role "%s"',
+                                            _pp_udc_reflect((string) $item_id),
+                                            _pp_udc_reflect((string) $role_name)
+                                        ),
+                                        'reason' => 'raw CSS is not available on a single item',
+                                    ];
+                                }
+                                continue;
+                            }
+                            if (!isset($groups[$group_name]) || !is_array($group_map)
+                                || !in_array((string) $group_name, $permitted, true)) {
+                                if ($drops !== null && $source !== 'defaults'
+                                    && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                    $drops[] = [
+                                        'where'  => sprintf(
+                                            'item "%s" role "%s" group "%s"',
+                                            _pp_udc_reflect((string) $item_id),
+                                            _pp_udc_reflect((string) $role_name),
+                                            _pp_udc_reflect((string) $group_name)
+                                        ),
+                                        'reason' => !isset($groups[$group_name])
+                                            ? 'there is no such group in the design vocabulary'
+                                            : (!is_array($group_map)
+                                                ? 'the group is not a map of parameters'
+                                                : 'this role does not permit that group, so the write gate '
+                                                    . 'refuses it and the page does not paint it'),
+                                    ];
+                                }
+                                continue;
+                            }
+                            $params = $groups[$group_name]['params'];
+                            $where  = $drops === null ? '' : sprintf(
+                                'item "%s" role "%s" group "%s"',
+                                _pp_udc_reflect((string) $item_id),
+                                _pp_udc_reflect((string) $role_name),
+                                _pp_udc_reflect((string) $group_name)
+                            );
+                            $source_tokens = strncmp($source, 'preset:', 7) === 0 ? [] : $band_tokens;
+                            foreach ($group_map as $param_name => $value) {
+                                if (isset($states[$param_name]) && is_array($value)) {
+                                    foreach ($value as $state_param => $state_value) {
+                                        _pp_udc_place($resolved, (string) $param_name, $params, (string) $state_param, $state_value, $source, $source_tokens, $breakpoints, $referenced, $drops, $where);
+                                    }
+                                    continue;
+                                }
+                                _pp_udc_place($resolved, '', $params, (string) $param_name, $value, $source, $source_tokens, $breakpoints, $referenced, $drops, $where);
+                            }
+                        }
+                    }
+
+                    foreach ($resolved as $state => $by_bp) {
+                        $base_image = $by_bp['d']['background-image'] ?? null;
+                        if ($base_image !== null) {
+                            foreach ($by_bp as $bp => $declarations) {
+                                if ($bp !== 'd'
+                                    && isset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER])
+                                    && !isset($declarations['background-image'])) {
+                                    $by_bp[$bp]['background-image'] = $base_image;
+                                }
+                            }
+                        }
+                        $base_bucket = $by_bp['d'] ?? [];
+                        if ($defaults_rank_only) {
+                            $base_bucket = array_filter(
+                                $base_bucket,
+                                static fn(array $entry): bool => $entry['source'] !== 'defaults'
+                            );
+                        }
+                        $base_display = isset($base_bucket['display'])
+                            ? strtolower(trim((string) $base_bucket['display']['css']))
+                            : '';
+                        $base_tier_has_display = in_array($base_display, ['grid', 'inline-grid'], true)
+                            || (!empty($base_bucket['grid-template-columns']['companion']) && $base_display === '');
+
+                        foreach ($by_bp as $bp => $declarations) {
+                            if ($defaults_rank_only) {
+                                $declarations = array_filter(
+                                    $declarations,
+                                    static fn(array $entry): bool => $entry['source'] !== 'defaults'
+                                );
+                            }
+                            $declarations = _pp_udc_sort_declarations($declarations);
+                            $declarations = _pp_udc_compose_background_layers($declarations);
+                            $declarations = _pp_udc_background_image_companions($declarations);
+                            $declarations = _pp_udc_grid_columns_companion(
+                                $declarations,
+                                $bp !== 'd' && $base_tier_has_display
+                            );
+                            if ($declarations === []) {
+                                continue;
+                            }
+                            $out['blocks'][] = [
+                                'role'     => $role_name,
+                                'selector' => $selector,
+                                'state'    => $state,
+                                'bp'       => $bp,
+                                'decls'    => $declarations,
+                                'item'     => (string) $item_id,
+                            ];
+                        }
+                    }
+                }
             }
         }
     }
@@ -5442,6 +5645,50 @@ function pp_udc_component_defaults_css(string $component): string {
  * the split's tests assert the root/element RULE division and say nothing about which
  * side of v1 a token default lands on.
  */
+/**
+ * The selector one compiled block emits under (Addendum B3).
+ *
+ * ONE BUILDER, TWO CALLERS, AND THAT IS THE WHOLE POINT. The rule emitter and
+ * the reduced-motion guard must produce IDENTICAL selector text for the same
+ * block, because the guard neutralizes by printing later at equal weight. Two
+ * hand-rolled concatenations is how they drift, and the drift is silent: the
+ * page looks right and the accessibility affordance is simply gone. That is
+ * not hypothetical — the guard already lost this way once on the STATE axis,
+ * and the comment at its call site records it.
+ *
+ * FOUR SHAPES, and each earns its line:
+ *
+ *   band root   [data-pp-band="b"]                              (0,1,0)
+ *   band role   [data-pp-band="b"] .role                        (0,2,0)
+ *   item root   [data-pp-band="b"] [data-pp-item="i"]           (0,2,0)
+ *   item role   [data-pp-band="b"] [data-pp-item="i"] .role     (0,3,0)
+ *
+ * The item ROOT tying the band ROLE at (0,2,0) is the case B3 settles by source
+ * order, and it is why the item tier is appended after the role loop rather
+ * than interleaved with it.
+ *
+ * THE ID IS RE-GATED HERE, not trusted from the compiler. This text goes
+ * straight into a CSS attribute selector, and the compiler is not the only way
+ * a block reaches this function in future. pp_udc_valid_item_id() bounds it to
+ * `it-` plus eight hex digits, so nothing that reaches the stylesheet can close
+ * the attribute or the rule. A malformed id emits NO item scope at all rather
+ * than a partial one — an empty `[data-pp-item=""]` would match every id-less
+ * card on the page and cross-apply one card's design to all of them, which is
+ * the same cross-apply hazard the band id's own empty case guards.
+ */
+function _pp_udc_emitted_selector(
+    string $scope,
+    string $root_scope,
+    string $role_selector,
+    string $item = ''
+): string {
+    if ($item === '' || !pp_udc_valid_item_id($item)) {
+        return $role_selector === '' ? $root_scope : $scope . ' ' . $role_selector;
+    }
+    $item_scope = $scope . ' [data-pp-item="' . $item . '"]';
+    return $role_selector === '' ? $item_scope : $item_scope . ' ' . $role_selector;
+}
+
 function _pp_udc_render_blocks(
     array $compiled,
     string $scope,
@@ -5502,6 +5749,7 @@ function _pp_udc_render_blocks(
                 $root_rules = '';
                 foreach (($by_state_bp[$state][$bp] ?? []) as $block) {
                     $decls = '';
+                    $block_item = (string) ($block['item'] ?? '');
                     foreach ($block['decls'] as $property => $entry) {
                         $decls .= $property . ':' . $entry['css'] . ';';
                         // KEYED BY SELECTOR **AND STATE**, and the state is the
@@ -5512,17 +5760,27 @@ function _pp_udc_render_blocks(
                         // reduced-motion user still gets the full transition on
                         // hover. Matching the state puts both at equal weight,
                         // where printing later is enough.
+                        // KEYED BY SELECTOR, STATE **AND ITEM**, and the item is the
+                        // third half that is easy to drop for exactly the reason the
+                        // state was. A guard emitted without it lands at
+                        // `[data-pp-band] .role` [0,2,0] while the rule it must
+                        // neutralize is `[data-pp-band] [data-pp-item="…"] .role`
+                        // [0,3,0] — so the guard LOSES on specificity and a
+                        // reduced-motion user still gets the item's transition. The
+                        // fix is the same one the state axis took: match the emitted
+                        // selector exactly, where printing later is enough.
                         if (isset($motion_properties[$property])) {
-                            $motion_selectors[$block['selector'] . "\0" . $state] = [$block['selector'], $state];
+                            $motion_selectors[$block_item . "\0" . $block['selector'] . "\0" . $state]
+                                = [$block['selector'], $state, $block_item];
                         }
                     }
                     if ($decls === '') {
                         continue;
                     }
                     $is_root  = $block['selector'] === '';
-                    $selector = ($is_root
-                        ? $root_scope
-                        : $scope . ' ' . $block['selector']) . $state;
+                    $selector = _pp_udc_emitted_selector(
+                        $scope, $root_scope, $block['selector'], $block_item
+                    ) . $state;
                     if ($split && $is_root) {
                         $root_rules .= $selector . '{' . $decls . '}';
                     } else {
@@ -5607,12 +5865,20 @@ function _pp_udc_reduced_motion_guard(
         return '';
     }
     $selectors = [];
-    foreach ($motion_selectors as [$selector, $state]) {
-        $is_root = $selector === '';
+    foreach ($motion_selectors as $entry) {
+        [$selector, $state] = $entry;
+        $item    = (string) ($entry[2] ?? '');
+        // AN ITEM-TIER RULE IS AN ELEMENT RULE even when its role selector is
+        // empty. An empty selector means "the band root" for the band tier, but
+        // for the item tier it means "the card", which is an element INSIDE the
+        // band — so routing it to the root bucket would put the guard in the
+        // wrong cascade layer, where it cannot reach the declarations it exists
+        // to neutralize.
+        $is_root = $selector === '' && $item === '';
         if (($want === 'root' && !$is_root) || ($want === 'element' && $is_root)) {
             continue;
         }
-        $selectors[] = ($is_root ? $root_scope : $scope . ' ' . $selector) . $state;
+        $selectors[] = _pp_udc_emitted_selector($scope, $root_scope, $selector, $item) . $state;
     }
     if ($selectors === []) {
         return '';
