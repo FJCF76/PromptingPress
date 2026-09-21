@@ -471,9 +471,19 @@ describe('renderPreviewError', function () {
 // line is gone while leaving the class unread would pass just as well if the renderer
 // stopped rendering anything at all.
 //
-// None of these payloads is reachable through _pp_build_friendly_error() (lib/ai-chat.php,
-// sole producer, no filter on the path). They are the tripwire #625 accepted for the
-// classifiers, now extended to the renderer that reads the same object.
+// WHAT CHANGED AT #1101, because the comment here used to end with a premise this repo
+// then falsified. It said "none of these payloads is reachable through
+// _pp_build_friendly_error()" — true while a rejection always carried the component's
+// declared slots. The style-slot engine is retired, so `invalid_style_slot` now means an
+// AGED BAND storing a style map from before its component's rebuild, and an EMPTY
+// `alternatives` is the ordinary server payload rather than an unreachable one.
+//
+// So the CLASS no longer reads `alternatives` at all: `invalid_style_slot` is `fixable`
+// because the repair (clear the stored map, then use the `udc` map) is always available and
+// always the same. What these tests still own is the RENDERER half, which is unchanged and
+// still the thing that breaks: the card must not print a slot list it does not have. The
+// three-way agreement is now "the card must not claim settings it cannot name, AND must not
+// deny a repair it was handed".
 describe('renderPreviewError agrees with the classifiers about the payload', function () {
     function renderCard(data) {
         var diffArea = document.createElement('div');
@@ -498,8 +508,9 @@ describe('renderPreviewError agrees with the classifiers about the payload', fun
 
         expect(diffArea.textContent).not.toContain('Available slots');
         expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
-        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
-        expect(getStatusMessage(data)).toContain('isn\'t possible');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(getStatusMessage(data)).toContain('Clear it first');
+        expect(getStatusMessage(data)).not.toContain('isn\'t possible');
     });
 
     test('nulls and objects in the list render no line and no [object Object]', function () {
@@ -513,7 +524,7 @@ describe('renderPreviewError agrees with the classifiers about the payload', fun
 
         expect(diffArea.textContent).not.toContain('[object Object]');
         expect(diffArea.textContent).not.toContain('Available slots');
-        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
     });
 
     test('a mixed list prints exactly the entries that are names', function () {
@@ -563,7 +574,7 @@ describe('renderPreviewError agrees with the classifiers about the payload', fun
         expect(diffArea.querySelector('.pp-ai-preview-error-message').textContent)
             .toBe('Not available.');
         expect(diffArea.querySelector('.pp-ai-preview-error-detail')).toBeNull();
-        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
     });
 
     test('an array of hints is not a hint map, in the card as in the class', function () {
@@ -580,8 +591,10 @@ describe('renderPreviewError agrees with the classifiers about the payload', fun
 
         expect(diffArea.querySelector('.pp-ai-preview-error-hint')).toBeNull();
         expect(diffArea.textContent).not.toContain('Available on');
-        expect(getErrorStepClass(data)).toBe('pp-ai-step-impossible');
-        expect(getStatusMessage(data)).toContain('isn\'t possible');
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        // The guard's whole job: an ARRAY must not speak as if it were a hint map.
+        expect(getStatusMessage(data)).not.toContain('lives on a different component');
+        expect(getStatusMessage(data)).toContain('Clear it first');
     });
 
     test('hint entries that name no component print no hint line', function () {
@@ -779,57 +792,61 @@ describe('getErrorStepClass', function () {
         })).toBe('pp-ai-step-fixable');
     });
 
-    test('returns pp-ai-step-impossible for invalid_style_slot naming neither a hint nor an alternative', function () {
-        expect(getErrorStepClass({
+    // ─── THE SHAPE GUARDS, RE-HOMED AT #1101 ──────────────────────────────────
+    //
+    // Six tests here used to assert that a malformed payload stays `impossible`, because
+    // the CLASS asked "does this name a setting?" through ppChatHasSlotAlternatives() and
+    // ppChatHasCrossComponentHint(). The class no longer asks: `invalid_style_slot` means
+    // an aged band storing a style map from before its component's rebuild, the repair is
+    // always the same, and it is `fixable` whatever the payload carries.
+    //
+    // THE SHAPE GUARDS THEMSELVES ARE STILL LIVE, on two readers — the status bar's hint
+    // sentence and the card renderer — so the claim moves there rather than retiring with
+    // the class that used to carry it. It is the same claim: a string has a length and an
+    // object has keys, so a laxer test than Array.isArray / typeof would let a malformed
+    // payload speak as if it named something.
+    test('invalid_style_slot is fixable however malformed the payload, because the repair does not depend on it', function () {
+        var payloads = [
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', alternatives: '--hero-bg', cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: 'grid' },
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: ['--grid-gap'] },
+            { error_code: 'invalid_style_slot', alternatives: [null, '', {}], cross_component_hints: {} }
+        ];
+        for (var i = 0; i < payloads.length; i++) {
+            expect(getErrorStepClass(payloads[i])).toBe('pp-ai-step-fixable');
+        }
+    });
+
+    test('a malformed payload never speaks as if it named a setting or a component', function () {
+        // The empty server payload, plus the five malformed shapes. None may produce the
+        // cross-component sentence (which claims the setting lives elsewhere) or the
+        // settings sentence (which claims this component has others to offer).
+        var payloads = [
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', alternatives: '--hero-bg', cross_component_hints: {} },
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: 'grid' },
+            { error_code: 'invalid_style_slot', alternatives: [], cross_component_hints: ['--grid-gap'] },
+            { error_code: 'invalid_style_slot', alternatives: [null, '', {}], cross_component_hints: {} }
+        ];
+        for (var i = 0; i < payloads.length; i++) {
+            var msg = getStatusMessage(payloads[i]);
+            expect(msg).not.toContain('lives on a different component');
+            expect(msg).not.toContain('setting name this component doesn\'t have');
+            expect(msg).toContain('Clear it first');
+        }
+    });
+
+    // And the guards still SAY YES to a well-formed one, or the two tests above would
+    // pass on helpers that had simply stopped recognising anything.
+    test('a well-formed hint map still produces the cross-component sentence', function () {
+        expect(getStatusMessage({
             error_code: 'invalid_style_slot',
             alternatives: [],
-            cross_component_hints: {}
-        })).toBe('pp-ai-step-impossible');
-    });
-
-    test('an absent alternatives key is not an alternative', function () {
-        expect(getErrorStepClass({
-            error_code: 'invalid_style_slot',
-            cross_component_hints: {}
-        })).toBe('pp-ai-step-impossible');
-    });
-
-    // A malformed payload names nothing, so it must not be promoted to fixable on the
-    // strength of a truthy field: a string has a length and an object has keys, and
-    // both would sail through a laxer test than Array.isArray / typeof.
-    test('a non-array alternatives value names nothing', function () {
-        expect(getErrorStepClass({
-            error_code: 'invalid_style_slot',
-            alternatives: '--hero-bg',
-            cross_component_hints: {}
-        })).toBe('pp-ai-step-impossible');
-    });
-
-    test('a non-object cross_component_hints value names nothing', function () {
-        expect(getErrorStepClass({
-            error_code: 'invalid_style_slot',
-            alternatives: [],
-            cross_component_hints: 'grid'
-        })).toBe('pp-ai-step-impossible');
-    });
-
-    // typeof [] is 'object' and Object.keys(['x']).length is 1, so an array sails
-    // through the loose shape test the map check replaced.
-    test('an array cross_component_hints value is not a hint map', function () {
-        expect(getErrorStepClass({
-            error_code: 'invalid_style_slot',
-            alternatives: [],
-            cross_component_hints: ['--grid-gap']
-        })).toBe('pp-ai-step-impossible');
-    });
-
-    // Length is not the question — "does it name a setting" is. These have length.
-    test('alternatives holding no usable name names nothing', function () {
-        expect(getErrorStepClass({
-            error_code: 'invalid_style_slot',
-            alternatives: [null, '', {}],
-            cross_component_hints: {}
-        })).toBe('pp-ai-step-impossible');
+            cross_component_hints: { '--grid-gap': { component: 'grid', slot: '--grid-gap', match: 'exact' } }
+        })).toContain('lives on a different component');
     });
 
     test('alternatives naming one real slot among unusable entries is enough', function () {
@@ -875,9 +892,17 @@ describe('getStatusMessage', function () {
         expect(msg).not.toContain('isn\'t possible');
     });
 
-    test('invalid_style_slot with no alternatives is still impossible', function () {
+    // #1101: this used to read "invalid_style_slot with no alternatives is still
+    // impossible", and it was right while the code meant a mistyped slot name on a
+    // component that had others to offer. The code now means an AGED BAND carrying a
+    // style map from before its component's rebuild, so the bar must name the repair —
+    // denying possibility while the server hands back the exact fix in `raw_error` is
+    // the #625 defect in words.
+    test('invalid_style_slot with no alternatives names the repair instead of denying it', function () {
         var msg = getStatusMessage({ error_code: 'invalid_style_slot', cross_component_hints: {} });
-        expect(msg).toContain('isn\'t possible');
+        expect(msg).toContain('Clear it first');
+        expect(msg).toContain('old system');
+        expect(msg).not.toContain('isn\'t possible');
     });
 
     // #625: the bar must say what the step's colour says. A rejection that names
@@ -900,13 +925,18 @@ describe('getStatusMessage', function () {
         expect(msg).not.toContain('listed above');
     });
 
-    test('invalid_style_slot naming nothing still reports the change as impossible', function () {
+    test('invalid_style_slot naming nothing points at the repair, and the card carries it', function () {
         var msg = getStatusMessage({
             error_code: 'invalid_style_slot',
             alternatives: [],
             cross_component_hints: {}
         });
-        expect(msg).toContain('isn\'t possible');
+        expect(msg).toContain('Clear it first');
+        expect(msg).not.toContain('isn\'t possible');
+        // The bar sends the reader "above", so the card has to actually carry the answer.
+        // It does: the server's validator message rides in `raw_error`, which the card
+        // renders in its details disclosure.
+        expect(msg).toContain('details above');
     });
 
     // The settings sentence is gated on the error code, not on alternatives alone.

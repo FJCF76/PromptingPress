@@ -413,207 +413,64 @@ function _pp_component_target_not_found(array $params, int $resolved_index): boo
 // lib/admin.php's editor-save AJAX handlers — so the owner had to move for those sinks to
 // reach it without an always-loaded file depending on a conditional one. Everything in
 // this file calls them exactly as before; lib/wp.php is require #1, so they are always
-// resolved by the time anything here runs. The two constants below stay: they bound how
-// much a chat MESSAGE says, which is this file's job, not the reflected-text owner's.
-
-/** Most unknown style-slot keys examined for a cross-component hint. */
-const PP_CROSS_COMPONENT_HINT_MAX = 64;
-
-/** Most declared slot names the friendly message says out loud. */
-const PP_FRIENDLY_SLOT_SAMPLE_MAX = 5;
+// resolved by the time anything here runs.
+//
+// TWO CONSTANTS USED TO LIVE HERE AND WENT AT #1101, with the surfaces they bounded.
+// PP_CROSS_COMPONENT_HINT_MAX (64) capped how many unknown slot keys were scanned for a
+// cross-component hint; PP_FRIENDLY_SLOT_SAMPLE_MAX (5) capped how many declared slot
+// names the message said out loud. Both were real bounds on real unbounded things — the
+// sample cap came from a hero rejection measuring 11,309 characters — and both lost their
+// subject when no component declared a slot. The message bounding that survives is
+// PP_REFLECTED_NAME_MAX and PP_REFLECTED_ERROR_MAX, which lib/wp.php owns.
 
 /**
- * Writes the visible sentence for an invalid_style_slot rejection that has no
- * cross-component hint to offer (#661).
+ * The visible sentence for an aged band's stored style map (#1101).
  *
- * This is the branch the author lands on when the name they used exists nowhere —
- * a typo on a real slot, or a setting the component genuinely doesn't have. There
- * is no other component to point at, so the message's whole job is orientation:
- * what was tried, and what the component actually has.
+ * WHAT PRODUCES THIS. A band written before its component's v2 rebuild still holds a
+ * `style` map in the stored composition. No component declares a style slot, so every key
+ * in that map is undeclared and _pp_validate_style_slot_map() refuses the band — on EVERY
+ * `update_component` edit to it, including one that touches only props. So the author who
+ * reads this sentence most often changed a TITLE and was refused about a slot name they
+ * never typed, which is why the sentence leads with the stored map rather than with the
+ * slot.
  *
- * WHY THIS IS NOT JUST A SENTENCE. It used to concatenate the DESCRIPTION of every
- * declared slot, and the descriptions are full sentences carrying multi-clause
- * caveats. On hero (49 slots) that measured 11,309 characters. `user_message` is
- * the one part of the payload THIS branch writes out unconditionally
- * (ppChatRenderPreviewError, assets/js/pp-ai-chat.js) — no disclosure, no clamp —
- * so at 375px a single failed step buried the Apply/Cancel row under many screens
- * of prose. What kept the rest of the response readable was not one property but
- * two, and only one of them is a bound: `raw_error` is genuinely capped at
- * PP_REFLECTED_ERROR_MAX, while `alternatives` is merely COLLAPSED — it still ships
- * every declared name at full length, so a component declaring enormous names moves
- * the wall behind a click rather than removing it. Bounding the payload itself is
- * the reflected-value axis (#647/#649), not this one; what #661 owns is the part
- * with nothing to collapse.
- *
- *   response                  rendered by the card (ppChatRenderPreviewError)
- *   ──────────────────────    ────────────────────────────────────────────────
- *   user_message      ──────→ .pp-ai-preview-error-message      ALWAYS OPEN ← here
- *   cross_component_
- *     hints           ──────→ .pp-ai-preview-error-hint         ALWAYS OPEN
- *                             (this branch has none, by definition)
- *   raw_error         ──────→ ┐ ONE <details>, summary "Show technical
- *   alternatives      ──────→ ┘ details" — both are LINES inside its
- *                               single content div, "Available slots: …"
- *                               being the alternatives line (all of them)
- *
- * So the fix is not to say less TRUE, it is to say less OUT LOUD. Nothing is
- * dropped from the response: the complete declared list still ships as
- * `alternatives`, one click away, and the sample below is the FIRST
- * PP_FRIENDLY_SLOT_SAMPLE_MAX entries of that same list in the same order — so a
- * reader who opens the disclosure finds the names they just read at the top of it,
- * rather than a second, differently-ordered list. The one case where the two texts
- * differ is a name long enough to be truncated by the clean below: it reads as
- * `…` above and appears whole in the disclosure. That is the right way round (a
- * 4000-character name does not belong above the fold) and the ellipsis is the
- * reader's signal not to type what they see.
- *
- * WHY NAMES AND NOT DESCRIPTIONS. The author who lands here got a NAME wrong. A
- * description ("Background color or gradient") does not tell them what to type;
- * `--hero-bg` does, and seeing three or four of them together teaches the
- * convention, which is what turns a near miss into a next attempt.
- *
- * The rejected name is stated when there is exactly one, which is the shape of
- * every near miss. With several unknown keys, naming one of them would read as a
- * claim about the whole set, so the message keeps the older, unattributed opening
- * and lets raw_error carry the specifics.
- *
- * EVERY name this interpolates goes through _pp_clean_reflected_text() at
- * PP_REFLECTED_NAME_MAX — the rejected one, the component name, and each sampled
- * slot name. Capping how MANY names are printed bounds the message only if each
- * name is bounded too, and none of the three is guaranteed short by anything
- * upstream: the rejected name is caller-supplied outright, the component name is
- * read from stored composition on the fallback path, and the sampled names come
- * from the rejection's own error data, which pp_rejected_slot_context() checks for
- * shape but never for size. Reusing the existing constant and helper keeps one
- * owner for the question of how long a reflected name may be.
- *
- * The hinted branch above is STILL left exactly as it was, and after #647 that is a
- * recorded outcome rather than a deferral. #647 inventoried the server's reflection
- * sinks and converted the ones that own their own sink — this file's two AJAX error
- * payloads among them. The hinted branch is not one of those: it interpolates
- * `$component_name` into composed prose, which is the composed-message cluster #864
- * carries, together with the editor save response's sites. Left for that ruling, not
- * for want of noticing.
- *
- * BOUND. At most 2 + PP_FRIENDLY_SLOT_SAMPLE_MAX cleaned names of
- * PP_REFLECTED_NAME_MAX each, plus fixed prose — arithmetic, not an assumption
- * about how the registry is written. Measured on the shipped registry, whose
- * longest declared name is 39 characters, the worst real case (hero, 49 slots) is
- * 273 characters, down from 11,309.
+ * IT DOES NOT NAME THE SLOT, deliberately. The validator's own message names it and rides
+ * in `raw_error`, which the card renders in its details disclosure; repeating it here would
+ * put a CSS custom property in the one line a non-technical reader sees, in place of the
+ * thing they can act on. The repair is the same whatever the key is.
  *
  * @param  string $component_name  Component the rejection resolved to, or ''.
- * @param  string[] $available     Every declared slot name, declaration order.
- * @param  array  $invalid_slots   The rejected slot NAMES (values, not keys).
  * @return string
  */
-function _pp_no_hint_slot_message(string $component_name, array $available, array $invalid_slots, bool $authoritative): string {
-    $named     = _pp_clean_reflected_text($component_name, PP_REFLECTED_NAME_MAX);
-    // Compared against '' rather than leaning on ?:, because "0" is a falsy string and
-    // a component actually named 0 would otherwise be described as "the selected" one.
-    $component = $named === '' ? 'selected' : $named;
-    $total     = count($available);
+function _pp_aged_style_map_message(string $component_name): string {
+    $named = _pp_clean_reflected_text($component_name, PP_REFLECTED_NAME_MAX);
 
-    // Nothing resolved AND nothing declared. Every sentence below would be a claim
-    // about a component that was never found, so make the only claim the evidence
-    // supports. An out-of-range `component_index` lands here — the target-not-found
-    // answer above fires only for a bad `component_id` — and "it has no style
-    // settings" about a component that does not exist is exactly the confident
-    // falsehood this branch is being rewritten to stop telling.
-    if ($total === 0 && $named === '') {
-        return 'I tried to change a style setting, but I couldn\'t tell which component on the page it was meant for.';
+    // Compared against '' rather than leaning on ?:, because "0" is a falsy string and a
+    // component actually named 0 would otherwise be described as the unresolved one. An
+    // out-of-range `component_index` also lands here — the target-not-found answer above
+    // fires only for a bad `component_id` — and a confident sentence about a component
+    // that was never found is the falsehood this whole branch exists to avoid.
+    if ($named === '') {
+        return 'This band still stores styling from the old system, and that blocks edits to it'
+            . ' — but I couldn\'t tell which component on the page it belongs to.';
     }
 
-    // Quote the rejected name ONLY when the rejection carried its own candidate set
-    // (#626). On the fallback that set is re-derived from `$params['style']`, which is
-    // NOT recipe-expanded — so a proposal mixing a recipe with one explicit unknown key
-    // would let this quote the explicit key while the validator actually refused a slot
-    // the recipe contributed. Naming a slot is a new, load-bearing attribution that the
-    // old plural-only sentence never made; second-hand evidence gets the hedged form.
-    //
-    // Re-indexed rather than reset(): reading position 0 of a list says "the rejected
-    // NAME" however the array is keyed. On a map, reset() returns the VALUE beside the
-    // key — for a style map that is the colour the author typed, and quoting that back
-    // as the name they got wrong would be a confident falsehood about their own input.
-    $rejected = array_values($invalid_slots);
-
-    $opening = ($authoritative && count($rejected) === 1)
-        ? sprintf(
-            'I tried to set "%s" on the %s component, but it doesn\'t support that style setting.',
-            _pp_clean_reflected_text((string) $rejected[0], PP_REFLECTED_NAME_MAX),
-            $component
-        )
-        : sprintf(
-            'I tried to change a style setting that the %s component doesn\'t support.',
-            $component
-        );
-
-    if ($total === 0) {
-        // The component resolved and genuinely declares nothing, so the claim holds.
-        // A real rejection from the validator reports no_style_slots before it looks at
-        // any name, so this is the contextless fallback's case, not the validator's.
-        return $opening . ' It has no style settings.';
-    }
-
-    // Clean the sampled names too, and clean them BEFORE they are joined. Capping the
-    // COUNT of names bounds the message only if each name is itself bounded, and
-    // nothing upstream guarantees that: `available_slots` arrives on the rejection's
-    // error data, and pp_rejected_slot_context() (lib/actions.php) checks that map for
-    // presence, type and emptiness but never for the size of its keys. Shipped
-    // components declare nothing longer than 39 characters, so on the shipped registry
-    // this is a no-op — but "the registry happens to be small" is an assumption about
-    // theme content, not a bound, and #661 is a bug about a message nobody bounded.
-    $sample = [];
-    foreach (array_slice($available, 0, PP_FRIENDLY_SLOT_SAMPLE_MAX) as $name) {
-        $clean = _pp_clean_reflected_text((string) $name, PP_REFLECTED_NAME_MAX);
-        // A name made entirely of format characters cleans away to nothing. Printing it
-        // would put an empty item in a list of settings ("are: , --hero-bg"), so drop it
-        // — the complete list still ships in `alternatives` either way.
-        if ($clean !== '') {
-            $sample[] = $clean;
-        }
-    }
-
-    // The completely-stated form is an EXHAUSTIVE claim, not a sample, so it may only be
-    // made when the printed names really are all of them AND each survived the clean as
-    // itself. Two names sharing their first 253 characters both truncate to the same
-    // string, which would enumerate one setting twice and present that as the whole set;
-    // a name that cleaned away leaves the set short. Either way the counted form below
-    // is the honest answer, because "including" claims nothing about completeness.
-    $intact = count($sample) === $total && count(array_unique($sample)) === $total;
-
-    if ($total <= PP_FRIENDLY_SLOT_SAMPLE_MAX && $intact) {
-        // Small enough to state completely, so state it completely and promise nothing
-        // further — pointing at a disclosure holding the same few names would send the
-        // author looking for something they have already read.
-        return $opening . sprintf(
-            $total === 1 ? ' Its one style setting is: %s.' : ' Its style settings are: %s.',
-            implode(', ', $sample)
-        );
-    }
-
-    // "the details below" rather than the disclosure's own label: the card can rename
-    // its summary without turning this sentence into a wrong direction.
-    if ($sample === []) {
-        return $opening . sprintf(
-            ' It has %d style settings. The full list is in the details below.',
-            $total
-        );
-    }
-
-    return $opening . sprintf(
-        ' It has %d style settings, including %s. The full list is in the details below.',
-        $total,
-        implode(', ', $sample)
+    return sprintf(
+        'This "%s" band still stores styling from the old system. That stored styling paints'
+        . ' nothing, and it blocks every edit to this band — even one that changes no styling'
+        . ' — until it is cleared. See the details below for the exact keys and how to clear'
+        . ' them in one call.',
+        $named
     );
 }
+
 
 /**
  * Builds a structured, user-friendly error response for preview failures.
  *
  * Returns `{error_code, user_message, alternatives, cross_component_hints,
- * raw_error}` on every path, plus `unknown_slots_unscanned` (int) on the
- * invalid_style_slot path only, and only when the cross-component scan hit
- * PP_CROSS_COMPONENT_HINT_MAX — so an ordinary rejection's shape is unchanged.
+ * raw_error}` on EVERY path, with no conditional keys since #1101 — the
+ * `unknown_slots_unscanned` counter went with the cross-component scan it reported on.
  *
  * Bounding raw_error here, at the single point where it is read, means every
  * return site below inherits it — including any added later, which a per-site
@@ -665,21 +522,15 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 ? (string) ($composition[$idx]['component'] ?? '')
                 : '';
 
-            // `false` for the final argument: that flag meant "the rejection carried its
-            // own candidate set, so a single rejected name may be quoted" (#626). Nothing
-            // stamps a candidate set any more, so the unattributed opening is the only
-            // honest one.
+            // THE VISIBLE SENTENCE DESCRIBES WHAT HAPPENED, which is the half a reader
+            // actually sees: `user_message` is always open on the card, `raw_error` is
+            // behind a disclosure. It used to say "I tried to change a style setting that
+            // the X component doesn't support" — accurate for a mistyped slot name, and
+            // wrong for the case that produces this code now, where the author very likely
+            // changed a TITLE and met a refusal about a slot they never mentioned.
             return [
                 'error_code'            => $code,
-                'user_message'          => _pp_no_hint_slot_message(
-                    $component_name,
-                    [],
-                    array_values(array_filter(
-                        array_keys(is_array($params['style'] ?? null) ? $params['style'] : []),
-                        static fn ($k): bool => is_string($k)
-                    )),
-                    false
-                ),
+                'user_message'          => _pp_aged_style_map_message($component_name),
                 'alternatives'          => [],
                 'cross_component_hints' => (object) [],
                 'raw_error'             => $raw_msg,

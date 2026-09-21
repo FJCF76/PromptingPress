@@ -1580,21 +1580,31 @@ function ppChatSlotAlternatives(data) {
  * `update_composition` or `create_page`). A class of `fixable` would be worse — it invites
  * a retry of the same verb, which will fail the same way.
  *
- * `invalid_style_slot` naming nothing still cannot occur, because the validator returns
- * `no_style_slots` before comparing any slot name, so `alternatives` is non-empty on every
- * rejection it produces. That half of the arm survives for a component this theme doesn't
- * ship — a child or third-party one that is placeable and declares no slots — and for
- * producers that build the error by hand.
+ * `invalid_style_slot` NAMING NOTHING IS NOW THE ORDINARY CASE, and this comment used to
+ * say the opposite (#1101). It said the code could not occur with an empty `alternatives`,
+ * because the validator returned `no_style_slots` before comparing any slot name, so every
+ * rejection carried the component's declared slots. That was true while components declared
+ * slots. The style-slot engine is retired; what produces this code now is an AGED BAND — a
+ * band written before its component's v2 rebuild, still storing a `style` map in the
+ * composition. No component declares a slot, so every key in that map is undeclared, the
+ * refusal names the first one, and `alternatives` is EMPTY because there is nothing to
+ * offer instead.
+ *
+ * SO IT IS `fixable`, NOT `impossible`, AND THE ALTERNATIVES NO LONGER GATE IT. Getting this
+ * wrong reopens the exact defect #625 closed: the author is told the change is not possible
+ * while the repair is sitting in `raw_error` in the same payload. And the repair is real and
+ * always the same — clear the stored map with `update_component`, sending every stored slot
+ * name as `null` in ONE call (a partial clear is refused), then style the band through its
+ * `udc` map. The status message below names it.
+ *
+ * The cross-component-hint branch is kept but cannot fire from the server: a hint means the
+ * slot exists on another component, and none does. It survives for a hand-built error.
  */
 function ppChatGetErrorStepClass(data) {
     if (!data || typeof data !== 'object') return 'pp-ai-step-failed';
     var code = data.error_code || '';
     if (code === 'no_style_slots') return 'pp-ai-step-impossible';
-    if (code === 'invalid_style_slot') {
-        if (ppChatHasCrossComponentHint(data)) return 'pp-ai-step-fixable';
-        if (ppChatHasSlotAlternatives(data)) return 'pp-ai-step-fixable';
-        return 'pp-ai-step-impossible';
-    }
+    if (code === 'invalid_style_slot') return 'pp-ai-step-fixable';
     if (code === 'invalid_style_value' || code === 'invalid_recipe') return 'pp-ai-step-fixable';
     return 'pp-ai-step-failed';
 }
@@ -1623,10 +1633,10 @@ function ppChatGetErrorStepClass(data) {
  * declare, which is the other thing that lands here.
  *
  * And it POINTS at the settings rather than claiming they are all up there. What renders
- * unconditionally above this bar is `user_message`, and since #661 the non-hint branch of
- * _pp_build_friendly_error() (lib/ai-chat.php) names at most PP_FRIENDLY_SLOT_SAMPLE_MAX
- * of them plus a total count, sending the reader to `alternatives` in the collapsed
- * <details> for the rest. So the settings above are real and are named — the sentence used
+ * unconditionally above this bar is `user_message`. Since #1101 the server cannot produce
+ * a payload that names settings at all — no component declares a style slot, so this
+ * sentence and the sample-cap it used to respect (PP_FRIENDLY_SLOT_SAMPLE_MAX, deleted
+ * with the branch) are reachable only from a hand-built error. So the settings above are real and are named — the sentence used
  * to avoid the word "names" because the branch printed DESCRIPTIONS, and that is no longer
  * what it prints — but on a component declaring dozens they are a sample, and "the
  * settings it has are listed above" would be a promise the card no longer keeps.
@@ -1644,7 +1654,13 @@ function ppChatGetStatusMessage(data) {
     // styling"; it means "not through this verb" — the component is on the udc map and the
     // server's message names that route. Saying only "isn't possible" contradicted it.
     if (code === 'no_style_slots') return 'This component is styled through its band\'s `udc` map, not style settings. See details above.';
-    if (code === 'invalid_style_slot') return 'This change isn\'t possible with the current component settings.';
+    // THE AGED-BAND SENTENCE (#1101). This used to read "This change isn't possible with the
+    // current component settings", which was right while the code meant a mistyped slot name
+    // on a component that had slots. It now means this band is carrying a stored style map
+    // from before its component was rebuilt, and that map blocks every edit to the band
+    // until it is cleared — so there IS a next action, and denying possibility would be the
+    // #625 defect again.
+    if (code === 'invalid_style_slot') return 'This band still stores styling from the old system, which blocks edits to it. Clear it first — see details above.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
     return 'Some changes couldn\'t be previewed. See details above.';
 }
