@@ -1,0 +1,273 @@
+<?php
+/**
+ * tests/ModelFacingRosterTest.php
+ *
+ * THE ROSTERS A MODEL READS ARE CHECKED AGAINST THE REGISTRY (#1087).
+ *
+ * WHY THIS SUITE EXISTS, as a measured observation rather than a principle. Across the
+ * fourteen shipped instruction files and the runtime prompt, EVERY roster that a test pins
+ * is correct, and every roster that is not pinned has drifted. "Seven v2 components"
+ * survived in five places two rebuild sprints after the eighth and ninth joined;
+ * `validate-site.md` listed fifteen of nineteen retired props. Nothing was wrong with the
+ * people who wrote them — a hand-typed roster is correct exactly until the registry moves,
+ * and nothing tells anyone it moved.
+ *
+ * WHAT IS SOUNDLY CHECKABLE, AND WHAT IS NOT. This is the part that decides the design, and
+ * getting it wrong produces the failure this repo has already paid for once: a guard whose
+ * trigger matched words the docs use constantly, so 46% of its subjects satisfied it by
+ * accident and it was asserting on nothing real.
+ *
+ * A sentence naming three v2 components is NOT necessarily a roster claim. The runtime
+ * prompt says "`cta`, `faq`, `table`, `embed` and `stats` have only the band half — none
+ * declares a media role", which names five and is a true SUBSET claim. A guard reading
+ * "names 3+ components" as "claims to list them all" would demand that sentence name nine
+ * and would be wrong. Intent is not recoverable from the names alone.
+ *
+ * So the completeness check is ANCHORED: a declared phrase marks a sentence that really
+ * does claim a full roster, and the guard compares that sentence's names against the
+ * registry. The anchors are themselves fail-closed — an anchor that stops matching fails
+ * here rather than silently exempting its sentence, which is what stops the guard being
+ * dodged by rewording.
+ *
+ * One further check needs no anchor because it is sound on its own:
+ *
+ *   REVERSE MEMBERSHIP  a model-facing doc may not describe a v2 component as carrying
+ *                       style slots. That is decidable from the registry for any mention.
+ *
+ * A THIRD CHECK WAS BUILT AND REMOVED, and the reasoning is kept with the method it failed
+ * in (see the long comment above the component-name helper). Short version: "a stated count
+ * must match the list beside it" sounds sound, fired four times on the shipped corpus, and
+ * was wrong all four times — real prose pairs a count with an exclusion, a historical
+ * figure, or a different clause. It would also have passed on the exact defect that
+ * motivated it. Anchoring is what makes count checking work.
+ */
+
+declare(strict_types=1);
+
+namespace PromptingPress\Tests;
+
+use PHPUnit\Framework\TestCase;
+
+class ModelFacingRosterTest extends TestCase
+{
+    /**
+     * The surfaces a model actually reads. The runtime prompt is added separately because
+     * it is assembled rather than read from disk.
+     */
+    private function modelFacingFiles(): array
+    {
+        $root  = dirname(__DIR__);
+        $files = glob($root . '/ai-instructions/*.md') ?: [];
+        foreach (['AI_CONTEXT.md', 'AI_RULES.md'] as $router) {
+            if (is_file($root . '/' . $router)) {
+                $files[] = $root . '/' . $router;
+            }
+        }
+        $this->assertGreaterThan(10, count($files), 'the model-facing corpus went missing');
+        return $files;
+    }
+
+    /** The composable components on the v2 contract, derived. */
+    private function v2Composable(): array
+    {
+        $names = [];
+        foreach (array_keys(\pp_composable_components()) as $component) {
+            if (\pp_udc_is_v2_component($component)) {
+                $names[] = $component;
+            }
+        }
+        sort($names);
+        return $names;
+    }
+
+    /**
+     * THE ANCHORED COMPLETENESS CHECK.
+     *
+     * Each anchor is a phrase that genuinely introduces a full v2 roster. The sentence it
+     * heads must name every composable v2 component and no component that is not one.
+     *
+     * ANCHORS ARE FAIL-CLOSED. If an anchor stops matching — the sentence was reworded, the
+     * section was moved — this fails rather than passing on zero subjects, which is what
+     * stops the guard from being silently disabled by an edit.
+     */
+    public function testAnchoredV2RostersNameEveryV2Component(): void
+    {
+        $expected = $this->v2Composable();
+        $this->assertGreaterThan(5, count($expected), 'the derived v2 roster is implausibly small');
+
+        $prompt  = \pp_ai_system_prompt();
+        $anchors = [
+            // Already derived and pinned by DocsCoverageTest; re-checked here so the two
+            // guards cannot disagree about what a complete roster is.
+            ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)]+)\)/'],
+        ];
+
+        $checked = 0;
+        foreach ($anchors as [$label, $haystack, $pattern]) {
+            $this->assertMatchesRegularExpression(
+                $pattern,
+                $haystack,
+                "the roster anchor {$pattern} is gone from {$label}. An anchor that stops "
+                . 'matching exempts its sentence from this guard, so it fails here instead'
+            );
+            preg_match($pattern, $haystack, $m);
+            $named = $this->componentNamesIn($m[1]);
+            sort($named);
+            $this->assertSame(
+                $expected,
+                $named,
+                "{$label}'s v2 roster is stale. It names: " . implode(', ', $named)
+                . ' — the registry says: ' . implode(', ', $expected)
+            );
+            $checked++;
+        }
+        $this->assertGreaterThan(0, $checked, 'no roster anchor was checked');
+    }
+
+    /**
+     * THE REVERSE CHECK: no model-facing doc calls a v2 component a slot component.
+     *
+     * Sound without any anchor, because it is decidable for every mention: a component
+     * either declares style slots or it does not. This is the half of the drift that
+     * actively misleads — a model told `stats` has style slots writes a `style_component`
+     * call and is refused with `no_style_slots`.
+     *
+     * Scoped to sentences that put the component name and a slot claim together, within one
+     * sentence, so ordinary prose about the v1 system near a v2 name does not trip it.
+     */
+    public function testNoModelFacingDocDescribesAV2ComponentAsCarryingStyleSlots(): void
+    {
+        $v2       = $this->v2Composable();
+        $scanned  = 0;
+        $failures = [];
+
+        foreach ($this->modelFacingFiles() as $file) {
+            foreach ($this->sentences((string) file_get_contents($file)) as $sentence) {
+                // Only sentences that make a POSITIVE slot claim.
+                if (!preg_match('/\b(declares?|carries|carry|has|have|its|their)\b[^.]{0,60}\bstyle slots?\b/i', $sentence)) {
+                    continue;
+                }
+                // A sentence saying a component declares NO slots is the correct statement.
+                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $sentence)) {
+                    continue;
+                }
+                $scanned++;
+                foreach ($this->componentNamesIn($sentence) as $named) {
+                    if (in_array($named, $v2, true)) {
+                        $failures[] = basename($file) . ': ' . trim(preg_replace('/\s+/', ' ', $sentence) ?? '');
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], array_unique($failures), "a v2 component is described as carrying style slots:\n"
+            . implode("\n", array_unique($failures)));
+        // Not fail-closed on $scanned: zero positive slot claims in the corpus is a legitimate
+        // end state once `grid` is rebuilt, and asserting a floor here would then fail for
+        // being correct. The anchored test above is what guarantees this suite has subjects.
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * THE INTERNAL COUNT CHECK WAS BUILT, RUN AGAINST THE REAL CORPUS, AND REMOVED (#1087).
+     *
+     * Recorded here rather than deleted silently, because "a stated count must match the
+     * list beside it" is an obvious-sounding guard that someone will propose again, and it
+     * was Codex's strongest plan-review finding — prose counts drift where roster guards do
+     * not reach.
+     *
+     * It was implemented and run. It produced FOUR failures on the shipped corpus and ALL
+     * FOUR were false positives, because real prose pairs a count with something the count
+     * does not include:
+     *
+     *   "hero, section and testimonials no longer have it (and cta never did)"
+     *        — three is right; the fourth name is an EXCLUSION.
+     *   "widened from five components to ten in #579"
+     *        — a HISTORICAL count beside a current list.
+     *   "a style slot on the one v1 component left (grid's ...)"
+     *        — "one ... component" and the list belong to different clauses.
+     *
+     * A guard that is wrong every time it fires is not a strict guard, it is a tax on
+     * correct writing: the only way to satisfy it is to contort sentences that were already
+     * true. And it would not have caught the defect that motivated it — "seven v2
+     * components" followed by exactly seven names is internally consistent and externally
+     * stale, so the check passes on the very drift it was written for.
+     *
+     * The sound form of this check is the ANCHORED one above, which compares a roster
+     * against the REGISTRY rather than against itself. DocsCoverageTest already applies it
+     * with a count included (add-component.md's "nineteen keys" plus every key), and that
+     * pairing is correct today — which is the evidence that anchoring is what makes count
+     * checking work.
+     */
+    /**
+     * PER-ROLE DETAIL IS FETCHED, NOT DUPLICATED (#1087).
+     *
+     * The ruling's three-way split puts per-component role detail in NEITHER surface: the
+     * instruction files must tell an agent to run `wp pp schema <component>` rather than
+     * carry a copy. This is the guard for that rule, and the rule is load-bearing rather
+     * than tidy — every duplicated claim in this repo's model-facing set that a test did not
+     * pin has drifted, and a copy inside an instruction file is a copy with no owner.
+     *
+     * Scoped to obligation `why` strings because those are the sentences most likely to be
+     * helpfully pasted into a how-to: they read like advice. The runtime prompt is where
+     * they belong, composed from the registry; a file that repeats one has forked it.
+     *
+     * The 40-character floor keeps a short shared phrase from reading as a duplication.
+     */
+    public function testNoInstructionFileDuplicatesADeclaredRoleObligation(): void
+    {
+        $whys = [];
+        foreach (\pp_udc_obligation_groups() as $groups) {
+            foreach ($groups as $group) {
+                if (strlen($group['why']) >= 40) {
+                    $whys[] = $group['why'];
+                }
+            }
+        }
+        $this->assertNotEmpty($whys, 'no obligation prose to check — the declarations vanished');
+
+        $failures = [];
+        foreach ($this->modelFacingFiles() as $file) {
+            $text = (string) file_get_contents($file);
+            foreach ($whys as $why) {
+                if (str_contains($text, $why)) {
+                    $failures[] = basename($file) . ' repeats an obligation the prompt already '
+                        . 'derives: "' . substr($why, 0, 70) . '…"';
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $failures,
+            "per-role obligation prose is duplicated into an instruction file:\n"
+            . implode("\n", $failures)
+            . "\n\nThe runtime prompt composes these from the registry. An instruction file "
+            . 'should send the agent to `wp pp schema <component>` instead of carrying a copy '
+            . 'that nothing keeps true.'
+        );
+    }
+
+    /** Distinct registered component names mentioned in a string, in registry order. */
+    private function componentNamesIn(string $text): array
+    {
+        $found = [];
+        foreach (array_keys(\pp_get_registered_components()) as $component) {
+            // Word-boundary with the repo's own spellings: bare, backticked, or quoted.
+            // A bare substring test would match `section` inside `subsection` and — the
+            // reason this matters here — `table` inside `tables`.
+            if (preg_match('/(?<![a-z0-9_-])' . preg_quote($component, '/') . '(?![a-z0-9_-])/i', $text)) {
+                $found[] = $component;
+            }
+        }
+        return $found;
+    }
+
+    /** Split prose into sentences, keeping markdown list items whole. */
+    private function sentences(string $text): array
+    {
+        $text = preg_replace('/```.*?```/s', ' ', $text) ?? $text;
+        $parts = preg_split('/(?<=[.!?])\s+|\n{2,}|\n(?=[-*|#])/', $text) ?: [];
+        return array_values(array_filter(array_map('trim', $parts), static fn ($s) => $s !== ''));
+    }
+}
