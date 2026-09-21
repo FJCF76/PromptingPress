@@ -54,7 +54,8 @@
         "background": {
           "position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".table-section__heading",
@@ -78,7 +79,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "wrap": {
       "selector": ".table-wrap",
@@ -98,7 +100,8 @@
           "color": "@color-border",
           "radius": "@radius"
         }
-      }
+      },
+      "obligations": []
     },
     "table": {
       "selector": ".table",
@@ -118,7 +121,8 @@
         "background": {
           "fill": "@color-bg"
         }
-      }
+      },
+      "obligations": []
     },
     "caption": {
       "selector": ".table__caption",
@@ -143,7 +147,8 @@
           "padding-left": "@space-md",
           "padding-right": "@space-md"
         }
-      }
+      },
+      "obligations": []
     },
     "head": {
       "selector": ".table__head",
@@ -159,7 +164,8 @@
         "background": {
           "fill": "@color-surface"
         }
-      }
+      },
+      "obligations": []
     },
     "header": {
       "selector": ".table__header",
@@ -189,7 +195,8 @@
           "style-bottom": "solid",
           "color-bottom": "@color-border"
         }
-      }
+      },
+      "obligations": []
     },
     "row": {
       "selector": ".table__row",
@@ -212,7 +219,8 @@
             "fill": "@color-surface"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "cell": {
       "selector": ".table__cell",
@@ -235,7 +243,14 @@
           "padding-left": "@space-md",
           "padding-right": "@space-md"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "cell-link",
+          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `cell-link` too, and its `:hover`."
+        }
+      ]
     },
     "cell-link": {
       "selector": ".table__cell a",
@@ -248,7 +263,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "empty": {
       "selector": ".table-section__empty",
@@ -269,7 +285,8 @@
           "padding-top": "@space-md",
           "padding-bottom": "@space-md"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

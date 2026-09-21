@@ -63,7 +63,8 @@
           "fill": "@color-surface",
           "position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "eyebrow": {
       "selector": ".faq__eyebrow",
@@ -97,7 +98,8 @@
         "background": {
           "fill": "@color-surface-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".faq__heading",
@@ -131,7 +133,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "heading-accent": {
       "selector": ".faq__heading-accent",
@@ -148,7 +151,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "list": {
       "selector": ".faq__list",
@@ -163,7 +167,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "item": {
       "selector": ".faq__item",
@@ -187,7 +192,8 @@
         "background": {
           "fill": "@color-bg"
         }
-      }
+      },
+      "obligations": []
     },
     "question": {
       "selector": ".faq__question",
@@ -223,7 +229,14 @@
           "padding-right": "@space-lg",
           "gap": "@space-md"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "question-open",
+          "why": "`question-open` selects the OPEN row with a heavier selector and defaults to the accent, so it beats a colour set here the moment a reader opens the row. Set both."
+        }
+      ]
     },
     "question-open": {
       "selector": ".faq__item[open] > .faq__question",
@@ -240,7 +253,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "answer": {
       "selector": ".faq__answer",
@@ -274,7 +288,14 @@
           "padding-left": "@space-lg",
           "padding-right": "@space-lg"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "answer-link",
+          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `answer-link` too, and its `:hover`."
+        }
+      ]
     },
     "answer-link": {
       "selector": ".faq__answer a",
@@ -287,7 +308,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "empty": {
       "selector": ".faq__empty",
@@ -308,7 +330,8 @@
           "padding-top": "@space-md",
           "padding-bottom": "@space-md"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

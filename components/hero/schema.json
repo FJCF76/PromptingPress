@@ -173,7 +173,8 @@
         "background": {
           "fill": "@color-bg"
         }
-      }
+      },
+      "obligations": []
     },
     "inner": {
       "selector": ".hero__inner",
@@ -188,7 +189,8 @@
         "spacing": {
           "gap": "@space-lg"
         }
-      }
+      },
+      "obligations": []
     },
     "content": {
       "selector": ".hero__content",
@@ -209,7 +211,8 @@
         "sizing": {
           "max-width": "@measure-centered"
         }
-      }
+      },
+      "obligations": []
     },
     "eyebrow": {
       "selector": ".hero__eyebrow",
@@ -243,7 +246,8 @@
         "background": {
           "fill": "@color-surface-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "title": {
       "selector": ".hero__title",
@@ -265,7 +269,8 @@
           },
           "line-height": "1.03"
         }
-      }
+      },
+      "obligations": []
     },
     "title-accent": {
       "selector": ".hero__title-accent",
@@ -282,7 +287,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "subtitle": {
       "selector": ".hero__subtitle",
@@ -304,7 +310,8 @@
         "sizing": {
           "max-width": "40ch"
         }
-      }
+      },
+      "obligations": []
     },
     "cta-group": {
       "selector": ".hero__cta-group",
@@ -319,7 +326,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "cta": {
       "selector": ".hero__cta--primary",
@@ -333,7 +341,8 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "cta-secondary": {
       "selector": ".hero__cta--secondary",
@@ -373,7 +382,8 @@
         "sizing": {
           "min-height": "44px"
         }
-      }
+      },
+      "obligations": []
     },
     "proof": {
       "selector": ".hero__proof",
@@ -396,7 +406,14 @@
           "gap": "@space-sm",
           "margin-top": "@space-md"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "proof-link",
+          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `proof-link` too, and its `:hover`."
+        }
+      ]
     },
     "proof-link": {
       "selector": ".hero__proof a",
@@ -409,7 +426,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "surface": {
       "selector": ".hero__surface",
@@ -441,7 +459,8 @@
         "shadow": {
           "box": "0 20px 50px rgba(16, 24, 40, 0.08)"
         }
-      }
+      },
+      "obligations": []
     },
     "media": {
       "selector": ".hero__image",
@@ -461,7 +480,8 @@
         "sizing": {
           "object-position": "center"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

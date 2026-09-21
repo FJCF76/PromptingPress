@@ -45,7 +45,8 @@
         "background": {
           "position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".embed__heading",
@@ -69,7 +70,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "content": {
       "selector": ".embed__content",
@@ -86,7 +88,14 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "content-link",
+          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `content-link` too, and its `:hover`."
+        }
+      ]
     },
     "content-link": {
       "selector": ".embed__content a",
@@ -99,7 +108,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     }
   },
   "styling": {

@@ -108,7 +108,8 @@
         "shadow": {
           "box": "none"
         }
-      }
+      },
+      "obligations": []
     },
     "inner": {
       "selector": ".cta__inner",
@@ -123,7 +124,8 @@
         "spacing": {
           "gap": "@space-lg"
         }
-      }
+      },
+      "obligations": []
     },
     "text": {
       "selector": ".cta__text",
@@ -140,7 +142,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "eyebrow": {
       "selector": ".cta__eyebrow",
@@ -174,7 +177,8 @@
         "background": {
           "fill": "@color-surface-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".cta__title",
@@ -198,7 +202,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "heading-accent": {
       "selector": ".cta__title-accent",
@@ -215,7 +220,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "body": {
       "selector": ".cta__body",
@@ -247,7 +253,14 @@
             "p": "1.65"
           }
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "body-link",
+          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `body-link` too, and its `:hover`."
+        }
+      ]
     },
     "body-link": {
       "selector": ".cta__body a",
@@ -260,7 +273,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "buttons": {
       "selector": ".cta__buttons",
@@ -275,7 +289,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "button": {
       "selector": ".cta__button--primary",
@@ -289,7 +304,8 @@
         "shadow",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "button-secondary": {
       "selector": ".cta__button--secondary",
@@ -328,7 +344,8 @@
         "shadow": {
           "box": "none"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

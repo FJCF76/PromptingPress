@@ -86,7 +86,8 @@
         "background": {
           "position": "center"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".stats__heading",
@@ -114,7 +115,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "heading-accent": {
       "selector": ".stats__heading-accent",
@@ -132,7 +134,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "list": {
       "selector": ".stats__list",
@@ -148,7 +151,8 @@
           "row-gap": "@space-lg",
           "column-gap": "@space-xl"
         }
-      }
+      },
+      "obligations": []
     },
     "item": {
       "selector": ".stats__item",
@@ -169,7 +173,8 @@
         "sizing": {
           "min-width": "8rem"
         }
-      }
+      },
+      "obligations": []
     },
     "number": {
       "selector": ".stats__number",
@@ -190,7 +195,8 @@
           "color": "@color-accent",
           "line-height": "1"
         }
-      }
+      },
+      "obligations": []
     },
     "label": {
       "selector": ".stats__label",
@@ -210,7 +216,8 @@
           "color": "@color-muted",
           "align": "center"
         }
-      }
+      },
+      "obligations": []
     }
   }
 }

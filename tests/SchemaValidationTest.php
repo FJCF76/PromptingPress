@@ -6250,6 +6250,67 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
+     * EVERY role declares `obligations`, and every `with` names a real sibling (#1087).
+     *
+     * TWO CHECKS, ONE WALK, because both are things pp_schema_definition_errors() cannot do
+     * and for the same reason: it is handed ONE definition and knows nothing about the
+     * component around it.
+     *
+     * REQUIREDNESS is the whole no-drift guarantee, not a tidiness rule. The field may be
+     * `[]`, but it may not be ABSENT — so a role added by a future rebuild cannot silently
+     * skip the question "does an author have a duty here?". An optional field would have been
+     * answered by omission on every new role forever, which is how the rosters this gate
+     * exists to fix went stale in the first place. It is asserted here rather than in the
+     * validator because that is where the sibling required keys live
+     * (`assertArrayHasKey('type', …)` for slots, above) — one pattern, not two.
+     *
+     * CROSS-ROLE REFERENCE: a `with` naming a role the component does not declare is a
+     * dangling pointer that would compose a prompt sentence about a role that does not
+     * exist, which is worse than silence — the model would try to write to it and be
+     * refused with `unknown_udc_role`.
+     */
+    public function testEveryRoleDeclaresObligationsAndEveryPartnerExists(): void
+    {
+        $checked = 0;
+        $records = 0;
+        foreach ($this->allSchemas() as $component => $schema) {
+            $roles = $schema['roles'] ?? [];
+            if ($roles === []) {
+                continue;
+            }
+            $names = array_keys($roles);
+            foreach ($roles as $name => $def) {
+                $this->assertArrayHasKey(
+                    'obligations',
+                    $def,
+                    "{$component} role {$name} must declare `obligations` — `[]` is the answer for a role "
+                    . 'that carries none, but the key cannot be absent or a new role answers by omission'
+                );
+                $checked++;
+                foreach ($def['obligations'] as $entry) {
+                    $records++;
+                    $this->assertContains(
+                        $entry['with'],
+                        $names,
+                        "{$component} role {$name} declares an obligation with `{$entry['with']}`, "
+                        . 'which this component does not declare'
+                    );
+                    $this->assertNotSame(
+                        $name,
+                        $entry['with'],
+                        "{$component} role {$name} declares an obligation with ITSELF"
+                    );
+                }
+            }
+        }
+        // Both floors sit just under the real counts (125 roles, 16 records). A walk that
+        // stops finding roles, or a population step that silently emptied every list, must
+        // fail here rather than pass on an empty set.
+        $this->assertGreaterThan(110, $checked, 'the role walk stopped finding roles');
+        $this->assertGreaterThan(12, $records, 'the declared obligations disappeared');
+    }
+
+    /**
      * The closed ROLE key set rejects what it does not declare (#1087).
      *
      * Paired with the accept case above: that one proves the shipped schemas conform, this

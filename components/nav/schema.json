@@ -51,7 +51,8 @@
         "background": {
           "fill": "@color-bg"
         }
-      }
+      },
+      "obligations": []
     },
     "container": {
       "selector": ".nav__container",
@@ -72,7 +73,8 @@
         "sizing": {
           "min-height": "64px"
         }
-      }
+      },
+      "obligations": []
     },
     "logo": {
       "selector": ".nav__logo",
@@ -100,7 +102,8 @@
         "sizing": {
           "min-height": "44px"
         }
-      }
+      },
+      "obligations": []
     },
     "logo-image": {
       "selector": ".nav__logo-image",
@@ -113,7 +116,8 @@
         "sizing",
         "motion"
       ],
-      "defaults": {}
+      "defaults": {},
+      "obligations": []
     },
     "menu": {
       "selector": ".nav__menu",
@@ -164,7 +168,19 @@
             "p": "@color-bg"
           }
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "link",
+          "why": "`link` declares its own colour and accent hover, so a colour set here never reaches the menu links. Set `link` and its `:hover`."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "link-current",
+          "why": "`link-current` declares its own accent colour for the you-are-here marker, so a colour set here never reaches it."
+        }
+      ]
     },
     "menu-list": {
       "selector": ".nav__menu ul",
@@ -182,7 +198,19 @@
         "spacing": {
           "gap": "@space-xs"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "link",
+          "why": "`link` declares its own colour and accent hover, so a colour set here never reaches the menu links. Set `link` and its `:hover`."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "link-current",
+          "why": "`link-current` declares its own accent colour for the you-are-here marker, so a colour set here never reaches it."
+        }
+      ]
     },
     "submenu": {
       "selector": ".nav__menu .sub-menu",
@@ -237,7 +265,8 @@
             "p": "transparent"
           }
         }
-      }
+      },
+      "obligations": []
     },
     "submenu-toggle": {
       "selector": ".nav__submenu-toggle",
@@ -266,7 +295,8 @@
         "background": {
           "fill": "transparent"
         }
-      }
+      },
+      "obligations": []
     },
     "link": {
       "selector": ".nav__menu ul li a",
@@ -303,7 +333,14 @@
         "border": {
           "radius": "@radius"
         }
-      }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "link-current",
+          "why": "`link-current` adds a compound to the same <a> and defaults to the accent, so it beats a colour set here on the current page. Set both."
+        }
+      ]
     },
     "link-current": {
       "selector": ".nav__menu ul li.current-menu-item > a",
@@ -321,7 +358,8 @@
           "weight": "700",
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "toggle": {
       "selector": ".nav__toggle",
@@ -349,7 +387,8 @@
         "background": {
           "fill": "transparent"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {

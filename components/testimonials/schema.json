@@ -116,7 +116,8 @@
         "background": {
           "fill": "transparent"
         }
-      }
+      },
+      "obligations": []
     },
     "eyebrow": {
       "selector": ".testimonials__eyebrow",
@@ -150,7 +151,8 @@
         "background": {
           "fill": "@color-surface-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "heading": {
       "selector": ".testimonials__heading",
@@ -174,7 +176,8 @@
         "sizing": {
           "max-width": "@measure-heading"
         }
-      }
+      },
+      "obligations": []
     },
     "heading-accent": {
       "selector": ".testimonials__heading-accent",
@@ -191,7 +194,8 @@
         "typography": {
           "color": "@color-accent"
         }
-      }
+      },
+      "obligations": []
     },
     "subheading": {
       "selector": ".testimonials__subheading",
@@ -214,7 +218,8 @@
         "sizing": {
           "max-width": "40rem"
         }
-      }
+      },
+      "obligations": []
     },
     "list": {
       "selector": ".testimonials__list",
@@ -232,7 +237,8 @@
         "spacing": {
           "gap": "@space-lg"
         }
-      }
+      },
+      "obligations": []
     },
     "card": {
       "selector": ".testimonials__item",
@@ -264,7 +270,8 @@
         "shadow": {
           "box": "none"
         }
-      }
+      },
+      "obligations": []
     },
     "quote": {
       "selector": ".testimonials__quote",
@@ -285,7 +292,8 @@
           "line-height": "1.5",
           "color": "@color-text"
         }
-      }
+      },
+      "obligations": []
     },
     "attribution": {
       "selector": ".testimonials__attribution",
@@ -303,7 +311,8 @@
         "spacing": {
           "gap": "@space-sm"
         }
-      }
+      },
+      "obligations": []
     },
     "author": {
       "selector": ".testimonials__author",
@@ -321,7 +330,8 @@
           "weight": "700",
           "color": "@color-text"
         }
-      }
+      },
+      "obligations": []
     },
     "meta": {
       "selector": ".testimonials__meta",
@@ -339,7 +349,8 @@
           "size": "0.875rem",
           "color": "@color-muted"
         }
-      }
+      },
+      "obligations": []
     },
     "avatar": {
       "selector": ".testimonials__avatar",
@@ -360,7 +371,8 @@
         "border": {
           "radius": "50%"
         }
-      }
+      },
+      "obligations": []
     }
   },
   "styling": {
