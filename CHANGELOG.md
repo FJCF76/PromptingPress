@@ -125,11 +125,42 @@ section described twelve when only six had any component still carrying them. It
 what actually ships now, so it shrinks by itself as components are rebuilt, and the section
 goes away entirely once the last one is.
 
+### The instructions a coding agent reads are rewritten for the v2 world
+
+The other half of what the model is told is the `ai-instructions/` files a filesystem-capable
+agent executes, and they still described the theme as it was before the rebuilds. An agent
+following them wrote props that no longer exist, reached for a styling surface that refuses it,
+and was never told about the one that works.
+
+**Styling a band is now documented where an agent looks.** Every page that explains how to
+change how something looks now leads with the band's `udc` map, on all nine components that use
+it. `style_component` and style slots are described as what they are — `grid` only, the last
+component on the old surface.
+
+**"Build a landing page" builds a landing page.** That guide had you create a PHP template file,
+a root loader, and a seventeen-field ACF group. It is the composition recipe now: one
+`create_page` call, five bands, styled through `udc`, with the dark closing band worked through
+in full — because a dark band is four writes, not one, and nothing infers darkness for you any
+more. "Add a page" is retitled, moved and banner-flagged as the product-development task it is,
+and the routing that sent every site request into it points at the recipe instead.
+
+**A revision playbook that could not restyle anything.** It told you never to rewrite the whole
+composition — but `update_component` carries no `udc`, so for a v2 band the whole-composition
+write is the only route there is. The playbook now splits content edits from styling edits and
+spells out the read-modify-write.
+
+**Adding a component teaches the design contract.** The recipe never mentioned roles, so
+following it produced a component no author could style. It now covers the role record, the
+eight groups, obligations, and the fact that declaring roles enrols your CSS in the
+structural-only boundary the same day.
+
 ### Why it stays true
 
 Lists typed by hand go stale, and several of these had. Everything above is read from the
 components themselves each time the assistant's instructions are assembled, so a component
-rebuilt tomorrow updates them the day it lands rather than whenever somebody remembers.
+rebuilt tomorrow updates them the day it lands rather than whenever somebody remembers. The
+rewritten rosters are pinned too: three of them are anchored to the component registry, so a
+tenth component makes the sentence fail rather than quietly leaving it a list of nine.
 
 ### Fixed
 
@@ -143,6 +174,20 @@ rebuilt tomorrow updates them the day it lands rather than whenever somebody rem
   in-admin assistant loading at all instead of skipping just the broken part.
 - `wp pp schema` reported a role whose definition is invalid as though it were complete. It now says
   the role is unreportable, and why.
+- The instruction files taught a raw `wp post meta update _pp_composition` as a way to write a
+  composition, in three places. It skips validation, the version counter, the history ring and
+  band-id assignment — and a value that is not valid JSON is stored as an empty string, leaving a
+  page that reads back as healthy with no content. They now route through the actions and say what
+  the raw write costs.
+- `validate-site.md` named no `udc` finding at all, so the failure surface of the styling system
+  every v2 band uses was undocumented. All four errors and five advisories are in the table now.
+- Component and prop rosters across the docs were short: the retired-prop list appeared as 15 keys
+  of 19 in two places and as four components of eight in another; several v2 rosters named six or
+  seven components of nine, twice in files that got it right elsewhere. All counted against the
+  schemas and corrected.
+- `retheme.md`'s verification step told you to grep components.css for a hex pattern and expect no
+  output. That pattern cannot tell a colour from an issue reference, and the file's rebuild comments
+  contain 180 of the latter. It runs the repo's own checker now.
 
 ### Docs
 
@@ -150,6 +195,8 @@ rebuilt tomorrow updates them the day it lands rather than whenever somebody rem
   implementation changed about the design.
 - The recipe a component author reads covers what a role must now declare, and the CLI reference
   covers the new report field.
+- The `ai-instructions/` corpus is rewritten for v2: seven guides rewritten, one relocated under a
+  product-development name with a banner, five corrected, and both router files brought in line.
 
 ### Tests
 
@@ -158,6 +205,11 @@ rebuilt tomorrow updates them the day it lands rather than whenever somebody rem
 - Documented examples are checked for contrast, resolving each role's own background before the
   band's, with both a must-pass and a must-fail case so the check's false-positive rate is measured.
 - The prompt's own JSON examples are validated against the real write path for the first time.
+- Every `udc` map any instruction file documents is run through the real write path, including the
+  ones nested inside a whole-page example — the shape the richest examples use, and the one the
+  first cut of that check could not see.
+- Three rewritten component rosters are anchored to the registry and fail if they go stale, or if
+  the sentence they hang on is reworded away.
 
 ---
 
