@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
+## [v2.0.0-alpha.2] — 2026-09-22 — v2 Sprint 2 "components": the Sprint-2 gates, author-created presets, the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling, which ends the v1 styling system (#1011, #1016, #994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -1337,6 +1337,119 @@ call; #1064 tracks making the refusal name every key at once.
   a proof that the operator still has a live declaring surface, and the `pp-section--*`
   prefix trap became a derived guard that catches the hazard on every component instead of
   by name on one.
+
+### Author-created presets (#1016)
+
+**A preset stops being three things the theme ships and becomes something you or the model
+can create.** `save_preset` stores a named fragment for the whole site and `delete_preset`
+removes one, one preset per call, from the CLI and from chat. A preset you save is validated
+by the same engine that validates a band's `udc` map — same groups, same parameters, same
+units, same `@token` references, same breakpoint and state maps — with the message subject
+changed, because a preset is authored against no component and no role. Its `@` references
+resolve against the SITE design tokens only, because a preset belongs to the site rather
+than to any band.
+
+Pick `grain: "role"` for a bundle of groups, or `grain: "<group>"` for one group's
+parameters, matching the place it will be referenced from. Editing a preset moves every band
+and chrome role that references it, with no band write.
+
+The theme's own presets stay theme-shipped and cannot be deleted or overwritten. Three
+things are refused rather than silently resolved: a name the theme already ships cannot be
+taken; a preset cannot reference another preset; and a preset any band or chrome role still
+references cannot be deleted — that refusal lists every place it is used, so you can
+retarget them first (`preset_in_use`). A page whose composition cannot be read refuses the
+delete rather than being skipped over (`preset_scan_unreadable`), so a delete is never
+reported clean over a page it could not check.
+
+#### ⚠️ Breaking: a chrome write that carries `_presets` or `_presets_version` is refused
+
+The custom-preset store shares the `pp_site_udc` row with chrome styling, under the
+engine-owned `_presets` and `_presets_version` keys. They are written only by `save_preset`
+and `delete_preset`, and they are preserved automatically across every chrome write **and**
+across a `""` chrome clear — clearing chrome clears chrome only.
+
+The consequence for anyone scripting chrome: a read-modify-write that sends the stored bytes
+back verbatim is now **refused** with `invalid_option_value`, naming the keys to drop. Read
+the map, strip those two keys, send the rest. `_version` is the one engine-owned key you may
+leave in, and leaving it in is what gives an ordinary round trip its concurrency protection.
+
+The preset store carries its own baseline, separate from chrome's: `wp pp operate inspect`
+reports it under `chrome` as `presets` and `presets_version`, and that number is what
+`expected_version` takes for a preset write.
+
+Also reported rather than silently applied: the name collision a future theme upgrade could
+create — a shipped preset arriving with a name a site already used — reaches the operator
+instead of quietly repainting the site.
+
+### The Sprint-2 gates (#1011)
+
+The correctness holes that had to close before custom presets and the component rebuilds
+could land on top of them. Five, each proven against a real surface first.
+
+- **A retired prop no longer locks a whole page for editing (#1007).** `update_component`
+  validated the entire page for a write touching one band, so a single retired prop refused
+  every edit to that page — including the documented `null` cure, which runs through the
+  same action. A page with retired props on two bands could not be repaired at all. Per-item
+  rules now run on the targeted band; cross-item rules stay page-wide, because the writer
+  re-serializes the whole composition and the rules it depends on cannot narrow.
+- **A chrome write reports what it wrote (#993).** Chrome writes produced no `findings` array
+  at all, so disclosures the engine already had could not reach a supported authoring path.
+  Chrome writes now carry the same `findings` a composition write does, with `index: null`
+  because a composition offset names no band on chrome.
+- **A `cover` hero carrying a media prop is refused (#1006).** `{"layout": "cover",
+  "image_url": "..."}` validated, stored, reported `ok: true` and painted nothing, on no
+  channel. `cover` is still a live layout and a media prop is still live on the layouts that
+  paint it; only the pair is dead, and it is now refused as `inert_prop`. Both `image_url`
+  and `image_id` are covered, because refusing one would leave the same silent no-op
+  reachable one prop over. The runtime prompt had been teaching the broken shape.
+- **The delimiter limits are described accurately (#1005).** The runtime prompt said the two
+  font-path limits apply only to a `udc` `typography.family` parameter and reach neither a
+  design token nor a v1 style slot. Measured against the real predicates it was wrong on
+  every axis. The claims are now covered by executable tests rather than string pins.
+- **Advisory fragments are bounded (#1004).** A long stored role key could be reflected into
+  a readiness message at its full length, on a channel that rides the preflight envelope of
+  every mutation. Input-validation hardening: the reflected fragment is bounded and cleaned
+  at the message sink, so `finding_key` still hashes the raw bytes and every stored
+  acknowledgement survives.
+
+Charset and bounds hardening rode along with the preset work: the gates on a preset name, a
+band id and a reference name are anchored so they admit only the characters they name, the
+names are bounded, and the sinks that list them clean their own output rather than trusting
+the gate upstream. Two refusals that interpolated unbounded lists now cap what they echo and
+say that they capped it.
+
+### Known issues for this release
+
+- **The composition compare-and-swap is a no-op on `wp pp action execute` (#1094).** The CLI
+  overwrites the `expected_version` a caller sends with the baseline its own freshness gate
+  computed, and that baseline advances after every successful write in the run. A
+  deliberately stale `expected_version` is accepted. The engine's CAS is sound and the chat
+  and dashboard surfaces honour it — this is the CLI path only. The consequence is real: the
+  documented content-then-styling revision (`update_component` for content, then a
+  read-modify-write `update_composition` for the `udc` map) can destroy the content edit and
+  report `ok: true` with no findings over the loss. Until it is fixed, re-read with
+  `wp pp operate inspect` between writes to the same page rather than relying on the version
+  you sent.
+- **Roles have no conditionality concept (#1102).** `grid`'s 20 `applies_when` clauses retire
+  with no replacement, and item grain makes the missing concept per-card. The two places it
+  is visible today are named with their one-line cures in the `grid` breaking notes above: a
+  steps card title loses its measure cap, and a card ending in its paragraph is 16px taller.
+- **A prose link on a band you darken is an AA failure until you colour it.** Stated in full
+  under the `section` notes above. It is the v2 posture rather than one component's bug: a v2
+  band carries no class, which is exactly what lets any background be a band, so nothing can
+  guess that the ground went dark. Set `body-link`'s `typography.color` and its `":hover"`
+  whenever you darken a band.
+- **The owner's dark-card values are not automatically AA.** The same rule reaches item
+  grain: a card you fill dark owns the contrast of every text and link role inside it, and
+  the engine reports nothing about it. Measure the pairs you author.
+- **A fresh install's homepage paints role defaults, not the branded seed (#1042).** The
+  activation seed mints band ids on a by-value copy, so the FIRST render emits no authored
+  `udc` CSS at all — measured at 0 bytes against 4,636 after minting. It self-heals on the
+  second request, when the stored (minted) composition is read back, so the symptom is a
+  single unbranded first paint. The root cause predates this sprint (live since hero's rebuild
+  at #986); the component rebuilds are what made it visible. Still open.
+- The alpha-posture issues carried from `2.0.0-alpha.1` are unchanged: #1001 and #1002 on the
+  version gates and the prerelease badge, and #1003 on the `pp_site_udc` clear arm.
 
 ---
 
