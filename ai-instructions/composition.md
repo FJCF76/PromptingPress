@@ -725,7 +725,8 @@ moments earlier is removed rather than left behind empty.
 To change one band afterwards, read the composition back, edit it, and send the whole thing:
 
 ```bash
-wp post meta get 42 _pp_composition   # the resendable bytes, `udc` included; `inspect` has neither
+wp post meta get 42 _pp_composition_version   # READ THE VERSION FIRST (this is the 3 below)
+wp post meta get 42 _pp_composition           # then the bytes, `udc` included; `inspect` has neither
 wp pp action execute update_composition --run-id=<uuid> --params='{
   "post_id": 42,
   "expected_version": 3,

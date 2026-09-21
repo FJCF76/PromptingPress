@@ -68,7 +68,7 @@ refusal costs you the whole page, not just the image. Import first and use the i
 returns:
 
 ```bash
-wp pp action execute import_media --run-id=<uuid> --params='{"url":"https://example.com/product.png","alt":"The editor with a composition open"}'
+wp pp apply execute import_media --run-id=<uuid> --params='{"url":"https://example.com/product.png","alt":"The editor with a composition open"}'
 # → returns an attachment_id; pass it as "image_id": <id> on the band
 ```
 
@@ -272,9 +272,12 @@ See `ai-instructions/validate-site.md`.
 - **Change content:** `update_component` (patch semantics — only the props you pass change)
 - **Change appearance:** edit the band's `udc` map and send the whole array back with
   `update_composition`. `update_component` declares no `udc` parameter, so this is
-  necessarily a read-modify-write: read with `wp post meta get <id> _pp_composition` (the only
-  surface that returns the `udc` maps — `inspect-composition` carries none), edit the
-  one band, write it all back. See `ai-instructions/playbook-revise-section.md`
+  necessarily a read-modify-write: read the VERSION first
+  (`wp post meta get <id> _pp_composition_version`), then the bytes
+  (`wp post meta get <id> _pp_composition` — the only surface that returns the `udc` maps;
+  `inspect-composition` carries none), edit the one band, and write it back immediately. Order
+  and promptness both matter: see the `expected_version` note in
+  `ai-instructions/style-component.md`, and `ai-instructions/playbook-revise-section.md`
 - **Add a band:** `add_component`
 - **Retheme the whole site:** `update_design_token` — overrides are stored in the database
   and survive theme updates. Do not edit `assets/css/base.css` for a site; that is

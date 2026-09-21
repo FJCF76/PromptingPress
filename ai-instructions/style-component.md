@@ -71,7 +71,8 @@ and `update_component` additionally requires `props`.
 So a styling edit is a read-modify-write of the composition:
 
 ```bash
-wp post meta get 42 _pp_composition          # the resendable bytes, `udc` maps included
+wp post meta get 42 _pp_composition_version  # READ THE VERSION FIRST — see below
+wp post meta get 42 _pp_composition          # then the resendable bytes, `udc` maps included
 wp pp action execute update_composition --run-id=<uuid> --params='{ ... }'
 ```
 
@@ -82,11 +83,25 @@ targets for patching and carries **no `udc` at all** (measured: zero occurrences
 Neither gives you the map you are about to edit. Reading the meta is safe — it is WRITING it
 that skips validation, minting, versioning and history.
 
-**On `expected_version`:** read it the same way, from its own meta key —
-`wp post meta get 42 _pp_composition_version`. Pass it as `expected_version` and a concurrent
-edit becomes a refusal instead of a lost update. (It also comes back on every write's envelope
-as `composition_version`, which is the second source if you already have it.) There is no
-reason to omit it.
+**On `expected_version`, with two caveats that matter more than the parameter does.**
+
+Read it from its own meta key — `wp post meta get 42 _pp_composition_version` — and read it
+**before** the composition, not after. Read the data first and the version second and you have
+built the race you were trying to close: a write landing between the two reads gives you stale
+bytes and a version that already covers them, so the check passes and the other edit is gone.
+(The version also comes back on every write's envelope as `composition_version`.)
+
+**And on the CLI today, passing it protects you less than it looks.** `wp pp action execute`
+runs its own freshness gate and then OVERWRITES whatever `expected_version` you sent with the
+baseline that gate computed, so a deliberately stale value is accepted rather than refused —
+measured: a write carrying `expected_version: 1` against a composition at version 2 returned
+`ok: true`. The engine's compare-and-swap is sound and the chat and dashboard surfaces honour
+it; it is the CLI wrapper that discards your value. Filed as its own issue.
+
+Until that lands, treat the CLI as last-write-wins and make the window small: read the version,
+read the composition, edit, and write **immediately**, in one unbroken sequence. Do not carry a
+composition you read earlier in the session. Pass `expected_version` anyway — it costs nothing,
+it is honoured on the other surfaces, and it will start being honoured here.
 
 ### Groups and parameters
 
@@ -290,7 +305,8 @@ background, then every text part's colour:
 meta all render INSIDE `.testimonials__item`, and the `card` role ships
 `background.fill: "@color-surface"` as its own DEFAULT — a near-white panel. Darken `_band`,
 re-ink the text, and skip `card`, and you get near-white ink on a near-white card: measured
-**1.01:1** for the quote and 1.50:1 for the meta, on a write that returns `findings: []`,
+**1.01:1** for the quote and 1.50:1 for the meta against THIS example's resolved card fill
+(#f4f7fb), on a write that returns `findings: []`,
 because the engine warns about a value that cannot take effect and not about a role default
 that survives a change you made to a different role.
 

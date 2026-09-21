@@ -38,10 +38,13 @@ Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_fil
 
 **A styling revision goes through `update_composition`, and that is not a violation of the rule above — it is the only route the engine offers.** Exactly two actions carry a `udc` map: `update_composition` and `create_page`. `update_component` declares `post_id`, `component_index`, `component_id`, `props`, `style` and `expected_version` — no `udc`; `add_component` and `style_component` likewise carry `style` and no `udc`. And `style` is not a substitute: it addresses style SLOTS, which only `grid` has, so on any of the nine v2 components those calls are refused with `no_style_slots`. That leaves the whole-composition write as the only way to restyle a v2 band. So a `udc` edit is necessarily a read-modify-write of the WHOLE composition:
 
-1. `wp post meta get <page_id> _pp_composition` to read the current array. **Read the meta here,
-   not `inspect-composition`** — that report returns per-field patch targets and carries no `udc`
-   at all, so it cannot give you the map you are about to edit. Reading the meta is safe; writing
-   it is what skips validation, band-id minting, versioning and history
+1. `wp post meta get <page_id> _pp_composition_version`, then
+   `wp post meta get <page_id> _pp_composition`. **Read the meta here, not
+   `inspect-composition`** — that report returns per-field patch targets and carries no `udc` at
+   all, so it cannot give you the map you are about to edit. Reading the meta is safe; writing it
+   is what skips validation, band-id minting, versioning and history. **Version first, then the
+   bytes** — the other order builds the race it is meant to close, and read the `expected_version`
+   note in `style-component.md` before relying on the check to save you
 2. edit the target band's `udc` map in place, leaving every other band's bytes untouched
 3. send the whole array back with `update_composition`
 
@@ -83,9 +86,14 @@ Report:
 - **Wrong section modified**: Agent targets the wrong component index
 - **Regression in adjacent section**: Rewriting composition clobbers unrelated sections
 - **Revision too broad**: Agent rewrites the entire page instead of the target section
-- **Styling attempted through the wrong action**: Agent sends `theme`, a `style` map, or a
-  `udc` key to `update_component` and gets `retired_prop` / `unknown_prop` / `no_style_slots`,
-  then concludes the band cannot be styled. It can — through `update_composition`
+- **Styling attempted through the wrong action, and NOT told so.** A `theme` prop or a `style`
+  map sent to `update_component` is refused by name (`retired_prop` / `no_style_slots`). A
+  **`udc` key is not**: it is an undeclared parameter, so the validator never examines it — the
+  call returns `ok: true` with `findings: []`, the props land, and the styling is dropped with
+  no code and no trace. An agent that reads an empty `findings` array as confirmation (which
+  every other page here tells it to do) has no signal its styling never happened. Send `udc`
+  through `update_composition`, and after any styling write re-read the composition and confirm
+  the map is actually there
 - **Stale-array clobber**: Agent reuses a composition it read earlier in the session for the
   read-modify-write, discarding a change made in between
 - **Mobile breakage**: Desktop-focused revision breaks the mobile layout
