@@ -65,11 +65,10 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     foreach ($composition as $index => $item) {
         $name  = isset($item['component']) ? (string) $item['component'] : '';
         $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
-        $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
-
-        if ($style) {
-            $props['__pp_style'] = $style;
-        }
+        // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
+        // MEASURED DEAD before deleting: `__pp_style` has zero READ sites in the tree, so
+        // this wrote a key nothing consumed. See the identical note in the three band
+        // loops (templates/composition.php, templates/front-page.php, lib/admin.php).
 
         if ($name === '') {
             $errors[] = [

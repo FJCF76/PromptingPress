@@ -4879,24 +4879,6 @@ class ActionsTest extends TestCase
     }
 
 
-    public function testNameLongerThanTheErrorBudgetDegradesWithoutReflectingIt(): void
-    {
-        // The two bounds interact: raw_error is cut to its own budget first, which
-        // takes the closing quote off a name longer than that budget, so the slot
-        // name can no longer be extracted for user_message. The message degrades to
-        // its generic form. That is the safe direction — the alternative is echoing
-        // a multi-kilobyte name back — so pin it rather than leave it incidental.
-        $long   = '--hero-' . str_repeat('x', PP_REFLECTED_ERROR_MAX);
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
-            []
-        );
-
-        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
-        $this->assertStringContainsString('the style slot', $result['user_message']);
-        $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($result['raw_error']));
-    }
-
     public function testReflectedTextDropsTheWiderInvisibleCharacterSet(): void
     {
         // The categories, not a hand-listed subset: U+061C sits with the other
@@ -4909,27 +4891,6 @@ class ActionsTest extends TestCase
                 sprintf('U+%04X must be dropped.', mb_ord($ch))
             );
         }
-    }
-
-    public function testReflectedNameLengthIsBounded(): void
-    {
-        // user_message quotes back the name the validator rejected, which the
-        // validator took from the caller. This is the surface where the name budget
-        // does real work: the value bound (below) leaves room for a name this long,
-        // and nothing else shortens it.
-        $post_id = pp_create_page('Long name');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $long   = '--hero-' . str_repeat('x', 2000);
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => [$long => '2rem']]
-        );
-
-        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
-        $this->assertLessThan(600, mb_strlen($result['user_message']));
     }
 
 

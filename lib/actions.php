@@ -7676,53 +7676,6 @@ function _pp_invalid_style_slot_error(
     );
 }
 
-/**
- * Reads the context stamped by _pp_invalid_style_slot_error(), or null (#626).
- *
- * Null means "no authoritative answer in hand" — a rejection built by hand, or by a
- * producer of this error code that stamps nothing (the shared engine
- * _pp_validate_style_slot_map() in lib/admin.php, whose rejections travel through
- * composition validation rather than through the chat's style_component branch).
- * Consumers fall back to whatever they can derive themselves, which is best-effort
- * by definition: it describes the world as it reads NOW, not the world the rejection
- * was made in.
- *
- * Every field is checked for presence AND usable type, and the two that can render
- * as a claim about the component are also checked for emptiness. A payload that is
- * present but hollow is worse than an absent one: an empty `available_slots` would
- * render as "It has no style settings" on a component declaring dozens, and a
- * candidate list carrying a non-key value would fatal in the consumer's array
- * lookups rather than degrade. Both route to the fallback instead.
- *
- * @param  WP_Error   $error
- * @return array|null  ['component_name' => string, 'available_slots' => array,
- *                     'candidate_slots' => array], or null.
- */
-function pp_rejected_slot_context(WP_Error $error): ?array {
-    $data = $error->get_error_data();
-
-    if (!is_array($data)
-        || !isset($data['component_name']) || !is_string($data['component_name']) || $data['component_name'] === ''
-        || !isset($data['available_slots']) || !is_array($data['available_slots']) || $data['available_slots'] === []
-        || !isset($data['candidate_slots']) || !is_array($data['candidate_slots'])
-    ) {
-        return null;
-    }
-
-    // Array keys are int|string and nothing else, so a candidate list that holds
-    // anything else did not come from array_keys() and is not a slot list.
-    foreach ($data['candidate_slots'] as $candidate) {
-        if (!is_string($candidate) && !is_int($candidate)) {
-            return null;
-        }
-    }
-
-    return [
-        'component_name'  => $data['component_name'],
-        'available_slots' => $data['available_slots'],
-        'candidate_slots' => $data['candidate_slots'],
-    ];
-}
 
 /**
  * Computes a style-level diff for the changes array.

@@ -842,34 +842,6 @@ class WriteRejectionLocatorTest extends TestCase
 
     // ── 3b. The renderers themselves ──────────────────────────────────────────
 
-    /**
-     * Re-rendering a message means building a new WP_Error, and a new WP_Error is where
-     * producer-stamped context goes to die. The #626 rejected-slot payload is the live
-     * example: it rides in the same data array as the offset, and a rendering step that
-     * re-stamped `['index' => N]` would silently drop it.
-     */
-    public function testTheBandRendererCarriesProducerStampedDataForward(): void
-    {
-        $error = new WP_Error(
-            'invalid_style_slot',
-            'Component "hero" has no style slot "--nope". Available: --hero-bg',
-            [
-                'index'           => 1,
-                'component_name'  => 'hero',
-                'available_slots' => ['--hero-bg' => ['type' => 'color']],
-                'candidate_slots' => ['--nope'],
-            ]
-        );
-
-        $rendered = _pp_band_named_composition_error($error, [
-            ['component' => 'logos'],
-            ['component' => 'hero'],
-        ]);
-
-        $this->assertStringStartsWith('Component 1 ("hero")', $rendered->get_error_message());
-        $this->assertSame(1, pp_composition_error_index($rendered));
-        $this->assertNotNull(pp_rejected_slot_context($rendered), 'the sibling context must survive re-rendering');
-    }
 
     public function testDroppingTheOffsetKeepsEverythingElse(): void
     {

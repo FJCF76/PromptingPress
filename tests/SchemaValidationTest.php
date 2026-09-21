@@ -2997,32 +2997,13 @@ class SchemaValidationTest extends TestCase
             );
         }
 
-        // Every branded band drives its look through VALIDATED per-component
-        // style slots (top-level `style` key), never homepage-only shared CSS
-        // (#72) — so at least the hero and closing CTA carry a style map, and
-        // every style map validates through the shared render engine (a value
-        // the engine would reject renders nothing, silently weakening the page).
-        foreach ($composition as $item) {
-            $style = $item['style'] ?? [];
-            if ($style === []) {
-                continue;
-            }
-            $rendered = pp_render_style_vars($style, $item['component']);
-            $declared = array_filter(
-                array_keys($style),
-                static fn ($k) => $k !== '__recipe'
-            );
-            $rendered_count = $rendered === '' ? 0 : count(explode('; ', $rendered));
-            $this->assertSame(
-                count($declared),
-                $rendered_count,
-                sprintf(
-                    'Every style slot on the "%s" starter band must survive the render '
-                    . 'boundary; a dropped value silently weakens the seeded page.',
-                    $item['component']
-                )
-            );
-        }
+        // A STYLE-SLOT SURVIVAL LOOP STOOD HERE AND WENT AT #1101. It walked each
+        // branded band's `style` map through the render boundary, asserting that every
+        // declared slot survived it. The seed carries no `style` map on any band, so the
+        // loop had already stopped running before it was deleted — the claim it stood for
+        // (the seeded page must not ship a v1 style map at all) is asserted directly in
+        // tests/AgedBandStoredStyleMapTest.php, with the anti-vacuity floor this loop
+        // never had.
     }
 
     public function testNormalizeCompositionStripsEmptyStyle(): void
