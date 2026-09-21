@@ -618,6 +618,44 @@ class DocumentedUdcSnippetsTest extends TestCase
         // almost nothing else.
         preg_match_all('/`((?:"udc":\s*)?\{.*?\})`/s', $prompt, $m, PREG_SET_ORDER);
 
+        // A THIRD SHAPE: BARE, UNFENCED CHROME MAPS. The prompt is assembled from more than
+        // its own prose — action descriptions in lib/actions.php are embedded verbatim, and
+        // one of them carries a chrome example written without backticks. It was therefore
+        // invisible here while being fully visible to the model, and it shipped the exact
+        // defect this class exists to catch: no `submenu` (dropdown links at 1.01:1) and
+        // `@color-accent` on three roles over a dark header (3.21:1, which the prompt's own
+        // neighbouring prose names as under AA). A guard that reads a subset of what the
+        // model reads certifies the subset.
+        //
+        // Anchored on the two chrome component names rather than on a brace, because a bare
+        // `{` in prose is not a JSON boundary and this must not start guessing. BRACE-BALANCED
+        // rather than regex: a lazy `.*?` stops at the first `}` and truncates every one of
+        // these (measured: four matches, none of them valid JSON, all silently skipped —
+        // which is how the first attempt at this check passed while catching nothing).
+        foreach (['{"nav":', '{"footer":'] as $needle) {
+            $from = 0;
+            while (($at = strpos($prompt, $needle, $from)) !== false) {
+                $depth = 0;
+                $end   = null;
+                for ($i = $at, $n = strlen($prompt); $i < $n; $i++) {
+                    if ($prompt[$i] === '{') {
+                        $depth++;
+                    } elseif ($prompt[$i] === '}') {
+                        $depth--;
+                        if ($depth === 0) {
+                            $end = $i;
+                            break;
+                        }
+                    }
+                }
+                if ($end === null) {
+                    break;
+                }
+                $m[]  = [null, substr($prompt, $at, $end - $at + 1)];
+                $from = $end + 1;
+            }
+        }
+
         $out = [];
         foreach ($m as $hit) {
             $raw     = preg_replace('/^"udc":\s*/', '', $hit[1]) ?? $hit[1];

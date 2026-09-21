@@ -428,6 +428,7 @@ class DocsCoverageTest extends TestCase
         // characters on a single line each, so the line bound plus 800 characters is generous
         // for the roster and far short of the next paragraph. Two guards in one PR should not
         // disagree about what a checkable roster is.
+        $componentCount = count(array_unique(array_column($keys, 0)));
         $sites = [
             [
                 'ai-instructions/add-component.md',
@@ -436,9 +437,13 @@ class DocsCoverageTest extends TestCase
             ],
             [
                 'ai-instructions/validate-site.md',
-                // Derived, like its two siblings. A hardcoded literal here fails on a correct
-                // update and passes on a stale one — the failure direction inverted.
-                "{$words[$total]} keys across",
+                // Derived, like its two siblings — a hardcoded literal fails on a correct
+                // update and passes on a stale one. AND IT KEEPS THE COMPONENT COUNT: the
+                // first cut at deriving this dropped the word "components" and with it the
+                // only assertion in the repo that the component count is right, so
+                // "nineteen keys across twelve components" passed. $componentCount was
+                // already computed for a failure message and never asserted.
+                "{$words[$total]} keys across {$words[$componentCount]} components",
                 '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, ([^\n]{0,800}?) `table` is v2/',
             ],
             [
@@ -448,7 +453,6 @@ class DocsCoverageTest extends TestCase
             ],
         ];
 
-        $componentCount = count(array_unique(array_column($keys, 0)));
         foreach ($sites as [$relative, $countPhrase, $rosterPattern]) {
             $doc = $this->doc($relative);
             $this->assertStringContainsString(
@@ -495,7 +499,15 @@ class DocsCoverageTest extends TestCase
                 if (isset($segments[$parts[$i]])) {
                     continue;
                 }
-                $segments[$parts[$i]] = preg_replace('/\([^)]*\)/', '', $parts[$i + 1] ?? '') ?? '';
+                // STRIP A PARENTHETICAL ONLY WHEN SOMETHING SURVIVES IT. An aside like
+                // "stats' `theme` (its `background_image` moved to `_band`)" must not certify
+                // a pair the roster does not claim — but a roster that lists its props INSIDE
+                // parentheses ("hero's retired keys (`spacing`, `width`)") is ordinary prose
+                // and stripping it wholesale fails a correct doc. Strip only if a backticked
+                // prop remains outside.
+                $segment = $parts[$i + 1] ?? '';
+                $outside = preg_replace('/\([^)]*\)/', '', $segment) ?? '';
+                $segments[$parts[$i]] = str_contains($outside, '`') ? $outside : $segment;
             }
 
             foreach ($keys as [$component, $prop]) {
