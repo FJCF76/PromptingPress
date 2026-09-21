@@ -196,7 +196,97 @@ function pp_prop_definition_keys(): array {
 }
 
 /**
+ * The keys a component `schema.json` may declare on a ROLE definition object (#1087).
+ *
+ * The third definition surface, closed for the same reason as its two siblings above —
+ * and it is the one that shipped UNGUARDED. Slot and prop definitions have been a closed
+ * set since #575; role definitions were added by the v2 rebuilds with no key check at all,
+ * so a typo'd key was accepted by every surface and ignored forever. That is the
+ * accepted-stored-ignored class: a declaration the system records and never acts on,
+ * reporting nothing — the same shape #1048 names one layer down (a `udc` value stored on a
+ * role whose selector the emitter skips) and the shape T8's review found in the Layer-2
+ * exclusion set. A guard here is the cheap half of it.
+ *
+ * All 125 shipped roles declare exactly `selector`, `description`, `groups` and
+ * `defaults`, uniformly — verified across every schema before this list was written, so
+ * closing the set rejects nothing that exists.
+ *
+ * `obligations` is the new one and the reason this function exists now. See
+ * pp_udc_obligation_kinds() for what it carries and why it is DECLARED rather than
+ * inferred from selectors.
+ *
+ * @return string[]
+ */
+function pp_role_definition_keys(): array {
+    return [
+        'selector',      // required — the CSS selector the role's values emit at
+        'description',   // required — MAINTAINER-facing prose; reaches `wp pp schema`, NEVER the prompt
+        'groups',        // required — the UDC groups this role permits
+        'defaults',      // the role's own default values, per group
+        'obligations',   // #1087 — MODEL-facing pairing/contrast obligations, bounded
+    ];
+}
+
+/**
+ * The bounded value set for a role obligation's `kind` (#1087).
+ *
+ * WHAT AN OBLIGATION IS. A fact about this role that an author MUST act on when they
+ * write to it or to its partner, and that no other channel can tell them. Two shapes
+ * ship today, both measured:
+ *
+ *   outranked_by_default  ANOTHER role's DEFAULT beats a value authored here, because
+ *                         that role's selector is a superset of this one's — same
+ *                         element, heavier selector. faq's `question` / `question-open`
+ *                         is the shipped instance, measured at 3.21:1 (#1059).
+ *   reached_only_by_inheritance
+ *                         Another role selects a DESCENDANT of this one, so a value
+ *                         authored here reaches it only by inheritance and loses to the
+ *                         stylesheet's direct rule. The six `*-link` roles inside
+ *                         author-written rich text are the shipped instances (#1069).
+ *
+ * WHY DECLARED AND NOT INFERRED, stated here because the honest answer is asymmetric and
+ * the code must not pretend otherwise. `reached_only_by_inheritance` IS derivable from
+ * the selectors — a descendant combinator is a string fact, and the derivation reproduces
+ * the six-role roster exactly, which is why _pp_udc_derived_descendant_pairs() exists as a
+ * one-directional NET over these declarations. `outranked_by_default` is NOT: a sound
+ * string predicate catches faq's `item` / `question-open` and MISSES `question` /
+ * `question-open` and nav's `link` / `link-current`, while a loose one false-positives on
+ * `.faq__heading` against `.faq__heading-accent`, which select different elements. Real
+ * superset reasoning needs a selector engine this theme does not have and does not need.
+ * So: the DECLARATION is the complete source of truth, the derived check is a net that can
+ * only catch the shape it understands, and the net never claims completeness.
+ *
+ * @return string[]
+ */
+function pp_udc_obligation_kinds(): array {
+    return ['outranked_by_default', 'reached_only_by_inheritance'];
+}
+
+/**
+ * Maximum length of an obligation's `why` string (#1087).
+ *
+ * SMALLER THAN PP_CONDITIONALITY_NOTE_MAX ON PURPOSE, and the reason is the budget rather
+ * than taste. A `conditionality_note` is read by one agent looking at one slot; a `why`
+ * is MODEL-FACING — it is composed into the runtime system prompt, which carries no
+ * caching and is re-sent on every conversation turn. At ~25 declarations the difference
+ * between 240 and 400 characters is ~4 KB of every turn, against a 92,000-byte ceiling
+ * (PP_AI_PROMPT_BUDGET) that this gate's own rewrite has to land underneath.
+ *
+ * THE DIVISION OF LABOUR, because a role now has two prose fields and writing the wrong
+ * thing in either is the drift this gate exists to end: `why` says what the author must
+ * DO and fits one or two sentences; the role `description` carries the rationale, the
+ * ruling references and the history, and never reaches the prompt at all.
+ */
+const PP_OBLIGATION_WHY_MAX = 240;
+
+/**
  * The bounded value set for the slot definition's `role` marker (issue #575).
+ *
+ * NOT TO BE CONFUSED WITH A ROLE DEFINITION. `role` here is a KEY on a style-slot
+ * definition, whose values are the two markers below. A "role" in the v2 sense is a named
+ * part of a component, validated by pp_role_definition_keys() above. The two meanings
+ * collide in one word and in one file; the `$kind === 'slot'` guard on the `role` check in
+ * pp_schema_definition_errors() is what keeps them apart.
  *
  * `fill` marks a colour slot as a component's BUTTON/SURFACE FILL, so the warning
  * engine can tell a fill slot from any other colour slot. It is a DECLARED key, not
@@ -527,13 +617,15 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
  *     schema.json
  *        │
  *        ├── styling.style_slots.<name>  ──┐
- *        │                                 ├──►  pp_schema_definition_errors()
- *        └── props.<name>  ────────────────┘        │
- *                                                   ├─ closed key set (rejects unknown keys)
- *                                                   ├─ applies_when → pp_applies_when_clause_errors()
- *                                                   ├─ conditionality_note → bounded string
- *                                                   ├─ values → bounded catalog strings (#630)
- *                                                   └─ role → pp_slot_roles()      (slots only)
+ *        │                                 │
+ *        ├── props.<name>  ────────────────┼──►  pp_schema_definition_errors()
+ *        │                                 │         │
+ *        └── roles.<name>  ────────────────┘         ├─ closed key set (rejects unknown keys)
+ *            (#1087)                                 ├─ applies_when → pp_applies_when_clause_errors()
+ *                                                    ├─ conditionality_note → bounded string
+ *                                                    ├─ values → bounded catalog strings (#630)
+ *                                                    ├─ role → pp_slot_roles()       (slots only)
+ *                                                    └─ obligations → bounded records  (roles only)
  *
  * The `aliases` leg that hung off the prop surface is GONE (#606). It declared legacy
  * VALUES accepted at write and never advertised; with every entry retired (#603/#604/
@@ -551,13 +643,27 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
  * widening this list, so `patchable` stays unknown by omission, not by removal.
  *
  * @param  array  $definition  The decoded definition object.
- * @param  string $kind        'slot' or 'prop'.
+ * @param  string $kind        'slot', 'prop' or 'role' (#1087).
  * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.
  * @return string[]            Human-readable errors; empty when the definition is valid.
  */
 function pp_schema_definition_errors(array $definition, string $kind, string $label): array {
-    $errors  = [];
-    $allowed = $kind === 'slot' ? pp_slot_definition_keys() : pp_prop_definition_keys();
+    $errors = [];
+
+    // An explicit dispatch, not a ternary. The two-surface ternary this replaces read
+    // `$kind === 'slot' ? slot : prop`, so a THIRD kind would have silently been validated
+    // against the prop key set — accepting `type`, `items` and `min` on a role definition
+    // and rejecting `selector`. A mistyped kind now has no key set rather than the wrong
+    // one, and says so.
+    $allowed = match ($kind) {
+        'slot' => pp_slot_definition_keys(),
+        'prop' => pp_prop_definition_keys(),
+        'role' => pp_role_definition_keys(),
+        default => null,
+    };
+    if ($allowed === null) {
+        return ["{$label}: unknown definition kind `{$kind}` (expected slot, prop or role)."];
+    }
 
     foreach (array_keys($definition) as $key) {
         if (!in_array($key, $allowed, true)) {
@@ -663,6 +769,113 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                 $label,
                 implode(', ', pp_slot_roles())
             );
+        }
+    }
+
+    // ROLE OBLIGATIONS (#1087) — bounded records, not prose.
+    //
+    // Triggered by PRESENCE and gated to `role`, matching how `role` is gated to `slot`
+    // just above: the key is unknown on the other two surfaces, so the closed set already
+    // rejects it there, and validating it anyway would report a second error for the same
+    // mistake.
+    //
+    // REQUIREDNESS IS NOT CHECKED HERE. It is asserted in the schema walk, beside the
+    // existing `assertArrayHasKey('type', …)` checks for slots (SchemaValidationTest), which
+    // is where every other definition-surface required key is enforced. One pattern, not two.
+    // That walk is also the only place a cross-role check is POSSIBLE: this function sees one
+    // definition and cannot know whether `with` names a role its component declares.
+    //
+    // Each violation KIND reports once, and a malformed container skips the member loop, so
+    // an `obligations: "none"` never iterates a string. Same posture as `values` above.
+    if ($kind === 'role' && array_key_exists('obligations', $definition)) {
+        $obligations = $definition['obligations'];
+        if (!is_array($obligations) || !pp_is_list($obligations)) {
+            $errors[] = "{$label}: `obligations` must be a LIST (use `[]` for a role that carries none).";
+        } else {
+            $seen        = [];
+            $bad_shape   = false;
+            $bad_kind    = false;
+            $bad_with    = false;
+            $bad_why     = false;
+            $long_why    = false;
+            $multiline   = false;
+            $duplicated  = false;
+            foreach ($obligations as $entry) {
+                if (!is_array($entry) || pp_is_list($entry)) {
+                    $bad_shape = true;
+                    continue;
+                }
+                foreach (array_keys($entry) as $key) {
+                    if (!in_array($key, ['kind', 'with', 'why'], true)) {
+                        $errors[] = "{$label}: unknown obligation key `{$key}` (expected kind, with, why).";
+                    }
+                }
+                $entry_kind = $entry['kind'] ?? null;
+                $entry_with = $entry['with'] ?? null;
+                $entry_why  = $entry['why']  ?? null;
+
+                if (!is_string($entry_kind) || !in_array($entry_kind, pp_udc_obligation_kinds(), true)) {
+                    $bad_kind = true;
+                }
+                // `with` names a SIBLING ROLE. Single-line for the same reason `why` is:
+                // both are composed into a line-oriented prompt catalog.
+                if (!is_string($entry_with) || trim($entry_with) === '' || preg_match('/[\r\n\t]/', $entry_with)) {
+                    $bad_with = true;
+                }
+                if (!is_string($entry_why) || trim($entry_why) === '') {
+                    $bad_why = true;
+                } else {
+                    // Characters, not bytes — the message says characters, and the field is
+                    // prose. PP_CONDITIONALITY_NOTE_MAX's own comment records why.
+                    if (mb_strlen($entry_why) > PP_OBLIGATION_WHY_MAX) {
+                        $long_why = true;
+                    }
+                    if (preg_match('/[\r\n\t]/', $entry_why)) {
+                        $multiline = true;
+                    }
+                }
+                // DUPLICATE DETECTION on the (kind, with) pair. Two records for the same
+                // partner and the same shape are one obligation stated twice: the prompt
+                // would compose the roster with a repeated member, which reads to a model as
+                // two separate facts about the same pair.
+                if (is_string($entry_kind) && is_string($entry_with)) {
+                    $fingerprint = $entry_kind . "\0" . $entry_with;
+                    if (isset($seen[$fingerprint])) {
+                        $duplicated = true;
+                    }
+                    $seen[$fingerprint] = true;
+                }
+            }
+            if ($bad_shape) {
+                $errors[] = "{$label}: every `obligations` member must be an OBJECT with kind, with and why.";
+            }
+            if ($bad_kind) {
+                $errors[] = sprintf(
+                    '%s: an obligation `kind` must be one of: %s.',
+                    $label,
+                    implode(', ', pp_udc_obligation_kinds())
+                );
+            }
+            if ($bad_with) {
+                $errors[] = "{$label}: an obligation `with` must be a non-empty single-line role name.";
+            }
+            if ($bad_why) {
+                $errors[] = "{$label}: an obligation `why` must be a non-empty string.";
+            }
+            if ($long_why) {
+                $errors[] = sprintf(
+                    '%s: an obligation `why` is bounded prose and exceeds the %d-character limit — '
+                    . 'it reaches the runtime prompt on every turn; put the rationale in `description`.',
+                    $label,
+                    PP_OBLIGATION_WHY_MAX
+                );
+            }
+            if ($multiline) {
+                $errors[] = "{$label}: an obligation `why` must be a single line (no newlines or tabs).";
+            }
+            if ($duplicated) {
+                $errors[] = "{$label}: two `obligations` entries share the same `kind` and `with`.";
+            }
         }
     }
 

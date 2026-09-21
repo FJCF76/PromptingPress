@@ -6198,7 +6198,8 @@ class SchemaValidationTest extends TestCase
      */
     public function testEveryShippedDefinitionObjectConformsToTheClosedContract(): void
     {
-        $errors = [];
+        $errors    = [];
+        $roleCount = 0;
         foreach ($this->allSchemas() as $component => $schema) {
             foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
                 $errors = array_merge($errors, \pp_schema_definition_errors($def, 'slot', "{$component} {$name}"));
@@ -6220,8 +6221,145 @@ class SchemaValidationTest extends TestCase
                     );
                 }
             }
+            // THE THIRD SURFACE (#1087). Role definitions arrived with the v2 rebuilds and
+            // were never walked here, so a typo'd role key was accepted by every surface
+            // and ignored forever — the accepted-stored-ignored class. Walking them is what
+            // makes `obligations` a contract rather than a convention.
+            foreach (($schema['roles'] ?? []) as $name => $def) {
+                if (!is_array($def)) {
+                    $errors[] = "{$component} role {$name}: not an object.";
+                    continue;
+                }
+                $roleCount++;
+                $errors = array_merge($errors, \pp_schema_definition_errors($def, 'role', "{$component} role {$name}"));
+            }
         }
         $this->assertSame([], $errors, "definition-surface violations:\n" . implode("\n", $errors));
+
+        // FAIL-CLOSED ON THE ROLE WALK. The slot and prop walks predate this method and are
+        // covered by the sibling assertions elsewhere in this file; the role walk is new and
+        // reads `$schema['roles']`, a key eleven of twelve schemas carry. A renamed or moved
+        // block would make this loop iterate nothing and the assertSame([]) above would still
+        // pass — a guard asserting on an empty set, which is the failure this repo has
+        // recorded more than once. 125 today; the floor sits just under it.
+        $this->assertGreaterThan(
+            110,
+            $roleCount,
+            'the role walk stopped finding role definitions; it is passing on a fraction of the surface'
+        );
+    }
+
+    /**
+     * The closed ROLE key set rejects what it does not declare (#1087).
+     *
+     * Paired with the accept case above: that one proves the shipped schemas conform, this
+     * one proves conformance means something. Without it, a key set that accepted everything
+     * would pass the walk.
+     */
+    public function testUnknownRoleDefinitionKeyIsRejected(): void
+    {
+        $role = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $this->assertSame([], \pp_schema_definition_errors($role, 'role', 'test role x'));
+
+        // `type` is the plausible wrong key: it is legal on both sibling surfaces, so a
+        // role validated against the PROP set (the ternary this replaced) would accept it.
+        $errors = \pp_schema_definition_errors($role + ['type' => 'color'], 'role', 'test role x');
+        $this->assertNotEmpty($errors, 'a slot/prop key must not be legal on a role');
+        $this->assertStringContainsString('unknown role definition key `type`', $errors[0]);
+
+        // And the mirror: a role key is not legal on a slot.
+        $slotErrors = \pp_schema_definition_errors(
+            ['type' => 'color', 'default' => '#fff', 'description' => 'd', 'obligations' => []],
+            'slot',
+            'test --x'
+        );
+        $this->assertNotEmpty($slotErrors, '`obligations` is a role key, not a slot key');
+        $this->assertStringContainsString('unknown slot definition key `obligations`', $slotErrors[0]);
+    }
+
+    /**
+     * An unrecognised definition KIND reports itself instead of borrowing a key set (#1087).
+     *
+     * The dispatch this pins replaced `$kind === 'slot' ? slot : prop`, under which every
+     * value that was not 'slot' silently got the PROP key set — so 'role' would have
+     * accepted `type`/`items`/`min` and rejected `selector`. A wrong kind must have NO key
+     * set, not the wrong one.
+     */
+    public function testAnUnknownDefinitionKindIsReportedRatherThanDefaulted(): void
+    {
+        $errors = \pp_schema_definition_errors(['selector' => '.a'], 'widget', 'test w');
+        $this->assertNotEmpty($errors);
+        $this->assertStringContainsString('unknown definition kind `widget`', $errors[0]);
+    }
+
+    /**
+     * Every shape rule on a role `obligations` list (#1087).
+     *
+     * The field is MODEL-FACING — it is composed into the runtime system prompt — so its
+     * bounds are the prompt's bounds: single-line because that catalog is line-oriented and
+     * an embedded newline forges a line, and character-capped because the prompt carries no
+     * caching and is re-sent on every conversation turn.
+     *
+     * @dataProvider obligationShapeProvider
+     */
+    public function testObligationShapeRules(array $obligations, ?string $expected, string $why): void
+    {
+        $role = [
+            'selector'    => '.a',
+            'description' => 'd',
+            'groups'      => ['typography'],
+            'defaults'    => [],
+            'obligations' => $obligations,
+        ];
+        $errors = \pp_schema_definition_errors($role, 'role', 'test role x');
+        if ($expected === null) {
+            $this->assertSame([], $errors, $why);
+            return;
+        }
+        $this->assertNotEmpty($errors, $why);
+        $this->assertStringContainsString($expected, implode(' | ', $errors), $why);
+    }
+
+    public static function obligationShapeProvider(): array
+    {
+        $ok = ['kind' => 'outranked_by_default', 'with' => 'question-open', 'why' => 'Set both or the open row reverts.'];
+        return [
+            'empty list is the no-obligations answer' => [[], null, '`[]` must be accepted — it is how a role says it carries none'],
+            'one valid record'        => [[$ok], null, 'the shipped shape must be accepted'],
+            'both kinds on one partner' => [
+                [$ok, ['kind' => 'reached_only_by_inheritance', 'with' => 'question-open', 'why' => 'Also a descendant.']],
+                null,
+                'the same partner may carry two DIFFERENT obligation kinds',
+            ],
+            'a scalar is not a list'  => [['none'], 'must be an OBJECT', 'a bare string member is not a record'],
+            'a member list'           => [[['outranked_by_default', 'x', 'y']], 'must be an OBJECT', 'a positional list is not a record'],
+            'an empty member'         => [[[]], 'must be an OBJECT', 'an empty record declares nothing'],
+            'unknown member key'      => [[$ok + ['severity' => 'high']], 'unknown obligation key `severity`', 'the record is a closed set too'],
+            'unknown kind'            => [[['kind' => 'pairs_with', 'with' => 'x', 'why' => 'y']], 'must be one of', 'kind is bounded'],
+            'blank with'              => [[['kind' => 'outranked_by_default', 'with' => '  ', 'why' => 'y']], 'non-empty single-line role name', 'with names a sibling role'],
+            'newline in with'         => [[['kind' => 'outranked_by_default', 'with' => "a\nb", 'why' => 'y']], 'non-empty single-line role name', 'a newline forges a catalog line'],
+            'blank why'               => [[['kind' => 'outranked_by_default', 'with' => 'x', 'why' => '']], '`why` must be a non-empty string', 'an obligation with no instruction is not one'],
+            'why at the cap'          => [[['kind' => 'outranked_by_default', 'with' => 'x', 'why' => str_repeat('a', PP_OBLIGATION_WHY_MAX)]], null, 'the cap is inclusive'],
+            'why over the cap'        => [[['kind' => 'outranked_by_default', 'with' => 'x', 'why' => str_repeat('a', PP_OBLIGATION_WHY_MAX + 1)]], 'exceeds the ' . PP_OBLIGATION_WHY_MAX . '-character limit', 'one character over must fail'],
+            'why multibyte at the cap' => [[['kind' => 'outranked_by_default', 'with' => 'x', 'why' => str_repeat('é', PP_OBLIGATION_WHY_MAX)]], null, 'the cap counts CHARACTERS, so accented prose is not cut at half the stated budget'],
+            'newline in why'          => [[['kind' => 'outranked_by_default', 'with' => 'x', 'why' => "a\nb"]], 'single line', 'a newline forges a catalog line'],
+            'duplicate kind+with'     => [
+                [$ok, ['kind' => 'outranked_by_default', 'with' => 'question-open', 'why' => 'Stated twice.']],
+                'share the same `kind` and `with`',
+                'one obligation stated twice reads to a model as two facts',
+            ],
+        ];
+    }
+
+    /** A non-list container is refused rather than iterated (#1087). */
+    public function testObligationsMustBeAListNotAKeyedObject(): void
+    {
+        $role = ['selector' => '.a', 'description' => 'd', 'groups' => [], 'defaults' => []];
+        foreach ([['obligations' => 'none'], ['obligations' => ['first' => ['kind' => 'outranked_by_default', 'with' => 'x', 'why' => 'y']]]] as $bad) {
+            $errors = \pp_schema_definition_errors($role + $bad, 'role', 'test role x');
+            $this->assertNotEmpty($errors);
+            $this->assertStringContainsString('must be a LIST', implode(' | ', $errors));
+        }
     }
 
     /** An unknown key on a definition object is REJECTED, not ignored. */
