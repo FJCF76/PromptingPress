@@ -470,14 +470,36 @@ class DocsCoverageTest extends TestCase
                 . 'against, so nothing states WHICH keys they are. Re-point the anchor in this '
                 . 'test if the sentence was deliberately reworded.'
             );
+            // EACH COMPONENT'S SEGMENT, not a character window. The first cut let the
+            // search run from a component's possessive to the next SEMICOLON, which two of
+            // the three rosters do not use as their separator — so the window crossed into a
+            // neighbour and would certify a MISSING pair as present (measured: `embed`'s
+            // window reached `stats`' `background_image`). Stopping at a comma instead broke
+            // the third roster, which comma-separates one component's OWN props.
+            //
+            // The real divider is the NEXT possessive. Splitting on it gives each component
+            // exactly its own entry, whichever punctuation the file uses inside it.
+            $possessive = "/([a-z]+)`?(?:'s|') /";
+            $segments   = [];
+            $parts      = preg_split($possessive, $roster[1], -1, PREG_SPLIT_DELIM_CAPTURE);
+            for ($i = 1; $i < count($parts); $i += 2) {
+                $segments[$parts[$i]] = ($segments[$parts[$i]] ?? '') . ' ' . ($parts[$i + 1] ?? '');
+            }
+
             foreach ($keys as [$component, $prop]) {
+                $this->assertArrayHasKey(
+                    $component,
+                    $segments,
+                    "{$relative}'s retired-prop roster never names {$component} at all. "
+                    . "The roster reads: {$roster[1]}"
+                );
                 $this->assertMatchesRegularExpression(
                     // Possessive either way: "hero's" and the plural "testimonials'" — and
                     // with or without the backtick the newer copies wrap the name in, so
                     // "`cta`'s `theme`" and "cta's `theme`" both satisfy it. Requiring one
                     // house style here would fail a roster that is correct.
-                    '/' . preg_quote($component, '/') . "`?(?:'s|') [^;]*?`" . preg_quote($prop, '/') . '`/',
-                    $roster[1],
+                    '/`' . preg_quote($prop, '/') . '`/',
+                    $segments[$component],
                     "{$relative}'s retired-prop roster never names {$component}'s "
                     . "`{$prop}`. The roster reads: {$roster[1]}"
                 );

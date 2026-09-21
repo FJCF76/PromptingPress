@@ -397,7 +397,7 @@ class DocumentedUdcSnippetsTest extends TestCase
                 $checked++;
             }
         }
-        $this->assertGreaterThan(20, $checked, 'the instruction-file walk stopped finding blocks');
+        $this->assertGreaterThan(54, $checked, 'the instruction-file walk stopped finding blocks'); // 57 today
     }
 
     /**
@@ -810,40 +810,56 @@ class DocumentedUdcSnippetsTest extends TestCase
     }
 
     /**
-     * The fill of the ANCESTOR role whose element contains this one, where one exists.
+     * The fill of the role that renders this one inside it, where one exists.
      *
-     * DECLARED, NOT INFERRED FROM SELECTORS, and the first cut proving why is the reason this
-     * is a map rather than a rule. Guessing containment from a shared BEM prefix treated
-     * cta's `button` as an ancestor of cta's `heading` — they are siblings — and measured the
-     * heading's ink against the button's fill at a bogus 2.11:1. Selector text cannot prove
-     * containment; only the markup can, so each pair below was read out of the component's
-     * own PHP and is listed with the children it actually wraps.
+     * DECLARED, NOT INFERRED FROM SELECTORS. Guessing containment from a shared BEM prefix
+     * treated cta's `button` as an ancestor of cta's `heading` — they are siblings — and
+     * measured the heading's ink against the button's fill at a bogus 2.11:1. Selector text
+     * cannot prove containment; only the markup can, so every entry below was read out of the
+     * component's own PHP.
      *
-     * Only roles that BOTH contain text roles AND ship a fill need an entry: a leaf that
-     * happens to declare a fill (an `eyebrow` pill, an outline button) contains nothing, and
-     * `_band` is already the fallback.
+     * KEYED BY THE CONTAINED ROLE, innermost container FIRST. table's `header` sits inside
+     * `head` which sits inside `table`, and all three declare a fill — so an outer-first walk
+     * answered with the wrong surface, certifying a dark table head at 16.13:1 while it
+     * rendered at 1.08:1. The surface a role sits on is the NEAREST one that has a fill.
+     *
+     * Only containers that BOTH wrap text roles AND carry a fill need listing: a leaf that
+     * happens to declare one (an `eyebrow` pill, an outline button) contains nothing, and
+     * `_band` is already the caller's fallback.
      */
-    private const CONTAINER_ROLES = [
-        // component => [container role => [roles rendered inside it]]
-        'testimonials' => ['card' => ['quote', 'author', 'meta']],
-        'section'      => ['panel' => ['panel-heading', 'panel-body', 'panel-row', 'panel-row-label', 'panel-row-value', 'panel-cta']],
-        'faq'          => ['item' => ['question', 'question-open', 'answer', 'answer-link']],
-        'table'        => ['table' => ['head', 'row', 'cell', 'cell-link', 'header'], 'head' => ['header']],
-        'nav'          => ['submenu' => ['link', 'link-current']],
+    private const ROLE_CONTAINERS = [
+        // component => [contained role => [containers, innermost first]]
+        'testimonials' => [
+            'quote' => ['card'], 'author' => ['card'], 'meta' => ['card'],
+            'attribution' => ['card'], 'avatar' => ['card'],
+        ],
+        'section' => [
+            'panel-heading' => ['panel'], 'panel-body' => ['panel'], 'panel-row' => ['panel'],
+            'panel-row-label' => ['panel'], 'panel-row-value' => ['panel'], 'panel-cta' => ['panel'],
+            'panel-list' => ['panel'],
+        ],
+        'faq' => [
+            'question' => ['item'], 'question-open' => ['item'],
+            'answer' => ['item'], 'answer-link' => ['item'],
+        ],
+        'table' => [
+            'header' => ['head', 'table'],
+            'row' => ['table'], 'cell' => ['table'], 'cell-link' => ['table'],
+        ],
+        'nav' => ['link' => ['submenu'], 'link-current' => ['submenu']],
     ];
 
-    /** The fill of the role that renders this one inside it, authored map first, else default. */
+    /** The nearest containing role's fill: authored map first, else its schema default. */
     private function ancestorRoleFill(string $component, string $role, array $map, array $tokens): ?string
     {
-        $containers = self::CONTAINER_ROLES[$component] ?? [];
+        $containers = self::ROLE_CONTAINERS[$component][$role] ?? [];
         $roles      = \pp_udc_component_roles($component);
 
-        foreach ($containers as $container => $children) {
-            if (!in_array($role, $children, true)) {
-                continue;
-            }
-            // An authored fill wins over the default: an author who filled the card has
-            // already answered the question this is asking.
+        foreach ($containers as $container) {
+            // An authored fill wins over that container's default: an author who filled the
+            // card has already answered the question this is asking. But an OUTER container
+            // never outranks an inner one, authored or not — hence innermost-first, returning
+            // on the first container that resolves to anything at all.
             $authored = $this->hex($map[$container]['background']['fill'] ?? null, $tokens);
             if ($authored !== null) {
                 return $authored;
@@ -854,6 +870,69 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
         return null;
+    }
+
+    /**
+     * The contrast model resolves the surface a role ACTUALLY sits on (#1087).
+     *
+     * Pinned directly because the corpus cannot pin it: stubbing ancestorRoleFill() to return
+     * null dropped this class from 26 subjects to 21 and cleared every floor, so the 1.01:1
+     * regression it was written to catch was reintroducible with the suite green. A helper
+     * whose failure only SHRINKS a count needs its own assertions.
+     *
+     * @dataProvider ancestorFillProvider
+     */
+    public function testTheContrastModelResolvesTheNearestContainingFill(
+        string $component,
+        string $role,
+        array $map,
+        ?string $expected,
+        string $why
+    ): void {
+        // Real tokens, because the defaults this resolves are `@token` references and the
+        // whole point of the helper is what they resolve TO.
+        $this->assertSame(
+            $expected,
+            $this->ancestorRoleFill($component, $role, $map, \pp_design_tokens()),
+            $why
+        );
+    }
+
+    public static function ancestorFillProvider(): array
+    {
+        return [
+            'a contained role falls back to its container DEFAULT' => [
+                'testimonials', 'quote', [], '#f4f7fb',
+                'the quote renders inside `card`, which ships @color-surface as its own default '
+                . '— this is the exact resolution the 1.01:1 defect needed',
+            ],
+            'an authored container fill beats the default' => [
+                'testimonials', 'quote', ['card' => ['background' => ['fill' => '#1d2939']]], '#1d2939',
+                'an author who filled the card has answered the question',
+            ],
+            'the INNERMOST container wins over an outer one' => [
+                'table', 'header', [], '#f4f7fb',
+                'header sits in head (@color-surface) which sits in table (@color-bg); an '
+                . 'outer-first walk answered #ffffff and certified a dark table head at 16:1',
+            ],
+            'an outer container cannot outrank an inner one even when authored' => [
+                'table', 'header', ['table' => ['background' => ['fill' => '#000000']]], '#f4f7fb',
+                'the surface is still `head`',
+            ],
+            'a sibling is not a container' => [
+                'cta', 'heading', ['button' => ['background' => ['fill' => '#9dafee']]], null,
+                'cta`s button and heading are siblings — the prefix heuristic read this as '
+                . 'containment and failed a correct example at 2.11:1',
+            ],
+            'a role with no container resolves to nothing' => [
+                'testimonials', 'heading', [], null,
+                'the caller then falls back to the band fill',
+            ],
+            'an unknown component resolves to nothing' => [
+                'grid', 'heading', [], null,
+                'grid declares no roles at all',
+            ],
+        ];
     }
 
     /**
@@ -974,7 +1053,10 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         // FAIL-CLOSED, with the floor under the measured count so a walk that stops finding
         // bands cannot pass by asserting on nothing.
-        $this->assertGreaterThan(80, $checked, 'the documented-prop walk lost its subjects');
+        // 98 prop keys across the documented bands today, and the floor sits just under it.
+        // `> 80` let the whole bash-fence lifter — which contributes 17 of those 98 — be
+        // reverted and land on 81, passing by one.
+        $this->assertGreaterThan(95, $checked, 'the documented-prop walk lost its subjects');
     }
 
 

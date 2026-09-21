@@ -252,9 +252,28 @@ class ModelFacingRosterTest extends TestCase
                 // while letting a leading one in, which is exactly the distinction that
                 // matters: a negation before the verb negates this claim, one after it
                 // qualifies something else.
+                //
+                // AND STARTING IT AT THE CLAUSE, not the sentence, closes the hole that
+                // sentence-start opened. "There is no simpler route: the stats component has
+                // style slots for its numbers" is a FALSE claim whose sentence happens to
+                // begin with a negation about something else — measured exempt under the
+                // sentence-start window, and scanned under this one. The three real shapes it
+                // has to separate, all probed: a leading negation that DOES negate the claim
+                // ("No component in the theme declares a button style slot") stays exempt
+                // because nothing separates it from the verb; an unrelated leading negation
+                // is cut off at its colon; and the trailing negation that caused the original
+                // bug is still outside the window entirely.
                 $claimStart = (int) strpos($sentence, $claim[0]);
-                $upToClaim  = substr($sentence, 0, $claimStart + strlen($claim[0]));
-                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $upToClaim)) {
+                $before     = substr($sentence, 0, $claimStart);
+                $clauseAt   = 0;
+                foreach ([':', ';', ','] as $separator) {
+                    $at = strrpos($before, $separator);
+                    if ($at !== false && $at + 1 > $clauseAt) {
+                        $clauseAt = $at + 1;
+                    }
+                }
+                $clause = substr($sentence, $clauseAt, $claimStart - $clauseAt + strlen($claim[0]));
+                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $clause)) {
                     continue;
                 }
                 $scanned++;
