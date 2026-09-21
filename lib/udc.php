@@ -8614,9 +8614,34 @@ function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc, array $i
         if (!isset($item_maps[$item_id]) || !is_array($item_maps[$item_id])) {
             return false;
         }
-        return _pp_udc_name_is_the_engines_own_mint($rest, $item_maps[$item_id]);
+        // TWO NAMES, AND CONFLATING THEM IS A REAL BUG I SHIPPED INTO THIS
+        // FUNCTION ONCE. The COORDINATE is decoded from the stripped name
+        // (`card-title-typography-color-d` — role, group, param, breakpoint),
+        // but the REFERENCE stored at that coordinate is the FULL minted name
+        // including the item segment (`@it-…-card-title-typography-color-d`),
+        // because that is what pp_udc_mint_name() wrote. Recursing with the
+        // stripped name decoded the right coordinate and then compared against
+        // a reference that has never existed, so every item mint answered
+        // false — the exact defect this arm was added to fix, reintroduced one
+        // layer in. Caught by re-running the red proof against the fix instead
+        // of trusting it.
+        return _pp_udc_mint_reference_matches($rest, $name, $item_maps[$item_id]);
     }
-    $parts = explode('-', $name);
+    return _pp_udc_mint_reference_matches($name, $name, $udc);
+}
+
+/**
+ * Does `$map` hold `@$compare` at the coordinate `$decode` names?
+ *
+ * Split from its caller so the band tier and the item tier ask the question
+ * with one implementation. They differ only in that an item's coordinate is
+ * spelled without the item segment while its reference is spelled with it.
+ *
+ * @param string $decode  The name whose segments give role/group/param/breakpoint.
+ * @param string $compare The name the stored `@reference` must equal.
+ */
+function _pp_udc_mint_reference_matches(string $decode, string $compare, array $udc): bool {
+    $parts = explode('-', $decode);
     $bp    = array_pop($parts);
     // POP BY SEGMENT COUNT, never by one. `focus-visible` is two segments, and
     // the single-array_pop() idiom that served one state called `hover` reads
@@ -8629,7 +8654,7 @@ function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc, array $i
             }
             $value = is_array($branch) ? ($branch[$param] ?? null) : null;
             if (is_array($value) && isset($value[$bp]) && is_scalar($value[$bp])
-                && (string) $value[$bp] === '@' . $name) {
+                && (string) $value[$bp] === '@' . $compare) {
                 return true;
             }
         }
