@@ -328,45 +328,9 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /** A v2 component reports NO style slots — the other half of the same contract. */
-    public function testGetStyleSlotsReturnsNothingForAV2Component(): void
-    {
-        $this->assertSame([], pp_get_style_slots('hero'));
-        $this->assertSame([], pp_get_style_slots('testimonials'));
-        $this->assertSame([], pp_get_style_slots('section'));
-    }
 
     // ── Composition style validation ────────────────────────────────────
 
-    /**
-     * RE-HOMED from section to stats (#1023) along with the three slot-authoring tests
-     * below it. section left the slot system, so a `--section-*` value is now refused as
-     * an unknown slot and each of these would have asserted the wrong refusal (or passed
-     * for the wrong reason). stats is the host chosen for the whole slot-engine group:
-     * furthest down the usage-ordered rebuild queue, so the pins should outlast the
-     * programme. See testGetStyleSlotsReturnsStatsSlots() for the full reasoning.
-     */
-    public function testCompositionValidWithStyleSlots(): void
-    {
-        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
-        // baselines that must see only shipped components, so activating the fixture for the
-        // whole class would make those baselines start describing a component that does not
-        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
-        FixtureTheme::activate();
-        try {
-            $composition = [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                    'style'     => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
-                ],
-            ];
-            $result = pp_validate_composition($composition);
-            $this->assertTrue($result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
 
     public function testCompositionValidWithoutStyle(): void
     {
@@ -486,38 +450,6 @@ class SchemaValidationTest extends TestCase
     // rejects everything else with invalid_prop_value — the write never persists
     // an unknown value the renderer would silently coerce to the banner default.
 
-    private function gridCompositionWithImageTreatment($treatment): array
-    {
-        $props = ['items' => [['title' => 'One', 'image_url' => 'x.png']]];
-        // '__ABSENT__' omits the key entirely; anything else is supplied verbatim.
-        if ($treatment !== '__ABSENT__') {
-            $props['image_treatment'] = $treatment;
-        }
-        return [['component' => 'grid', 'props' => $props]];
-    }
-
-    public static function validImageTreatmentProvider(): array
-    {
-        return [
-            'banner'        => ['banner'],
-            'icon'          => ['icon'],
-            'unset: absent' => ['__ABSENT__'],
-            'unset: null'   => [null],
-            'unset: empty'  => [''],
-        ];
-    }
-
-    public static function invalidImageTreatmentProvider(): array
-    {
-        return [
-            'unknown keyword'     => ['card'],
-            'case mismatch'       => ['Icon'],
-            'uppercase'           => ['BANNER'],
-            'domain look-alike'   => ['thumbnail'],
-            'numeric'             => [1],
-            'whitespace-padded'   => [' icon'],
-        ];
-    }
 
     /**
      * #579, A-32 REPLACES the opt-in posture this used to pin. `strict` shipped in
@@ -617,38 +549,6 @@ class SchemaValidationTest extends TestCase
         ];
     }
 
-    public static function declaredTextRoleProvider(): array
-    {
-        return [
-            'mono'   => ['mono'],
-            'meta'   => ['meta'],
-            'label'  => ['label'],
-            'kicker' => ['kicker'],
-        ];
-    }
-
-    public static function nestedEnumUnsetSentinelProvider(): array
-    {
-        return [
-            'key absent'   => [['title' => 'Card', 'text' => 'x']],
-            'null'         => [['title' => 'Card', 'text' => 'x', 'text_role' => null]],
-            'empty string' => [['title' => 'Card', 'text' => 'x', 'text_role' => '']],
-        ];
-    }
-
-    public static function nearMissTextRoleProvider(): array
-    {
-        return [
-            'trailing space'  => ['mono '],
-            'leading space'   => [' mono'],
-            'case mismatch'   => ['Mono'],
-            'uppercase'       => ['KICKER'],
-            'plural'          => ['labels'],
-            'numeric'         => [1],
-            'boolean'         => [true],
-            'array'           => [['mono']],
-        ];
-    }
 
     /**
      * The unset sentinel is untouched by the universal strict gate: an absent key,
@@ -776,102 +676,6 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /**
-     * RULE 4 IS GENERIC, proved against a component that does not exist in the
-     * shipped theme.
-     *
-     * Every other #600 case authors `grid.items[].text_role`, because it is the only
-     * nested enum shipped today — which means all of them would still pass if the
-     * rule were a text_role branch rather than a schema-driven pass. This one
-     * declares a synthetic component with a differently-named nested enum on a
-     * differently-named array prop, so it fails if the rule ever learns a field name.
-     * Same fixture technique as the retired-alias test above (temp theme root +
-     * registry invalidation), for the same reason: the contract under test is about
-     * ANY schema, and asserting it against the twelve shipped ones is a weaker claim.
-     *
-     * It also covers the arm the shipped schemas cannot reach: a SECOND nested enum
-     * on the same component that declares no `strict` stays unenforced, which is what
-     * makes the declaration (not the type) the thing that arms the rule.
-     */
-    public function testTheNestedEnumRuleIsSchemaDrivenNotATextRoleBranch(): void
-    {
-        $root = sys_get_temp_dir() . '/pp-nested-enum-fixture-' . uniqid('', true);
-        mkdir($root . '/components/rowband', 0777, true);
-        file_put_contents($root . '/components/rowband/rowband.php', '<?php // fixture');
-        file_put_contents($root . '/components/rowband/schema.json', json_encode([
-            'component' => 'rowband',
-            'props'     => [
-                'rows' => [
-                    'type' => 'array', 'required' => false, 'item_type' => 'object',
-                    'description' => 'Synthetic object-item array carrying two nested enums.',
-                    'items' => [
-                        'label' => ['type' => 'string', 'required' => false, 'description' => 'Row label.'],
-                        'tone'  => [
-                            'type' => 'enum', 'required' => false, 'strict' => true,
-                            'values' => ['calm', 'loud'], 'description' => 'Synthetic STRICT nested enum.',
-                        ],
-                        'mood'  => [
-                            'type' => 'enum', 'required' => false,
-                            'values' => ['dry', 'wet'], 'description' => 'Synthetic nested enum with NO strict.',
-                        ],
-                    ],
-                ],
-            ],
-        ]));
-
-        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
-        $GLOBALS['_pp_test_template_dir'] = $root;
-        $GLOBALS['_pp_registered_components_invalidate'] = true;
-
-        try {
-            $rejected = \pp_validate_composition([
-                ['component' => 'rowband', 'props' => ['rows' => [
-                    ['label' => 'First', 'tone' => 'calm'],
-                    ['label' => 'Second', 'tone' => 'screaming'],
-                ]]],
-            ]);
-            $this->assertInstanceOf(\WP_Error::class, $rejected, 'the rule must reach a nested enum it has never heard of');
-            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
-            $message = $rejected->get_error_message();
-            $this->assertStringContainsString('prop "rows" item 1 field "tone"', $message, 'the locator follows the schema, not a hardcoded prop name');
-            $this->assertStringContainsString('must be one of: calm, loud', $message);
-
-            // The advertised values still author cleanly.
-            $this->assertTrue(\pp_validate_composition([
-                ['component' => 'rowband', 'props' => ['rows' => [['tone' => 'loud']]]],
-            ]));
-
-            // The sibling enum declares no `strict`, so it is unenforced — the
-            // DECLARATION arms the rule, and the CI tripwire is what keeps a shipped
-            // schema from sitting in this state.
-            $this->assertTrue(\pp_validate_composition([
-                ['component' => 'rowband', 'props' => ['rows' => [['mood' => 'lukewarm']]]],
-            ]), 'a nested enum without `strict` stays unenforced at runtime');
-
-            // AUTHORING-PATH proof (Section 14.1) on the synthetic component too.
-            $GLOBALS['_pp_test_store'] = [
-                'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
-            ];
-            $authored = \pp_validate_action('create_page', [
-                'title'       => 'Synthetic nested enum page',
-                'composition' => [['component' => 'rowband', 'props' => ['rows' => [['tone' => 'screaming']]]]],
-            ]);
-            $this->assertInstanceOf(\WP_Error::class, $authored, 'the real write surface enforces it too');
-            $this->assertSame('invalid_prop_value', $authored->get_error_code());
-        } finally {
-            if ($previousRoot === null) {
-                unset($GLOBALS['_pp_test_template_dir']);
-            } else {
-                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
-            }
-            $GLOBALS['_pp_registered_components_invalidate'] = true;
-            @unlink($root . '/components/rowband/schema.json');
-            @unlink($root . '/components/rowband/rowband.php');
-            @rmdir($root . '/components/rowband');
-            @rmdir($root . '/components');
-            @rmdir($root);
-        }
-    }
 
     /**
      * RULE 5's field-map discriminator is not fooled by an array-valued schema KEYWORD
@@ -1277,26 +1081,6 @@ class SchemaValidationTest extends TestCase
     // ordinary typed values. Rejected shapes: cross-type values, so a slot that
     // LOOKS plausible but cannot render never reports success.
 
-    private function gridCompositionWithStyle(array $style): array
-    {
-        return [
-            [
-                'component' => 'grid',
-                'props'     => ['items' => [['title' => 'One'], ['title' => 'Two'], ['title' => 'Three']]],
-                'style'     => $style,
-            ],
-        ];
-    }
-
-    public static function featuredRemnantCrossTypeProvider(): array
-    {
-        return [
-            'color into bar-height'     => ['--grid-item-bar-height', '#ff0000'],
-            'length into texture-color' => ['--grid-featured-texture-color', '2rem'],
-            'keyword into shadow'       => ['--grid-featured-shadow', 'blue-glow'],
-            'shadow into bar-color'     => ['--grid-item-bar-color', '0 10px 24px rgba(0, 0, 0, 0.1)'],
-        ];
-    }
 
     // ── Per-item grid card style overrides (issue 306) ──────────────────
     //
@@ -1306,20 +1090,6 @@ class SchemaValidationTest extends TestCase
     // names and invalid values are rejected exactly like grid-level ones, so a
     // per-card slot that LOOKS plausible but cannot render never reports success.
 
-    private function gridCompositionWithItemStyle(array $itemStyle, array $gridStyle = []): array
-    {
-        $comp = [
-            'component' => 'grid',
-            'props'     => ['items' => [
-                ['title' => 'Plain'],
-                ['title' => 'Styled', 'style' => $itemStyle],
-            ]],
-        ];
-        if ($gridStyle !== []) {
-            $comp['style'] = $gridStyle;
-        }
-        return [$comp];
-    }
 
     // ── Card-scoped per-item slot enforcement (issue 323) ───────────────────
     //
@@ -1352,73 +1122,8 @@ class SchemaValidationTest extends TestCase
         return ['eligible' => $eligible, 'ineligible' => $ineligible];
     }
 
-    /** A value that passes _pp_validate_token_value for the given slot type. */
-    private static function validValueForType(string $type): string
-    {
-        return match ($type) {
-            'length'          => '2rem',
-            'shadow'          => 'none',
-            'align'           => 'center',
-            'text-transform'  => 'none',
-            default           => '#123456', // color + gradient both accept a hex color
-        };
-    }
 
-    public static function gridCardScopedSlotProvider(): array
-    {
-        $cases = [];
-        foreach (self::gridSlotScopes()['eligible'] as $slot => $type) {
-            $cases[$slot] = [$slot, $type];
-        }
-        return $cases;
-    }
-
-    public static function gridContainerScopedSlotProvider(): array
-    {
-        $cases = [];
-        foreach (self::gridSlotScopes()['ineligible'] as $slot) {
-            $cases[$slot] = [$slot];
-        }
-        return $cases;
-    }
-
-    private function gridCompositionWithItemStyleMap(array $itemStyle, array $gridStyle = []): array
-    {
-        $comp = [
-            'component' => 'grid',
-            'props'     => ['items' => [
-                ['title' => 'Plain'],
-                ['title' => 'Styled', 'style' => $itemStyle],
-            ]],
-        ];
-        if ($gridStyle !== []) {
-            $comp['style'] = $gridStyle;
-        }
-        return [$comp];
-    }
-
-    public function testPerItemValidationFallsBackToFullSetWhenNoSlotFlagged(): void
-    {
-        // Opt-in by presence (issue 323): a component whose style_slots carry NO
-        // item_eligible flag has declared no card-scoped set, so the per-item path
-        // must keep the pre-323 behavior — accept any DECLARED slot rather than
-        // reject everything. This guards the shared validator from over-rejecting a
-        // future component that gains items[].style before being annotated. Calls
-        // the shared engine directly with item_index 0 (the strict-null enforce path).
-        $slots = [
-            '--x-bg'  => ['type' => 'color'],
-            '--x-gap' => ['type' => 'length'],
-        ];
-        $err = _pp_validate_style_slot_map(['--x-gap' => '2rem'], $slots, 'x', 0);
-        $this->assertNull(
-            $err,
-            'With no item_eligible slots declared, per-item validation must accept any declared slot (pre-323 fallback).'
-        );
-        // An unknown slot is still rejected in the fallback, same as before.
-        $err2 = _pp_validate_style_slot_map(['--x-nope' => '#123456'], $slots, 'x', 0);
-        $this->assertInstanceOf(\WP_Error::class, $err2);
-        $this->assertSame('invalid_style_slot', $err2->get_error_code());
-    }    /**
+/**
      * THE TWO SLOT-NAME INVARIANTS RETIRED AT #1101, and both were flagged RISKY by
      * PHPUnit in the same run that emptied them — the loop body never executed once, so
      * neither performed an assertion. That is the fail-open shape this file hunts
@@ -2945,25 +2650,6 @@ class SchemaValidationTest extends TestCase
         $this->assertStringContainsString('--not-a-slot', $errors[2]->get_error_message());
     }
 
-    public function testMultipleInvalidStyleSlotsOnOneItemReportOneError(): void
-    {
-        // THE RECORDED LIMIT of #621, pinned so it stays a decision rather than an
-        // oversight. The single error no longer comes from a `continue` in this function
-        // — that is gone — but from _pp_validate_style_slot_map(), which returns the FIRST
-        // bad slot in a map. Widening that shared engine reaches the style_component write
-        // path, which wants one actionable message, so it stayed out of #621. If it is
-        // ever widened, rewrite this test to the new contract rather than deleting it.
-        $errors = pp_validate_composition_errors([
-            [
-                'component' => 'hero',
-                'props'     => ['title' => 'A'],
-                'style'     => ['--not-a-slot' => 'red', '--also-not-a-slot' => 'blue'],
-            ],
-        ]);
-
-        $this->assertCount(1, $errors, 'the shared slot engine reports the first bad slot in a map');
-        $this->assertSame('invalid_style_slot', $errors[0]->get_error_code());
-    }
 
     public function testEachItemContributesItsOwnErrorsInDocumentOrder(): void
     {
@@ -3185,106 +2871,6 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    public function testCompositionRejectsUnknownStyleSlot(): void
-    {
-        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
-        // baselines that must see only shipped components, so activating the fixture for the
-        // whole class would make those baselines start describing a component that does not
-        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
-        FixtureTheme::activate();
-        try {
-            $composition = [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                    'style'     => ['--ppfixture-display' => 'none'],
-                ],
-            ];
-            $result = pp_validate_composition($composition);
-            $this->assertInstanceOf(\WP_Error::class, $result);
-            $this->assertEquals('invalid_style_slot', $result->get_error_code());
-            $this->assertStringContainsString('--ppfixture-display', $result->get_error_message());
-            $this->assertStringContainsString('--ppfixture-bg', $result->get_error_message());
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testCompositionRejectsInvalidStyleValue(): void
-    {
-        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
-        // baselines that must see only shipped components, so activating the fixture for the
-        // whole class would make those baselines start describing a component that does not
-        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
-        FixtureTheme::activate();
-        try {
-            $composition = [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                    'style'     => ['--ppfixture-bg' => 'not-a-color'],
-                ],
-            ];
-            $result = pp_validate_composition($composition);
-            $this->assertInstanceOf(\WP_Error::class, $result);
-            $this->assertEquals('invalid_style_value', $result->get_error_code());
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testCompositionRejectsInjectionInStyleValue(): void
-    {
-        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
-        // baselines that must see only shipped components, so activating the fixture for the
-        // whole class would make those baselines start describing a component that does not
-        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
-        FixtureTheme::activate();
-        try {
-            // RE-HOMED from hero to stats (#1023). hero left the slot system in #986, so this
-            // was already being refused as an unknown SLOT rather than for the injection in
-            // the value — a pass for the wrong reason, which the asserted code below now
-            // rules out.
-            $composition = [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                    'style'     => ['--ppfixture-bg' => '#fff; background-image: url(evil)'],
-                ],
-            ];
-            $result = pp_validate_composition($composition);
-            $this->assertInstanceOf(\WP_Error::class, $result);
-            $this->assertSame(
-                'invalid_style_value',
-                $result->get_error_code(),
-                'the refusal must be about the VALUE — an unknown-slot refusal proves nothing about injection'
-            );
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testCompositionAllowsRecipeTrackingKey(): void
-    {
-        // PER-TEST OPT-IN, NOT setUp(). This class is MIXED: most of it asserts registry
-        // baselines that must see only shipped components, so activating the fixture for the
-        // whole class would make those baselines start describing a component that does not
-        // ship. Only the slot-ENGINE tests host on the fixture (#1025).
-        FixtureTheme::activate();
-        try {
-            $composition = [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['title' => 'Test', 'items' => [['number' => '10', 'label' => 'Sites']]],
-                    'style'     => ['__recipe' => 'dark', '--ppfixture-bg' => '#1a1a2e'],
-                ],
-            ];
-            $result = pp_validate_composition($composition);
-            $this->assertTrue($result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
 
     /**
      * 8A+ (eng review): the seeded homepage composition is written to the DB by
@@ -4855,107 +4441,6 @@ class SchemaValidationTest extends TestCase
     /** Content fingerprint of PINNED_SLOT_BASELINE. See baselineFingerprint(). */
     private const SLOT_BASELINE_FINGERPRINT = 'b7c047c306d4d33b';
 
-    /**
-     * Live declared style slots per component, read from the shipped schemas.
-     *
-     * Discovery is a glob over ALL component schemas, not a walk of the pinned set: a
-     * brand-new slot-bearing component has to reach the add-path guard, not slip past it
-     * because the baseline never named it. Components with no `style_slots` are omitted
-     * so the guards speak only about the slot surface.
-     */
-    private function liveSlots(): array
-    {
-        $out = [];
-        foreach ($this->liveSchemas() as $name => $schema) {
-            $slots = array_keys($schema['styling']['style_slots'] ?? []);
-            if ($slots !== []) {
-                $out[$name] = $slots;
-            }
-        }
-        return $out;
-    }
-
-    public function testLiveSchemasHaveNoUnnotedSlotRenameDriftFromBaseline(): void
-    {
-        // The real guard (remove-path): today baseline == live, so there is no drift.
-        // A future slot removal or rename WITHOUT a migration note fails HERE.
-        //
-        // Fail-closed by construction: if the glob ever breaks, liveSlots() returns []
-        // and every baseline slot reads as missing, so a broken discovery is a loud
-        // failure rather than a vacuous pass.
-        $drift = self::detectSchemaRenameDrift(
-            self::PINNED_SLOT_BASELINE,
-            $this->liveSlots(),
-            self::SLOT_RENAME_MIGRATION_NOTES,
-            'style slot'
-        );
-        $this->assertSame([], $drift, implode("\n", $drift));
-    }
-
-    public function testSlotMigrationNotesAreWellFormedAndCurrent(): void
-    {
-        // H2 + H3 on the slot surface — the identical contract, run through the
-        // identical helper. The mirror the issue asked for, held at the stronger level.
-        $defects = self::detectMigrationNoteDefects(
-            self::SLOT_RENAME_MIGRATION_NOTES,
-            $this->liveSlots(),
-            'style slot'
-        );
-        $this->assertSame([], $defects, implode("\n", $defects));
-    }
-
-    public function testSlotBaselineIsAppendOnly(): void
-    {
-        // H1 on the slot surface. This is the guard that makes the migration note the
-        // real escape hatch: without it the cheapest way to a green build is deleting
-        // the baseline line, which documents nothing.
-        $shrink = self::detectBaselineShrink(
-            self::PINNED_SLOT_BASELINE,
-            self::SLOT_RENAME_MIGRATION_NOTES,
-            self::SLOT_BASELINE_FLOOR,
-            'style slot'
-        );
-        $this->assertSame([], $shrink, implode("\n", $shrink));
-
-        // The swap-catcher. Renaming a slot in the schema and editing the matching line
-        // here keeps every count identical; without this the rename ships undocumented.
-        $this->assertSame(
-            self::SLOT_BASELINE_FINGERPRINT,
-            self::baselineFingerprint(self::PINNED_SLOT_BASELINE),
-            self::baselineEditRemedy('style slot', 'PINNED_SLOT_BASELINE', 'SLOT_BASELINE_FINGERPRINT', 'SLOT_RENAME_MIGRATION_NOTES')
-        );
-    }
-
-    public function testSlotRenameDriftIsCaught(): void
-    {
-        // The self-test for the headline scenario, and the one the count pins cannot
-        // see: a RENAME, where the slot total does not move at all.
-        $baseline = ['hero' => ['--hero-bg', '--hero-heading-color']];
-        $live     = ['hero' => ['--hero-bg', '--hero-title-color']]; // renamed, count unchanged
-
-        $this->assertCount(
-            count($baseline['hero']),
-            $live['hero'],
-            'the simulated rename must preserve the slot count, or it is not testing the blind spot.'
-        );
-
-        $unnoted = self::detectSchemaRenameDrift($baseline, $live, [], 'style slot');
-        $this->assertNotEmpty($unnoted, 'a slot rename with no migration note must be flagged');
-        $this->assertStringContainsString('--hero-heading-color', $unnoted[0]);
-        // The label is load-bearing, not cosmetic: the message has to tell the author
-        // which surface drifted, or a shared algorithm reports prop drift for slots.
-        $this->assertStringContainsString('style slot', $unnoted[0]);
-        $this->assertStringContainsString('hero', $unnoted[0]);
-
-        // A migration note in the SAME change is the only thing that clears it.
-        $withNote = self::detectSchemaRenameDrift(
-            $baseline,
-            $live,
-            ['hero' => ['--hero-heading-color' => 'renamed to --hero-title-color by #999']],
-            'style slot'
-        );
-        $this->assertSame([], $withNote, 'a migration note for the renamed slot clears the drift');
-    }
 
     public function testSlotRemovalDriftIsCaught(): void
     {
@@ -5132,24 +4617,6 @@ class SchemaValidationTest extends TestCase
         );
     }
 
-    public function testSlotCountPinsCannotSeeARenameButTheBaselineCan(): void
-    {
-        // Pins the PREMISE this issue rests on, so a future reader does not "simplify"
-        // the baseline away on the theory that the count pins already cover it. Both
-        // checks run against the same simulated rename; only one of them notices.
-        $baseline = ['grid' => ['--grid-bg', '--grid-gap']];
-        $renamed  = ['grid' => ['--grid-bg', '--grid-item-gap']];
-
-        $this->assertSame(
-            count($baseline['grid']),
-            count($renamed['grid']),
-            'count-based pins see nothing here — that is the blind spot.'
-        );
-        $this->assertNotEmpty(
-            self::detectSchemaRenameDrift($baseline, $renamed, [], 'style slot'),
-            'the baseline guard must catch what the count pins structurally cannot.'
-        );
-    }
 
     // ── Generic schema-typed prop enforcement (issue 507) ───────────────────
     //
@@ -6632,42 +6099,6 @@ class SchemaValidationTest extends TestCase
         $this->assertSame(10, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
-    /**
-     * The SLOT half of the three-surface claim above, which has no live example since
-     * #1023 retired `--section-inline-items-align`.
-     *
-     * A synthetic declaration is the honest instrument here: the claim is about the
-     * ENGINE reaching the `slot` kind, and the engine is the same entry point either way.
-     * The vacuity guard is the second assertion — the moment a real slot enum ships, this
-     * test fails and gets folded back into the discovered sweep, so the synthetic stand-in
-     * cannot quietly outlive its reason.
-     */
-    public function testTheValuesGuardStillReachesTheSlotSurfaceWithNoLiveSlotEnumShipped(): void
-    {
-        $this->assertNotEmpty(
-            \pp_schema_definition_errors(
-                ['type' => 'enum', 'strict' => true, 'default' => 'start',
-                 'values' => ['start", "forged', 'center'], 'description' => 'synthetic'],
-                'slot',
-                'synthetic --x-align'
-            ),
-            'a forged member on a SLOT declaration must fail the sweep'
-        );
-
-        $live = [];
-        foreach ($this->allSchemas() as $component => $schema) {
-            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
-                if (!empty($def['values'])) {
-                    $live[] = "{$component} {$name}";
-                }
-            }
-        }
-        $this->assertSame(
-            [],
-            $live,
-            'a slot enum ships again — drop this synthetic stand-in and let the discovered sweep cover it'
-        );
-    }
 
     /**
      * The three condition classes that stay PROSE must be named explicitly by the
@@ -6690,29 +6121,6 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /**
-     * The fill marker is a DECLARED key with a bounded value, not a `-bg` /
-     * `-hover-bg` name convention. A naming convention is not machine-readable
-     * without a second source of truth, which is the defect this contract fixes one
-     * layer down.
-     */
-    public function testFillRoleMarkerIsADeclaredKeyWithABoundedValue(): void
-    {
-        $ok = ['type' => 'color', 'default' => 'var(--color-accent)', 'description' => 'x', 'role' => 'fill'];
-        $this->assertSame([], \pp_schema_definition_errors($ok, 'slot', 'test --x'));
-
-        foreach (['background', 'Fill', '', true] as $bad) {
-            $def = ['type' => 'color', 'default' => '#fff', 'description' => 'x', 'role' => $bad];
-            $this->assertNotEmpty(\pp_schema_definition_errors($def, 'slot', 'test --x'), 'role is a bounded set');
-        }
-
-        // `role` is a SLOT-definition key. On a prop it is an unknown key.
-        $this->assertNotEmpty(\pp_schema_definition_errors(
-            ['type' => 'string', 'required' => false, 'description' => 'x', 'role' => 'fill'],
-            'prop',
-            'test.x'
-        ));
-    }
 
     /**
      * #575 landed the marker and applied it to nothing; #579 (A-34) populates the

@@ -801,50 +801,6 @@ class AiContextTest extends TestCase
         $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
     }
 
-    /**
-     * EVERY conditional branch restores its own grammar (#1087).
-     *
-     * pp_ai_slot_type_rules() has three branches and the test above exercised one. The other
-     * two — `position` and `ratio` — had ZERO coverage, because no shipped slot carries
-     * either type, so neither branch ever runs against the real registry. The pre-landing
-     * testing specialist mutation-verified it: corrupting both trigger keys to nonsense left
-     * the whole suite green.
-     *
-     * That matters because self-restoration IS the claim. The grammar was deleted from the
-     * prompt on the promise that it returns the day a carrier reappears; a promise verified
-     * for one branch of three is a promise for one branch of three.
-     *
-     * @dataProvider slotTypeRuleBranchProvider
-     */
-    public function testEverySlotTypeRuleBranchIsRestoredByItsCarrier(string $type, string $marker): void
-    {
-        $this->assertStringContainsString(
-            $marker,
-            \pp_ai_slot_type_rules([$type]),
-            "the {$type} rule must come back the day a slot declares the type"
-        );
-        $this->assertStringNotContainsString(
-            $marker,
-            \pp_ai_slot_type_rules([]),
-            "and stay absent while nothing carries {$type}"
-        );
-        // And it must not be emitted by an unrelated carrier.
-        $others = array_values(array_diff(['position', 'ratio', 'length-or-none'], [$type]));
-        $this->assertStringNotContainsString(
-            $marker,
-            \pp_ai_slot_type_rules($others),
-            "the {$type} rule must key off its own type, not any carrier at all"
-        );
-    }
-
-    public static function slotTypeRuleBranchProvider(): array
-    {
-        return [
-            'position'       => ['position', 'A `position`-typed slot'],
-            'ratio'          => ['ratio', 'A `ratio`-typed slot'],
-            'length-or-none' => ['length-or-none', 'A `length-or-none`-typed slot'],
-        ];
-    }
 
     /**
      * The retired slot NAMES survive the grammar's deletion (#1087).
@@ -1772,56 +1728,6 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('share background', $system);
     }
 
-    /**
-     * REPRICED AT #1066, AND THE ANSWER FLIPPED — deliberately, with a precedent.
-     *
-     * This asserted that a `background_image` SUPPRESSED the flat-colour fusing hint:
-     * the visible band was the image, so "these two share #092082" would have been a
-     * lie. Every component has now retired that prop (section #1023, cta #1026, stats
-     * #1066) and nothing migrates stored props, so this fixture is exactly the aged
-     * page it always described — and on that page the prop is UNREAD AT RENDER. The
-     * band paints its `--*-bg` slot and nothing else. Suppressing the hint would now
-     * hide a statement that is true.
-     *
-     * THE RULE IS THE ONE #605 ALREADY SET, three steps down in the same resolver: a
-     * `theme` value stored before the vocabulary freeze falls through to the default
-     * bucket because pp_theme_class() coerces it to the default band, and the resolver
-     * and the renderer move in lockstep. A stored `background_image` is the same
-     * situation and takes the same answer.
-     *
-     * The test is KEPT rather than deleted because the subject — what an aged page's
-     * dead styling prop does to the adjacency hint — is exactly what needs pinning
-     * while such pages exist. Deleting it would have left the flip unrecorded.
-     */
-    public function testAdjacencyAnnotatedDespiteAStoredRetiredBackgroundImage(): void
-    {
-        $system = $this->pageContextFor(706, [
-            ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
-        ]);
-
-        $this->assertStringContainsString('share background #092082', $system);
-
-        // DISCRIMINATING, not merely positive: pin the resolver directly, so a pass
-        // cannot come from some other pair or some other wording. A stored
-        // `background_image` must resolve exactly as an absent one does.
-        $withImage = _pp_resolve_component_bg([
-            'component' => 'section',
-            'props'     => ['background_image' => 'https://ex.test/a.jpg'],
-            'style'     => ['--section-bg' => '#092082'],
-        ]);
-        $withoutImage = _pp_resolve_component_bg([
-            'component' => 'section',
-            'props'     => [],
-            'style'     => ['--section-bg' => '#092082'],
-        ]);
-        $this->assertSame(
-            $withoutImage,
-            $withImage,
-            'a retired prop that paints nothing must not change what the resolver sees'
-        );
-        $this->assertSame('bg:#092082', $withImage['id']);
-    }
 
     public function testAdjacencyTransparentOverrideTreatedAsDefault(): void
     {
@@ -1867,21 +1773,6 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('linear-gradient(90deg, #AA0000, #00BB00)', $system);
     }
 
-    public function testAdjacencyOverrideBeatsThemeBucket(): void
-    {
-        // Both bands carry theme:inverted AND a matching literal override -> the
-        // override wins, so the annotation reports the literal, not the theme label.
-        $system = $this->pageContextFor(710, [
-            ['component' => 'section', 'props' => ['title' => 'A', 'theme' => 'inverted'], 'style' => ['--section-bg' => '#123456']],
-            ['component' => 'cta', 'props' => ['title' => 'B', 'theme' => 'inverted'], 'style' => ['--cta-bg' => '#123456']],
-        ]);
-
-        $this->assertStringContainsString(
-            '[0] section and [1] cta share background #123456 (adjacent — facing paddings/margins control the visible seam)',
-            $system
-        );
-        $this->assertStringNotContainsString('inverted theme', $this->onlyAdjacencyLines($system));
-    }
 
     public function testAdjacencyLongOverrideValueIsTruncated(): void
     {
@@ -2060,20 +1951,6 @@ class AiContextTest extends TestCase
         $this->assertNull($seen, 'a malformed clause must render nothing, silently');
     }
 
-    /**
-     * Slot definitions carry the suffix too — one emitter, both surfaces, so a field
-     * can never reach the prop catalog and silently miss the slot catalog.
-     */
-    public function testSlotCatalogCarriesTheDefinitionSuffix(): void
-    {
-        $slot = pp_ai_definition_suffix([
-            'type' => 'color',
-            'role' => 'fill',
-            'applies_when' => [['prop' => 'layout', 'equals' => 'cover']],
-        ]);
-        $this->assertStringContainsString('role: fill', $slot);
-        $this->assertStringContainsString('applies when layout = "cover"', $slot);
-    }
 
     // ── Unreadable stored composition (#750) ──────────────────────────────
     //

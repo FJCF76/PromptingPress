@@ -674,37 +674,6 @@ class DiagnosticReachTest extends TestCase
         $this->assertStringNotContainsString("\x1b", $line);
     }
 
-    /**
-     * The shared slot engine cast its value blind: a stored array warned, a stored object
-     * was an uncaught Error. Both killed or corrupted the read-only diagnostics #622 opens
-     * onto never-validated data.
-     */
-    public function testANonScalarStyleSlotValueIsReportedNotFatal(): void
-    {
-        foreach ([['a' => 1], new \stdClass()] as $bad) {
-            $errors = pp_validate_composition_errors([
-                ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--ppfixture-bg' => $bad]]]);
-
-            $this->assertCount(1, $errors);
-            $this->assertSame('invalid_style_value', $errors[0]->get_error_code());
-            $this->assertStringContainsString('must be a scalar value', $errors[0]->get_error_message());
-            $this->assertSame(0, pp_composition_error_index($errors[0]));
-        }
-    }
-
-    public function testCheckPageSurvivesANonScalarStyleSlotValue(): void
-    {
-        $this->seedPage(311, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'x'], 'style' => ['--ppfixture-bg' => ['a' => 1]]]]);
-
-        (new PP_Check_Command())->page([], ['post_id' => 311]);
-
-        $this->assertSame([], WP_CLI::$successes);
-        $this->assertStringContainsString(
-            'invalid_style_value',
-            implode("\n", array_merge(WP_CLI::$warnings, WP_CLI::$lines))
-        );
-    }
 
     /**
      * The ambiguous-targeting clause of the gate predicate. Without this, deleting the

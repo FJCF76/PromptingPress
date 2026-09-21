@@ -103,6 +103,33 @@ class AgedBandStoredStyleMapTest extends TestCase
         );
     }
 
+    /**
+     * THE STARTER SEED CARRIES NO v1 STYLE MAP, which is the other half of the
+     * precondition: if the theme's own seeded homepage shipped one, every fresh install
+     * would be an aged page on day one and the refusal above would fire on content the
+     * operator never authored.
+     *
+     * Salvaged from ActionsTest::testWidestShippedStyleMapIsReportedComplete at #1101,
+     * whose other claim (a wide slot map must be reported COMPLETE rather than partially)
+     * died with the cross-component hint scan. This half is a live census and belongs
+     * beside the aged-band refusal rather than inside a friendly-error test. The seed's
+     * last style map was grid's twenty slots, converted to a `udc` map by its rebuild.
+     */
+    public function testTheStarterHomepageSeedCarriesNoV1StyleMap(): void
+    {
+        $bands = pp_default_homepage_composition();
+
+        $this->assertNotSame([], $bands, 'precondition: the starter seed actually has bands');
+        foreach ($bands as $i => $band) {
+            $this->assertSame(
+                [],
+                $band['style'] ?? [],
+                "starter band {$i} ships a v1 style map, so a fresh install would be an aged "
+                . 'page before anyone edited it'
+            );
+        }
+    }
+
     /** And the aged bytes really are on the page — not quietly dropped by the writer. */
     public function testTheStoredMapSurvivesTheWriteThatSeededIt(): void
     {

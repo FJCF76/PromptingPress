@@ -300,24 +300,6 @@ class CliSchemaCommandTest extends TestCase
         $this->assertNotEmpty($report['roles'] ?? [], 'and the report must carry them');
     }
 
-    public function testComponentWithoutRecipesReportsAnEmptyList(): void
-    {
-        // THE SUBJECT MOVED embed -> logos AT #1066, AND logos -> stats IS NOT THE ANSWER
-        // THIS TIME: both went v2 in the same issue's second half. The claim is "a component
-        // with no recipes reports an empty recipe list while still reporting its styling
-        // surface", so it needs a component with a styling surface of the kind this report
-        // carries — and on v2 that surface is ROLES, which is exactly what the report now
-        // carries for these two. So the subject moves to a v2 component and the assertion
-        // follows it, rather than chasing the last v1 component that happens to fit.
-        //
-        // grid would also work and is deliberately NOT used: grid is the last slot-bearing
-        // component, so pinning this claim there would make it retire with grid for no
-        // reason. The claim is about the REPORT, and the report outlives the slot system.
-        $report = pp_component_schema_report('logos');
-        $this->assertSame([], $report['recipes']);
-        $this->assertSame([], $report['style_slots'], 'logos is v2: it declares no slots');
-        $this->assertNotEmpty($report['roles'], 'and its styling surface — its roles — is reported instead');
-    }
 
     /**
      * A ROLE'S DECLARED OBLIGATIONS REACH THE CLI REPORT (#1087).

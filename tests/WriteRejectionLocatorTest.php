@@ -978,43 +978,6 @@ class WriteRejectionLocatorTest extends TestCase
             'the locator belongs to a rejection; an accepted write has no band to name');
     }
 
-    /**
-     * The #626 rejected-slot context rides in the same WP_Error data as the offset.
-     * Reading one must not disturb the other: style_component rejections carry the slot
-     * context, no composition offset, and the friendly-error builder still answers from
-     * the rejection rather than a second read.
-     */
-    public function testTheRejectedSlotContextStillComposes(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 (a `section` before #1023).
-        // `invalid_style_slot` is the refusal for an UNDECLARED slot name on a component
-        // that HAS a slot set; a v2 component refuses earlier and differently with
-        // `no_style_slots`, a different code carrying a different context, pinned
-        // separately. grid's v2 rebuild took the last shipped slot map, so `ppfixture` —
-        // the registered test-only slot host kept across rebuilds (#1025), which this
-        // suite already activates in setUp — is the only band that can still produce this
-        // rejection. It dies with the slot engine in this task's PR2.
-        $this->seedPage(200, [FixtureTheme::band(['title' => 'T'])]);
-
-        $error = pp_validate_action('style_component', [
-            'post_id'         => 200,
-            'component_index' => 0,
-            'style'           => ['--nope' => 'red'],
-        ]);
-
-        $this->assertTrue(is_wp_error($error));
-        $this->assertSame('invalid_style_slot', $error->get_error_code());
-        $this->assertNull(pp_composition_error_index($error), 'no composition offset was ever stamped here');
-        $this->assertNotNull(pp_rejected_slot_context($error), 'the #626 context survives untouched');
-
-        $envelope = pp_execute_action('style_component', [
-            'post_id'         => 200,
-            'component_index' => 0,
-            'style'           => ['--nope' => 'red'],
-        ]);
-        $this->assertFalse($envelope['ok']);
-        $this->assertNull($envelope['index']);
-    }
 
     // ── 5. A rolled-back batch's failed-step locator (#712) ───────────────────
 

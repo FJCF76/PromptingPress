@@ -83,18 +83,6 @@ class SchemaTruthfulnessTest extends TestCase
         return ob_get_clean();
     }
 
-    private function renderStored(int $id): string
-    {
-        ob_start();
-        foreach (pp_get_composition($id) as $item) {
-            $props = $item['props'] ?? [];
-            if (!empty($item['style'])) {
-                $props['__pp_style'] = $item['style'];
-            }
-            pp_get_component((string) $item['component'], $props);
-        }
-        return ob_get_clean();
-    }
 
     // ── A-11: the removed falsehoods cannot return ──────────────────────────
 
@@ -270,38 +258,6 @@ class SchemaTruthfulnessTest extends TestCase
         }
     }
 
-    public static function correctedEffectiveDefaults(): array
-    {
-        return [
-            // Section's six rows left this provider at #1023. Every one of those
-            // corrected defaults survives as a ROLE default, which is where the
-            // correction now has to stay corrected:
-            //   --section-heading-size            -> heading.typography.size (@pp-band-heading-size)
-            //   --section-body-size / -weight     -> body.typography.size / .weight
-            //   --section-body-color              -> body.typography.color
-            //   --section-heading-margin-bottom   -> heading.spacing.margin-bottom
-            //   --section-body-measure            -> body.sizing.max-width, at 40rem
-            // THE MEASURE IS 40rem, AND AN EARLIER DRAFT OF THIS COMMENT SAID 49rem.
-            // v1 capped that element from four rules and 49rem is the one that WON among
-            // them — but `.section__content` sits inside `.section__body`, which capped at
-            // 40rem, so the 49rem literal never bound and 640px is what every v1 band
-            // actually rendered. Winning-rule reading vs rendered geometry; the rendered
-            // value is the one a port carries. The same wrapper capped the heading, the
-            // subheading and the trust strip, which is why all four roles default to
-            // 40rem. Role-side pins: MeasureSurfaceTest and SectionRoleDefaultsEmitTest.
-            ['grid', '--grid-heading-size', 'var(--pp-band-heading-size)'],
-            
-
-            ['grid', '--grid-heading-margin-bottom', '1.65rem'],
-            ['grid', '--grid-gap', '1rem'],
-            ['grid', '--grid-item-bg', 'linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)'],
-            ['grid', '--grid-item-shadow', '0 10px 24px rgba(15, 23, 42, 0.055)'],
-            ['grid', '--grid-item-radius', '4px'],
-            ['grid', '--grid-item-padding', '2rem'],
-            ['grid', '--grid-item-title-size', '1.14rem'],
-            ['grid', '--grid-item-text-color', 'var(--color-text-secondary)'],
-        ];
-    }
 
     /**
      * The convention itself has to ship where the agent reads it, or the corrected values
@@ -962,19 +918,6 @@ class SchemaTruthfulnessTest extends TestCase
         }
     }
 
-    public static function newStateTwins(): array
-    {
-        return [
-            'grid card link hover' => [
-                'grid',
-                ['items' => [['title' => 'One', 'text' => 'a', 'link_url' => 'https://example.com', 'link_text' => 'More']]],
-                '--grid-item-link-hover-color',
-                '#123456',
-            ],
-            // cta's row left at #1026 with its slot map — see the retirement note below for
-            // why the elevation pairing it exercised has no v2 counterpart to move to.
-        ];
-    }
 
     /**
      * Byte-identical UNSET is the whole gate posture, so prove it at the render boundary

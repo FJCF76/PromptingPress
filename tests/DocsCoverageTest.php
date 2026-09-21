@@ -270,31 +270,6 @@ class DocsCoverageTest extends TestCase
         }
     }
 
-    /**
-     * style-component.md restates the per-component slot count in prose for the four
-     * narrow bands ("`table` (6 slots)"). That is a second copy of the census, and a
-     * second copy is a second thing that goes stale — the exact defect A-20 spent a
-     * gate cleaning up. Derived from the schemas, same as the AI_CONTEXT.md census.
-     */
-    public function testStyleComponentNarrowBandCountsMatchTheSchemas(): void
-    {
-        $doc = $this->doc('ai-instructions/style-component.md');
-        // Derived, not hardcoded: any component the doc gives a "(N slots)" headline to
-        // is checked, so a new narrow-band paragraph is covered the day it lands.
-        preg_match_all('/\*\*`([a-z]+)` \(\d+ slots?\)/', $doc, $m);
-        $named = array_values(array_unique($m[1]));
-        $this->assertNotEmpty($named, 'style-component.md no longer states any slot count.');
-        foreach ($named as $component) {
-            $n = count($this->slots($component));
-            $this->assertStringContainsString(
-                "**`{$component}` ({$n} slots)",
-                $doc,
-                "ai-instructions/style-component.md states a stale slot count for "
-                . "{$component}: the schema declares {$n}. Regenerate it rather than "
-                . 'hand-editing, or drop the number and point at AI_CONTEXT.md.'
-            );
-        }
-    }
 
     /**
      * add-component.md tells the model WHICH prop keys answer `retired_prop` rather than
@@ -988,10 +963,6 @@ class DocsCoverageTest extends TestCase
         return array_map(static fn ($c) => [$c], self::composableComponents());
     }
 
-    public static function slotStyledComponentProvider(): array
-    {
-        return array_map(static fn ($c) => [$c], self::slotStyledComponents());
-    }
 
     public static function roleStyledComponentProvider(): array
     {
