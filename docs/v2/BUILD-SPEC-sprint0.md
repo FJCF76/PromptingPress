@@ -132,3 +132,127 @@ Settled as follows. This is a sub-ruling INSIDE A3's confirmed contract, not a n
 Sprint-2 custom presets inherit these semantics unchanged.
 
 Recorded context: the 2/12 figure is partly an artifact of testimonials having no button-like role; the hero/nav rebuilds are where the button presets earn their keep. That supports intersect (the wall would otherwise recur on every future component) without softening the honesty requirements above.
+
+---
+
+<!--
+  Addendum B is copied from the staged draft that was ratified, with the ruling
+  header added. Sprint 2's grid rebuild is built against it; where the
+  implementation had to choose a shape the ruling delegated, the reasoning lives
+  in the code that made it (lib/udc.php's item-tier block for the emission and
+  provenance decisions, and components/grid/schema.json's `item_roles` for the
+  declaration surface).
+-->
+
+## Addendum B — item-grain UDC (Fernando, confirmed as drafted, 2026-09-21)
+
+**Status: RULED. Confirmed AS DRAFTED — all five clauses and all six exclusions, no amendments.** Ratified by the owner on 2026-09-21, from the draft staged at #1024 on 2026-09-18 for confirmation the way Addendum A was confirmed. Gate issue #1024 is lifted by this ruling; the grid rebuild (#1101) is what implements it.
+
+### B0 — Why this exists: the measured gap
+
+The T4 site-structure inventory (#1023) read promptingpress.com live on 2026-09-18. On **4 of the 5 content pages** (`/how-it-works/`, `/for-agencies/`, `/for-consultants-implementers/`, and the blog post) exactly one card inside an otherwise light uniform grid is dark:
+
+```
+li.grid__item  style="--grid-item-bg:#14141F; --grid-item-title-color:#F2EEE5;
+                      --grid-item-text-color:#E8E2D4; --grid-item-border-color:#0A0A12"
+```
+
+Rendered, that is cards 01 and 03 light, card 02 dark — a deliberate emphasis device, and the owner's grid design language rather than an accident of authoring.
+
+v1 expressed it with `grid.items[].style`, a per-item map rendered as **inline custom properties on that card**. v2 forbids inline style emission outright (§3.4) and roles are BAND-grain, so **the v2 contract had no address for "this one card"**. A `card-featured` role does not cover it: the live need is "the SECOND card is dark", not "the first card is emphasised", and no ordinal-free role can say that.
+
+Deleting the capability is the #901 class — a capability deletion the UDC exists to end. The same reasoning added `sizing.aspect-ratio` to the engine during hero's rebuild (#986) rather than dropping the property when neither system had a home for it.
+
+Sprint 3's acceptance test is reconstructing exactly these pages.
+
+### B1 — Item-grain `udc` maps
+
+A composition item's `items[]` entry MAY carry its own `udc` map, identical in internal shape to a band's `udc` map, validated by the same engine, the same grammar, the same group taxonomy, and the same refusal codes.
+
+```json
+{"component":"grid","id":"pp-3f9a1c2e",
+ "props":{"items":[
+   {"title":"01 Scattered","text":"..."},
+   {"title":"02 Bounded","text":"...","id":"it-7b2c91d4",
+    "udc":{"card":{"background":{"fill":"#14141F"},
+                   "border":{"color":"#0A0A12"}},
+           "card-title":{"typography":{"color":"#F2EEE5"}},
+           "card-text":{"typography":{"color":"#E8E2D4"}}}},
+   {"title":"03 Evidence","text":"..."}]},
+ "udc":{"_band":{"spacing":{"padding-top":"6.25rem"}}}}
+```
+
+The roles an item map may address are the SAME roles the component declares — no second taxonomy. Which roles are item-addressable is declared per component, see B5.
+
+### B2 — Item ids, minted the way band ids are
+
+`id` on an `items[]` entry is the item's stable styling handle, and it follows `pp_udc_assign_band_ids()`'s rules exactly rather than inventing a second lifecycle:
+
+- shape `it-<hex8>`, distinct prefix from a band's `pp-<hex8>` so the two can never be confused in a selector, a message, or a test;
+- **minted on WRITE only** — a read never mutates, matching §3.1 and the existing `pp_udc_compile_band()` "MINT-ON-WRITE ONLY" rule;
+- an authored or already-minted valid id is honoured, never overwritten;
+- carried forward on full-array re-apply by **index + component match**, minted fresh on ambiguity — the band rule, one level down;
+- uniqueness is enforced **within the band**, not globally: two bands may each hold `it-…` ids without collision because the emitted selector is always band-scoped (B3). A duplicate within one band refuses at write, mirroring `duplicate_component_id`;
+- minted only for components that declare item-addressable roles (B5), so a legacy component's stored shape is not changed for no reader — the same boundary `pp_udc_assign_band_ids()` draws with `pp_udc_is_v2_component()`.
+
+Items with no `udc` map get **no id and no attribute**. Minting an id for every list entry would change stored shape for nothing and would put a meaningless attribute on every card.
+
+### B3 — Emission shape
+
+The item tier emits into the SAME band block, as an additional, more specific selector:
+
+```css
+[data-pp-band="pp-3f9a1c2e"] .grid__item            { /* band tier, role default + authored */ }
+[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"] .grid__title { /* item tier */ }
+[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"]              { /* the item root role */ }
+```
+
+The component renders `data-pp-item="<id>"` on the element the item's ROOT role maps to (`.grid__item` for grid), exactly as a band renders `data-pp-band`, and emits **no attribute at all** when the id is absent or malformed — the same guard `testimonials.php` already carries, for the same reason: an empty attribute would match every other id-less item on the page.
+
+Ranking is by ordinary specificity within the unlayered tier: the item selector carries one more attribute than the band selector, so it wins its own element without `!important` and without raising the band block's specificity. §3.4's "no `!important` ever" is unchanged.
+
+Emission order inside the band block: band role defaults, band authored, then item tier, each still narrow-first across breakpoints and states. The item tier prints last so that source order and specificity agree rather than compete.
+
+### B4 — Provenance, findings and disclosure
+
+The item tier is a **cascade tier**, so it joins the existing machinery rather than sitting beside it:
+
+- **Provenance.** `pp_udc_compile_band()` already carries `source` per declaration because I35 requires that a value that loses can be reported. The item tier adds one more `source` value (`item`), so a band value cancelled by an item value is reportable in the same shape a role default cancelling a band value already is.
+- **`udc_band_value_shadowed_by_role_default`** gains its item counterpart: an item value shadowed by a role default, and a BAND value shadowed by an ITEM value, are both disclosed. Silent cancellation at the item tier would be the exact I35 failure the band tier already guards.
+- **`udc_token_minted`** applies unchanged: a responsive item value mints a band token. Mint names extend to `<item>-<role>-<group>-<param>[-<state>]-<bp>` so two items styling the same role at the same breakpoint cannot collide on one token name.
+- **`udc_preset_groups_skipped`** (A3's intersect ruling) applies at item grain unchanged, and A3 clause 4 — "the write gate and the emitter intersect through ONE predicate" — is satisfied by using the same predicate, not a second copy.
+- **`udc_unused_band_token`** counts item references, so an item's token is not reported unused.
+- Findings carry the item locator alongside the band index, so a message names the card rather than only the band.
+
+### B5 — Generality: this is not a grid feature
+
+**Item-grain addressing is declared in the schema, and every repeater component may declare it.** The schema names which of its roles are item-addressable and which prop holds the repeater:
+
+```jsonc
+"item_roles": {
+  "prop": "items",
+  "root": "card",
+  "roles": ["card", "card-media", "card-title", "card-text", "card-bullets", "card-link"]
+}
+```
+
+The engine reads that declaration; it holds no list of component names. Candidates the same declaration serves without further engine work: **grid** (cards/steps), **testimonials** (quote cards — the #901 acceptance case's "one card different" is the same shape), **faq** (items), **logos**, **stats**, **table** (rows), and `section.panel_items` (whose v1 per-row `style` map is the second live instance of this gap).
+
+Declaring it is optional; a component that declares no `item_roles` behaves exactly as today.
+
+### B6 — Explicitly NOT included (the six exclusions, each its own future ruling)
+
+Each refuses rather than being ignored: accepted-stored-ignored is the I35 class this engine exists to close.
+
+1. **No per-item chrome.** Chrome (`nav`, `footer`) is site-grain by ruling A1, which already put per-PAGE chrome overrides out of scope; per-ITEM chrome would be two levels past that.
+2. **No per-item `_band`.** `_band` is the band's own root by definition (§3.2). An item map naming `_band` is refused, not silently ignored — an item cannot restyle its container.
+3. **No ordinal or structural selectors.** `nth-child`, `first`, `last`, `even/odd` are not addressable. An item is addressed by its minted id and nothing else, so reordering the list carries the styling with the item rather than leaving it on a position. This is the whole reason for an id rather than an index.
+4. **No nesting beyond one level.** An item inside an item is not addressable. No component ships a two-level repeater today.
+5. **No per-item presets defining new presets.** An item map may REFERENCE a preset with `_preset` (A3 semantics, intersect included); it may not define one. Presets stay site-stored per A3 and #1016.
+6. **Pseudo-elements remain deferred** — carried forward from ruling A3 unchanged, and recorded here so the two deferrals sit side by side. The live instance is `section.body_marker` / `panel_items_marker`, whose glyph is painted by `.pp-marker-list--{variant} > li::before`. In T4 the marker enums stayed structural props (the glyph is content) and the two colour slots retired with the narrowing stated in `retired_props`. Measured live exposure at the ruling: **zero**. A pseudo-element ruling would give them a home; until then the deferral is recorded rather than implied.
+
+### B7 — What this costs, stated rather than implied
+
+- **Emitted CSS grows with styled items, not with items.** Only an item carrying a `udc` map emits anything. §3.7's budget (≤2 KB typical per band) is measured per band and needs re-measuring on a band with several styled items.
+- **One more tier is one more thing a disclosure can miss.** B4 is the mitigation, and it is the clause most worth scrutinising: every finding that names a band must decide what it says about an item.
+- **`items[]` entries gain an `id` key.** Under §2's no-migration policy this costs nothing for 1.x content, which is reconstructed rather than migrated. It does mean the editor's array-sync guard must treat `id` and `udc` as preserved keys, not user content.
