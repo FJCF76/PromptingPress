@@ -19,7 +19,7 @@ Three playbooks customize the loop for common operations:
 - `playbook-revise-section.md` — Revise an existing section
 - `playbook-inspect-fix.md` — Diagnose and fix a reported issue
 
-The procedural guides in this directory (`add-page.md`, `composition.md`, `retheme.md`, etc.)
+The procedural guides in this directory (`composition.md`, `build-landing-page.md`, `retheme.md`, etc.)
 describe *what* actions are available. The operating loop governs *how* and *when* to use them.
 
 ---

@@ -1,4 +1,19 @@
-# Add a New Page Template
+# Add a New Page Template (product development)
+
+> **THIS IS NOT HOW YOU ADD A PAGE TO A SITE.**
+>
+> A site's pages are **compositions** — a JSON array of bands, created with the
+> `create_page` action and styled through each band's `udc` map. Nothing on this page is
+> involved, and you do not need a template file, a root loader, or ACF to add one.
+> Start at `ai-instructions/build-landing-page.md`, with
+> `ai-instructions/composition.md` for the format.
+>
+> This file documents a **product-development** task: adding a new PHP page template to
+> the THEME itself, which is a release-level change to the product rather than a change
+> to a site. You need it only if you are building a new kind of page the composition
+> model cannot express — which, since every band is composable and every v2 band is
+> styleable through `udc`, is rare. If you are about to reach for it to build a landing
+> page, a marketing page or any ordinary site page, you are in the wrong file.
 
 Follow these steps to add a custom page template to PromptingPress.
 
