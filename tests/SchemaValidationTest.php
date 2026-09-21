@@ -60,6 +60,113 @@ class SchemaValidationTest extends TestCase
     /**
      * Tests that the schema validation logic detects missing required props.
      */
+    /**
+     * RULE 4 IS GENERIC, proved against a component that does not exist in the
+     * shipped theme.
+     *
+     * RESTORED AT #1101 PR2 AFTER BEING DELETED IN ERROR, and the mistake is worth
+     * recording because it is the exact class that sweep was run to avoid. It was swept
+     * up with the style-slot retirement on the strength of its neighbourhood; its subject
+     * is `_pp_validate_nested_enum()`, which the retirement does not touch, and its
+     * synthetic component declares NO style slots at all. Deleting it left the #600 rule
+     * disableable with the whole suite green — caught by a review specialist that
+     * mutation-proved the gap rather than reading the diff.
+     *
+     * IT IS NOW THE ONLY END-TO-END COVERAGE OF THAT RULE, which is what made the loss
+     * silent. Every other #600 case authored `grid.items[].text_role`, the only nested
+     * enum the theme ever shipped; grid's rebuild retired it at #1101, so those cases are
+     * gone and this synthetic one is all that reaches the rule. That is recorded in
+     * tests/ObjectShapedPropWriteEnforcementTest.php as a measurement PR2 owed. This
+     * one
+     * declares a synthetic component with a differently-named nested enum on a
+     * differently-named array prop, so it fails if the rule ever learns a field name.
+     * Same fixture technique as the retired-alias test above (temp theme root +
+     * registry invalidation), for the same reason: the contract under test is about
+     * ANY schema, and asserting it against the twelve shipped ones is a weaker claim.
+     *
+     * It also covers the arm the shipped schemas cannot reach: a SECOND nested enum
+     * on the same component that declares no `strict` stays unenforced, which is what
+     * makes the declaration (not the type) the thing that arms the rule.
+     */
+    public function testTheNestedEnumRuleIsSchemaDrivenNotATextRoleBranch(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-nested-enum-fixture-' . uniqid('', true);
+        mkdir($root . '/components/rowband', 0777, true);
+        file_put_contents($root . '/components/rowband/rowband.php', '<?php // fixture');
+        file_put_contents($root . '/components/rowband/schema.json', json_encode([
+            'component' => 'rowband',
+            'props'     => [
+                'rows' => [
+                    'type' => 'array', 'required' => false, 'item_type' => 'object',
+                    'description' => 'Synthetic object-item array carrying two nested enums.',
+                    'items' => [
+                        'label' => ['type' => 'string', 'required' => false, 'description' => 'Row label.'],
+                        'tone'  => [
+                            'type' => 'enum', 'required' => false, 'strict' => true,
+                            'values' => ['calm', 'loud'], 'description' => 'Synthetic STRICT nested enum.',
+                        ],
+                        'mood'  => [
+                            'type' => 'enum', 'required' => false,
+                            'values' => ['dry', 'wet'], 'description' => 'Synthetic nested enum with NO strict.',
+                        ],
+                    ],
+                ],
+            ],
+        ]));
+
+        $previousRoot = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        try {
+            $rejected = \pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [
+                    ['label' => 'First', 'tone' => 'calm'],
+                    ['label' => 'Second', 'tone' => 'screaming'],
+                ]]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $rejected, 'the rule must reach a nested enum it has never heard of');
+            $this->assertSame('invalid_prop_value', $rejected->get_error_code());
+            $message = $rejected->get_error_message();
+            $this->assertStringContainsString('prop "rows" item 1 field "tone"', $message, 'the locator follows the schema, not a hardcoded prop name');
+            $this->assertStringContainsString('must be one of: calm, loud', $message);
+
+            // The advertised values still author cleanly.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [['tone' => 'loud']]]],
+            ]));
+
+            // The sibling enum declares no `strict`, so it is unenforced — the
+            // DECLARATION arms the rule, and the CI tripwire is what keeps a shipped
+            // schema from sitting in this state.
+            $this->assertTrue(\pp_validate_composition([
+                ['component' => 'rowband', 'props' => ['rows' => [['mood' => 'lukewarm']]]],
+            ]), 'a nested enum without `strict` stays unenforced at runtime');
+
+            // AUTHORING-PATH proof (Section 14.1) on the synthetic component too.
+            $GLOBALS['_pp_test_store'] = [
+                'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
+            ];
+            $authored = \pp_validate_action('create_page', [
+                'title'       => 'Synthetic nested enum page',
+                'composition' => [['component' => 'rowband', 'props' => ['rows' => [['tone' => 'screaming']]]]],
+            ]);
+            $this->assertInstanceOf(\WP_Error::class, $authored, 'the real write surface enforces it too');
+            $this->assertSame('invalid_prop_value', $authored->get_error_code());
+        } finally {
+            if ($previousRoot === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previousRoot;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            @unlink($root . '/components/rowband/schema.json');
+            @unlink($root . '/components/rowband/rowband.php');
+            @rmdir($root . '/components/rowband');
+            @rmdir($root . '/components');
+            @rmdir($root);
+        }
+    }
     public function testSchemaValidationDetectsMissingRequiredProp(): void
     {
         $schemaFile = $this->fixturesDir . '/components/test-schema/schema.json';
