@@ -4885,6 +4885,38 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         $declaration = pp_udc_item_roles($component);
         if ($declaration !== null) {
             foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
+                // A TOP-LEVEL KEY THIS TIER CANNOT ADDRESS IS LEDGERED, NOT STEPPED OVER.
+                //
+                // The loop below walks the DECLARED roles, so anything else in a stored
+                // item map — `_css`, `_band`, `_tokens`, a typo, a band-only role — is
+                // simply never visited. At write that is fine: each one is refused by
+                // name. But the write gate is not the only way data arrives, and on a raw
+                // meta write or restore_composition (#233) the key was accepted by
+                // nothing, refused by nothing and reported by nothing.
+                //
+                // That is the accepted-stored-ignored shape pp_udc_item_reserved_keys()'
+                // own docblock says must be refused rather than silently dropped, and the
+                // `_css` GROUP arm a few lines down already ledgers its half — so the two
+                // depths of the same exclusion disagreed about whether to say anything.
+                if ($drops !== null) {
+                    foreach ($item_map as $stored_key => $ignored_value) {
+                        $stored_key = (string) $stored_key;
+                        if (in_array($stored_key, $declaration['roles'], true)
+                            || count($drops) >= PP_UDC_MAX_EMIT_DROPS) {
+                            continue;
+                        }
+                        $drops[] = [
+                            'where'  => sprintf(
+                                'item "%s" role "%s"',
+                                _pp_udc_reflect((string) $item_id),
+                                _pp_udc_reflect($stored_key)
+                            ),
+                            'reason' => isset(pp_udc_item_reserved_keys()[$stored_key])
+                                ? pp_udc_item_reserved_keys()[$stored_key]
+                                : 'this component does not make that role settable on a single item',
+                        ];
+                    }
+                }
                 foreach ($declaration['roles'] as $role_name) {
                     $role_def = $roles[$role_name] ?? null;
                     if (!is_array($role_def)) {
@@ -7899,11 +7931,26 @@ function pp_udc_composition_findings(array $items): array {
             // Scoped to the roles the item can actually address: telling an
             // author to "set it on that role directly" is only actionable if
             // they are allowed to.
+            // BOUNDED AT THE SOURCE, for the reason the `_css` arm below states and
+            // measures: slicing the reader's output does not bound the ALLOCATION.
+            // That arm's multiplier is the property count; this one's is the ITEM
+            // count, and `items` declares no `max_items`, so the shape is the same
+            // with a different axis. Measured here at 400 styled cards: 400 findings
+            // before the bound, on a function `wp pp check page`, restore_composition
+            // and every post-write envelope all reach.
+            $item_disclosed = 0;
             foreach ($all_item_maps as $item_id => $item_map) {
+                if ($item_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    break;
+                }
                 $cancelled = _pp_udc_inherited_values_cancelled_by_role_defaults(
                     $item_map, $component, $item_declaration['root'], $item_declaration['roles']
                 );
                 foreach ($cancelled as $property => $names) {
+                    if ($item_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break;
+                    }
+                    $item_disclosed++;
                     $findings[] = [
                         'type'    => 'udc_item_value_shadowed_by_role_default',
                         'message' => sprintf(
@@ -8176,8 +8223,9 @@ function pp_udc_composition_findings(array $items): array {
         // not contain — so without this every item-minted token would be
         // reported `udc_unused_band_token` on the very write that created it,
         // telling an author their own value "has no effect" while it paints.
-        $referenced = _pp_udc_referenced_token_names($item['udc']);
-        foreach (pp_udc_item_maps($item) as $item_map) {
+        $referenced      = _pp_udc_referenced_token_names($item['udc']);
+        $token_item_maps = pp_udc_item_maps($item);
+        foreach ($token_item_maps as $item_map) {
             foreach (_pp_udc_referenced_token_names($item_map) as $ref_name => $ignored_ref) {
                 $referenced[$ref_name] = true;
             }
@@ -8199,7 +8247,12 @@ function pp_udc_composition_findings(array $items): array {
             if (!is_scalar($literal) || !_pp_udc_is_mint_shaped_name((string) $name)) {
                 continue;
             }
-            if (!_pp_udc_name_is_the_engines_own_mint((string) $name, $item['udc'], pp_udc_item_maps($item))) {
+            // $token_item_maps is HOISTED (it is the same value `$referenced` was built
+            // from above). Rebuilt inside this loop it was O(N^2) array construction per
+            // band: pp_udc_item_maps() walks every entry of the repeater, and the item
+            // tier is precisely what makes the token count grow with the item count —
+            // B4 mints one band token per responsive item value, so T scales with N.
+            if (!_pp_udc_name_is_the_engines_own_mint((string) $name, $item['udc'], $token_item_maps)) {
                 continue;
             }
             $findings[] = [

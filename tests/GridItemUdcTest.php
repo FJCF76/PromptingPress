@@ -1023,6 +1023,159 @@ class GridItemUdcTest extends TestCase
     }
 
     /**
+     * A DANGLING ITEM BACKGROUND IMAGE REPORTS ON THE SAME CHANNEL A BAND'S DOES.
+     *
+     * IT HAD NO CHANNEL AT ALL, which is a sharper failure than it sounds.
+     * `_pp_udc_place()` deliberately suppresses its own drop-ledger entry for an
+     * `attachment_id` value, on the stated premise that the readiness check owns the
+     * report — and that check walked the BAND map only. So an item's background image
+     * whose attachment was deleted after a valid write vanished at render with no ledger
+     * row, no advisory and no finding.
+     *
+     * The carve-out's own comment names that outcome in as many words: a carve-out whose
+     * reason has lapsed is not a carve-out, it is a drop on no channel at all.
+     *
+     * `background` is permitted on eight of grid's ten item-settable roles, so this is a
+     * real surface rather than a theoretical one. Measured before the fix: the band-grain
+     * control reported, the item-grain one reported nothing.
+     */
+    public function testADanglingItemBackgroundImageIsReportedWithItsCard(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][42]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][42] = true;
+
+        $post_id = $this->newPage('dangling item image');
+        $this->assertTrue($this->write($post_id, [[
+            'component' => 'grid',
+            'props'     => ['title' => 'T', 'items' => [
+                ['title' => 'a', 'udc' => ['card' => ['background' => ['image' => 42]]]],
+            ]],
+        ]])['ok'], 'a LIVE attachment must be accepted, or the deletion below proves nothing');
+
+        // Deleted AFTER a valid write — the only way to reach this state, since the write
+        // gate validates the id against the Media Library.
+        unset(
+            $GLOBALS['_pp_test_store']['attachment_is_image'][42],
+            $GLOBALS['_pp_test_store']['posts'][42]
+        );
+
+        $rows = [];
+        foreach (pp_check_udc_background_images($post_id) as $check) {
+            if (($check['check'] ?? '') === 'udc_background_image') {
+                $rows[] = (string) ($check['message'] ?? '');
+            }
+        }
+        $this->assertCount(1, $rows, 'the item-grain dangling image must reach the advisory');
+        $this->assertMatchesRegularExpression('/item "it-[0-9a-f]{8}"/', $rows[0], 'and it names the CARD');
+        $this->assertStringContainsString('role "card"', $rows[0]);
+        $this->assertStringContainsString('attachment 42', $rows[0]);
+    }
+
+    /**
+     * THE ITEM DISCLOSURES ARE BOUNDED AT THE SOURCE, NOT AT THE READER.
+     *
+     * The sibling `_css` disclosure caps itself and records why: slicing the reader's
+     * output does not bound the ALLOCATION, and this function is reached by
+     * `wp pp check page`, `restore_composition` and every post-write envelope — without
+     * the write path's pre-engine size gate in front of them.
+     *
+     * The item arm reintroduced that shape with a different multiplier: the ITEM count
+     * rather than the property count, and `items` declares no `max_items`. Measured at
+     * 400 styled cards: 400 findings before the bound.
+     */
+    public function testTheItemShadowingDisclosureIsBoundedByTheItemCount(): void
+    {
+        $items = [];
+        for ($i = 0; $i < 400; $i++) {
+            $items[] = [
+                'title' => "c{$i}",
+                'id'    => sprintf('it-%08x', $i),
+                // Darken the card and set the ink on the ROOT — the five-write trap, so
+                // every one of the 400 entries produces a finding.
+                'udc'   => ['card' => [
+                    'background' => ['fill' => '#14141F'],
+                    'typography' => ['color' => '#F2EEE5'],
+                ]],
+            ];
+        }
+
+        $findings = pp_udc_composition_findings([[
+            'component' => 'grid',
+            'id'        => 'pp-11112222',
+            'props'     => ['items' => $items],
+        ]]);
+
+        $shadow = 0;
+        foreach ($findings as $finding) {
+            if ($finding['type'] === 'udc_item_value_shadowed_by_role_default') {
+                $shadow++;
+            }
+        }
+        $this->assertGreaterThan(0, $shadow, 'the disclosure must still fire, or this bounds nothing');
+        $this->assertLessThanOrEqual(
+            PP_UDC_MAX_EMIT_DROPS,
+            $shadow,
+            'the item axis must be bounded at the source, exactly as the `_css` axis is'
+        );
+    }
+
+    /**
+     * A STORED ITEM-MAP KEY THIS TIER CANNOT ADDRESS IS LEDGERED, NOT STEPPED OVER.
+     *
+     * The compiler walks the DECLARED roles, so anything else in a stored item map is
+     * never visited. At write that is fine — each key is refused by name. But the write
+     * gate is not the only way data arrives, and on a raw meta write or
+     * `restore_composition` (#233) these keys were accepted by nothing, refused by
+     * nothing and reported by nothing.
+     *
+     * The `_css` GROUP arm already ledgered its half, so the two depths of the SAME
+     * exclusion disagreed about whether to say anything at all.
+     */
+    public function testStoredItemMapKeysThisTierCannotAddressAreLedgered(): void
+    {
+        $band = [
+            'component' => 'grid',
+            'id'        => 'pp-11112222',
+            'props'     => ['items' => [
+                ['title' => 'a', 'id' => 'it-7b2c91d4', 'udc' => [
+                    PP_UDC_CSS_KEY => ['color' => 'red'],          // exclusion 7, role depth
+                    '_band'        => ['background' => ['fill' => '#000000']], // exclusion 2
+                    'heading'      => ['typography' => ['color' => '#000000']], // band-only role
+                    'nosuchrole'   => ['x' => 1],                   // not a role at all
+                    'card'         => ['background' => ['fill' => '#14141F']], // the valid one
+                ]],
+            ]],
+        ];
+
+        $drops = [];
+        $css   = pp_udc_compile_band($band, 'authored', $drops);
+
+        $where = [];
+        foreach ($drops as $drop) {
+            $where[] = $drop['where'];
+        }
+        $this->assertCount(4, $drops, 'every unaddressable stored key must be ledgered');
+        foreach (['_css', '_band', 'heading', 'nosuchrole'] as $key) {
+            $this->assertStringContainsString(
+                'role "' . $key . '"',
+                implode(' | ', $where),
+                "the stored key `{$key}` reached no channel at all"
+            );
+        }
+        foreach ($where as $locator) {
+            $this->assertStringContainsString('it-7b2c91d4', $locator, 'each drop names the card');
+        }
+
+        // AND THE VALID ROLE STILL EMITTED — a ledger that also suppressed the good half
+        // would be a worse cure than the disease.
+        $emitted = '';
+        foreach ($css['blocks'] as $block) {
+            $emitted .= implode(',', array_keys($block['decls'] ?? []));
+        }
+        $this->assertStringContainsString('background', $emitted);
+    }
+
+    /**
      * A RESPONSIVE VALUE INSIDE A STATE BLOCK MINTS WITH BOTH SEGMENTS.
      *
      * The item pass has two arms and only the flat one was exercised. This is the other:

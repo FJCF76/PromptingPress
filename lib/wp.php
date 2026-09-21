@@ -2487,18 +2487,49 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
                 if (count($dangling) >= $budget) {
                     break;
                 }
-                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+                if (!is_array($item)) {
                     continue;
                 }
                 $component = isset($item['component']) && is_scalar($item['component'])
                     ? (string) $item['component'] : '?';
-                foreach (_pp_udc_dangling_background_images($item['udc']) as $row) {
+                $band_udc = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
+                foreach (_pp_udc_dangling_background_images($band_udc) as $row) {
                     $dangling[] = _pp_udc_background_image_row(
                         'band ' . ((int) $i + 1) . ' ("%s")',
                         $component,
                         $row['role'],
                         $row['id']
                     );
+                }
+                // THE ITEM TIER GETS THE SAME CHANNEL, because otherwise it had NONE
+                // (#1101, Addendum B). `_pp_udc_place()` deliberately suppresses its own
+                // drop-ledger entry for an `attachment_id` value on the premise that THIS
+                // check owns the report — and this check walked the band map only, so an
+                // item's background image whose attachment was deleted after a valid
+                // write vanished at render with no ledger row, no advisory and no finding.
+                //
+                // That is the shape the carve-out's own comment calls unacceptable in as
+                // many words: a carve-out whose reason has lapsed is not a carve-out, it
+                // is a drop on no channel at all. `background` is permitted on eight of
+                // grid's ten item-settable roles, so the surface is real rather than
+                // theoretical.
+                //
+                // The band walk above is unchanged, and the entry-guard moved up one line
+                // so a band with NO map of its own still reaches this — the same early
+                // exit pp_udc_normalize_band() and pp_udc_composition_findings() both had
+                // to correct, for the same reason: the owner's live design styles CARDS
+                // and leaves the band alone.
+                if (function_exists('pp_udc_item_maps')) {
+                    foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
+                        foreach (_pp_udc_dangling_background_images($item_map) as $row) {
+                            $dangling[] = _pp_udc_background_image_row(
+                                'band ' . ((int) $i + 1) . ' ("%s") item "' . _pp_udc_reflect((string) $item_id) . '"',
+                                $component,
+                                $row['role'],
+                                $row['id']
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -4834,6 +4865,22 @@ function pp_composition_content_hash(array $composition): string {
         // would hash ids it never wrote and false-conflict against itself on
         // every write — the precise failure the band-id strip above exists to
         // prevent, reached through `props.items[].id` instead of `item.id`.
+        //
+        // WIDER THAN THE DECLARED ITEM GRAIN, AND THAT IS A CONSEQUENCE RATHER THAN A
+        // DECISION — stated here so the next reader does not assume it is scoped.
+        //
+        // This walks EVERY array-shaped prop, not just the one `item_roles` names, so an
+        // entry-level `id` on any repeater is stripped when it happens to match
+        // `it-<hex8>`. No shipped or fixture schema declares an entry-level `id` field
+        // (checked across components/*/schema.json and the test fixtures), and the
+        // validated write path only accepts the key where the component declares item
+        // grain — so the only way in is a raw `_pp_composition` meta write or stored
+        // data written before this tier. On that data a write changing ONLY such a field
+        // would not move the digest, so a concurrent editor's CAS check would not fire.
+        //
+        // Left wide on purpose: narrowing it means calling pp_udc_item_roles() here, and
+        // the paragraph below is exactly the registry dependency this function declines
+        // to grow on the write path.
         //
         // IDENTIFIED BY THE ENGINE'S OWN SHAPE, not by consulting the registry.
         // This function has no component-registry dependency and should not
