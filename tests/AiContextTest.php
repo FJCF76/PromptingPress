@@ -476,6 +476,177 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * THE PROMPT FITS ITS BYTE BUDGET, measured on an empty store (#1087).
+     *
+     * Nothing measured this before, so every paragraph added to the prompt was free at
+     * authoring time and permanent at runtime — re-sent on every conversation turn, uncached,
+     * on the operator's own API key.
+     *
+     * THE STORE IS SEEDED DELIBERATELY. pp_ai_system_prompt() enumerates pages, menus and
+     * media, so without a seed this both measures somebody's fixtures and emits PHP warnings
+     * into the suite — the trap DocsCoverageTest records in those words. An empty store is
+     * also the only figure that is a property of the CODE rather than of content.
+     *
+     * The failure message reports the margin, because "you are 40 bytes over" and "you are
+     * 4,000 bytes over" call for completely different responses.
+     */
+    public function testTheAssembledPromptFitsItsByteBudget(): void
+    {
+        $GLOBALS['_pp_test_store'] = [
+            'post_meta' => [],
+            'posts'     => [],
+            'options'   => [],
+            'next_id'   => 100,
+        ];
+
+        $bytes  = strlen(pp_ai_system_prompt());
+        $margin = PP_AI_PROMPT_BUDGET - $bytes;
+
+        $this->assertLessThanOrEqual(
+            PP_AI_PROMPT_BUDGET,
+            $bytes,
+            sprintf(
+                "the system prompt is %d bytes on an empty site, %d OVER the %d-byte budget.\n"
+                . "This string is re-sent on every conversation turn with no caching, so growth "
+                . "is not free.\nEither reclaim the bytes (a derived roster is usually smaller "
+                . "than the hand-written one it replaces, and a block gated on a registry fact "
+                . "deletes itself) or raise PP_AI_PROMPT_BUDGET and write down why in its "
+                . 'docblock.',
+                $bytes,
+                -$margin,
+                PP_AI_PROMPT_BUDGET
+            )
+        );
+
+        // Fail-closed the other way: a prompt that collapsed to a stub would satisfy a
+        // ceiling trivially. This is not a second budget, it is a liveness check.
+        $this->assertGreaterThan(
+            60000,
+            $bytes,
+            'the prompt collapsed — a ceiling is satisfied by an empty string, so this floor '
+            . 'is what stops a broken assembly reading as a budget win'
+        );
+    }
+
+    /**
+     * THE CHROME EXAMPLE THE MODEL IS INVITED TO COPY MEETS THE CONTRAST FLOOR (#1087).
+     *
+     * It did not. The example set a `#101828` header fill and then put `@color-accent`
+     * (#3157f4) on the current-page link at rest and on two hover states — 3.21:1 against
+     * its own fill, under the 4.5:1 AA floor, and the same ratio #1059 was filed at. The rest
+     * states passed at 16.7:1, so it LOOKED right; only the accent states failed.
+     *
+     * Computed from base.css rather than hardcoded, so a retuned token cannot leave this
+     * asserting a ratio the theme no longer ships.
+     */
+    public function testTheChromeExampleAccentClearsAaOnItsOwnFill(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('"fill": "#101828"', $prompt, 'the example fill');
+
+        $tokens = \pp_design_tokens();
+        $accent = $tokens['--color-accent']['value'] ?? null;
+        $tuned  = $tokens['--color-accent-on-inverted']['value'] ?? null;
+        $this->assertIsString($accent);
+        $this->assertIsString($tuned, 'the tuned token must exist for the fix to be available');
+
+        $this->assertLessThan(
+            4.5,
+            self::contrast($accent, '#101828'),
+            'premise check: the plain accent must still FAIL on that fill, or this test is '
+            . 'guarding nothing'
+        );
+        $this->assertGreaterThanOrEqual(
+            4.5,
+            self::contrast($tuned, '#101828'),
+            'the tuned token must actually clear AA there'
+        );
+
+        // The example must not put the plain accent anywhere in the nav block.
+        $start = strpos($prompt, 'Example: `{"nav"');
+        $this->assertNotFalse($start);
+        $block = substr($prompt, $start, 420);
+        $this->assertStringNotContainsString(
+            '"@color-accent"',
+            $block,
+            'the chrome example must not put the plain accent on a dark header — it measures '
+            . round(self::contrast($accent, '#101828'), 2) . ':1 there'
+        );
+        $this->assertStringContainsString('@color-accent-on-inverted', $block);
+
+        // AND IT MUST BE WRITABLE. An `@name` that resolves to no registered token is
+        // REFUSED at write, so a contrast 'fix' that reached for a token the theme does
+        // not ship would have turned a legible example into an unwritable one. Run the
+        // real validator rather than trusting the token census.
+        $this->assertNull(
+            \pp_udc_validate_map(
+                ['link-current' => ['typography' => ['color' => '@color-accent-on-inverted']]],
+                'nav'
+            ),
+            'the token the example now uses must be accepted by the write path'
+        );
+    }
+
+    /** WCAG relative-contrast, so the assertions above are measured rather than asserted. */
+    private static function contrast(string $a, string $b): float
+    {
+        $lum = static function (string $hex): float {
+            $hex = ltrim($hex, '#');
+            $out = 0.0;
+            foreach ([[0, 0.2126], [2, 0.7152], [4, 0.0722]] as [$offset, $weight]) {
+                $channel = hexdec(substr($hex, $offset, 2)) / 255;
+                $channel = $channel <= 0.03928 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+                $out += $channel * $weight;
+            }
+            return $out;
+        };
+        $one = $lum($a);
+        $two = $lum($b);
+        return $one > $two ? ($one + 0.05) / ($two + 0.05) : ($two + 0.05) / ($one + 0.05);
+    }
+
+    /**
+     * THE CHROME OWN-INK ROSTER IS DERIVED AND COMPLETE (#1087).
+     *
+     * The claim it replaces was "THE ONE PAIRING THAT IS STILL MANDATORY", naming a single
+     * role — while eleven chrome roles declare their own colour, so a background change
+     * reaches none of them. A count whose roster names one member is the #1045 shape, and it
+     * was in the runtime prompt.
+     */
+    public function testEveryChromeRoleWithItsOwnInkIsNamedInThePrompt(): void
+    {
+        $prompt  = pp_ai_system_prompt();
+        $summary = \pp_udc_chrome_own_ink_summary();
+        $this->assertStringContainsString($summary, $prompt, 'the derived roster must reach the prompt');
+
+        $counted = 0;
+        foreach (\pp_udc_chrome_names() as $component) {
+            foreach (\pp_udc_component_roles($component) as $role => $definition) {
+                $typography = $definition['defaults']['typography'] ?? [];
+                $owns = array_key_exists('color', $typography)
+                    || isset($typography[':hover']['color'])
+                    || isset($typography[':focus-visible']['color'])
+                    || isset($typography[':active']['color']);
+                if ($owns) {
+                    $counted++;
+                    $this->assertMatchesRegularExpression(
+                        '/\b' . preg_quote($role, '/') . '\b/',
+                        $summary,
+                        "{$component}.{$role} declares its own ink but the roster omits it, so an "
+                        . 'author darkening chrome is never told to re-colour it'
+                    );
+                }
+            }
+        }
+        $this->assertGreaterThan(8, $counted, 'the own-ink sweep found almost nothing');
+        $this->assertStringNotContainsString(
+            'THE ONE PAIRING THAT IS STILL MANDATORY',
+            $prompt,
+            'the false one-member count must not come back'
+        );
+    }
+
+    /**
      * THE `length-or-none` SLOT GRAMMAR IS NOT TAUGHT WHILE NOTHING CARRIES IT (#1087).
      *
      * This replaces the #579/#578 pin, and the reversal is deliberate and ruled. That pin

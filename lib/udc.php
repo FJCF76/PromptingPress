@@ -6484,6 +6484,55 @@ function pp_udc_derived_descendant_pairs(): array {
 }
 
 /**
+ * The chrome roles that declare their OWN ink, grouped by component (#1087).
+ *
+ * THE CLAIM THIS REPLACES WAS FALSE, and measurably so. The chrome paragraph said "THE ONE
+ * PAIRING THAT IS STILL MANDATORY" and named a single role — while eleven chrome roles
+ * declare their own `typography.color`, so a background change reaches NONE of them. On the
+ * prompt's own worked example fill (#101828) the footer's five muted-ink roles measure
+ * 3.08:1, under the 4.5:1 AA floor. A count whose roster names one member is the #1045
+ * shape exactly, and it was in the runtime prompt.
+ *
+ * DERIVED, so the answer is a fact about the schemas. A rebuild that adds a text role with
+ * a default colour adds it here on the day it lands.
+ *
+ * SCOPED TO CHROME on purpose: a band's text roles are covered by the dark-band paragraph,
+ * which already tells an author to colour every text role. Chrome is the surface where the
+ * prompt asserted the opposite.
+ */
+function pp_udc_chrome_own_ink_summary(): string {
+    $lines = [];
+    foreach (pp_udc_chrome_names() as $component) {
+        $named = [];
+        foreach (pp_udc_component_roles($component) as $role => $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+            $typography = $definition['defaults']['typography'] ?? [];
+            if (!is_array($typography)) {
+                continue;
+            }
+            // A resting colour OR a state colour: either one is ink the role owns and a
+            // background change will not move.
+            $has_rest  = array_key_exists('color', $typography);
+            $has_state = false;
+            foreach ([':hover', ':focus-visible', ':active'] as $state) {
+                if (isset($typography[$state]['color'])) {
+                    $has_state = true;
+                }
+            }
+            if ($has_rest || $has_state) {
+                $named[] = $role;
+            }
+        }
+        if ($named !== []) {
+            $lines[] = $component . ': ' . implode(', ', $named);
+        }
+    }
+    return implode('; ', $lines);
+}
+
+/**
  * One obligation kind rendered as prompt prose, or '' when nothing is declared (#1087).
  *
  * THE EMPTY ANSWER IS A REAL ANSWER. Returning '' lets the caller suppress the roster
