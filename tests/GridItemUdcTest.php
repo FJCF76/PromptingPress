@@ -546,6 +546,11 @@ class GridItemUdcTest extends TestCase
         $this->assertFalse($result['ok'], 'an item map on a prop patch must be validated, not merely stored');
         $this->assertSame('invalid_prop_value', $result['error_code']);
         $this->assertStringContainsString('@nosuchtoken', $result['error']);
+        $this->assertStringContainsString(
+            'item 1',
+            $result['error'],
+            'and the refusal names the card, through the real surface as well as the unit one'
+        );
     }
 
     /**
@@ -770,6 +775,22 @@ class GridItemUdcTest extends TestCase
         $this->assertSame('invalid_prop_value', $dangling->get_error_code());
         $this->assertStringContainsString('not a registered design token', $dangling->get_error_message());
 
+        // AND IT NAMES THE CARD (B4: findings carry the item locator beside the band
+        // index). This is the arm that lost it: `pp_udc_validate_item_map()` writes its
+        // OWN refusals with the locator, but DELEGATES group and value checking, and the
+        // delegated validator opened with its default `Component "x" role "y"` preamble.
+        //
+        // Measured before the fix, on a three-card band: a bad token inside ONE card
+        // produced a message byte-identical to the same mistake on the BAND, so an
+        // operator could not tell which grain was wrong, let alone which card. The most
+        // common item-grain refusal was the one that said the least.
+        $this->assertStringContainsString(
+            'item 1',
+            $dangling->get_error_message(),
+            'the delegated group validator must carry the item locator, or the most common '
+            . 'item refusal is indistinguishable from a band refusal'
+        );
+
         // THE SAME REFERENCE RESOLVES when the BAND declares the token — which is where an
         // item's tokens live, and the asymmetry this test exists to pin.
         $this->assertNull(
@@ -936,6 +957,113 @@ class GridItemUdcTest extends TestCase
         // the only element the band and its items share.
         $css = pp_udc_band_css($stored);
         $this->assertStringContainsString('--pp-' . $ids[0] . '-card-background-fill-d:#111111;', $css);
+    }
+
+    /**
+     * STORED BYTES NO WRITE GATE SAW ARE LEDGERED, NOT SILENTLY DROPPED, AT ITEM GRAIN.
+     *
+     * The emitter refuses `_css` and an unpermitted group AGAIN, after the write gate has
+     * already refused them, and that second refusal is not redundant: the write gate is
+     * not the only way data arrives. A raw meta write, a composition written before this
+     * tier existed, and `restore_composition` (#233) all reach the compiler directly. A
+     * gate that runs only at write is a gate the emitter disagrees with.
+     *
+     * THE LEDGER IS THE WHOLE POINT ON THAT PATH. On stored bytes there is no write
+     * envelope to carry a refusal, so the emit-drop advisory is the ONLY signal an
+     * operator gets — which makes it exactly the arm that must not be silent, and it had
+     * no test. Each entry names the CARD as well as the role, because a band with ten
+     * cards and one bad stored map is otherwise a hunt.
+     */
+    public function testStoredItemValuesTheEmitterRefusesAreLedgeredWithTheirCard(): void
+    {
+        $band = [
+            'component' => 'grid',
+            'id'        => 'pp-11112222',
+            'props'     => ['items' => [
+                ['title' => '02', 'id' => 'it-7b2c91d4', 'udc' => [
+                    // Exclusion 7, arriving as a GROUP inside a permitted role.
+                    'card'       => [PP_UDC_CSS_KEY => ['object-fit' => 'contain']],
+                    // A real group the role does not permit.
+                    'card-title' => ['layout' => ['columns' => '2']],
+                    // A group that is not in the vocabulary at all.
+                    'card-text'  => ['nosuchgroup' => ['x' => 'y']],
+                ]],
+            ]],
+        ];
+
+        $drops = [];
+        $css   = pp_udc_compile_band($band, 'authored', $drops);
+
+        $this->assertCount(3, $drops, 'every refused item declaration must reach the ledger');
+        $reasons = [];
+        foreach ($drops as $drop) {
+            $this->assertStringContainsString(
+                'it-7b2c91d4',
+                $drop['where'],
+                'a drop that does not name the card sends an operator hunting through the band'
+            );
+            $reasons[] = $drop['reason'];
+        }
+        $this->assertContains('raw CSS is not available on a single item', $reasons);
+        $this->assertContains('there is no such group in the design vocabulary', $reasons);
+        $this->assertStringContainsString(
+            'the write gate refuses it',
+            implode(' | ', $reasons),
+            'the unpermitted-group drop must say the two halves agree'
+        );
+
+        // AND NOTHING PAINTED. A ledger entry beside an emitted declaration would be the
+        // worst of both: an operator warned about a value that is on the page anyway.
+        $emitted = '';
+        foreach ($css['blocks'] as $block) {
+            $emitted .= implode(',', array_keys($block['decls'] ?? []));
+        }
+        $this->assertStringNotContainsString('object-fit', $emitted);
+        $this->assertStringNotContainsString('grid-template-columns', $emitted);
+    }
+
+    /**
+     * A RESPONSIVE VALUE INSIDE A STATE BLOCK MINTS WITH BOTH SEGMENTS.
+     *
+     * The item pass has two arms and only the flat one was exercised. This is the other:
+     * a per-breakpoint value written inside `:hover`, which is the shape MOST likely to
+     * collide, because it is the one carrying the most name segments. If the item segment
+     * were dropped from a state-scoped mint, two cards hovering the same role at the same
+     * breakpoint would produce one name for two literals, and the collision guard would
+     * leave the second value unminted — painting correctly, for a reason nobody could
+     * explain from the stored data.
+     */
+    public function testAResponsiveValueInsideAStateBlockMintsPerItemAndPerState(): void
+    {
+        $band = pp_udc_normalize_band([
+            'component' => 'grid',
+            'id'        => 'pp-11112222',
+            'props'     => ['items' => [
+                ['title' => 'a', 'id' => 'it-11111111', 'udc' => [
+                    'card-link' => ['typography' => [':hover' => ['color' => ['d' => '#111111', 'p' => '#222222']]]],
+                ]],
+                ['title' => 'b', 'id' => 'it-22222222', 'udc' => [
+                    'card-link' => ['typography' => [':hover' => ['color' => ['d' => '#333333', 'p' => '#444444']]]],
+                ]],
+            ]],
+        ]);
+
+        $tokens = $band['udc']['_tokens'] ?? [];
+        foreach (['it-11111111', 'it-22222222'] as $item_id) {
+            foreach (['d', 'p'] as $bp) {
+                $this->assertArrayHasKey(
+                    $item_id . '-card-link-typography-color-hover-' . $bp,
+                    $tokens,
+                    'the mint name must carry BOTH the item segment and the state segment'
+                );
+            }
+        }
+        $this->assertCount(4, $tokens, 'two cards x two breakpoints is four distinct names');
+        $this->assertSame(
+            ['#111111', '#222222', '#333333', '#444444'],
+            array_values(array_unique(array_values($tokens))),
+            'all four literals survive — a name clash would have left one card unminted'
+        );
     }
 
     /**

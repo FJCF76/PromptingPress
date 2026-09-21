@@ -2981,8 +2981,32 @@ function pp_udc_validate_item_map(
                     $reserved[PP_UDC_CSS_KEY]
                 ));
             }
+            // THE ITEM LOCATOR RIDES THE `$subject` PARAMETER, which already exists for
+            // exactly this reason (#1016 added it so a PRESET could stop claiming a
+            // component and a role it was never authored against).
+            //
+            // Without it the delegated group validator opened every message with its
+            // default `Component "%s" role "%s"` — so a bad token inside ONE card
+            // produced a message BYTE-IDENTICAL to the same mistake on the band:
+            //
+            //   Component "grid" role "card" group "background" parameter "fill"
+            //   references "@nope", which is not a registered design token.
+            //
+            // Measured on a three-card band: an operator could not tell whether the
+            // problem was the band's map or a card's, let alone WHICH card. B4 requires
+            // findings to carry the item locator beside the band index, and the arms
+            // this function writes ITSELF already did — only the delegated ones dropped
+            // it, which is the worst half to lose because it is the common case.
             $error = _pp_udc_validate_group_map(
-                $component, $role_name, (string) $group_name, $group_map, $permitted, $band_tokens, '', true
+                $component,
+                $role_name,
+                (string) $group_name,
+                $group_map,
+                $permitted,
+                $band_tokens,
+                '',
+                true,
+                sprintf('Component "%s" %s role "%s"', $component, $where, $role_name)
             );
             if ($error !== null) {
                 return $error;
