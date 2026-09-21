@@ -6382,6 +6382,108 @@ function pp_udc_obligation_groups(): array {
 }
 
 /**
+ * The descendant pairs a declaration SHOULD exist for — a one-directional net (#1087).
+ *
+ * WHAT IT IS AND WHAT IT IS NOT. This is a safety net over the `obligations` declarations,
+ * not a source of them. It answers "is there a pair here that obviously needs a
+ * declaration and has none?" and it CANNOT answer the reverse, because the declarations
+ * cover cases no selector analysis can see. Treating its output as the complete roster
+ * would be the drift this gate exists to end, arriving through a derivation instead of
+ * through prose.
+ *
+ * WHY ONE-DIRECTIONAL, stated with the evidence rather than as a caveat. Two shipped
+ * obligations are INVISIBLE here and both were found by probing, not by reading selectors:
+ *
+ *   footer.social -> social-link   The markup (components/footer/footer.php:148-152) nests
+ *                                  `<a class="site-footer__social-link">` inside
+ *                                  `<ul class="site-footer__social">`, but the two
+ *                                  SELECTORS express no containment at all. Nothing
+ *                                  derivable from selectors can know the anchors are in
+ *                                  there, and `social-link` does declare its own muted
+ *                                  colour and accent hover.
+ *   faq.item -> question-open      `.faq__item[open] > .faq__question` does not begin with
+ *                                  `.faq__item` followed by a combinator, so a
+ *                                  prefix-shaped predicate cannot see the containment.
+ *
+ * THE ANCHOR ARM IS NOT OPTIONAL, and this is the correction that matters most. A net keyed
+ * only on "the descendant declares a typography default" finds SIX of the thirteen shipped
+ * descendant pairs — all six of them chrome — and misses every pair #1069 was actually filed
+ * about. The six composable `*-link` roles declare NO defaults, deliberately, so that an
+ * unauthored link keeps the site's normal anchor treatment; their obligation comes from
+ * base.css giving every `<a>` a DIRECT colour rule, which beats an inherited value whatever
+ * the layer. So a descendant whose last compound is `a` counts whether or not it declares a
+ * default.
+ *
+ * @return array<int, array{component: string, role: string, with: string}>
+ */
+function _pp_udc_is_derivable_descendant(string $outer_selector, array $inner_def): bool {
+    $inner_selector = trim((string) ($inner_def['selector'] ?? ''));
+    if ($inner_selector === '' || $outer_selector === '') {
+        return false;
+    }
+
+    // CONTAINMENT: the inner selector continues the outer one ACROSS A COMBINATOR.
+    //
+    // Deliberately NOT a regex. Escaping the outer selector into one would need PHP's
+    // pattern-escaping helper, whose NAME carries a substring this file is forbidden to
+    // contain — UdcEngineTest asserts the engine names no component or role, and it tests
+    // that by substring over comment-stripped source. A plain prefix test is also cheaper
+    // and says the rule more directly.
+    //
+    // The boundary character is the whole point: it is what stops `.faq__heading` being read
+    // as containing `.faq__heading-accent`. Those select DIFFERENT elements, and a bare
+    // substring test reports them as a pair — the false-positive class this repo has already
+    // paid for once, in a guard whose trigger matched ordinary prose and passed 46% of its
+    // subjects by accident.
+    if (!str_starts_with($inner_selector, $outer_selector)) {
+        return false;
+    }
+    $boundary = substr($inner_selector, strlen($outer_selector), 1);
+    if ($boundary === '' || !in_array($boundary, [' ', "\t", '>', '+', '~'], true)) {
+        return false;
+    }
+
+    // Arm 1 — the inner role declares its own typography, so a value inherited from the
+    // outer role loses to it.
+    if (!empty($inner_def['defaults']['typography']) && is_array($inner_def['defaults']['typography'])) {
+        return true;
+    }
+
+    // Arm 2 — the inner role targets an ANCHOR, which base.css gives a direct colour rule
+    // whatever the role declares. WITHOUT THIS ARM THE NET SEES 6 OF 13 PAIRS, all chrome,
+    // and misses every pair #1069 was filed about. The `(?:^|[\s>+~])` prefix is what keeps
+    // it from reading a class that merely ends in the letter `a` (`.media`) as an anchor.
+    return (bool) preg_match('/(?:^|[\s>+~])a$/', $inner_selector);
+}
+
+function pp_udc_derived_descendant_pairs(): array {
+    $pairs = [];
+    foreach (array_keys(pp_get_registered_components()) as $component) {
+        $roles = pp_udc_component_roles($component);
+        foreach ($roles as $outer => $outer_def) {
+            $outer_selector = is_array($outer_def) ? (string) ($outer_def['selector'] ?? '') : '';
+            if ($outer_selector === '' || $outer === '_band') {
+                continue;
+            }
+            foreach ($roles as $inner => $inner_def) {
+                if ($inner === $outer || !is_array($inner_def)) {
+                    continue;
+                }
+                $inner_selector = (string) ($inner_def['selector'] ?? '');
+                if ($inner_selector === '') {
+                    continue;
+                }
+                if (!_pp_udc_is_derivable_descendant($outer_selector, $inner_def)) {
+                    continue;
+                }
+                $pairs[] = ['component' => $component, 'role' => $outer, 'with' => $inner];
+            }
+        }
+    }
+    return $pairs;
+}
+
+/**
  * One obligation kind rendered as prompt prose, or '' when nothing is declared (#1087).
  *
  * THE EMPTY ANSWER IS A REAL ANSWER. Returning '' lets the caller suppress the roster

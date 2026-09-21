@@ -6311,6 +6311,160 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
+     * THE NET: every descendant pair the engine CAN see is declared (#1087).
+     *
+     * This is the mechanical half of the no-drift guarantee. `obligations` being required
+     * stops a new role answering by omission, but it does not stop the answer being WRONG —
+     * `[]` on a role that genuinely owes an author a pairing is a silent, canonical lie. For
+     * the one obligation shape a derivation can see, this closes that hole: add a rich-text
+     * container with a link role, or a chrome container whose inner role declares its own
+     * typography, and this FAILS until the obligation is declared.
+     *
+     * IT FAILS RATHER THAN ADVISES, deliberately. An advisory would be read once and then
+     * live in the same place the stale rosters lived.
+     *
+     * ONE DIRECTION ONLY, and the docblock on pp_udc_derived_descendant_pairs() carries the
+     * evidence: `footer.social -> social-link` is real and invisible here, because the
+     * markup nests the anchors while the two selectors express no containment. So this test
+     * asserts the net is a SUBSET of the declarations and never that it equals them. A future
+     * change that makes the net smarter stays green; a change that reads the net AS the
+     * roster would drop a shipped obligation.
+     */
+    public function testEveryDerivableDescendantPairIsDeclared(): void
+    {
+        $declared = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['roles'] ?? []) as $role => $def) {
+                foreach (($def['obligations'] ?? []) as $entry) {
+                    $declared["{$component}.{$role} -> {$entry['with']}"] = $entry['kind'];
+                }
+            }
+        }
+
+        $net = \pp_udc_derived_descendant_pairs();
+        foreach ($net as $pair) {
+            $key = "{$pair['component']}.{$pair['role']} -> {$pair['with']}";
+            $this->assertArrayHasKey(
+                $key,
+                $declared,
+                "`{$key}` is a descendant pair whose inner role either declares its own "
+                . 'typography or targets an anchor, so a value on the outer role cannot reach '
+                . "it — but `{$pair['component']}.{$pair['role']}` declares no obligation for "
+                . 'it. Declare it, or the authoring model is never told'
+            );
+            $this->assertSame(
+                'reached_only_by_inheritance',
+                $declared[$key],
+                "`{$key}` is a containment pair, so its declared kind must be "
+                . 'reached_only_by_inheritance'
+            );
+        }
+
+        // 12 today. A predicate that stopped matching would make the loop above vacuous.
+        $this->assertGreaterThan(
+            9,
+            count($net),
+            'the descendant derivation stopped finding pairs; the net is asserting on an empty set'
+        );
+    }
+
+    /**
+     * The containment predicate itself: the shapes it must catch and must NOT (#1087).
+     *
+     * The plants and the NEAR-MISSES together, per the rule this repo wrote after a guard
+     * shipped whose trigger matched words the docs use constantly and passed 46% of its
+     * subjects by accident. A predicate tested only on what it should catch is a predicate
+     * whose false-positive rate is unmeasured.
+     *
+     * The `.x__heading` / `.x__heading-accent` case is the one that matters: a substring test
+     * calls it containment, and it is not — they select different elements. The `.x .media`
+     * case guards the anchor arm's regex specifically, since a class ending in the letter `a`
+     * must not read as an `<a>`.
+     *
+     * @dataProvider descendantPredicateProvider
+     */
+    public function testTheDescendantPredicateCatchesContainmentAndNothingElse(
+        string $outer,
+        array $innerDef,
+        bool $expected,
+        string $why
+    ): void {
+        $this->assertSame($expected, \_pp_udc_is_derivable_descendant($outer, $innerDef), $why);
+    }
+
+    public static function descendantPredicateProvider(): array
+    {
+        $ink = ['typography' => ['color' => '#000000']];
+        return [
+            'rich-text container + anchor, no defaults' => [
+                '.x__body', ['selector' => '.x__body a'], true,
+                'the #1069 shape — the obligation comes from the stylesheet, not from a default',
+            ],
+            'chrome container + anchor with defaults' => [
+                '.n__menu', ['selector' => '.n__menu ul li a', 'defaults' => $ink], true,
+                'both arms agree here',
+            ],
+            'child combinator' => [
+                '.n__menu ul', ['selector' => '.n__menu ul li.current > a', 'defaults' => $ink], true,
+                'a `>` combinator is containment too',
+            ],
+            'descendant with its own ink but no anchor' => [
+                '.x__panel', ['selector' => '.x__panel .x__label', 'defaults' => $ink], true,
+                'arm 1 alone is enough',
+            ],
+            'BEM sibling, NOT containment' => [
+                '.x__heading', ['selector' => '.x__heading-accent', 'defaults' => $ink], false,
+                'these select DIFFERENT elements; a substring test would call them a pair',
+            ],
+            'descendant list, spacing only' => [
+                '.n__menu', ['selector' => '.n__menu ul', 'defaults' => ['spacing' => ['gap' => '1rem']]], false,
+                'spacing is not inherited, so there is nothing for a value to fail to reach',
+            ],
+            'descendant class merely ending in a' => [
+                '.x', ['selector' => '.x .media'], false,
+                'the anchor arm must not read `.media` as an <a>',
+            ],
+            'unrelated selectors' => [
+                '.x__body', ['selector' => '.y__other a'], false,
+                'no containment at all',
+            ],
+            'empty inner selector' => ['.x__body', ['selector' => ''], false, 'nothing to test'],
+            'identical selectors' => ['.x__body', ['selector' => '.x__body'], false, 'a role does not contain itself'],
+        ];
+    }
+
+    /**
+     * The net's blind spot is covered by DECLARATION, which is the whole ruling (#1087).
+     *
+     * Pinned as a test rather than left as a comment because it is the case that justifies
+     * declaring obligations instead of deriving them, and a future "simplification" that
+     * replaces the declarations with the derivation would silently drop exactly this one.
+     * components/footer/footer.php nests `<a class="site-footer__social-link">` inside
+     * `<ul class="site-footer__social">`; the SELECTORS say nothing about containment.
+     */
+    public function testTheMarkupOnlyContainmentPairIsDeclaredEvenThoughNoSelectorShowsIt(): void
+    {
+        $footer = $this->allSchemas()['footer'];
+        $withs  = array_column($footer['roles']['social']['obligations'] ?? [], 'with');
+        $this->assertContains(
+            'social-link',
+            $withs,
+            'footer.social must declare its obligation with social-link — no derivation can find it'
+        );
+
+        // And the premise: the two selectors really do not express containment, so this is a
+        // genuine blind spot rather than a redundant declaration.
+        $outer = $footer['roles']['social']['selector'];
+        $inner = $footer['roles']['social-link']['selector'];
+        $this->assertDoesNotMatchRegularExpression(
+            '/^' . preg_quote($outer, '/') . '\s*(?:>\s*|\s)/',
+            $inner,
+            'if the selectors DID express containment, the net would cover this and the '
+            . 'declaration would no longer be the thing proving the ruling'
+        );
+    }
+
+    /**
      * The closed ROLE key set rejects what it does not declare (#1087).
      *
      * Paired with the accept case above: that one proves the shipped schemas conform, this
