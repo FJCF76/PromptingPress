@@ -3701,8 +3701,21 @@ class ActionsTest extends TestCase
      */
     public function testSchemaImageUrlPropsDerivedFromSchemas(): void
     {
+        // AGAINST THE SHIPPED REGISTRY, NOT THIS CLASS'S (#1101). setUp() activates the
+        // fixture theme root for every method here, and the fixture declares a
+        // `format: image_url` prop of its own — so this assertion was reading a set of
+        // TWO and calling it "what the schemas derive". It is a claim about what the
+        // THEME media-validates, and a test-only component is not part of that answer.
+        //
+        // Measured when the leak was found: the fixture-polluted set was
+        // ['background_image', 'image_url']; the shipped set is ['image_url'] alone.
+        // `background_image` is not a prop on any shipped component — it left section at
+        // #1023, cta at #1026 and stats at #1066, and a v2 band background is an
+        // attachment id on the `_band` role instead.
+        FixtureTheme::deactivate();
+
         $this->assertSame(
-            ['background_image', 'image_url'],
+            ['image_url'],
             _pp_schema_image_url_props(),
             'Derived image-URL prop set drifted. If you added a new format:image_url '
             . 'prop NAME, update this baseline and confirm it must be media-validated.'
@@ -3740,6 +3753,13 @@ class ActionsTest extends TestCase
         $imageNameRe = '/_image$/';
         // Props that are URLs but NOT media images, or not URLs at all.
         $excludeNameRe = '/(_id|_alt|link_url|button_url|cta\d?_url|panel_cta_url)$/';
+
+        // AGAINST THE SHIPPED REGISTRY, NOT THIS CLASS'S (#1101) — same leak as
+        // testSchemaImageUrlPropsDerivedFromSchemas above, and here it was load-bearing:
+        // the anti-vacuity floor below read >= 6, which the shipped registry cannot
+        // satisfy. The fixture's `background_image` was making up the difference, so the
+        // guard-the-guard floor was being cleared by a component that does not ship.
+        FixtureTheme::deactivate();
 
         $checked = 0;
         foreach (pp_get_registered_components() as $component => $schema) {
@@ -3779,17 +3799,18 @@ class ActionsTest extends TestCase
                 }
             }
         }
-        // Guard the guard: if the enumeration ever finds nothing, the test would
-        // pass vacuously. There are 7 image-URL props today — section's
-        // `background_image` retired at #1023, because a band background is the `_band`
-        // role's `background.image`, an ATTACHMENT ID rather than a URL, so it is not an
-        // image-URL prop for this drift-catcher to check the format of.
-        // Six since #1026: cta's `background_image` retired with its three styling siblings,
-        // and a v2 band's background is `_band` -> `background.image`, an attachment ID the
-        // engine resolves rather than a URL prop this format guard could apply to. The floor
-        // moves down one per rebuild that retires an image-shaped PROP, which is what keeps
-        // this a drift-catcher rather than a count nobody maintains.
-        $this->assertGreaterThanOrEqual(6, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
+        // Guard the guard: if the enumeration ever finds nothing, the test would pass
+        // vacuously. FIVE image-URL props ship today, measured rather than carried
+        // forward: grid.items[].image_url, hero.image_url, logos.items[].image_url,
+        // section.image_url and testimonials.items[].image_url. Every one of them is
+        // named `image_url`; `background_image` is gone from the shipped registry
+        // entirely (section #1023, cta #1026, stats #1066), because a v2 band background
+        // is an ATTACHMENT ID on the `_band` role rather than a URL this format guard
+        // could apply to. The floor moves down one per rebuild that retires an
+        // image-shaped PROP, which is what keeps this a drift-catcher rather than a count
+        // nobody maintains — and it was reading 6 until #1101, a number only the fixture
+        // theme could reach.
+        $this->assertGreaterThanOrEqual(5, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
     }
 
     /**
