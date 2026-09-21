@@ -282,42 +282,68 @@ function pp_ai_system_prompt(): string {
     $parts[] = 'WHAT LAYOUT DOES NOT REPLACE: a component\'s `layout` PROP (hero, section, cta), `split_ratio`, `vertical_align` and `body_items_align` are still props, and they are not redundant. Each selects a whole MECHANISM — a geometry, an attribute-scoped rule set, or a wrap technique plus the separator treatment it needs — which a single role value cannot carry. Pick the prop for the arrangement, then use the group to retune its values: an authored `layout`/`sizing` value outranks whatever the prop selected, at every breakpoint. Example, a four-across process band on `section`: keep `layout: "text-panel"` or the layout you need, and set `{"columns": {"layout": {"columns": {"d": 4, "p": 1}, "align": "start"}}}`.';
     $parts[] = 'PRESETS: a `"_preset"` key applies a named bundle of shared values. At ROLE grain it sits beside the groups — `"cta": {"_preset": "button", "border": {"radius": "12px"}}` — and at GROUP grain beside the parameters — `"quote": {"typography": {"_preset": "link", "size": "1.25rem"}}`, which takes only that preset\'s typography. Write the name BARE, with no `@` (an `@name` always means a design token, never a preset). The presets that exist today are ' . pp_udc_preset_names_for_message(pp_udc_presets()) . '; a name that is not one of them is REFUSED at write and the refusal lists the ones that are. Anything you set on the band beside the preset WINS over it, so a preset is a starting point you may always override. Two things to expect. First, role defaults outrank presets, and they do so PER STATE. A role that already declares its own background keeps that background at rest and still takes the preset\'s `:hover` background, because a resting default says nothing about the hover state. So applying `button` to an already-styled role can leave it with its own surface at rest and the preset\'s accent fill on hover, and with the preset\'s ink on both. WATCH THE CONTRAST WHEN YOU DO THIS: set `typography.color` explicitly on any role you apply a colour-bearing preset to, at rest AND in every state you use, rather than assuming the preset supplied a matching pair. YOU DO NOT HAVE TO GUESS WHICH VALUES LOST: a `udc_preset_value_shadowed_by_role_default` finding on the write envelope names the role, the preset and every parameter the role\'s defaults suppressed, and it reports the same way on `wp pp operate inspect` and `wp pp check page` — so a map you wrote earlier discloses it too, not only a fresh write. Second, a role-grain preset applies only the groups that role PERMITS and skips the rest; the catalog above lists each role\'s permitted groups. The write envelope tells you exactly which groups were skipped and which were applied, in a `udc_preset_groups_skipped` finding, so read it back rather than assuming the whole bundle landed; if the preset declares nothing the role permits, the write is REFUSED naming both. Presets carry the LOOK of a button, not its behaviour: they do not make an element clickable or change its layout. YOU CAN CREATE YOUR OWN (#1016). `save_preset` stores a named fragment for the whole site and `delete_preset` removes one; both are in the action list above with their full parameters. A preset you save is validated by the engine that validates a band\'s `udc` — same groups, same parameters, same units, same `@token` references, same breakpoint and state maps — and its `@` references resolve against the SITE design tokens only, because a preset belongs to the site and not to any band. Pick `grain: "role"` for a bundle of groups or `grain: "<group>"` for one group\'s parameters, matching the place it will be referenced from. Editing a preset moves every band and chrome role that references it, with no band write. Three things are refused rather than silently resolved: a name the theme already ships (' . pp_udc_preset_names_for_message(pp_udc_system_presets()) . ') cannot be taken; a preset cannot reference another preset; and a preset that any band or chrome role still references cannot be DELETED — that refusal lists every place it is used, so retarget those first. The store is site-wide and concurrency-versioned separately from chrome styling: `wp pp operate inspect` reports it under `chrome` as `presets` and `presets_version`, and you may pass that number back as `expected_version`.';
     $parts[] = '`_band` AND INHERITANCE: `_band` has no selector of its own, so an inherited value set there (colour, family, size, line-height) reaches the band\'s parts only by CSS inheritance — and any role that declares its own default for that property beats inheritance, in every order and at every specificity. Set inherited values on the roles you mean, not on the band, whenever the role has a default. The write envelope discloses it when this bites: a `udc_band_value_shadowed_by_role_default` finding names the property and the roles that shadow it, so read the findings back rather than assuming a band-level value landed everywhere. Its silence is informative because it is narrow: it fires only for INHERITED properties, only when the `_band` value is itself valid (a value that paints nowhere is reported by `wp pp readiness status` as one that cannot take effect), and never for a role you already set yourself.';
-    $parts[] = 'ONE ROLE\'S DEFAULT CAN BEAT A VALUE YOU SET ON ANOTHER ROLE, and this rung '
+    // THE TWO OBLIGATION PARAGRAPHS ARE NOW ARGUMENT + DERIVED ROSTER (#1087).
+    //
+    // The ARGUMENT stays hand-written: why the cascade behaves this way is prose a reader
+    // needs, and no registry can compose it. The ROSTER is derived from the `obligations`
+    // declared on each role, for the reason pp_udc_group_summary()'s docblock gives — the
+    // hand-typed version of these rosters is exactly what went stale. The stopgap this
+    // replaces said "THE INSTANCE THAT SHIPS TODAY IS faq", which was true when written and
+    // is the shape of every roster in this repo that a test does not pin.
+    //
+    // A role's schema `description` still never reaches this prompt, and that is deliberate
+    // rather than pending: descriptions total 92,572 bytes across 125 roles, which would
+    // roughly double an uncached prompt that is re-sent on every conversation turn. The
+    // bounded `why` on each obligation is the part a model must act on; the rationale stays
+    // in `description`, which `wp pp schema <component>` serves on demand.
+    //
+    // SUPPRESSED WHEN EMPTY. If nothing declares this kind, the roster sentence is omitted
+    // entirely rather than left asserting instances it cannot name.
+    $outranked = pp_udc_obligation_summary('outranked_by_default');
+    $paragraph = 'ONE ROLE\'S DEFAULT CAN BEAT A VALUE YOU SET ON ANOTHER ROLE, and this rung '
         . 'has NO finding yet, so the write envelope will NOT warn you — it is the one place '
         . 'you have to pair roles yourself. It happens when one role\'s selector is a SUPERSET '
         . 'of another\'s, which makes its default heavier than your authored value on the '
-        . 'narrower role. THE INSTANCE THAT SHIPS TODAY IS faq: `question-open` selects the '
-        . 'open row specifically, so it outranks anything you set on `question`. Set a colour '
-        . 'on `question` alone and the row reverts to the accent the moment a reader opens it '
-        . '— measured at 3.21:1 on a darkened `item` panel, under the 4.5:1 floor for that '
-        . 'summary. So DARKENING faq\'s `item` FILL COSTS FOUR WRITES, not two: `question`, '
-        . '`question-open`, `answer` AND `answer-link` in the same map (#1069 added the '
-        . 'fourth — see the rich-text link rule below). The same applies to a `:hover` or '
-        . '`:focus-visible` map — one set on `question` reaches a closed row and not an open '
-        . 'one. nav\'s `link`/`link-current` is the same shape for the current-page marker. '
-        . 'Until the finding exists (#1059), treat a role whose name extends another\'s as a '
-        . 'pair and write both.';
+        . 'narrower role. The same applies to a `:hover` or `:focus-visible` map — one set on '
+        . 'the narrower role reaches only the state its selector matches. Until the finding '
+        . 'exists (#1059), treat these pairs as pairs and write BOTH sides in the same map.';
+    if ($outranked !== '') {
+        $paragraph .= ' THE PAIRS THAT SHIP TODAY: ' . $outranked;
+    }
+    // The worked consequence, kept because a roster of pairs does not by itself tell an
+    // author how many writes a common edit costs — and this one is measured (#1059/#1069).
+    $paragraph .= ' A WORKED CONSEQUENCE: darkening faq\'s `item` fill costs FOUR writes, not '
+        . 'two — `question`, `question-open`, `answer` AND `answer-link` in the same map. Set '
+        . 'a colour on `question` alone and the row reverts to the accent the moment a reader '
+        . 'opens it, measured at 3.21:1 on a darkened `item` panel, under the 4.5:1 floor for '
+        . 'that summary.';
+    $parts[] = $paragraph;
     // THE RICH-TEXT LINK RULE (#1069). Stated HERE rather than in the six schema role
     // descriptions that carry the detail, because a role `description` is never injected
     // into this prompt (#1059) — the obligation would be invisible exactly where it has to
     // be read. The measured cost of leaving it unstated was a 3.21:1 link under 14.33:1
     // prose on the write faq's own schema prescribed, reported accepted with no findings.
-    $parts[] = 'A LINK INSIDE RICH TEXT HAS ITS OWN ROLE, AND THE CONTAINER ROLE DOES NOT '
-        . 'REACH IT. Six roles take author-written HTML — `section.body`, `cta.body`, '
-        . '`faq.answer`, `hero.proof`, `embed.content` and a `table` cell — and each has a '
-        . 'paired `*-link` role for the anchors inside it: `section.body-link`, '
-        . '`cta.body-link`, `faq.answer-link`, `hero.proof-link`, `embed.content-link`, '
-        . '`table.cell-link`. WHY THE PAIR IS MANDATORY: the container role\'s selector '
+    $inherited = pp_udc_obligation_summary('reached_only_by_inheritance');
+    $parts[] = 'A VALUE ON A CONTAINER ROLE DOES NOT ALWAYS REACH WHAT IS INSIDE IT, and the '
+        . 'pairs below are every place that bites today.'
+        . ($inherited !== '' ? ' ' . $inherited : '')
+        . ' WHY THE PAIR IS MANDATORY: the container role\'s selector '
         . 'matches the WRAPPER, so a colour you set there reaches an `<a>` inside it only by '
         . 'INHERITANCE, and the stylesheet gives every anchor its own DIRECT colour rule — a '
         . 'direct declaration always beats an inherited one, whatever the layer. So an '
         . 'authored colour on the container leaves every link in it untouched. ANY TIME YOU '
-        . 'DARKEN A SURFACE THAT CARRIES PROSE, set `typography.color` on its `*-link` role '
-        . 'too, AND on that role\'s `":hover"` — the stylesheet also gives every anchor an '
-        . 'accent hover, so re-inking only the rest state flips the link back under the '
-        . 'cursor. These roles ship with NO defaults, which is deliberate: an unauthored link '
-        . 'keeps the site\'s normal anchor treatment, and nothing changes until you write '
-        . 'here. Read each component\'s roles with `wp pp schema <component>`.';
+        . 'DARKEN A SURFACE THAT CARRIES PROSE, set `typography.color` on the paired role '
+        . 'named above too, AND on that role\'s `":hover"` — the stylesheet also gives every '
+        . 'anchor an accent hover, so re-inking only the rest state flips the link back under '
+        . 'the cursor. THE TWO HALVES OF THE ROSTER DIFFER IN ONE WAY WORTH KNOWING BEFORE YOU '
+        . 'WRITE. The BAND link roles (the `*-link` pairs on section, cta, faq, hero, embed and '
+        . 'table) ship with NO defaults, deliberately: an unauthored link keeps the site\'s '
+        . 'normal anchor treatment, and nothing changes until you write here. The CHROME link '
+        . 'roles are the opposite — they declare their own muted colour and accent hover, so on '
+        . 'a dark header or footer you are OVERRIDING a value rather than filling a blank, and '
+        . 'leaving one out keeps the light-band ink instead of inheriting your new one. Read '
+        . 'each component\'s roles, and each role\'s full rationale, with '
+        . '`wp pp schema <component>`.';
     // LAYER 2 (#1079). The valve only exists for the model if it is stated HERE: a role
     // or schema description is never injected into this prompt (#1059), so a capability
     // documented only in the schema is a capability the site-builder AI does not have.

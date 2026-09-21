@@ -303,6 +303,159 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * EVERY DECLARED OBLIGATION REACHES THE PROMPT, AND THE PROMPT NAMES NO OTHER (#1087).
+     *
+     * THE GUARANTEE THIS PINS. A role's schema `description` is never injected into the
+     * system prompt, and the in-admin chat AI has no tools with which to fetch one — so an
+     * obligation that does not reach this string is an obligation that model does not have.
+     * #1059 is the measured cost of that gap: a 3.21:1 contrast failure whose warning sat in
+     * a schema field nothing read.
+     *
+     * BOTH DIRECTIONS, because each catches a different failure. Forward catches a pair
+     * declared in a schema that the prompt composition drops. Reverse catches the older and
+     * worse failure — a pair NAMED in the prompt that the registry no longer declares, which
+     * is the hand-maintained-roster drift this whole gate exists to end.
+     */
+    public function testEveryDeclaredObligationReachesTheRuntimePromptAndNoOthers(): void
+    {
+        $prompt   = pp_ai_system_prompt();
+        $declared = [];
+        foreach (\pp_udc_obligation_groups() as $groups) {
+            foreach ($groups as $group) {
+                foreach ($group['pairs'] as $pair) {
+                    $declared[] = $pair;
+                }
+            }
+        }
+
+        foreach ($declared as $pair) {
+            $this->assertStringContainsString(
+                $pair,
+                $prompt,
+                "the declared obligation `{$pair}` never reaches the runtime prompt, so the "
+                . 'chat AI — which has no way to read a schema — does not have it'
+            );
+        }
+
+        // REVERSE. Every `x.y -> z` the prompt names must be declared. Scoped to that exact
+        // arrow shape so ordinary prose cannot trip it.
+        preg_match_all('/\b([a-z]+)\.([a-z-]+) -> ([a-z-]+)\b/', $prompt, $m, PREG_SET_ORDER);
+        $this->assertNotEmpty($m, 'the prompt no longer carries any obligation pair at all');
+        foreach ($m as $hit) {
+            $this->assertContains(
+                $hit[0],
+                $declared,
+                "the runtime prompt names the pair `{$hit[0]}`, which no role declares — a "
+                . 'hand-typed roster that has gone stale, or a roster left behind by a rebuild'
+            );
+        }
+
+        // Fail-closed: 16 today. A composition step that stopped emitting rosters would make
+        // both loops above vacuous and still pass.
+        $this->assertGreaterThan(12, count($declared), 'the declared obligations disappeared');
+    }
+
+    /**
+     * CHROME OBLIGATIONS REACH THE PROMPT, though the component catalog excludes chrome
+     * (#1087).
+     *
+     * The single most likely regression in this mechanism, and the reason
+     * pp_udc_obligation_groups() walks the FULL registry rather than reusing the catalog
+     * loop's walk. That loop iterates pp_composable_components(), which deliberately omits
+     * nav and footer (#223 — listing chrome there is what led an agent to compose duplicate
+     * chrome). Six of the sixteen records live on exactly those two components, and they are
+     * the ones a dark-header author most needs. A future refactor that folds this summary
+     * into the catalog loop for efficiency would silently drop all six; this test is what
+     * stops that being silent.
+     */
+    public function testChromeObligationsReachThePromptDespiteTheCatalogExcludingChrome(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        foreach (['nav', 'footer'] as $chrome) {
+            $this->assertArrayHasKey(
+                $chrome,
+                \pp_get_registered_components(),
+                "{$chrome} must be registered for this test to mean anything"
+            );
+            $this->assertArrayNotHasKey(
+                $chrome,
+                \pp_composable_components(),
+                "{$chrome} must be absent from the catalog — that is the premise being guarded"
+            );
+        }
+        $this->assertStringContainsString('nav.menu -> link', $prompt, 'a chrome obligation must reach the prompt');
+        $this->assertStringContainsString('footer.social -> social-link', $prompt, 'including the markup-only one');
+    }
+
+    /**
+     * A MALFORMED ROLE CONTRIBUTES NOTHING — it never renders, warns or fatals (#1087).
+     *
+     * pp_schema_definition_errors() is a repo-CI invariant and NOT a runtime gate
+     * (lib/admin.php says so in those words), so a hand-edited schema on a live install
+     * reaches the prompt composer unvalidated. The sibling that learned this the hard way is
+     * pp_ai_format_applies_when_clause(), whose first draft emitted a PHP "Array to string
+     * conversion" warning into the prompt buffer while promising it never guessed.
+     *
+     * Note the last two cases: an unknown ROLE key and an over-long `why` poison the WHOLE
+     * role, not just the offending record. That is deliberate — the delegation asks "does
+     * this definition validate?", and a definition that does not is not a source to
+     * cherry-pick from.
+     *
+     * @dataProvider malformedRoleProvider
+     */
+    public function testAMalformedRoleContributesNoObligationRecords(array $definition, string $why): void
+    {
+        $records = \_pp_udc_role_obligation_records('c', 'a', $definition, ['a', 'b']);
+        $this->assertSame([], $records, $why);
+    }
+
+    public static function malformedRoleProvider(): array
+    {
+        $base = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $kind = 'reached_only_by_inheritance';
+        return [
+            'no obligations key'   => [$base, 'a role with no key contributes nothing'],
+            'empty list'           => [$base + ['obligations' => []], 'the explicit no-obligations answer'],
+            'container is a scalar' => [$base + ['obligations' => 'none'], 'a non-list container must not be iterated'],
+            'entry is a scalar'    => [$base + ['obligations' => ['x']], 'a scalar member is not a record'],
+            'unknown kind'         => [$base + ['obligations' => [['kind' => 'zzz', 'with' => 'b', 'why' => 'w']]], 'kind is bounded at render too'],
+            'why is an array'      => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => ['a']]]], 'this exact shape is what warned in the prompt buffer before'],
+            'dangling partner'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'nope', 'why' => 'w']]], 'a partner the component does not declare would name an unwritable role'],
+            'unknown role key'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => 'w']], 'type' => 'color'], 'an invalid definition is not a source to cherry-pick from'],
+            'why over the cap'     => [$base + ['obligations' => [['kind' => $kind, 'with' => 'b', 'why' => str_repeat('x', PP_OBLIGATION_WHY_MAX + 1)]]], 'the bound is enforced at render, not only in CI'],
+        ];
+    }
+
+    /** A valid record DOES produce one, so the provider above is not passing vacuously. */
+    public function testAValidRoleContributesItsObligationRecord(): void
+    {
+        $records = \_pp_udc_role_obligation_records('c', 'a', [
+            'selector'    => '.a',
+            'description' => 'd',
+            'groups'      => ['typography'],
+            'defaults'    => [],
+            'obligations' => [['kind' => 'reached_only_by_inheritance', 'with' => 'b', 'why' => 'Set b too.']],
+        ], ['a', 'b']);
+        $this->assertCount(1, $records);
+        $this->assertSame('c.a -> b', $records[0]['pair']);
+    }
+
+    /** An undeclared kind renders as the empty string, so the caller can suppress (#1087). */
+    public function testAnUndeclaredObligationKindRendersEmptyRatherThanAStub(): void
+    {
+        $this->assertSame('', \pp_udc_obligation_summary('no_such_kind'));
+    }
+
+    /** No PHP diagnostic text ever reaches the assembled prompt (#1087). */
+    public function testThePromptCarriesNoPhpDiagnosticText(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        foreach (['Array to string conversion', 'Undefined array key', 'PHP Warning', 'PHP Notice', 'Deprecated:'] as $leak) {
+            $this->assertStringNotContainsString($leak, $prompt, "PHP diagnostic text leaked into the prompt: {$leak}");
+        }
+    }
+
+    /**
      * #579 — the `length-or-none` band-geometry grammar must be surfaced, and the
      * "how do I remove a max-width" guidance must route to the slot's own removal
      * value instead of the pre-#579 `100%` workaround, which existed only because

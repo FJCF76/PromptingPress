@@ -6246,6 +6246,161 @@ function pp_udc_group_summary(): string {
     return implode('; ', $lines);
 }
 
+/**
+ * The obligation records ONE role contributes, or [] when it contributes none (#1087).
+ *
+ * A SEAM, extracted so the fail-safe path is reachable from a test. The shapes this has to
+ * survive — a malformed record, an unknown kind, a dangling partner, a non-list container —
+ * exist on a HAND-EDITED install, not in the shipped schemas, so a test that could only go
+ * through the real registry could never reach them without swapping the theme root. The
+ * behaviour being pinned is "renders nothing, warns nothing, fatals nothing", and an
+ * untested fail-safe is not one.
+ *
+ * `$siblings` is passed in rather than re-read so the caller's single registry walk is the
+ * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N.
+ *
+ * @param string[] $siblings  Role names this component declares.
+ * @return array<int, array{kind: string, why: string, pair: string}>
+ */
+function _pp_udc_role_obligation_records(
+    string $component,
+    string $role,
+    array $definition,
+    array $siblings
+): array {
+    // THE SKIP IS THE POINT, and it is a DELEGATION rather than a re-derivation — the
+    // pattern pp_ai_format_applies_when_clause() was corrected into after its first draft
+    // re-derived the grammar, accepted shapes the validator rejects, and emitted a PHP
+    // warning into the prompt buffer while its docblock promised it never guessed. A role
+    // whose definition does not validate contributes NOTHING rather than contributing
+    // garbage to a prompt. function_exists because a partial include must degrade to
+    // rendering nothing, not fatal.
+    if (function_exists('pp_schema_definition_errors')
+        && pp_schema_definition_errors($definition, 'role', "{$component} role {$role}") !== []) {
+        return [];
+    }
+
+    $obligations = $definition['obligations'] ?? [];
+    if (!is_array($obligations)) {
+        return [];
+    }
+
+    $records = [];
+    foreach ($obligations as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $kind = $entry['kind'] ?? null;
+        $with = $entry['with'] ?? null;
+        $why  = $entry['why']  ?? null;
+        if (!is_string($kind) || !is_string($with) || !is_string($why)
+            || !in_array($kind, pp_udc_obligation_kinds(), true)) {
+            continue;
+        }
+        // A partner the component does not declare would compose a prompt sentence about a
+        // role the model cannot write to — worse than silence, because it would try and be
+        // refused with `unknown_udc_role`. The schema walk fails CI on this; here is the
+        // runtime half, for the hand-edited install the CI walk never sees.
+        if (!in_array($with, $siblings, true)) {
+            continue;
+        }
+        $records[] = [
+            'kind' => $kind,
+            'why'  => $why,
+            'pair' => "{$component}.{$role} -> {$with}",
+        ];
+    }
+    return $records;
+}
+
+/**
+ * Every declared role obligation, grouped for the runtime prompt (#1087).
+ *
+ * THE CHANNEL THIS EXISTS FOR. A role's schema `description` is never injected into the
+ * system prompt — #1059 is the measured proof of what that costs, a 3.21:1 contrast
+ * failure with the warning sitting in a field nobody reads. The in-admin chat AI has no
+ * tools, no function calling and no way to fetch a schema mid-turn, so an obligation that
+ * is not in the prompt is an obligation that model does not have. This is how the
+ * obligations reach it.
+ *
+ * DERIVED, never restated, for the reason pp_udc_group_summary()'s docblock gives above.
+ * The paragraph in lib/ai-context.php keeps its hand-written ARGUMENT — why the cascade
+ * behaves this way is prose a reader needs — and takes its ROSTER from here, so a pair
+ * added by a later rebuild reaches the authoring model on the day it lands rather than
+ * whenever someone remembers to edit a sentence. Five hand-maintained rosters in this
+ * repo's model-facing docs were stale at the time this was written; every pinned one was
+ * correct. That is the whole argument for deriving it.
+ *
+ * WALKS THE FULL REGISTRY, not pp_composable_components(), and this is deliberate rather
+ * than careless: six of the sixteen shipped records are on `nav` and `footer`, which the
+ * prompt's component catalog deliberately EXCLUDES (chrome is not composable, and listing
+ * it there is what led an agent to compose duplicate chrome in #223). A summary built
+ * inside that catalog loop would silently omit exactly the chrome pairs a dark-header
+ * author most needs. The registry read is memoised per theme root
+ * (pp_get_registered_components), so this is one in-memory pass.
+ *
+ * GROUPED BY IDENTICAL `why`, because the six rich-text container/link pairs share one
+ * instruction word for word. Emitting it six times would spend ~800 bytes of every
+ * conversation turn restating a sentence the model already read; grouping states the pairs
+ * once and the instruction once.
+ *
+ * FAIL-SAFE BY DELEGATION, the pattern pp_ai_format_applies_when_clause() was corrected
+ * into after its first draft emitted a PHP "Array to string conversion" warning into the
+ * prompt buffer. A malformed record is SKIPPED, never rendered and never fataled, because
+ * pp_schema_definition_errors() is a repo-CI invariant and not a runtime gate
+ * (lib/admin.php's own docblock says so) — a hand-edited schema on a live install reaches
+ * this function unvalidated. Guarded with function_exists so a partial include degrades to
+ * rendering nothing rather than fataling.
+ *
+ * Assembled from _pp_udc_role_obligation_records() below, which owns the per-role
+ * fail-safe; this function owns only the walk and the grouping.
+ *
+ * @return array<string, array<int, array{pairs: string[], why: string}>>
+ *         kind => list of {pairs, why} groups. Empty when nothing is declared.
+ */
+function pp_udc_obligation_groups(): array {
+    $out = [];
+    foreach (array_keys(pp_get_registered_components()) as $component) {
+        $roles = pp_udc_component_roles($component);
+        foreach ($roles as $role => $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+            foreach (_pp_udc_role_obligation_records($component, $role, $definition, array_keys($roles)) as $record) {
+                $out[$record['kind']][$record['why']][] = $record['pair'];
+            }
+        }
+    }
+
+    $grouped = [];
+    foreach ($out as $kind => $by_why) {
+        foreach ($by_why as $why => $pairs) {
+            $grouped[$kind][] = ['pairs' => $pairs, 'why' => (string) $why];
+        }
+    }
+    return $grouped;
+}
+
+/**
+ * One obligation kind rendered as prompt prose, or '' when nothing is declared (#1087).
+ *
+ * THE EMPTY ANSWER IS A REAL ANSWER. Returning '' lets the caller suppress the roster
+ * sentence entirely rather than emit a paragraph that asserts instances exist and then
+ * names none — which is what the hand-written stopgap this replaces did on its way to
+ * going stale ("THE INSTANCE THAT SHIPS TODAY IS faq", true when written).
+ */
+function pp_udc_obligation_summary(string $kind): string {
+    $groups = pp_udc_obligation_groups()[$kind] ?? [];
+    if ($groups === []) {
+        return '';
+    }
+    $parts = [];
+    foreach ($groups as $group) {
+        $parts[] = implode(', ', $group['pairs']) . ' — ' . $group['why'];
+    }
+    return implode(' ', $parts);
+}
+
 // ── Write-side findings: the disclosure channel ─────────────────────────────
 
 /**

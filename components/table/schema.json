@@ -248,7 +248,7 @@
         {
           "kind": "reached_only_by_inheritance",
           "with": "cell-link",
-          "why": "A colour here lands on the wrapper; the stylesheet gives every <a> its own direct rule, so set `cell-link` too, and its `:hover`."
+          "why": "A colour here lands on the wrapper and reaches an <a> inside it only by inheritance, while the stylesheet gives every anchor its own direct rule. Set the paired link role named above too, and its `:hover`."
         }
       ]
     },

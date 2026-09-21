@@ -305,7 +305,7 @@
         {
           "kind": "reached_only_by_inheritance",
           "with": "link",
-          "why": "`link` declares its own muted colour and accent hover, so a colour set here never reaches the footer links. Set `link` and its `:hover`."
+          "why": "The paired link role named above declares its own muted colour and accent hover, so a colour set here never reaches it. Set that role and its `:hover`."
         }
       ]
     },
@@ -372,7 +372,7 @@
         {
           "kind": "reached_only_by_inheritance",
           "with": "address-link",
-          "why": "`address-link` declares its own muted colour and accent hover, so a colour set here never reaches it. Set `address-link` and its `:hover`."
+          "why": "The paired link role named above declares its own muted colour and accent hover, so a colour set here never reaches it. Set that role and its `:hover`."
         }
       ]
     },
