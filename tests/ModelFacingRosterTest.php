@@ -100,14 +100,34 @@ class ModelFacingRosterTest extends TestCase
             // Already derived and pinned by DocsCoverageTest; re-checked here so the two
             // guards cannot disagree about what a complete roster is.
             ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)]+)\)/'],
+
+            // THE PROSE ANCHORS, landing WITH the rewrite exactly as the note below
+            // promised. Each of these is a sentence that genuinely introduces a COMPLETE
+            // v2 roster — the shape #1045 identified as where drift hides, because a
+            // reader takes an enumeration as exhaustive whether or not it is. Every one
+            // of the three was undercounting before this rewrite (seven names, or six),
+            // and two of them sat in files that named the full nine correctly somewhere
+            // else, so the documents disagreed with themselves.
+            //
+            // Anchored rather than scanned: a roster is only checkable when something
+            // marks where it starts and ends, and a phrase that must keep matching is
+            // also a phrase an editor cannot quietly delete.
+            [
+                'AI_CONTEXT.md\'s styling route',
+                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
+                '/For the NINE v2 components \(([^)]+)\)/',
+            ],
+            [
+                'AI_CONTEXT.md\'s style-slot exclusion',
+                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
+                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all nine of ([^:]+):/',
+            ],
+            [
+                'retheme.md\'s dark-band trap',
+                file_get_contents(dirname(__DIR__) . '/ai-instructions/retheme.md'),
+                '/All NINE v2 components — (.+?) — have no `theme` prop/s',
+            ],
         ];
-        // ONE ANCHOR TODAY, AND THAT IS THE HONEST STATE RATHER THAN THE INTENDED ONE.
-        // No `ai-instructions/*.md` roster is anchored here yet: those files are being
-        // rewritten wholesale in the prose PR, and anchoring prose that is about to be
-        // replaced would pin the stale version. The anchors for them land WITH that rewrite,
-        // which is the whole reason this mechanism merges first — every rewritten roster
-        // arrives already pinned. Until then this suite's instruction-file coverage is the
-        // reverse-membership check below, not this one.
 
         $checked = 0;
         foreach ($anchors as [$label, $haystack, $pattern]) {
