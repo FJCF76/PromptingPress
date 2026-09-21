@@ -55,8 +55,22 @@ class AgedBandStoredStyleMapTest extends TestCase
      * Two slots, because ONE would hide the defect this file was written for: with a
      * single stored slot, "clear the slot" and "clear every slot in one call" are the same
      * call and the partial-clear refusal has nothing to fire on.
+     *
+     * AND A `__recipe` KEY, added after review, because without it this fixture could not
+     * see the gap in its own repair instruction. `__recipe` is what v1 wrote into the style
+     * map every time a recipe was applied, and grid shipped three recipes until earlier in
+     * #1101 — so a large share of real aged bands carry it. It is NOT a slot name, so an
+     * author following an instruction that says "every stored SLOT name" omits it, and the
+     * clear then succeeds while leaving a v1 key in the composition. Measured: the
+     * slot-only clear returns ok:true with `{"__recipe":"dark-showcase"}` still stored.
+     *
+     * It is also why the skip at lib/admin.php:1343 is load-bearing rather than tidy: a
+     * band storing ONLY `__recipe` is not blocked at all (measured: a props-only edit
+     * returns ok:true), so removing the skip would make every recipe-applied v1 band
+     * permanently uneditable — a worse version of the burden this file exists to disclose.
      */
     private const AGED_STYLE = [
+        '__recipe'       => 'dark-showcase',
         '--grid-item-bg' => '#101014',
         '--grid-gap'     => '2rem',
     ];
@@ -205,14 +219,17 @@ class AgedBandStoredStyleMapTest extends TestCase
      * every stored name as null, in one call, with `props` present because the action
      * requires it.
      */
-    public function testClearingEveryStoredSlotInOneCallIsAcceptedAndRemovesTheKey(): void
+    public function testClearingEveryStoredKeyInOneCallIsAcceptedAndRemovesTheMap(): void
     {
         $id     = $this->agedPage();
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
             'props'           => [],
-            'style'           => ['--grid-item-bg' => null, '--grid-gap' => null],
+            // EVERY KEY, `__recipe` INCLUDED. Sending only the two slot names is accepted
+            // and leaves `{"__recipe":"dark-showcase"}` stored — measured. That is the gap
+            // the old instruction ("every stored SLOT name") walked an author into.
+            'style'           => ['--grid-item-bg' => null, '--grid-gap' => null, '__recipe' => null],
         ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -296,9 +313,9 @@ class AgedBandStoredStyleMapTest extends TestCase
     }
 
     /**
-     * THE SECOND REPAIR ROUTE. `update_component` with every slot nulled is the surgical
-     * one; rewriting the whole band without a `style` key at all is the other, and it is
-     * what an operator doing a page-wide sweep will actually reach for.
+     * THE ROUTE THE MESSAGE NOW LEADS WITH. `update_component` with every KEY nulled is the
+     * surgical one and the one an author can get wrong; rewriting the whole band without a
+     * `style` key clears the map entire, with nothing to enumerate and nothing to miss.
      *
      * Pinned because the two routes go through different validators — the band-grain one
      * and the whole-composition one — and an aged page that could be repaired by only one
@@ -325,6 +342,73 @@ class AgedBandStoredStyleMapTest extends TestCase
         ]);
         $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
         $this->assertSame([], $after['findings'], 'the page is clean once the dead map is gone');
+    }
+
+    /**
+     * `__recipe` IS SKIPPED BY THE SLOT VALIDATOR, AND THAT SKIP IS LOAD-BEARING.
+     *
+     * Re-homed from SchemaValidationTest::testCompositionAllowsRecipeTrackingKey at #1101,
+     * where it ran on the fixture's slot map. Its subject — the `__recipe` exemption at
+     * lib/admin.php:1343 — is live, and deleting the test left it mutable with the whole
+     * suite green.
+     *
+     * WHY THE SKIP MATTERS MORE NOW THAN IT DID. v1 wrote `__recipe` into the style map on
+     * every recipe application, and grid shipped three recipes until earlier in #1101, so a
+     * large share of aged bands carry the key. It is not a slot name and never was a CSS
+     * property. Remove the skip and every recipe-applied band becomes permanently
+     * uneditable through the action layer — measured below: a band storing ONLY `__recipe`
+     * is editable today, and that is the whole of what the skip buys.
+     */
+    public function testARecipeTrackingKeyAloneDoesNotBlockTheBand(): void
+    {
+        $id = pp_create_page('Recipe-only band', 'draft');
+        pp_update_composition($id, [[
+            'component' => 'grid',
+            'props'     => ['id' => 'g1', 'title' => 'T', 'items' => [['title' => 'One']]],
+            'style'     => ['__recipe' => 'dark-showcase'],
+        ]]);
+
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => 'A new title'],
+        ]);
+
+        $this->assertTrue(
+            $result['ok'],
+            'a band whose only stored style key is `__recipe` must stay editable — the skip '
+            . 'at lib/admin.php is what stops every recipe-applied v1 band being locked out'
+        );
+        $this->assertSame('A new title', pp_get_composition($id)[0]['props']['title']);
+
+        // And the key is left exactly as stored: the skip is an exemption from VALIDATION,
+        // not a licence to rewrite the author's bytes.
+        $this->assertSame('dark-showcase', pp_get_composition($id)[0]['style']['__recipe']);
+    }
+
+    /** The validator accepts it beside a real slot too, which is the shape v1 actually wrote. */
+    public function testARecipeTrackingKeyIsNotItselfReportedAsAnUndeclaredSlot(): void
+    {
+        $refusal = pp_execute_action('update_component', [
+            'post_id'         => $this->agedPage(),
+            'component_index' => 0,
+            'props'           => ['title' => 'A new title'],
+        ]);
+
+        $this->assertFalse($refusal['ok'], 'the two real slots still refuse the band');
+
+        // SCOPED TO THE REJECTED-SLOT CLAUSE, not to the whole message. The message DOES
+        // mention `__recipe` now — in the repair advice, deliberately, because an author
+        // clearing the map has to know about it. What must never happen is `__recipe`
+        // appearing as the thing that was REJECTED, which would send them chasing an
+        // undeclared slot that is not one.
+        $this->assertSame(
+            1,
+            preg_match('/has no style slot "([^"]+)"/', $refusal['error'], $m),
+            'precondition: the refusal names the slot it rejected'
+        );
+        $this->assertNotSame('__recipe', $m[1], 'the tracking key is never the rejected slot');
+        $this->assertStringStartsWith('--grid-', $m[1], 'it is a real slot name from the stored map');
     }
 
     // ── 3. THE MESSAGE AND THE BEHAVIOUR, HELD TO EACH OTHER ────────────────────
@@ -366,13 +450,25 @@ class AgedBandStoredStyleMapTest extends TestCase
         ]);
         $message = $result['error'];
 
-        $this->assertStringContainsString('EVERY stored slot name set to null', $message);
-        $this->assertStringContainsString('partial clear is refused', $message);
+        $this->assertStringContainsString('EVERY STORED KEY set to null', $message);
+        $this->assertStringContainsString('partial clear of the slots is refused', $message);
         $this->assertStringContainsString(
             'a props-only edit included',
             $message,
             'and it says out loud that this blocks edits that are not about styling'
         );
+
+        // THE `__recipe` CLAUSE, which is the half an author cannot infer. It is not a slot
+        // name, so "every slot" omits it, and the omission is silent: the clear succeeds and
+        // leaves a v1 key in the composition.
+        $this->assertStringContainsString('`__recipe` key', $message);
+        $this->assertStringContainsString('not a slot name', $message);
+
+        // AND THE ROUTE THAT CANNOT BE GOT WRONG IS OFFERED FIRST. Enumerating keys is the
+        // fiddly path; rewriting the band without a `style` key clears the whole map with
+        // nothing to miss, which is what an operator sweeping a page should reach for.
+        $this->assertStringContainsString('update_composition', $message);
+        $this->assertStringContainsString('nothing to enumerate', $message);
     }
 
     /**
@@ -462,7 +558,7 @@ class AgedBandStoredStyleMapTest extends TestCase
         );
 
         // AND THE DETAILS CARRY THE ANSWER, because the status bar sends the reader there.
-        $this->assertStringContainsString('EVERY stored slot name set to null', $friendly['raw_error']);
+        $this->assertStringContainsString('EVERY STORED KEY set to null', $friendly['raw_error']);
     }
 
     /**

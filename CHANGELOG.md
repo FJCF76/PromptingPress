@@ -201,11 +201,20 @@ reading twice, because nothing migrates those bytes for you and the symptom does
 its cause: an ordinary `update_component` on that band is refused with `invalid_style_slot`,
 naming a slot you are not trying to set.
 
-**Clear it in ONE call.** Send `style` with EVERY stored slot name set to `null`, plus `props`
-as `{}` if you are changing no props. A PARTIAL clear is refused, naming whichever slot you
-left behind — which reads like a second, unrelated problem. The refusal message used to say
-"to clear a stored slot, send it as null", singular, and following it literally on a band with
-two stored slots did not work. It now states the rule that does.
+**The simplest repair is `update_composition`:** rewrite the band with no `style` key at all
+and the whole map goes, with nothing to enumerate and nothing to miss. That is the route to
+reach for when sweeping a page.
+
+**To do it with `update_component` instead, send EVERY STORED KEY as `null`** — every key, not
+every slot — plus `props` as `{}` if you are changing no props. A band styled by a v1 *recipe*
+also stores a `__recipe` key, which is not a slot name; a clear that omits it unblocks the band
+but leaves that key in your composition. A partial clear of the *slots* is refused outright,
+naming whichever one you left behind, which reads like a second unrelated problem.
+
+The refusal message has been wrong about this twice and now states the measured rule. It first
+said "to clear a stored slot, send it as null" — singular, and following it literally on a band
+with two slots did not work. Corrected to "every stored slot name", it still walked an author
+past `__recipe`, because that key is not a slot.
 
 **The `inert_slot` advisory is gone, and its job did not go with it.** It reported the
 accepted-stored-ignored failure: a value the engine keeps, reports applied, and never paints.

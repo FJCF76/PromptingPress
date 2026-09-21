@@ -1261,9 +1261,13 @@ function _pp_no_style_slots_clause(string $component_name): string {
         . 'update_composition or create_page — those are the two actions that carry a whole band. If '
         . 'this band was written before the rebuild it still carries a stored `style` map, and that '
         . 'map refuses EVERY update_component edit to the band until it is gone — a props-only edit '
-        . 'included. Clear it in one call: send `style` with EVERY stored slot name set to null (a '
-        . 'partial clear is refused, naming whichever slot you left behind), and `props` as `{}` if '
-        . 'you are changing no props.',
+        . 'included. THE SIMPLEST REPAIR IS update_composition: rewrite the band with no `style` key '
+        . 'at all and the whole map goes, with nothing to enumerate and nothing to miss. To do it '
+        . 'with update_component instead, send `style` with EVERY STORED KEY set to null and `props` '
+        . 'as `{}` if you are changing no props — every key, not every slot: a band styled by a v1 '
+        . 'RECIPE also stores a `__recipe` key, which is not a slot name, and a clear that omits it '
+        . 'unblocks the band but leaves that key stored. A partial clear of the slots is refused '
+        . 'outright, naming whichever one you left behind.',
         $component_name,
         implode(', ', $roles) ?: '(none declared)'
     );
