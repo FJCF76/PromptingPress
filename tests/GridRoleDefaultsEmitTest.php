@@ -437,8 +437,22 @@ class GridRoleDefaultsEmitTest extends TestCase
                 continue;
             }
             $selector = (string) ($definition['selector'] ?? '');
-            $this->assertStringContainsString(
-                '[data-pp-component="grid"] ' . $selector,
+            // MATCHED AGAINST THE DELIMITED SELECTOR LIST, NOT AS A LOOSE SUBSTRING, AND
+            // THE FIRST CUT WAS VACUOUS FOR THE REASON blocksForRole() ALREADY RECORDS.
+            //
+            // `card`'s `.grid__item` is a PREFIX of `card-link`'s `.grid__item-link`, and
+            // those two are the only roles that default motion — so an unanchored
+            // `assertStringContainsString` let card-link's entry satisfy card's iteration.
+            // PROVEN in a copy: dropping `.grid__item` from the guard left a reduced-motion
+            // user with the card transition still running, and this file stayed 15/15 green.
+            // The sibling helper at the bottom of this file warns about exactly this hazard
+            // ("grid has nine selectors that are prefixes of other grid selectors") and
+            // defends against it with a `{` anchor; this assertion did not.
+            // The leading alternative admits START-OF-STRING as a delimiter: `$guard` is
+            // captured after the `@media (…){`, so the FIRST selector in the list has no
+            // `{` or `,` in front of it.
+            $this->assertMatchesRegularExpression(
+                '/(?:^|\{|,)' . preg_quote('[data-pp-component="grid"] ' . $selector, '/') . '(?:,|\{)/',
                 $guard,
                 "grid.{$role} defaults a transition and is not inside the reduced-motion guard"
             );

@@ -189,11 +189,30 @@ class GridItemUdcTest extends TestCase
             substr_count($html, 'data-pp-item='),
             'exactly one card carries the attribute: the one that carries a map'
         );
-        $this->assertStringNotContainsString(
-            '<li class="grid__item" style=',
-            $html,
-            '§3.4 forbids inline style emission outright — that is what items[].udc replaced'
-        );
+        // ASSERTED STRUCTURALLY, NOT AS A BYTE SEQUENCE, AND THE FIRST CUT WAS VACUOUS.
+        //
+        // This read `assertStringNotContainsString('<li class="grid__item" style=', …)`,
+        // which cannot fail for the regression it names: `$item_attr` emits `data-pp-item`
+        // FIRST, so a restored per-item inline style renders
+        // `<li class="grid__item" data-pp-item="it-…" style="…">` and the literal never
+        // matches. PROVEN by planting exactly the v1 `items[].style` shape in a copy of
+        // the tree — a `style="background:#14141F"` on every styled card — and watching
+        // the ENTIRE PHP suite stay green: 5174 tests, 0 failures.
+        //
+        // So the tag is parsed and every card's open tag is checked, styled and unstyled
+        // alike. §3.4 forbids inline style emission outright; the claim is about the
+        // ELEMENT, so the assertion has to be about the element rather than about one
+        // spelling of it.
+        preg_match_all('/<li class="grid__item"[^>]*>/', $html, $tags);
+        $this->assertNotEmpty($tags[0], 'no card tags were parsed — the assertion below would be vacuous');
+        $this->assertCount(3, $tags[0], 'all three cards must be parsed, or an unstyled sibling escapes the check');
+        foreach ($tags[0] as $tag) {
+            $this->assertStringNotContainsString(
+                'style=',
+                $tag,
+                '§3.4 forbids inline style emission outright — that is what items[].udc replaced'
+            );
+        }
     }
 
     /**
