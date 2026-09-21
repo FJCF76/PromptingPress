@@ -244,6 +244,89 @@ class AgedBandStoredStyleMapTest extends TestCase
         $this->assertSame('A new title', pp_get_composition($id)[0]['props']['title']);
     }
 
+    /**
+     * THE SIBLING-BAND DISCLOSURE, and it is the half the refusals above cannot show.
+     *
+     * #1007 inverted what a stale map does to the REST of the page: `update_component`
+     * validates the band it TARGETS, so an aged band no longer refuses an edit to its
+     * neighbours. Nothing is migrated or healed by that — the stale bytes stay stale — so
+     * the disclosure has to arrive somewhere, and it arrives on the accepted envelope of
+     * the write that touched a different band entirely.
+     *
+     * Without this, an operator repairing a page band by band would see the aged band's
+     * problem only by trying to edit the aged band. The envelope tells them on the first
+     * accepted write anywhere on the page.
+     *
+     * Re-homed from StoredCompositionAliasRenderTest at #1101, where it ran on the
+     * fixture's slot map. Two of that method's four claims died with the engine and are
+     * not reproduced here: that `style_component` merges into the stored map rather than
+     * evicting the dead key (it now refuses with `no_style_slots` before merging
+     * anything), and that the canonical name paints once repaired (no slot paints).
+     */
+    public function testTheStoredMapIsReportedOnAnAcceptedEditToASiblingBand(): void
+    {
+        $id = pp_create_page('Aged band beside a clean one', 'draft');
+        pp_update_composition($id, [
+            ['component' => 'grid',
+             'props'     => ['id' => 'g1', 'title' => 'T', 'items' => [['title' => 'One']]],
+             'style'     => self::AGED_STYLE],
+            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'Band', 'body' => 'Copy.']],
+        ]);
+
+        // An edit to the OTHER band, touching nothing about the aged one.
+        $result = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 1,
+            'props'           => ['title' => 'Renamed band'],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched band must stay editable');
+
+        $reported = array_values(array_filter(
+            $result['findings'],
+            static fn (array $f): bool => ($f['type'] ?? '') === 'invalid_style_slot'
+        ));
+        $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
+        $this->assertStringContainsString(
+            '--grid-item-bg',
+            $reported[0]['message'],
+            'the disclosure names the dead slot on the band the operator never touched'
+        );
+        $this->assertSame(0, $reported[0]['index'], 'and it names the band that owns it, not the one written');
+    }
+
+    /**
+     * THE SECOND REPAIR ROUTE. `update_component` with every slot nulled is the surgical
+     * one; rewriting the whole band without a `style` key at all is the other, and it is
+     * what an operator doing a page-wide sweep will actually reach for.
+     *
+     * Pinned because the two routes go through different validators — the band-grain one
+     * and the whole-composition one — and an aged page that could be repaired by only one
+     * of them would be a trap for whichever half of the documentation the operator read.
+     */
+    public function testRewritingTheBandWithoutAStyleKeyAlsoClearsIt(): void
+    {
+        $id = $this->agedPage();
+
+        $repaired = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [
+                ['component' => 'grid', 'props' => ['id' => 'g1', 'title' => 'T', 'items' => [['title' => 'One']]]],
+            ],
+        ]);
+
+        $this->assertTrue($repaired['ok'], (string) ($repaired['error'] ?? ''));
+        $this->assertArrayNotHasKey('style', pp_get_composition($id)[0]);
+
+        $after = pp_execute_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => ['title' => 'A new title'],
+        ]);
+        $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
+        $this->assertSame([], $after['findings'], 'the page is clean once the dead map is gone');
+    }
+
     // ── 3. THE MESSAGE AND THE BEHAVIOUR, HELD TO EACH OTHER ────────────────────
 
     /**

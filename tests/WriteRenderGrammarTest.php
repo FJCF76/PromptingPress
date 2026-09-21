@@ -100,36 +100,6 @@ class WriteRenderGrammarTest extends TestCase
 
     // ── A-33 — one reject set, two callers ───────────────────────────────────
 
-    /**
-     * THE defect this entry closes, end to end. `serif /*` cleared write validation
-     * (the write engine's class was only `{};<>`), persisted, and then opened a CSS
-     * comment inside the inline style attribute that swallowed every declaration
-     * after it — so the band silently lost its number colour AND its background
-     * image while `.stats--has-bg-image` still painted the scrim over nothing.
-     *
-     * It is rejected at WRITE now, with a named error, through the real action.
-     */
-    public function testStatsNumberFontWithACommentOpenerIsRejectedAtWrite(): void
-    {
-        $id = pp_create_page('Comment-opener font', 'draft');
-        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [
-            ['number' => '99%', 'label' => 'Uptime'],
-        ]]]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-number-font' => 'serif /*'],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a value the renderer would drop must not be accepted at write');
-        $this->assertStringContainsString('--ppfixture-number-font', $result['error']);
-        $this->assertStringNotContainsString(
-            'serif /*',
-            pp_get_composition($id)[0]['style']['--ppfixture-number-font'] ?? '',
-            'nothing persisted'
-        );
-    }
 
     /**
      * The convergence itself, stated as an equality rather than a list: for every
@@ -225,42 +195,6 @@ class WriteRenderGrammarTest extends TestCase
         $this->assertGreaterThan(0, $checked, 'no tokens read — the walk is broken');
     }
 
-    /** The same enumeration for every shipped style-slot default. */
-    public function testNoShippedSlotDefaultIsNewlyRejected(): void
-    {
-        foreach (pp_get_registered_components() as $component => $schema) {
-            foreach (($schema['styling']['style_slots'] ?? []) as $slot => $def) {
-                $this->assertNull(
-                    _pp_forbidden_css_construct((string) ($def['default'] ?? '')),
-                    "{$component} {$slot} default must not hit the widened reject set"
-                );
-            }
-        }
-    }
-
-
-    /**
-     * And the render side still drops it, so a restored page loses ONE declaration
-     * rather than every declaration after it. This is the property that makes the
-     * write-time rejection safe to add rather than merely strict.
-     */
-    public function testARestoredCommentOpenerIsDroppedWithoutTakingItsSiblings(): void
-    {
-        $id = pp_create_page('Comment-opener render');
-        $this->seedRaw($id, [[
-            'component' => 'ppfixture',
-            'props'     => ['items' => [['number' => '99%', 'label' => 'Uptime']]],
-            'style'     => [
-                '--ppfixture-number-font'  => 'serif /*',
-                '--ppfixture-number-color' => '#ff0000',
-            ],
-        ]]);
-
-        $html = $this->renderStored($id);
-
-        $this->assertStringNotContainsString('serif /*', $html);
-        $this->assertStringContainsString('--ppfixture-number-color: #ff0000', $html);
-    }
 
     // ── A-30 — the length grammar can express `none` ─────────────────────────
 

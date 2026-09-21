@@ -171,112 +171,6 @@ class StoredCompositionAliasRenderTest extends TestCase
 
 
     /**
-     * THE STATED BREAKAGE, pinned so it can never be quietly softened into a
-     * migration or a warning-only tolerance.
-     *
-     * The whole-composition validating actions (`update_component` and the other
-     * read-modify-write actions, which validate the ENTIRE array they write back)
-     * now see the stale declaration. Before #603 the read path canonicalized stored
-     * slot names first, so a legacy name on one band was invisible to that
-     * validation. Now a targeted edit to ANOTHER band fails with `invalid_style_slot`
-     * naming the dead slot. On the dev corpus that is ~105 declarations across 7 of
-     * 12 compositions.
-     *
-     * `style_component` is deliberately NOT the probe here: it validates only the
-     * incoming style patch against the targeted component's slots, so it never sees a
-     * sibling band's stored declaration. The breakage is real on the whole-array
-     * actions, and this pin says exactly which — an over-broad claim would rot.
-     *
-     * This is the intended outcome of the removal. The recovery path is authoring the
-     * canonical name, not a shim.
-     */
-    public function testAStoredLegacySlotNameIsReportedOnEveryAcceptedWrite(): void
-    {
-        $id = pp_create_page('Legacy slot blocks edits', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-text' => '#f0f0f0']],
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
-
-        // INVERTED BY #1007: update_component validates the band it targets, so a stale
-        // SIBLING no longer refuses this edit. Nothing is migrated or healed — the stale
-        // bytes stay stale and are still reported, now on the accepted envelope instead
-        // of in a refusal. The repair route below is unchanged and still the way out.
-        // An edit to the OTHER band, touching nothing about the cta.
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched band is editable');
-        $reported = array_values(array_filter(
-            $result['findings'],
-            static fn (array $f): bool => ($f['type'] ?? '') === 'invalid_style_slot'
-        ));
-        $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
-        $this->assertStringContainsString(
-            '--ppfixture-text',
-            $reported[0]['message'],
-            'the disclosure names the dead slot on the band the operator never touched'
-        );
-
-        // THE ESCAPE HATCH, pinned so the intended breakage has a proven way out.
-        //
-        // style_component is NOT the way out. It succeeds — it validates only its own
-        // patch — but it MERGES into the stored map, so the dead key survives beside
-        // the new canonical one and the page stays unwritable. Pinned because
-        // "just re-style the band" is the obvious wrong fix to reach for.
-        $merge = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-heading-color' => '#f0f0f0'],
-        ]);
-        $this->assertTrue($merge['ok'], (string) ($merge['error'] ?? ''));
-        $this->assertArrayHasKey(
-            '--ppfixture-text',
-            pp_get_composition($id)[0]['style'],
-            'the merge did not evict the dead key'
-        );
-        // The dead key survives the merge, so it is STILL REPORTED on the next accepted
-        // write. Since #1007 it no longer refuses that write, but "just re-style the band"
-        // is still the wrong fix: it leaves a declaration that paints nothing, and the
-        // findings say so every time.
-        $stillReported = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-        $this->assertTrue($stillReported['ok'], (string) ($stillReported['error'] ?? ''));
-        $this->assertStringContainsString(
-            '--ppfixture-text',
-            implode(' ', array_column($stillReported['findings'], 'message')),
-            'the dead key is still diagnosed after the merge that failed to evict it'
-        );
-
-        $repaired = pp_execute_action('update_composition', [
-            'post_id'     => $id,
-            'composition' => [
-                ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-heading-color' => '#f0f0f0']],
-                ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-            ],
-        ]);
-        $this->assertTrue($repaired['ok'], (string) ($repaired['error'] ?? ''));
-
-        // Recovered: the page reports nothing, and the value the author meant paints
-        // under the canonical name.
-        $after = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-        $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
-        $this->assertSame([], $after['findings'], 'the page is clean once the dead key is gone');
-        $this->assertStringContainsString('--ppfixture-heading-color: #f0f0f0', $this->renderStored($id));
-    }
-
-
-    /**
      * PER-ITEM style maps lose the alias too. The schema-derived per-item resolution
      * loop (_pp_resolve_item_legacy_slots) is gone, so a grid card carrying a legacy
      * name is dropped by pp_render_style_vars()'s item-scope path like any other
@@ -329,8 +223,7 @@ class StoredCompositionAliasRenderTest extends TestCase
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'udc' => ['card' => ['background' => ['fill' => '#101014']]]]]],
              'udc' => ['heading' => ['sizing' => ['max-width' => '40rem']]]],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
-                '--ppfixture-label-color' => '#334455']]];
+        ];
 
         $id     = pp_create_page('Fresh canonical page', 'draft');
         $result = pp_execute_action('update_composition', [
@@ -355,7 +248,6 @@ class StoredCompositionAliasRenderTest extends TestCase
             (string) ($stored[1]['props']['items'][0]['id'] ?? ''),
             'an item carrying a udc map is minted an it-<hex8> handle on write'
         );
-        $this->assertSame($authored[2]['style'], $stored[2]['style'], 'section style map is byte-identical');
 
         // Render: every authored declaration reaches the page.
         $html = $this->renderStored($id);
@@ -373,11 +265,12 @@ class StoredCompositionAliasRenderTest extends TestCase
             . 'component-defaults tier), which is what makes them this band\'s design'
         );
         $this->assertStringNotContainsString('--faq-heading-color', $html);
-        // Scoped to each band's own <section>. THE POINT OF THE FIXTURE INVERTED AT #1101:
-        // it used to be that faq was v2 while grid and the fixture band were still v1, so
-        // one page carried both emission shapes. Now only the test FIXTURE component is on
-        // the v1 shape, and the interesting contrast is between the two v2 GRAINS — faq's
-        // band-scoped block and grid's band-AND-item-scoped blocks on the same page.
+        // Scoped to each band's own <section>. THE FIXTURE BAND LEFT AT #1101 PR2, with the
+        // slot engine: the page used to carry a third band on the v1 emission shape so the
+        // two shapes could be contrasted, and there is no v1 shape left to contrast with.
+        // What the fixture shows now is the contrast that survived and matters more — the
+        // two v2 GRAINS, faq's band-scoped block beside grid's band-AND-item-scoped blocks
+        // on the same page.
         preg_match('/<section[^>]*data-pp-component="faq"[^>]*>/', $html, $faqTag);
         $this->assertNotEmpty($faqTag, 'the faq band must render');
         $this->assertStringNotContainsString(
@@ -411,11 +304,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertNotEmpty($gridTag, 'the grid band must render');
         $this->assertStringNotContainsString('style=', $gridTag[0]);
         $this->assertStringNotContainsString('--grid-', $html, 'no grid custom property is emitted anywhere');
-
-        // The FIXTURE band is the only v1 shape left on the page, and it still paints its
-        // slot inline — which is what keeps the contrast in this test real rather than
-        // asserted about a surface that no longer exists.
-        $this->assertStringContainsString('--ppfixture-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
         $this->assertSame([], pp_validate_composition_errors($stored));
