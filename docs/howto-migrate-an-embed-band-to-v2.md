@@ -3,6 +3,12 @@
 `embed` moved to the Universal Design Contract at #1066. Its eight style slots and its
 `theme` prop are retired; every designable value is now a role in the band's `udc` map.
 
+> **⚠ CLEAR THE STORED STYLE MAP FIRST, IF THERE IS ONE.** A band still holding its v1
+> `style` map cannot be edited at all since #1101 — not restyled, *edited*: a props-only
+> change meets `invalid_style_slot` naming a key you never mentioned. That refusal blocks
+> every step below. It takes one command to clear:
+> **`docs/howto-clear-a-stored-v1-style-map.md`**. Do that, then come back here.
+
 **The mapping is short. The part worth reading twice is Step 4**, because `embed` is the one
 component whose content is arbitrary author HTML, and a band-level ink write reaches less of it
 than you would expect.
@@ -20,9 +26,11 @@ map before.
 
 ## Step 1: Find out what is actually broken
 
-Nothing is *broken*. A stored `--embed-*` slot or a stored `theme` is simply not read any more:
-the band renders as though neither were set, and no read surface says so (#1050). A band that
-stored `theme: "inverted"` renders **light**.
+A stored `--embed-*` slot or a stored `theme` is not read at RENDER: the band paints as though
+neither were set, and no read surface says so (#1050). A band that stored `theme: "inverted"`
+renders **light**. **The stored SLOT map is not ignored at WRITE, though** — since #1101 it
+refuses every edit to the band, a props-only one included. Clear it first; see the note at the
+top of this guide.
 
 ```
 wp pp check page 42

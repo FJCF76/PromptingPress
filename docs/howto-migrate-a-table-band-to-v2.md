@@ -3,6 +3,12 @@
 `table` moved to the Universal Design Contract at #1066. Its six style slots are retired; every
 designable value is now a role in the band's `udc` map.
 
+> **⚠ CLEAR THE STORED STYLE MAP FIRST, IF THERE IS ONE.** A band still holding its v1
+> `style` map cannot be edited at all since #1101 — not restyled, *edited*: a props-only
+> change meets `invalid_style_slot` naming a key you never mentioned. That refusal blocks
+> every step below. It takes one command to clear:
+> **`docs/howto-clear-a-stored-v1-style-map.md`**. Do that, then come back here.
+
 **This is the shortest migration in the program and the one most likely to surprise you.** table
 retires no prop at all — it never had a `theme` — so there is no tone bundle to translate and
 nothing to un-learn about variants. What it does have is the opposite problem: v1 gave it six
@@ -23,9 +29,11 @@ map before.
 
 ## Step 1: Find out what is actually broken
 
-Nothing is *broken*. A stored `--table-*` slot is simply not read any more: the band renders as
-though it were never set, and no read surface says so (#1050). That is the whole reason to
-migrate rather than leave it.
+A stored `--table-*` slot is not read at RENDER: the band paints as though it were never set,
+and no read surface says so (#1050). **At WRITE it refuses every edit to the band since
+#1101**, a props-only one included — so "leave it alone" stopped being an option, and clearing
+it is now the first step rather than a tidy-up. Clear it first; see the note at the top of this
+guide.
 
 ```
 wp pp check page 42
