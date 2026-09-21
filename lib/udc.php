@@ -2736,7 +2736,42 @@ function pp_udc_validate_map($udc, string $component, array $item_maps = []): ?W
                     $forbidden
                 ));
             }
-            if (_pp_udc_is_mint_shaped_name((string) $name)
+            // AN ORPHANED ITEM MINT CANNOT COLLIDE, SO IT IS NOT SQUATTING (#1101).
+            //
+            // This gate exists for one reason, and its own message says it: "a collision
+            // would have the engine overwrite the value you declared". An ITEM-shaped
+            // name whose id names no entry in this band has no coordinate left to
+            // collide with — the engine will never mint it again, because no card
+            // carries that id.
+            //
+            // WITHOUT THIS CARVE-OUT YOU COULD NOT DELETE A CARD YOU STYLED. Minting
+            // lifts an item's responsive literals into the BAND's `_tokens`; deleting the
+            // card removes the map but not the token, and the next write was refused
+            // permanently — on a name the author never typed, by a message telling them
+            // to "pick another name" for it, from a surface (`update_component`) that
+            // carries no `udc` param and therefore cannot reach `_tokens` at all. The
+            // documented clear-it route, an explicit `{"udc": {}}`, hit the same wall.
+            //
+            // THE SQUAT CASE IS STILL REFUSED, and the sequence that looks like a hole
+            // is closed by re-evaluation rather than by this gate: an author may now
+            // store `it-deadbeef-…` while no card carries that id, but the moment a card
+            // DOES, this gate runs again with the id live and refuses unless the name is
+            // genuinely the engine's own. And if it somehow got past, `_pp_udc_mint_value()`'s
+            // collision guard is the backstop it has always been — a coordinate whose
+            // name is already held by a different literal is left unminted, so both
+            // values survive and both paint.
+            //
+            // The orphan is not silent either: it is exactly what `udc_unused_band_token`
+            // reports, which is the right channel for debris — a warning, not a wall.
+            // pp_udc_normalize_band() reaps these on the next write, so they do not
+            // accumulate; this carve-out is what lets that write happen at all.
+            $orphan_item_mint = false;
+            $item_mint_split  = _pp_udc_split_item_mint((string) $name);
+            if ($item_mint_split !== null && !array_key_exists($item_mint_split[0], $item_maps)) {
+                $orphan_item_mint = true;
+            }
+            if (!$orphan_item_mint
+                && _pp_udc_is_mint_shaped_name((string) $name)
                 && !_pp_udc_name_is_the_engines_own_mint((string) $name, $udc, $item_maps)) {
                 return new WP_Error('invalid_prop_value', sprintf(
                     'Component "%s" udc token "%s" uses a name the engine mints for itself '
@@ -3952,8 +3987,55 @@ function pp_udc_normalize_band(array $item): array {
         }
     }
 
+    // ── REAP THE MINTS OF CARDS THAT ARE GONE (#1101) ──────────────────────
+    //
+    // WITHOUT THIS YOU CANNOT DELETE A CARD YOU STYLED. Measured through the real
+    // action surface before the fix: style one card with a responsive value (the band
+    // gains `it-<hex8>-card-title-typography-size-d`), then re-send `items` without
+    // that card —
+    //
+    //   ok: false, invalid_prop_value: udc token "it-387bb4bc-…-d" uses a name the
+    //   engine mints for itself … Pick another name
+    //
+    // The band is refused permanently, on a token the author never wrote, by a message
+    // naming a repair they cannot perform — `update_component` carries no `udc` param
+    // (#1088), so the `_tokens` map is unreachable from the surface that refused them.
+    // The documented escape hatch is refused identically: `_pp_preserve_item_design()`
+    // promises that an explicit `{"udc": {}}` clears a design "because there is
+    // otherwise no way to remove an item's design once minted", and it hit the same
+    // wall. Reaching the state from storage (restore_composition #233, a raw meta
+    // write) makes the error permanent on an otherwise-clean page.
+    //
+    // SAFE BY CONSTRUCTION, and that is the whole argument for reaping rather than
+    // relaxing the gate. An item mint is named after the id of the ONE map that could
+    // have produced it, so a name whose id names no surviving entry cannot be anything
+    // an author wrote — the write gate refuses an authored `_tokens` key of that shape,
+    // which is what the gate this unblocks is for. Removing it destroys no author data.
+    //
+    // ITEM MINTS ONLY. The band-grain twin has the same shape and predates this tier;
+    // it is reachable only through a read-modify-write of a band's own `udc`, and
+    // widening this to band mints would mean deciding what "orphaned" means for a name
+    // whose coordinate still exists. Left alone deliberately.
+    if ($component_declaration !== null && $tokens !== []) {
+        $live_item_ids = [];
+        foreach (pp_udc_item_maps($item) as $live_id => $ignored_map) {
+            $live_item_ids[(string) $live_id] = true;
+        }
+        foreach ($tokens as $token_name => $ignored_literal) {
+            $split = _pp_udc_split_item_mint((string) $token_name);
+            if ($split !== null && !isset($live_item_ids[$split[0]])) {
+                unset($tokens[$token_name]);
+            }
+        }
+    }
+
     if ($tokens !== []) {
         $udc['_tokens'] = $tokens;
+    } else {
+        // The last mint went with the last styled card: drop the empty carrier rather
+        // than storing `{"_tokens": {}}`, which no reader wants and which would make the
+        // no-coercion promise visibly false on a round trip.
+        unset($udc['_tokens']);
     }
     // A BAND THAT HAD NO MAP AND MINTED NOTHING KEEPS HAVING NO MAP. Writing
     // back an empty `udc` would change the stored shape of every item-styled
@@ -4884,6 +4966,58 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
     if ($layer !== 'defaults') {
         $declaration = pp_udc_item_roles($component);
         if ($declaration !== null) {
+            // TWO CARDS CLAIMING ONE ID IS LEDGERED, NOT SWALLOWED (#1101).
+            //
+            // The write gate refuses this as `duplicate_component_id`, in those words:
+            // "an item id scopes that item's styling rules, so sharing one would paint
+            // each design on both". But the write gate is not the only way data arrives,
+            // and from storage the outcome was silent and worse than the message
+            // describes. Measured on a two-entry band both claiming `it-aaaaaaaa`:
+            //
+            //   emitted  [data-pp-band="pp-…"] [data-pp-item="it-aaaaaaaa"]{background:#111111;}
+            //   rendered BOTH cards carry data-pp-item="it-aaaaaaaa"
+            //   drops    []      findings  []
+            //
+            // So the second card's stored design is DISCARDED and the first card's is
+            // painted on both — a whole card's design lost, on no channel at all. The
+            // sibling case immediately below (a top-level key this tier cannot address)
+            // was given a ledger row in this same change under the same "the write gate
+            // is not the only way data arrives" argument; the half left silent was the
+            // one that loses more.
+            //
+            // pp_udc_item_maps() keeps the FIRST map deliberately (it is the one an
+            // already-rendered page was built against), so this reports rather than
+            // changes what paints.
+            if ($drops !== null) {
+                $seen_ids = [];
+                $entries_for_dupes = $item['props'][$declaration['prop']] ?? null;
+                if (is_array($entries_for_dupes)) {
+                    foreach ($entries_for_dupes as $dupe_entry) {
+                        if (!is_array($dupe_entry)) {
+                            continue;
+                        }
+                        $dupe_id = isset($dupe_entry[PP_UDC_ITEM_ID_KEY])
+                            && is_scalar($dupe_entry[PP_UDC_ITEM_ID_KEY])
+                            ? (string) $dupe_entry[PP_UDC_ITEM_ID_KEY]
+                            : '';
+                        if ($dupe_id === '' || !pp_udc_valid_item_id($dupe_id)) {
+                            continue;
+                        }
+                        if (isset($seen_ids[$dupe_id])) {
+                            if (count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+                                $drops[] = [
+                                    'where'  => sprintf('item "%s"', _pp_udc_reflect($dupe_id)),
+                                    'reason' => 'two cards in this band claim that id, so only the first '
+                                        . "card's design is painted — and it is painted on both",
+                                ];
+                            }
+                            continue;
+                        }
+                        $seen_ids[$dupe_id] = true;
+                    }
+                }
+            }
+
             foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
                 // A TOP-LEVEL KEY THIS TIER CANNOT ADDRESS IS LEDGERED, NOT STEPPED OVER.
                 //
@@ -8294,9 +8428,19 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
         foreach ($tokens as $name => $unused) {
+            // THE SAME BUDGET AS ITS TWIN ABOVE, which walks this identical array. The
+            // first cut capped `udc_token_minted` and left this one uncapped — measured
+            // at 40 bands of unreferenced item-shaped tokens: 24,000 findings, 4.3 MB of
+            // message text and +16 MB peak from one call. One budget across both
+            // disclosures is what "bounded across the composition" has to mean when two
+            // loops read one array.
+            if ($tokens_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break;
+            }
             if (isset($referenced[(string) $name])) {
                 continue;
             }
+            $tokens_disclosed++;
             $findings[] = [
                 'type'    => 'udc_unused_band_token',
                 'message' => sprintf(

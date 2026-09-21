@@ -1567,6 +1567,202 @@ class GridItemUdcTest extends TestCase
         );
     }
 
+    /**
+     * A CARD YOU STYLED CAN BE DELETED — AND BEFORE THIS IT COULD NOT.
+     *
+     * THE WORST DEFECT THE REVIEW FOUND, and it sat behind the most ordinary action
+     * there is. Minting lifts an item's responsive literals into the BAND's `_tokens`
+     * under a name carrying the card's id. Deleting the card removed the map and left
+     * the token, and the reserved-name gate then refused the band PERMANENTLY:
+     *
+     *   ok: false, invalid_prop_value: udc token "it-387bb4bc-card-title-typography-
+     *   size-d" uses a name the engine mints for itself … Pick another name
+     *
+     * On a name the author never typed, naming a repair they cannot perform —
+     * `update_component` carries no `udc` param (#1088), so `_tokens` is unreachable
+     * from the surface that refused them. The documented escape hatch hit the same wall:
+     * `_pp_preserve_item_design()` promises an explicit `{"udc": {}}` clears a design
+     * "because there is otherwise no way to remove an item's design once minted".
+     *
+     * TWO HALVES, AND BOTH ARE NEEDED. The gate now treats an ORPHANED item mint as
+     * debris rather than squatting — it cannot collide, because no card carries that id,
+     * and collision is the only thing that gate's own message claims to prevent. And
+     * `pp_udc_normalize_band()` reaps orphans on the next write, so they do not
+     * accumulate. The carve-out is what lets that write happen at all.
+     */
+    public function testACardCarryingAResponsiveValueCanBeDeletedAndCleared(): void
+    {
+        $responsive = ['card-title' => ['typography' => ['size' => ['d' => '2rem', 'p' => '1.2rem']]]];
+
+        foreach (['delete' => null, 'clear' => []] as $route => $cleared_map) {
+            $post_id = $this->newPage("orphan mint {$route}");
+            $this->assertTrue($this->write($post_id, [[
+                'component' => 'grid',
+                'props'     => ['title' => 'T', 'items' => [
+                    ['title' => '01'],
+                    ['title' => '02', 'udc' => $responsive],
+                ]],
+            ]])['ok'], 'the responsive item write must be accepted');
+
+            $tokens = pp_get_composition($post_id)[0]['udc']['_tokens'] ?? [];
+            $this->assertNotSame([], $tokens, 'the responsive value must have minted, or this proves nothing');
+
+            // DELETE re-sends the array without the card; CLEAR re-sends it with an
+            // explicit empty map, which is the route the merge's docblock promises.
+            $items = $cleared_map === null
+                ? [['title' => '01']]
+                : [['title' => '01'], ['title' => '02', 'udc' => $cleared_map]];
+
+            $result = pp_execute_action('update_component', [
+                'post_id'         => $post_id,
+                'component_index' => 0,
+                'props'           => ['items' => $items],
+            ]);
+            $this->assertTrue(
+                $result['ok'],
+                "the `{$route}` route must not be refused by the engine's own leftover token: "
+                . ($result['error'] ?? '')
+            );
+
+            // AND THE DEBRIS IS GONE, not merely tolerated — otherwise every edit to the
+            // band carries a growing token map nothing references.
+            $after = pp_get_composition($post_id)[0];
+            $this->assertSame(
+                [],
+                $after['udc']['_tokens'] ?? [],
+                "the orphaned mint must be reaped on the next write (`{$route}`)"
+            );
+        }
+    }
+
+    /**
+     * SQUATTING IS STILL REFUSED — THE CARVE-OUT ABOVE IS NARROW.
+     *
+     * The gate exists to stop an author declaring a `_tokens` name the engine would
+     * later overwrite. An ORPHANED item mint cannot be that, because no card carries its
+     * id and the engine will never mint it again. Everything else still refuses, and
+     * this is the test that keeps the carve-out from widening into the hole it looks
+     * like.
+     */
+    public function testTheOrphanCarveOutDoesNotOpenTheSquattingHole(): void
+    {
+        // The id is LIVE, and the token is not the engine's own: refused.
+        $live = pp_udc_validate_map(
+            ['_tokens' => ['it-deadbeef-card-background-fill-d' => '#ff0000']],
+            'grid',
+            ['it-deadbeef' => ['card' => ['background' => ['fill' => ['d' => '#111111']]]]]
+        );
+        $this->assertInstanceOf(WP_Error::class, $live, 'a live id makes the name collidable again');
+
+        // A BAND-shaped mint is refused exactly as before — untouched by the carve-out.
+        $this->assertInstanceOf(
+            WP_Error::class,
+            pp_udc_validate_map(['_tokens' => ['card-title-typography-color-d' => '#ff0000']], 'grid'),
+            'the band-grain gate is unchanged'
+        );
+
+        // The orphan itself is ACCEPTED, and reported as the debris it is.
+        $this->assertNull(
+            pp_udc_validate_map(['_tokens' => ['it-deadbeef-card-background-fill-d' => '#ff0000']], 'grid', []),
+            'an orphan cannot collide, so it is debris rather than squatting'
+        );
+        $this->assertContains(
+            'udc_unused_band_token',
+            array_column(pp_udc_composition_findings([[
+                'component' => 'grid',
+                'id'        => 'pp-11112222',
+                'udc'       => ['_tokens' => ['it-deadbeef-card-background-fill-d' => '#ff0000']],
+                'props'     => ['items' => [['title' => 'a']]],
+            ]]), 'type'),
+            'and it is reported on the channel debris belongs on — a warning, not a wall'
+        );
+    }
+
+    /**
+     * TWO CARDS CLAIMING ONE ID IS LEDGERED RATHER THAN SWALLOWED.
+     *
+     * The write gate refuses this as `duplicate_component_id` — "sharing one would paint
+     * each design on both". From STORAGE the outcome was silent and worse than that
+     * message describes: the second card's design is DISCARDED and the first card's is
+     * painted on both, with no drop row and no finding.
+     *
+     * Reachable exactly where the engine says its gates do not reach: restore_composition
+     * (#233), a raw meta write, or bytes written before the gate.
+     */
+    public function testTwoStoredCardsClaimingOneIdAreLedgered(): void
+    {
+        $band = [
+            'component' => 'grid',
+            'id'        => 'pp-11111111',
+            'props'     => ['items' => [
+                ['title' => 'A', 'id' => 'it-aaaaaaaa', 'udc' => ['card' => ['background' => ['fill' => '#111111']]]],
+                ['title' => 'B', 'id' => 'it-aaaaaaaa', 'udc' => ['card' => ['background' => ['fill' => '#222222']]]],
+            ]],
+        ];
+
+        $drops = [];
+        pp_udc_compile_band($band, 'authored', $drops);
+
+        $this->assertCount(1, $drops, 'a duplicate stored id must reach the ledger');
+        $this->assertStringContainsString('it-aaaaaaaa', $drops[0]['where']);
+        $this->assertStringContainsString('painted on both', $drops[0]['reason']);
+
+        // FIRST MAP WINS, unchanged — the ledger reports what happens, it does not change
+        // it. The first design is the one an already-rendered page was built against.
+        $this->assertStringContainsString('#111111', pp_udc_band_css($band));
+        $this->assertStringNotContainsString('#222222', pp_udc_band_css($band));
+    }
+
+    /**
+     * THE ITEM-GRAIN ROSTER REACHES THE AUTHORING MODEL, DERIVED FROM THE DECLARATION.
+     *
+     * The write gate declines to declare `id` and `udc` as entry FIELDS, and justifies it
+     * by saying "the capability still reaches the model through the `item_roles`
+     * declaration". Nothing composed that declaration onto any model-facing surface, so
+     * the claim was false: the prompt contained no `item_roles`, no `data-pp-item` and no
+     * item-settable roster, while showing grid's full eighteen-role list. A model was
+     * left to discover the ten by being refused.
+     *
+     * DERIVED ON BOTH SURFACES so a component that opts in tomorrow appears the day it
+     * lands, and an exclusion that changes cannot drift out of sync with the prose.
+     */
+    public function testTheItemGrainRosterReachesBothModelFacingSurfaces(): void
+    {
+        $declaration = pp_udc_item_roles('grid');
+        $prompt      = pp_ai_system_prompt();
+
+        $this->assertStringContainsString('ITEM-GRAIN roles', $prompt);
+        foreach ($declaration['roles'] as $role) {
+            $this->assertStringContainsString(
+                $role,
+                $prompt,
+                "the item-settable role `{$role}` must reach the authoring model"
+            );
+        }
+        foreach (array_keys(pp_udc_item_reserved_keys()) as $excluded) {
+            $this->assertStringContainsString(
+                $excluded,
+                $prompt,
+                "the exclusion `{$excluded}` must be stated, not discovered by refusal"
+            );
+        }
+        $this->assertStringContainsString(
+            'props.' . $declaration['prop'] . '[]',
+            $prompt,
+            'the model needs the SHAPE, not only the role names'
+        );
+
+        // The CLI/SSH surface carries it too — same derivation, no second roster.
+        $report = pp_component_schema_report('grid');
+        $this->assertArrayHasKey('item_roles', $report);
+        $this->assertSame($declaration['roles'], $report['item_roles']['roles']);
+        $this->assertSame($declaration['prop'], $report['item_roles']['prop']);
+
+        // OMITTED, NOT EMPTIED, for a component that declares none — absence has to keep
+        // meaning "no item grain" rather than "an empty one".
+        $this->assertArrayNotHasKey('item_roles', pp_component_schema_report('testimonials'));
+    }
+
     // ───────────────────────────────────────────────────────────────────────
     // B5 — generality
     // ───────────────────────────────────────────────────────────────────────
