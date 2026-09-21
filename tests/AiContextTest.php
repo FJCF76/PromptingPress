@@ -112,16 +112,36 @@ class AiContextTest extends TestCase
         // #377 — the runtime chat prompt must state the var() negative for the
         // literal-only slot types, not only for `position`. The chat AI was
         // misled by the color analogy into setting a length slot to a var()
-        // reference and getting rejected; the prompt now names which types
-        // accept var() and that length/number/duration/position/ratio are literal-only.
+        // reference and getting rejected; the prompt names which types accept
+        // var() and says every other type is literal-only.
+        //
+        // THE NEGATIVE IS NOW STATED AS A COMPLEMENT, NOT A LIST (#1087). The old pin
+        // enumerated `length, length-or-none, number, duration, position, ratio`, and four
+        // of those six had ZERO shipped slot carriers — the prompt was teaching a var()
+        // rule for types no slot could declare. An enumeration also had to be re-edited
+        // every time a carrier retired, which is the hand-maintained-roster drift this gate
+        // exists to end. A complement ("every other type") stays true as the carrier set
+        // moves, so what is pinned here is the SUBSTANCE: the accepting set is named, and
+        // the negative covers everything outside it.
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString(
             'Only the `color`, `gradient`, `shadow`, and `font-family` types accept a `var()` reference',
             $prompt
         );
         $this->assertStringContainsString(
-            'the `length`, `length-or-none`, `number`, `duration`, `position`, and `ratio` types are literal-only',
+            'every other type is literal-only and rejects `var()` in EVERY form',
             $prompt
+        );
+        // And the substance behind the sentence, so this cannot pass on phrasing alone: a
+        // length really does reject a bare token reference, in the engine.
+        $this->assertInstanceOf(
+            \WP_Error::class,
+            \_pp_validate_token_value('var(--space-lg)', 'length', null),
+            'the prompt claims a length rejects var(); the validator must agree'
+        );
+        $this->assertTrue(
+            \_pp_validate_token_value('var(--color-accent)', 'color', null),
+            'and that a colour ACCEPTS one, so the claim is a real distinction'
         );
     }
 
@@ -456,80 +476,78 @@ class AiContextTest extends TestCase
     }
 
     /**
-     * #579 — the `length-or-none` band-geometry grammar must be surfaced, and the
-     * "how do I remove a max-width" guidance must route to the slot's own removal
-     * value instead of the pre-#579 `100%` workaround, which existed only because
-     * the type could not express `none`.
+     * THE `length-or-none` SLOT GRAMMAR IS NOT TAUGHT WHILE NOTHING CARRIES IT (#1087).
+     *
+     * This replaces the #579/#578 pin, and the reversal is deliberate and ruled. That pin
+     * required the prompt to keep teaching the type BECAUSE its carrier set had emptied —
+     * the argument being that an agent reading a roster it is not on concludes the
+     * capability is gone. The argument was right about the RISK and wrong about the remedy:
+     * it spent prompt budget every turn on a slot grammar no slot could declare, and it is
+     * one of six such types the v1 block was still teaching.
+     *
+     * The risk is answered directly instead, by the assertion below that the v2 route is
+     * stated. "Remove this cap" is still a real instruction; it is a `udc` write now.
+     *
+     * AND THE CAPABILITY RETURNS BY ITSELF. The third assertion is the one that makes the
+     * deletion safe rather than merely cheap: the grammar is not gone from the code, it is
+     * conditional on a carrier, so the day a slot declares the type the sentence comes back
+     * without anyone remembering it existed.
      */
-    public function testSystemPromptStatesTheLengthOrNoneGrammar(): void
+    public function testTheLengthOrNoneSlotGrammarIsConditionalOnACarrier(): void
+    {
+        $this->assertNotContains(
+            'length-or-none',
+            \pp_ai_live_slot_types(),
+            'no shipped slot carries this type — if one does now, this test is the wrong shape'
+        );
+
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringNotContainsString(
+            'A `length-or-none`-typed slot accepts everything',
+            $prompt,
+            'a slot grammar with no carrier must not be taught'
+        );
+
+        // The half that MUST survive: where the capability went.
+        $this->assertStringContainsString(
+            'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE',
+            $prompt,
+            'without this an agent reads the absence as a removed capability and falls back '
+            . 'to the pre-#579 `100%` workaround'
+        );
+        $this->assertStringContainsString(
+            'the role\'s `sizing.max-width` set to `none`',
+            $prompt,
+            'the v2 route must be named, not merely implied'
+        );
+
+        // Self-restoring: give the composer a carrier and the grammar comes back.
+        $restored = \pp_ai_slot_type_rules(['length-or-none']);
+        $this->assertStringContainsString('A `length-or-none`-typed slot accepts everything', $restored);
+        $this->assertStringContainsString('PLUS the keyword `none`', $restored);
+        $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
+    }
+
+    /**
+     * The retired slot NAMES survive the grammar's deletion (#1087).
+     *
+     * Two of these disclosures used to ride inside the `length-or-none` passage, so removing
+     * that passage removed them — and they do a different job, which outlives the type: an
+     * author repairing a page built before the rebuild meets the name in a stored `style`
+     * map and needs to know it is gone and what replaced it. RetiredNamesAreMarkedRetiredTest
+     * enforces the marker rule on them; this pins that they are still NAMED at all.
+     */
+    public function testRetiredSlotNamesAreStillDisclosedForAgedPageRepair(): void
     {
         $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('A `length-or-none`-typed slot', $prompt);
-        $this->assertStringContainsString('PLUS the keyword `none`', $prompt);
-        $this->assertStringContainsString(
-            'A plain `length` slot (padding, font-size, radius, and every measure with a real length default, e.g. `--grid-heading-measure`) still rejects it.',
-            $prompt,
-            'the widening must be stated as bounded, or the AI will try `none` everywhere'
-        );
-        // #578 widened the type from one band-geometry cap to five slots. The prompt had to
-        // name the uncapped measures that were still SLOTS, or an agent reading it would
-        // believe `none` is never valid on a measure and could not restore their declared
-        // default. The set shrank one rebuild sprint at a time — --hero-heading-measure
-        // left in #986, --section-heading-measure in #1023, --cta-body-measure in #1026,
-        // and --faq-body-measure at #1046.
-        //
-        // IT IS NOW EMPTY, AND THE PROMPT SAYS SO IN THOSE TERMS. The previous cut kept a
-        // singular phrasing ("the one text measure that ships uncapped") on the argument
-        // that a list of one still reads as a list; the honest successor to a list of one
-        // is not a list of zero, it is a sentence saying the set is empty and naming where
-        // the capability went. An agent that reads a roster it is not on concludes the
-        // capability is gone — which is exactly what this assertion exists to prevent, and
-        // it prevents it better now than a phantom list would.
-        $this->assertStringContainsString(
-            'No text measure ships uncapped any more',
-            $prompt,
-            'the length-or-none carrier set must be stated, including when it empties'
-        );
-        // REPRICED AT #1066, ONE LEVEL UP FROM THE NOTE ABOVE, and by its own argument.
-        // That note recorded the TEXT-measure roster emptying at #1046 and concluded that
-        // "the honest successor to a list of one is not a list of zero, it is a sentence
-        // saying the set is empty and naming where the capability went". The SLOT roster
-        // has now emptied the same way: `--stats-max-width` was the last carrier of any
-        // kind and retired with stats' rebuild. So this asserted that the cap "is the only
-        // slot carrier left and must still be named"; it is named as the one that LEFT,
-        // and what must be stated is that nothing carries the type now.
-        //
-        // The danger this guards against is unchanged and is why the assertion is repriced
-        // rather than deleted: an agent told a type exists, shown no carrier and given no
-        // route, concludes the capability is gone and reaches for the pre-#579 `100%`
-        // workaround. So the prompt must say BOTH halves — no slot carries it, and the
-        // route is a role parameter — and both are asserted.
-        $this->assertStringContainsString(
-            'NO SHIPPED STYLE SLOT CARRIES IT ANY MORE',
-            $prompt,
-            'an empty carrier set must be stated as empty, not left to be inferred'
-        );
-        $this->assertStringContainsString(
-            '`--stats-max-width` was the last',
-            $prompt,
-            'the last carrier must still be named, or an author meeting it on an aged page '
-            . 'has nothing to match it against'
-        );
-        $this->assertStringContainsString(
-            'THE TYPE IS NOT GONE, ONLY ITS SLOT CARRIERS ARE',
-            $prompt,
-            'without this an agent reads an empty roster as a removed capability and falls '
-            . 'back to the pre-#579 `100%` workaround'
-        );
-        $this->assertStringContainsString(
-            'an uncapped measure is the role\'s `sizing.max-width` set to `none`',
-            $prompt,
-            'the v2 route must be stated beside the shrinking slot list'
-        );
-        $this->assertStringContainsString(
-            'use the slot\'s own removal value when its type has one',
-            $prompt
-        );
+        foreach (['--stats-max-width', '--faq-body-measure', '--stats-bg-position', '--logos-image-size'] as $name) {
+            $this->assertStringContainsString(
+                $name,
+                $prompt,
+                "an author meeting {$name} on an aged page has nothing to match it against"
+            );
+        }
+        $this->assertStringContainsString('no_style_slots', $prompt, 'and the refusal they will hit');
     }
 
     /**
