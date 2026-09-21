@@ -2332,6 +2332,155 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  /**
+   * #1056 — THE CARD LINK'S FOCUS RING IS INSET, AND IT HAS TO BE PINNED IN PIXELS.
+   *
+   * THE EXPOSURE CROSSED THE REBUILD RATHER THAN DYING WITH IT, which is the whole
+   * reason this test exists and the reason it authors a hostile value rather than
+   * measuring the comfortable default.
+   *
+   * `.grid__item { overflow: hidden }` clips an outward focus ring — it is declared so a
+   * banner image crops to the card's authored radius, so it is not removable. base.css
+   * paints focus rings 2px OUTSIDE the control. Under v1 the card link survived that only
+   * by ACCIDENT: the card body's padding happened to be comfortably wider than the 4px the
+   * outward ring needs, so the ring landed inside the clip box and painted.
+   *
+   * The rebuild turned that padding into an ordinary authored value — `card-body` ->
+   * `spacing.padding` — so the accident became ONE WRITE away from a WCAG 2.4.7 failure
+   * that no computed-style assertion could see. #1046 measured exactly that shape on faq:
+   * a perfectly correct computed `outline: solid 2px rgb(49,87,244)` while ZERO accent
+   * pixels painted above the summary.
+   *
+   * THE REMEDY IS #1046'S, APPLIED STRUCTURALLY: `outline-offset: -3px` on
+   * `:focus-visible`, declared by the component's own structural block rather than by a
+   * role default, SO THAT NO AUTHORED VALUE CAN REOPEN IT. A role default would be
+   * overridable by the same author who zeroes the padding.
+   *
+   * SO THE SECOND SCENE IS THE TEST. Scene 1 is the default padding — the state v1 was
+   * accidentally safe in. Scene 2 authors `card-body` padding to ZERO, which is the exact
+   * write the issue names as "one write away": under the old outward offset the ring would
+   * land entirely in the clipped region and paint nothing at all. Asserting only scene 1
+   * would pass with the fix reverted, because the padding would still be hiding the defect.
+   *
+   * THE MEASUREMENT WAS PROVED TO DISCRIMINATE BEFORE THIS SHIPPED, because the obvious
+   * way to get this wrong is to count the link's OWN accent-coloured glyphs instead of its
+   * ring — `card-link` defaults `typography.color: @color-accent`, the same value the ring
+   * is drawn in, so a strip placed a few pixels off would return a healthy count forever.
+   * Measured at 1280 with the outline suppressed by an injected `outline: none` (a runtime
+   * override, so no source file was touched — 14.7):
+   *
+   *     ring painting     171 accent pixels
+   *     ring suppressed     0 accent pixels
+   *
+   * The strip reads the ring and nothing else, and the `> 30` threshold sits far below the
+   * real count and far above the floor.
+   */
+  test('#1056 the card link focus ring paints inside the clipped card, even at zero padding', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 1056 grid focus ring');
+    const props = {
+      id: 'pp-grid-ring',
+      title: 'Ring',
+      items: [{ title: 'Card', text: 'Body copy.', link_url: '/somewhere', link_text: 'Read more' }],
+    };
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // Counts accent-coloured pixels in a strip across the TOP EDGE of the link's own box.
+    // A ring drawn outward lands above that strip and inside the card's clip region, so it
+    // paints nothing and this returns 0 — which is what #1046 measured on faq while the
+    // computed outline read perfectly correct.
+    const accentPixelsOnLinkTopEdge = async (width: number) => {
+      const link = page.locator('#pp-grid-ring .grid__item-link').first();
+      await expect(link).toBeVisible({ timeout: 10000 });
+      await link.scrollIntoViewIfNeeded();
+
+      // Keyboard focus, so `:focus-visible` matches — a bare click may not.
+      await link.evaluate((el: HTMLElement) => el.focus());
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+
+      expect(
+        await link.evaluate((el) => getComputedStyle(el).outlineStyle),
+        `the outline must be declared at all @${width}`,
+      ).toBe('solid');
+
+      const box = await link.boundingBox();
+      if (!box) throw new Error('no link box');
+      const clip = {
+        x: Math.floor(box.x) + 1,
+        y: Math.floor(box.y) + 1,
+        width: Math.max(8, Math.floor(box.width) - 2),
+        height: 6,
+      };
+      const b64 = (await page.screenshot({ clip })).toString('base64');
+      return page.evaluate(
+        async ({ b64, w, h }) => {
+          const img = new Image();
+          img.src = 'data:image/png;base64,' + b64;
+          await img.decode();
+          const c = document.createElement('canvas');
+          c.width = w;
+          c.height = h;
+          const ctx = c.getContext('2d')!;
+          ctx.drawImage(img, 0, 0);
+          const d = ctx.getImageData(0, 0, w, h).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            if (Math.abs(d[i] - 49) < 40 && Math.abs(d[i + 1] - 87) < 40 && Math.abs(d[i + 2] - 244) < 40) n++;
+          }
+          return n;
+        },
+        { b64, w: clip.width, h: clip.height },
+      );
+    };
+
+    // SCENE 1 — the default padding. This is the state v1 was accidentally safe in, so a
+    // pass here alone proves nothing; it is the control that the ring paints at all.
+    const plain = await updateComposition(page, pageId, [{ component: 'grid', props }]);
+    expect(plain.success, `default-padding write: ${JSON.stringify(plain)}`).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      expect(
+        await accentPixelsOnLinkTopEdge(width),
+        `the focus ring must PAINT at the default padding @${width}`,
+      ).toBeGreaterThan(30);
+    }
+
+    // SCENE 2 — THE EXPOSURE THE ISSUE NAMES. `{"card-body": {"spacing": {"padding": "0"}}}`
+    // is one ordinary authored value, and under an OUTWARD offset it puts the entire ring
+    // inside the clipped region. The inset offset is what keeps it painting.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const flush = await updateComposition(page, pageId, [
+      { component: 'grid', props, udc: { 'card-body': { spacing: { padding: '0' } } } },
+    ]);
+    expect(flush.success, `zero-padding write: ${JSON.stringify(flush)}`).toBe(true);
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+
+      // The hostile value really landed, or the scene is the previous one again.
+      expect(
+        await page
+          .locator('#pp-grid-ring .grid__item-body')
+          .evaluate((el) => getComputedStyle(el).paddingLeft),
+        `the authored zero padding must have landed @${width}`,
+      ).toBe('0px');
+
+      expect(
+        await accentPixelsOnLinkTopEdge(width),
+        `the focus ring must STILL paint with the card body flush to the clip box @${width} — ` +
+          'zero accent pixels here is WCAG 2.4.7 and means the outward offset came back',
+      ).toBeGreaterThan(30);
+    }
+  });
+
   // Parent-constrains-child axis (#302's --section-body-measure): the pre-fix bug
   // was a literal max-width on the OUTER .section__body capping the slotted inner
   // .section__content — a shape the static guard's own docblock says no
