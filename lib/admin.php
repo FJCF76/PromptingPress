@@ -155,10 +155,16 @@ function pp_template_owned_component_message(string $name): string {
  * slot surface already suffered, so the schema-shape validator rejects them rather
  * than ignoring them.
  *
- * ENFORCEMENT REACH, stated so nobody reads more into it than is true: the closed
- * set is a REPO-CI INVARIANT, not a runtime gate. pp_schema_definition_errors() is
- * driven by SchemaValidationTest over the twelve shipped schemas; nothing calls it
- * on a live request. That is sufficient today because components are discovered
+ * ENFORCEMENT REACH, and this paragraph was made stale by #1087 — it used to say nothing
+ * called this validator on a live request, which was true until the obligation composers
+ * began delegating to it. It now runs on the CHAT PATH: `_pp_udc_role_is_composable()` calls
+ * it once per role per model-facing composer, measured at 153 invocations per
+ * pp_ai_system_prompt() build. The unit cost is 0.0006ms, so today that is ~0.1ms of a
+ * ~1.0ms build — but the MULTIPLIER is what matters to the next person here: any bounded-
+ * string or regex check added to this function is priced 153x per chat turn. The closed set
+ * is still a repo-CI invariant for the SHIPPED schemas (SchemaValidationTest walks all
+ * twelve); what changed is that a hand-edited schema on a live install now meets it too,
+ * which is the point of the delegation. That is sufficient today because components are discovered
  * only from get_template_directory().'/components/' (pp_get_registered_components,
  * above) — there is no child-theme or plugin registration path, so the only schemas
  * that exist are the ones CI already checks. A hand-edited schema on a live install

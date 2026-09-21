@@ -2871,7 +2871,7 @@ function pp_component_schema_report(string $component): array|WP_Error {
             // raw-unicode mode (lib/cli.php: "no stored byte an operator never validated
             // reaches it") as a property of the code rather than of the shipped schemas.
             $gated = function_exists('_pp_udc_role_obligation_records')
-                ? _pp_udc_role_obligation_records($component, (string) $role_name, $definition, array_keys($roles))
+                ? _pp_udc_role_obligation_records($component, (string) $role_name, $definition, array_fill_keys(array_keys($roles), true))
                 : [];
             if ($gated !== []) {
                 $entry['obligations'] = array_map(

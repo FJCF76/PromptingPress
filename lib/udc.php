@@ -6257,9 +6257,10 @@ function pp_udc_group_summary(): string {
  * untested fail-safe is not one.
  *
  * `$siblings` is passed in rather than re-read so the caller's single registry walk is the
- * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N.
+ * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N. It is a
+ * MAP keyed by role name, not a list, so the partner check is a hash hit rather than a scan.
  *
- * @param string[] $siblings  Role names this component declares.
+ * @param array<string, true> $siblings  Role names this component declares, as keys.
  * @return array<int, array{kind: string, why: string, pair: string}>
  */
 /**
@@ -6337,7 +6338,7 @@ function _pp_udc_role_obligation_records(
         // role the model cannot write to — worse than silence, because it would try and be
         // refused with `unknown_udc_role`. The schema walk fails CI on this; here is the
         // runtime half, for the hand-edited install the CI walk never sees.
-        if (!in_array($with, $siblings, true)) {
+        if (!isset($siblings[$with])) {
             continue;
         }
         $records[] = [
@@ -6398,11 +6399,19 @@ function pp_udc_obligation_groups(): array {
     $out = [];
     foreach (array_keys(pp_get_registered_components()) as $component) {
         $roles = pp_udc_component_roles($component);
+        // HOISTED, and the sibling set is a MAP rather than a list. Rebuilding array_keys()
+        // inside the role loop and then scanning it with in_array() per record are two
+        // O(roles^2) terms on what is now a per-chat-turn path. Invisible at the shipped
+        // maximum of 19 roles, and measured superlinear the moment roles-per-component grows
+        // (2.2-2.7x per doubling, flattened to ~1.9x by this change). This repo's recorded
+        // quadratic-validator incident is the same shape: harmless until something put it on
+        // a per-request path.
+        $siblings = array_fill_keys(array_keys($roles), true);
         foreach ($roles as $role => $definition) {
             if (!is_array($definition)) {
                 continue;
             }
-            foreach (_pp_udc_role_obligation_records($component, $role, $definition, array_keys($roles)) as $record) {
+            foreach (_pp_udc_role_obligation_records($component, $role, $definition, $siblings) as $record) {
                 $out[$record['kind']][$record['why']][] = $record['pair'];
             }
         }
@@ -6505,6 +6514,14 @@ function _pp_udc_is_derivable_descendant(string $outer_selector, array $inner_de
  * the layer. So a descendant whose last compound is `a` counts whether or not it declares a
  * default.
  *
+ * NOT ON ANY RUNTIME PATH, and it must stay that way without someone re-measuring first.
+ * Its only caller is the schema walk in the test suite. It compares every ORDERED PAIR of
+ * roles per component, which the performance specialist measured as cleanly quadratic — 4x
+ * per doubling of roles-per-component, 137ms at 3072 roles, against 15ms for the roster walk
+ * that IS composed into the prompt. Wiring it into pp_ai_system_prompt() would put a
+ * quadratic growth law on every chat turn with nothing bounding roles-per-component. If that
+ * is ever wanted, index roles by selector prefix instead of comparing all pairs.
+ *
  * @return array<int, array{component: string, role: string, with: string}>
  */
 function pp_udc_derived_descendant_pairs(): array {
@@ -6594,7 +6611,26 @@ function pp_udc_chrome_own_ink_summary(): string {
  * going stale ("THE INSTANCE THAT SHIPS TODAY IS faq", true when written).
  */
 function pp_udc_obligation_summary(string $kind): string {
-    $groups = pp_udc_obligation_groups()[$kind] ?? [];
+    return pp_udc_format_obligation_groups(pp_udc_obligation_groups()[$kind] ?? []);
+}
+
+/**
+ * One kind's group list rendered as prompt prose, or '' when it is empty (#1087).
+ *
+ * SPLIT OUT SO THE WALK RUNS ONCE. pp_udc_obligation_summary() builds the whole both-kinds
+ * map and indexes one kind out of it, so calling it once per kind — which the prompt did —
+ * walked all 125 roles TWICE and threw half the work away: 250 record extractions and 278
+ * validator calls where 125 and 153 suffice. Measured by the pre-landing performance
+ * specialist at 0.185ms of a 0.650ms warm build, 28%, and 44% of everything this gate added
+ * to a cold build.
+ *
+ * A FORMATTER RATHER THAN A CACHE, deliberately. A `static` memo would have been fewer lines
+ * and would have needed the theme-root keying and invalidate handshake
+ * pp_get_registered_components() carries — and this repo has already paid for a stale
+ * per-root cache leaking across test classes. Computing once at the call site has no
+ * invalidation to get wrong.
+ */
+function pp_udc_format_obligation_groups(array $groups): string {
     if ($groups === []) {
         return '';
     }

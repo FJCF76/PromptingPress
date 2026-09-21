@@ -361,7 +361,11 @@ function pp_ai_system_prompt(): string {
     //
     // SUPPRESSED WHEN EMPTY. If nothing declares this kind, the roster sentence is omitted
     // entirely rather than left asserting instances it cannot name.
-    $outranked = pp_udc_obligation_summary('outranked_by_default');
+    // ONE WALK FOR BOTH KINDS. pp_udc_obligation_summary() builds the whole map and indexes
+    // one kind out, so calling it twice walked all 125 roles twice and discarded half the work
+    // — 44% of everything this gate added to a cold prompt build, measured.
+    $obligation_groups = pp_udc_obligation_groups();
+    $outranked = pp_udc_format_obligation_groups($obligation_groups['outranked_by_default'] ?? []);
     $paragraph = 'ONE ROLE\'S DEFAULT CAN BEAT A VALUE YOU SET ON ANOTHER ROLE, and this rung '
         . 'has NO finding yet, so the write envelope will NOT warn you — it is the one place '
         . 'you have to pair roles yourself. It happens when one role\'s selector is a SUPERSET '
@@ -385,7 +389,7 @@ function pp_ai_system_prompt(): string {
     // into this prompt (#1059) — the obligation would be invisible exactly where it has to
     // be read. The measured cost of leaving it unstated was a 3.21:1 link under 14.33:1
     // prose on the write faq's own schema prescribed, reported accepted with no findings.
-    $inherited = pp_udc_obligation_summary('reached_only_by_inheritance');
+    $inherited = pp_udc_format_obligation_groups($obligation_groups['reached_only_by_inheritance'] ?? []);
     $parts[] = 'A VALUE ON A CONTAINER ROLE DOES NOT ALWAYS REACH WHAT IS INSIDE IT, and the '
         . 'pairs below are every place that bites today.'
         . ($inherited !== '' ? ' ' . $inherited : '')

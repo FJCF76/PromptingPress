@@ -482,7 +482,7 @@ class AiContextTest extends TestCase
      */
     public function testAMalformedRoleContributesNoObligationRecords(array $definition, string $why): void
     {
-        $records = \_pp_udc_role_obligation_records('c', 'a', $definition, ['a', 'b']);
+        $records = \_pp_udc_role_obligation_records('c', 'a', $definition, ['a' => true, 'b' => true]);
         $this->assertSame([], $records, $why);
     }
 
@@ -512,7 +512,7 @@ class AiContextTest extends TestCase
             'groups'      => ['typography'],
             'defaults'    => [],
             'obligations' => [['kind' => 'reached_only_by_inheritance', 'with' => 'b', 'why' => 'Set b too.']],
-        ], ['a', 'b']);
+        ], ['a' => true, 'b' => true]);
         $this->assertCount(1, $records);
         $this->assertSame('c.a -> b', $records[0]['pair']);
     }
