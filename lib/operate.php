@@ -2831,6 +2831,20 @@ function pp_component_schema_report(string $component): array|WP_Error {
     }
 
     $report['props']       = _pp_schema_report_entries($schema['props'] ?? [], 'name', true);
+    // `style_slots` AND `recipes` STAY IN THE ENVELOPE, AND THEY ARE ALWAYS `[]` (#1101).
+    //
+    // The style-slot engine was retired with its last consumer, so both projections now
+    // run over an empty set for every component. Keeping the keys is a deliberate ruling
+    // rather than an oversight: the envelope shape is a contract with every consumer that
+    // reads this report, and an empty array documents the absence honestly where a missing
+    // key makes a caller guess whether the concept is gone or the report is truncated.
+    // Removing them is an API change and wants its own decision.
+    //
+    // They are left as live CALLS rather than hardcoded `[]` for the same reason the
+    // accessors survive: the projection is what makes the emptiness a fact about the
+    // schemas rather than a literal somebody typed. If a schema ever declares a slot
+    // again, this reports it — and tests/StyleSlotContractTest.php fails first and says
+    // what that costs.
     $report['style_slots'] = _pp_schema_report_entries(pp_get_style_slots($component), 'slot', true);
     $report['recipes']     = _pp_schema_report_entries(pp_get_style_recipes($component), 'name', false);
 
