@@ -740,67 +740,6 @@ class AiContextTest extends TestCase
         );
     }
 
-    /**
-     * THE `length-or-none` SLOT GRAMMAR IS NOT TAUGHT WHILE NOTHING CARRIES IT (#1087).
-     *
-     * This replaces the #579/#578 pin, and the reversal is deliberate and ruled. That pin
-     * required the prompt to keep teaching the type BECAUSE its carrier set had emptied —
-     * the argument being that an agent reading a roster it is not on concludes the
-     * capability is gone. The argument was right about the RISK and wrong about the remedy:
-     * it spent prompt budget every turn on a slot grammar no slot could declare, and it is
-     * one of six such types the v1 block was still teaching.
-     *
-     * The risk is answered directly instead, by the assertion below that the v2 route is
-     * stated. "Remove this cap" is still a real instruction; it is a `udc` write now.
-     *
-     * AND THE CAPABILITY RETURNS BY ITSELF. The third assertion is the one that makes the
-     * deletion safe rather than merely cheap: the grammar is not gone from the code, it is
-     * conditional on a carrier, so the day a slot declares the type the sentence comes back
-     * without anyone remembering it existed.
-     */
-    public function testTheLengthOrNoneSlotGrammarIsConditionalOnACarrier(): void
-    {
-        $this->assertNotContains(
-            'length-or-none',
-            \pp_ai_live_slot_types(),
-            'no shipped slot carries this type — if one does now, this test is the wrong shape'
-        );
-
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringNotContainsString(
-            'A `length-or-none`-typed slot accepts everything',
-            $prompt,
-            'a slot grammar with no carrier must not be taught'
-        );
-
-        // The half that MUST survive: where the capability went.
-        //
-        // THE SENTENCE MOVED AT #1101 AND THIS ASSERTION IS WHY IT WAS RESCUED. It used to
-        // read 'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE' and it lived INSIDE the
-        // gated v1 paragraph — the one sentence in that block describing a v2 write. grid's
-        // rebuild closed the gate, the sentence went with it, and this test caught the loss.
-        // It is ungated now, in the UDC section where it belongs, and the "NOT A SLOT ONE"
-        // half of the wording went with the slot it contrasted against: there is no slot
-        // left anywhere to contrast with.
-        $this->assertStringContainsString(
-            'AN UNCAPPED MEASURE IS A ROLE WRITE',
-            $prompt,
-            'without this an agent reads the absence as a removed capability and falls back '
-            . 'to the pre-#579 `100%` workaround'
-        );
-        $this->assertStringContainsString(
-            'the role\'s `sizing.max-width` set to `none`',
-            $prompt,
-            'the v2 route must be named, not merely implied'
-        );
-
-        // Self-restoring: give the composer a carrier and the grammar comes back.
-        $restored = \pp_ai_slot_type_rules(['length-or-none']);
-        $this->assertStringContainsString('A `length-or-none`-typed slot accepts everything', $restored);
-        $this->assertStringContainsString('PLUS the keyword `none`', $restored);
-        $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
-    }
-
 
     /**
      * The retired slot NAMES survive the grammar's deletion (#1087).

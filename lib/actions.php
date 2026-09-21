@@ -6698,11 +6698,36 @@ pp_register_action('unpublish_page', [
 // Scope: section | Semantics: patch (shallow merge, null removes)
 // Updates per-instance style slot overrides via schema-validated CSS custom properties.
 
+// ── Action: style_component ────────────────────────────────────────────────
+//
+// A VERB THAT ONLY REFUSES, AND THAT IS DELIBERATE (#1101, ruling D2).
+//
+// It used to write a band's per-instance style-slot map: a recipe expanded into slot
+// values, explicit values overrode them, each was validated against the component's
+// declared `style_slots`, and the merged map was written back. The style-slot engine
+// behind every one of those steps was retired at #1101, so the whole body is gone and
+// what remains is the refusal.
+//
+// WHY THE VERB IS NOT UNREGISTERED. A named refusal beats a vanished verb. Every shipped
+// prompt, playbook and doc that a model may have learned from named this action, and some
+// pages still carry the stored maps it used to write — so the call WILL be made. Made
+// against this action, the caller gets a message naming the component's own roles and the
+// two actions that carry a `udc` map, which is a route they can follow. Made against an
+// unregistered action, they get an unknown-action error, which is a dead end that tells
+// them nothing about where the capability went.
+//
+// It keeps `mutates_composition` and `expected_version` for the same reason: those shape
+// how the batch executor and the CAS layer treat the call, and a refusal that arrived
+// through a different path than the write did would be a second code path to reason about.
+//
+// NO `preview` OR `execute` ARM. Validate always returns WP_Error, so neither is ever
+// reached; declaring them would be decoration, and a decorative execute arm on a write
+// verb is exactly the shape a later reader would assume still works.
 pp_register_action('style_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
-    'description' => 'Updates a component instance\'s per-instance style overrides via shallow merge. Optionally accepts a recipe name that expands into slot values (explicit style overrides recipe slots). Use wp pp operate inspect-composition --post_id=<id> to see available slots and recipes.',
-    'semantics'   => 'Patch. Recipe expands first, then explicit style values override. null removes a slot. Validates against schema.json style_slots for the target component type.',
+    'description' => 'RETIRED (#1101) — this action now always refuses, and the refusal names where the capability went. Per-instance style SLOTS were the v1 styling system; no component declares one any more, so there is nothing for this verb to write. To style a band, put the value on one of the component\'s roles in the band\'s `udc` map and send it through update_composition or create_page — the only two actions that carry a band. Call this action and the refusal will name that component\'s roles for you. If a band was written before its component was rebuilt it may still STORE a slot map, which refuses every update_component edit to that band until it is cleared: send `style` with every stored slot name set to null, in one call.',
+    'semantics'   => 'Always refused with `no_style_slots`, whatever `style` or `recipe` asks for — the slot check runs before either is read, so `invalid_recipe` is a code no shipped component can produce. Nothing is written and no composition version is bumped.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component_id'     => ['type' => 'string', 'required' => false],
@@ -6734,118 +6759,26 @@ pp_register_action('style_component', [
         }
 
         $component_name = $composition[$params['component_index']]['component'] ?? '';
-        $available_slots = pp_get_style_slots($component_name);
 
-        if (empty($available_slots)) {
-            // NAMES THE ROUTE, NOT JUST THE ABSENCE (#1007). The bare sentence was true
-            // and useless: the five components this fires on are the ones that moved to
-            // the `udc` map, so "no style slots" is the START of the answer, not the end.
-            // Derived from the same predicate the engine uses, so it cannot drift.
-            return new WP_Error('no_style_slots', sprintf(
-                'Component "%s" has no declared style slots. %s',
-                $component_name,
-                _pp_no_style_slots_clause($component_name)
-            ));
-        }
-
-        // Expand recipe if provided.
-        if (!empty($params['recipe'])) {
-            $recipes = pp_get_style_recipes($component_name);
-            if (!isset($recipes[$params['recipe']])) {
-                $available_recipes = implode(', ', array_keys($recipes));
-                return new WP_Error('invalid_recipe', sprintf(
-                    'Component "%s" has no recipe "%s". Available: %s',
-                    $component_name, $params['recipe'], $available_recipes ?: '(none)'
-                ));
-            }
-        }
-
-        // Build merged style (recipe + explicit overrides) and validate all slots.
-        $merged = _pp_expand_recipe_and_merge($params, $component_name);
-
-        // The candidate set this pass draws from, filtered ONCE rather than inside the
-        // loop: recipe slots ∪ explicit style, minus the `__recipe` tracking key (not
-        // a CSS property) and minus null values (a removal, not a value to check).
-        // Same skips as before, same order, same first-error-wins result — the loop
-        // still returns at the FIRST undeclared slot, so keys after it are candidates
-        // that were never reached, not keys this pass approved.
+        // THE REFUSAL IS UNCONDITIONAL NOW, AND THAT IS THE WHOLE ACTION (#1101, D2).
         //
-        // Hoisting it out of the loop is what lets the rejection below report the set
-        // it drew from (#626). The chat's friendly-error builder used to re-derive
-        // that set from $params['style'] alone — pre-expansion, `__recipe` included —
-        // so a recipe that drifted out of its component's declared slots produced a
-        // rejection naming a slot the builder had never heard of, and the builder
-        // answered by describing a different set than the one that failed.
-        $candidates = [];
-        foreach ($merged as $slot_name => $slot_value) {
-            if ($slot_name === '__recipe' || $slot_value === null) {
-                continue;
-            }
-            $candidates[$slot_name] = $slot_value;
-        }
-
-        foreach ($candidates as $slot_name => $slot_value) {
-            if (!isset($available_slots[$slot_name])) {
-                // Stamped with the context above, so the chat error builder can answer
-                // from THIS pass instead of reading the composition a second time — a
-                // write landing in between could otherwise make the response describe a
-                // component that never rejected anything (#626).
-                return _pp_invalid_style_slot_error(
-                    $component_name,
-                    (string) $slot_name,
-                    $available_slots,
-                    array_keys($candidates)
-                );
-            }
-            $slot_type = $available_slots[$slot_name]['type'] ?? null;
-            $slot_allowed = $available_slots[$slot_name]['values'] ?? null;
-            $validation = _pp_validate_token_value((string) $slot_value, $slot_type, $slot_allowed);
-            if (is_wp_error($validation)) {
-                return new WP_Error('invalid_style_value', sprintf(
-                    'Style slot "%s": %s', $slot_name, $validation->get_error_message()
-                ));
-            }
-        }
-
-        return true;
-    },
-    'preview' => function (array $params): array {
-        _pp_resolve_id_param($params, $params['post_id']);
-        $composition    = pp_get_composition($params['post_id']);
-        $component_name = $composition[$params['component_index']]['component'] ?? '';
-        $before_style   = $composition[$params['component_index']]['style'] ?? [];
-        $merged_input   = _pp_expand_recipe_and_merge($params, $component_name);
-        $after_style    = _pp_merge_component_props($before_style, $merged_input);
-
-        return _pp_action_preview('style_component', 'section',
-            ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
-            $before_style, $after_style,
-            _pp_diff_style($before_style, $after_style, $params['component_index'])
-        );
-    },
-    'execute' => function (array $params): array {
-        _pp_resolve_id_param($params, $params['post_id']);
-        $composition    = pp_get_composition($params['post_id']);
-        $component_name = $composition[$params['component_index']]['component'] ?? '';
-        $before_style   = $composition[$params['component_index']]['style'] ?? [];
-        $merged_input   = _pp_expand_recipe_and_merge($params, $component_name);
-        $after_style    = _pp_merge_component_props($before_style, $merged_input);
-
-        if (empty($after_style)) {
-            unset($composition[$params['component_index']]['style']);
-        } else {
-            $composition[$params['component_index']]['style'] = $after_style;
-        }
-
-        $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
-        if (is_wp_error($result)) {
-            return _pp_action_error('style_component', 'section', $result->get_error_message(), $result->get_error_code());
-        }
-
-        return _pp_action_result('style_component', 'section',
-            ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
-            _pp_diff_style($before_style, $after_style, $params['component_index'])
-        );
+        // It used to be gated on `empty(pp_get_style_slots($component_name))`, with a
+        // validation body behind it. The gate is gone rather than left always-true,
+        // because a gate implies the other branch is reachable and it is not: the engine
+        // that served a declared slot — the renderer, the value validators, the recipe
+        // expansion — was deleted in this same issue. A component that somehow declared
+        // `styling.style_slots` today would have nothing to paint it, so refusing on the
+        // slot COUNT would have been refusing for the wrong reason.
+        //
+        // NAMES THE ROUTE, NOT JUST THE ABSENCE (#1007). The bare sentence was true and
+        // useless: the components this fires on are the ones that moved to the `udc` map,
+        // so "no style slots" is the START of the answer, not the end. The clause is
+        // derived from the component's own roles, so it cannot drift from what ships.
+        return new WP_Error('no_style_slots', sprintf(
+            'Component "%s" has no declared style slots. %s',
+            $component_name,
+            _pp_no_style_slots_clause($component_name)
+        ));
     },
 ]);
 
@@ -7599,81 +7532,6 @@ function _pp_preserve_item_design(array $existing_entries, array $incoming_entri
     }
 
     return $incoming_entries;
-}
-
-/**
- * Expands a recipe (if present) and merges with explicit style overrides.
- *
- * Recipe slots expand first, then explicit style values override.
- * Adds __recipe tracking key when a recipe is used.
- *
- * @param array  $params          Action params (may have 'recipe' and/or 'style').
- * @param string $component_name  Component name for recipe lookup.
- * @return array  Merged style array ready for shallow-merge into existing style.
- */
-function _pp_expand_recipe_and_merge(array $params, string $component_name): array {
-    $result = [];
-
-    // Expand recipe slots first.
-    if (!empty($params['recipe'])) {
-        $recipes = pp_get_style_recipes($component_name);
-        if (isset($recipes[$params['recipe']])) {
-            $result = $recipes[$params['recipe']]['slots'] ?? [];
-            $result['__recipe'] = $params['recipe'];
-        }
-    }
-
-    // Explicit style overrides recipe slots.
-    if (!empty($params['style'])) {
-        foreach ($params['style'] as $key => $value) {
-            $result[$key] = $value;
-        }
-    }
-
-    return $result;
-}
-
-/**
- * Stamps an `invalid_style_slot` rejection with the context it was judged in (#626).
- *
- * The rejection's message says which slot was refused; the data says what it was
- * refused AGAINST — the component this validation pass resolved, the slots that
- * component declares, and the candidate keys the pass drew from (recipe-expanded,
- * `__recipe` and null removals already dropped). All four come from the ONE
- * composition read the validator already did.
- *
- * Read back with pp_rejected_slot_context() below. The two live together, as
- * _pp_composition_item_error() and pp_composition_error_index() do (lib/admin.php),
- * so the key names are written once: a consumer that re-derived this context from
- * its own second read is exactly the defect #626 fixed, and a consumer that
- * re-spelled the keys would be the same defect one layer down.
- *
- * @param  string $component_name   The component the pass resolved.
- * @param  string $slot_name        The slot it refused.
- * @param  array  $available_slots  That component's declared style_slots.
- * @param  array  $candidate_slots  Slot names the pass drew from, in order.
- * @return WP_Error
- */
-function _pp_invalid_style_slot_error(
-    string $component_name,
-    string $slot_name,
-    array $available_slots,
-    array $candidate_slots
-): WP_Error {
-    return new WP_Error(
-        'invalid_style_slot',
-        sprintf(
-            'Component "%s" has no style slot "%s". Available: %s',
-            $component_name,
-            $slot_name,
-            implode(', ', array_keys($available_slots))
-        ),
-        [
-            'component_name'  => $component_name,
-            'available_slots' => $available_slots,
-            'candidate_slots' => $candidate_slots,
-        ]
-    );
 }
 
 

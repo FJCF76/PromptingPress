@@ -216,10 +216,12 @@ class ModelFacingRosterTest extends TestCase
     {
         $v2       = $this->v2Composable();
         $scanned  = 0;
+        $read     = 0;
         $failures = [];
 
         foreach ($this->modelFacingFiles() as $file) {
             foreach ($this->sentences((string) file_get_contents($file)) as $sentence) {
+                $read++;
                 // Only sentences that make a POSITIVE slot claim.
                 if (!preg_match('/\b(declares?|carries|carry|has|have|its|their)\b[^.]{0,60}\bstyle slots?\b/i', $sentence, $claim)) {
                     continue;
@@ -298,32 +300,36 @@ class ModelFacingRosterTest extends TestCase
         $this->assertSame([], array_unique($failures), "a v2 component is described as carrying style slots:\n"
             . implode("\n", array_unique($failures)));
 
-        // FAIL-CLOSED, BUT GATED. Zero positive slot claims is a legitimate end state once
-        // `grid` is rebuilt and nothing has slots to describe — so the floor applies only
-        // while a slot-carrying component still exists. Unconditional here would fail for
-        // being correct; absent entirely (the first cut) let the guard scan ONE sentence out
-        // of sixteen and report success.
-        if (\pp_ai_live_slot_types() !== []) {
-            $this->assertGreaterThan(
-                3,
-                $scanned,
-                'the reverse check scanned fewer positive slot claims than the corpus carries. '
-                . 'RE-MEASURED TWICE. The 8/6/2 this message first carried was taken after only '
-                . 'the first file was rewritten and was stale by six more; the 14/9/5 that '
-                . 'replaced it was measured before the exemption window was corrected to reach '
-                . 'a LEADING negation, which had been counting one correct NEGATIVE sentence '
-                . '("No component in the theme declares a button style slot") as a positive '
-                . 'claim. TODAY: 14 sentences make a positive slot claim, 10 are correctly '
-                . 'exempt as saying the component declares NO slots, and 4 are scanned — down '
-                . 'from 16/13/3 before the rewrite, because it removed v1-era claims rather '
-                . 'than because the guard narrowed. THIS NUMBER TRACKS THE CORPUS and is '
-                . 'expected to fall as the last slot-carrying component is rebuilt; the gate '
-                . 'above is what makes zero legitimate then. Re-measure it when the corpus '
-                . 'changes rather than loosening it. If it falls without the corpus shrinking, '
-                . 'the negation exemption has widened again and the guard is passing on an '
-                . 'empty set rather than on clean docs'
-            );
-        }
+        // FAIL-CLOSED ON THE CORPUS, NOT ON THE CLAIMS (#1101).
+        //
+        // THIS FLOOR USED TO BE DISARMED, and the way it happened is worth keeping. It read
+        // `assertGreaterThan(3, $scanned)` — the number of positive slot claims the scan
+        // examined — wrapped in `if (pp_ai_live_slot_types() !== [])`, on the sound reasoning
+        // that zero positive slot claims becomes a legitimate end state once nothing declares
+        // a slot. grid's rebuild emptied that function, so the gate closed permanently and
+        // the floor stopped executing: the guard could scan ZERO sentences and report success,
+        // which is the exact failure the twenty-five-line comment above it was written to
+        // prevent. Nothing was wrong with the reasoning; what was missing was anyone
+        // re-checking the gate after the condition it waited for actually happened.
+        //
+        // SO THE FLOOR MOVED TO THE THING THAT DID NOT CHANGE. The corpus is still there and
+        // still has to be read; what vanished is any reason for a sentence in it to make a
+        // positive slot claim. Flooring $read instead of $scanned asks "did this guard
+        // actually look at the documentation?", which stays answerable and stays true
+        // forever — where flooring $scanned asked "did the documentation still talk about a
+        // retired system?", which had an expiry date nobody diarised.
+        //
+        // $scanned is deliberately NOT floored any more, and may legitimately be zero.
+        $this->assertGreaterThan(
+            400,
+            $read,
+            'the sentence splitter returned almost nothing, so the reverse check above ran '
+            . 'over an empty corpus and proved nothing. Either modelFacingFiles() stopped '
+            . 'finding ai-instructions/*.md or sentences() stopped splitting. Fix the scan; '
+            . 'do not lower this. It is a floor on DOCUMENTATION READ, not on slot claims '
+            . 'found — slot claims are expected to be zero now that the engine is retired, '
+            . 'which is exactly why they can no longer serve as the floor.'
+        );
     }
 
     // ── A CHECK THAT WAS BUILT AND REMOVED ─────────────────────────────────────────

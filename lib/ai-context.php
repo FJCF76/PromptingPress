@@ -170,65 +170,20 @@ function pp_ai_system_prompt(): string {
                 }
             }
 
-            $slots = pp_get_style_slots($name);
-            if ($slots) {
-                $slot_parts = [];
-                foreach ($slots as $slot_name => $slot_def) {
-                    // Enum slots carry a bounded value set — surface it (mirrors the
-                    // prop-enum format) so the AI knows exactly which values are
-                    // accepted, not just that the slot is "enum".
-                    if (($slot_def['type'] ?? null) === 'enum' && !empty($slot_def['values']) && is_array($slot_def['values'])) {
-                        $enum_str = '"' . implode('"|"', $slot_def['values']) . '"';
-                        $facts = "enum: {$enum_str}, default: {$slot_def['default']}";
-                    } else {
-                        $facts = "{$slot_def['type']}, default: {$slot_def['default']}";
-                    }
-                    // Definition-surface metadata (#575). A field an agent never sees
-                    // is not in the baseline, so every declared definition key that
-                    // changes what an agent should DO reaches the runtime catalog.
-                    $facts .= pp_ai_definition_suffix($slot_def);
-                    $slot_parts[] = "{$slot_name} ({$facts})";
-                }
-                $parts[] = "  Style slots: " . implode(', ', $slot_parts);
-
-                // Per-item style overrides (issue 306): a prop declared as an array
-                // whose item sub-schema declares a `style` field (today: grid items)
-                // accepts per-element style slots, set in the composition (not
-                // style_component) and overriding grid-level by cascade proximity.
-                // Only the CARD-SCOPED slots apply per element (issue 323): those
-                // flagged item_eligible in style_slots. Container/heading slots render
-                // nothing on a single card and are rejected. Derive the eligible list
-                // from the same slot metadata so this guidance never drifts.
-                $item_eligible = [];
-                foreach ($slots as $slot_name => $slot_def) {
-                    if (!empty($slot_def['item_eligible'])) {
-                        $item_eligible[] = $slot_name;
-                    }
-                }
-                foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
-                    if (($prop_def['type'] ?? null) === 'array' && isset($prop_def['items']['style'])) {
-                        $eligible_list = $item_eligible
-                            ? implode(', ', $item_eligible)
-                            : 'the same style slots';
-                        $parts[] = "  Per-item style: {$prop_name}[].style accepts only the item-scoped slots for one entry (a distinct look for a single item in the set): {$eligible_list}. Container/heading slots are rejected — set those on the component-level style. Set via the composition (update_component), not style_component.";
-                    }
-                }
-            }
-
-            $recipes = pp_get_style_recipes($name);
-            if ($recipes) {
-                $recipe_parts = [];
-                $first = true;
-                foreach ($recipes as $recipe_name => $recipe_def) {
-                    if ($first && !empty($recipe_def['description'])) {
-                        $recipe_parts[] = "{$recipe_name} (\"{$recipe_def['description']}\")";
-                        $first = false;
-                    } else {
-                        $recipe_parts[] = $recipe_name;
-                    }
-                }
-                $parts[] = "  Recipes: " . implode(', ', $recipe_parts);
-            }
+            // THE PER-COMPONENT SLOT AND RECIPE CATALOG WAS EMITTED HERE (#1101).
+            //
+            // Two blocks: "Style slots: <name> (<type>, default: <value>)" for every
+            // declared slot, and "Recipes: <name>" for every declared recipe — plus a
+            // "Per-item style" line for any array prop whose entries accepted their own
+            // slot map. All three were already guarded by `if ($slots)` / `if ($recipes)`
+            // / a declared `items[].style`, and every one of those guards closes on every
+            // component now, so the blocks had stopped emitting before this commit.
+            //
+            // Deleted rather than left closed because this prompt is UNCACHED and re-sent
+            // every turn: dead emitters here cost nothing at runtime but they are the
+            // first thing a reader assumes still describes the system. The v2 replacement
+            // is the `roles` catalog emitted above, which names each role, the groups it
+            // permits and its own defaults.
         }
     }
     $parts[] = '';
@@ -332,16 +287,12 @@ function pp_ai_system_prompt(): string {
     //
     // The per-type rules inside it are gated one level finer, by pp_ai_slot_type_rules().
     //
-    // KNOWN TRAP, RECORDED RATHER THAN LEFT TO BE DISCOVERED (#1087). The paragraph below
-    // mixes SLOT grammar with DESIGN-TOKEN grammar — the `color` reference rules, the
-    // `font-family` name shapes and the `token_override_validity` render-drop warning all
-    // describe design tokens, which are a LIVE surface with 61 registered tokens and no
-    // dependency on style slots at all. Gating them on a slot existing is wrong the day
-    // `grid` is rebuilt: the section would delete itself and take the token grammar with
-    // it. It cannot fire before then, because grid still carries 38 slots, so this is a
-    // latent trap rather than a live defect — and splitting a 7 KB reviewed paragraph is a
-    // change that wants its own diff. Filed so the rebuild that trips it finds this note
-    // first.
+    // THE #1087 TRAP FIRED AND WAS CLOSED (#1101). It recorded that the gated paragraph
+    // mixed SLOT grammar with DESIGN-TOKEN grammar, so the day `grid` was rebuilt the
+    // section would delete itself and take the live token grammar with it. grid was
+    // rebuilt, the gate closed, and the split below is what kept the token grammar. Left
+    // here as the record of a latent trap that was filed before it fired and found by the
+    // note rather than by a user.
     // The rescued design-token grammar. These sentences were MOVED out of the gated
     // block below, not shared with it: they describe DESIGN TOKENS, a live surface, and
     // would have retired with the slot grammar they used to be mixed into. The local
@@ -349,21 +300,19 @@ function pp_ai_system_prompt(): string {
     // consumer, so editing it changes exactly one paragraph.
     $token_value_grammar = 'A `color`-typed slot or design token accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the keywords `transparent` and `currentColor`, or a single bare reference to a registered color-typed design token — `var(--color-accent)` exactly, with no fallback, no nesting, and no whitespace inside (`var(--x, #fff)` is rejected); named colors are rejected. Use a `var()` reference when a value should FOLLOW another token (e.g. "the kicker follows the brand accent") instead of duplicating a literal hex; a reference chain that loops back to the token being set is rejected as a cycle. A `font-family` VALUE — on a design token today, and on any slot that ever declares the type — accepts a comma-separated list in which EVERY name is one of exactly three shapes: an unquoted name of letters, digits, spaces, hyphens or underscores (`Helvetica`, `-apple-system`, `ui-monospace`, `sans-serif`, `Font Awesome 5 Free`); a fully quoted name whose quote character does not recur inside it (`"Helvetica Neue"`, `\'Cascadia Code\'`); or a single bare token reference (`var(--font-mono)`, no fallback and no nesting — note this one is NOT checked against the token registry the way a `color` reference is, so a misspelled or non-font token is accepted at write and simply paints nothing). QUOTE any name carrying anything else, a non-ASCII face name included — but quoting is not a licence for anything: the shared reject set still applies to the WHOLE value on every surface, so `{`, `}`, `;`, `<`, `>`, a backslash, `/*`, `url(` and `@import` are refused even inside a quoted name. TWO FURTHER LIMITS APPLY WHEREVER THE VALUE REACHES RAW CSS SOURCE TEXT — that is EVERY v2 `udc` parameter, not just `typography.family`, plus the `:root` block the theme emits for design-token overrides: brackets must come in closed, properly nested pairs, `(` with `)` and `[` with `]` (`"Foo (Display)"` is fine, `"Foo (Display"` is refused, and so is `([)]`), and each of `\'` and `"` must appear an EVEN number of times across the whole value — so `"Foo\'s Font"` is refused however it is written, and so is `\'Foo "Display Font\'`, while `\'Foo "Display" Font\'` is fine. WHERE EACH LIMIT BITES DIFFERS BY SURFACE, and this is the part to plan around: a `udc` value breaking either limit is REFUSED at write, so you find out immediately; a design-token override breaking either is ACCEPTED at write and then DROPPED at render, so the token silently falls back to its default and the only report is `wp pp readiness status`, as a `token_override_validity` finding. On both surfaces pick a name whose marks pair up, or another face.';
 
-    $live_slot_types = pp_ai_live_slot_types();
-    if ($live_slot_types !== []) {
-        $parts[] = '### Style slot value rules';
-        // Issue 581 — state the `default` convention where the AI actually reads the value.
-        // Every slot above is emitted as "<slot> (<type>, default: <value>)", and before this
-        // gate a dozen of those values were false (`inherit` where the shared band-heading
-        // scale renders, a 1.875rem literal that appears nowhere in the CSS). Correcting the
-        // values without stating what `default` MEANS would just invite the next drift.
-        $parts[] = 'READING `default`: it states the EFFECTIVE default — what actually renders with the slot unset, in the component\'s default configuration, at desktop (>=768px, the theme\'s desktop tier; a few slots have a further >=1024px tier, always named in the description). It is not the CSS fallback literal and not a guess: if a slot is unset, the stated default is what you will see. Where the real default varies by variant or breakpoint (a card title that shrinks below 768px, a CTA background that changes on the inverted theme), the `default` names the desktop/default-configuration value and the `description` enumerates the alternatives — so read the description before assuming one number holds everywhere. A parenthesised default like "(premium bevel)" means the value is a built-in treatment with no single literal worth quoting. Setting a slot REPLACES every branch at once, at every layout and viewport, so a value chosen from the desktop number alone can be wrong at 375px.';
-        $parts[] = 'Style slot values must match the declared type (' . implode(', ', $live_slot_types) . '). THE ACCEPTED CSS UNITS, for every length-bearing type on this list: ' . pp_css_grammar_summary() . '. One grammar owns all of them, so a unit that works on a `length` works on a `shadow` length and a gradient stop alike; `shadow` lengths are the one exception and take no percentage, because `box-shadow: 0 50%` is not valid CSS. `clamp()`/`calc()` are accepted on the `length` family only. Only the `color`, `gradient`, `shadow`, and `font-family` types accept a `var()` reference (color/gradient/shadow bounded as described below; `font-family` takes a font token like `var(--font-mono)`); every other type is literal-only and rejects `var()` in EVERY form — bare (`var(--space-lg)`) and nested inside `clamp()`/`calc()` — so look up the token\'s current value and pass that literal value (this freezes it: those types cannot FOLLOW a token the way `color` can). A `gradient`-typed slot accepts either a plain color (including the forms above) or a bounded `linear-gradient()`/`radial-gradient()` (2+ color stops; `conic-gradient()`, `repeating-*-gradient()`, and `var()`/`url()`/`env()` INSIDE a gradient function are not accepted). `radial-gradient()` may carry an optional shape and/or `at <position>` clause where `<position>` is 1-2 placement keywords (`center`/`top`/`bottom`/`left`/`right`) or a length/percentage with any accepted CSS unit (e.g. `radial-gradient(circle at top left, ...)`, `radial-gradient(at 20% 30%, ...)`, `radial-gradient(at 10px 20px, ...)`); radial size keywords like `closest-side` are still not accepted. Gradient colour stops accept NEGATIVE positions (`linear-gradient(#f00 -20%, #00f)`), which pushes a stop off the painted box so the visible ramp starts mid-transition. An `align`-typed slot (text alignment, e.g. `--grid-item-text-align`) accepts exactly one `text-align` keyword: `left`, `right`, `center`, `start`, `end`, or `justify` — no lengths, no `position` keywords like `top`/`bottom`, and no bare `unset`/`initial`. A `text-transform`-typed slot (letter-casing, e.g. the eyebrow/kicker `--<component>-eyebrow-text-transform`) accepts exactly one `text-transform` keyword: `none` (render the text as authored, e.g. sentence case), `uppercase`, `lowercase`, or `capitalize` — no `align` keywords, no CJK `full-width`/`full-size-kana`, and no bare `unset`/`initial`. The eyebrow pill defaults to `uppercase`; set the slot to `none` when a reference shows the kicker in sentence case. Most other types reject bare CSS keywords like `unset`/`initial`/`auto` — they will fail validation — with one named exception on the types that ship: `shadow`\'s own preset `none` (or `var(--shadow-*)`) is explicitly accepted, mirroring that slot\'s documented default. If a user asks to "remove" or "disable" a constraint, use the slot\'s own removal value when its type has one (`none` on a `shadow` slot); otherwise do not propose an unsupported CSS keyword — set the slot to the maximum practical value for the type (e.g. `100%` on a plain `length` max-width slot) and explain what the slot supports. If the requested change is genuinely not possible through the exposed style slots, say so clearly and offer the closest achievable alternative.';
-        $type_rules = pp_ai_slot_type_rules($live_slot_types);
-        if ($type_rules !== '') {
-            $parts[] = $type_rules;
-        }
-    } // end of the v1 style-slot section
+    // THE "### Style slot value rules" SECTION WAS HERE AND IS DELETED (#1101).
+    //
+    // It was already gated on `pp_ai_live_slot_types() !== []`, which grid's rebuild
+    // emptied — so it had stopped being emitted before this commit. What is deleted here
+    // is ~8.6 KB of slot-value teaching in an UNCACHED prompt that is re-sent every turn:
+    // the `default` reading convention, the per-type value grammar, and the per-type rule
+    // fragments. Every sentence of it described inputs to an action that now refuses.
+    //
+    // The design-token grammar that used to be MIXED INTO that paragraph is not lost. It
+    // was split out one commit earlier (see the rescue block below) precisely because it
+    // describes a LIVE surface — 61 registered tokens — and would otherwise have retired
+    // with the slot teaching it was tangled up with. That split is why this deletion is
+    // safe to make in one move rather than sentence by sentence.
 
     // ── THE 61-TOKEN GRAMMAR RESCUE (#1101) ─────────────────────────────────
     //
@@ -550,16 +499,12 @@ function pp_ai_system_prompt(): string {
     $parts[] = 'A DARK BAND, on a v2 component: there is no `theme` prop — say it directly. Set the band\'s own background and then the text roles\' colours, e.g. `"udc": {"_band": {"background": {"fill": "#101828"}}, "card": {"background": {"fill": "#1d2939"}, "border": {"color": "#344054"}}, "quote": {"typography": {"color": "#f7f8fa"}}, "author": {"typography": {"color": "#f7f8fa"}}, "meta": {"typography": {"color": "#c8ccd4"}}}`. `card` IS IN THAT MAP BECAUSE THE TEXT SITS INSIDE IT and it ships its own light fill as a role DEFAULT: darken only `_band` and you get near-white ink on a near-white card, measured 1.01:1, on a write reporting no findings. YOU OWN THE CONTRAST, per ROLE not per band: set a colour on every text role over the new background — quote, author, meta, heading, subheading, eyebrow — and on any link, and check each against THE SURFACE IT ACTUALLY SITS ON, the nearest enclosing role carrying a fill, whether you set it or it came as a default. AA is 4.5:1 body, 3:1 large. One role left un-recoloured renders dark on dark or light on light, the commonest way this goes wrong.';
     $parts[] = 'REFUSALS name the exact place: `unknown_udc_role` (with the roles that exist), `unknown_udc_group` (with the groups that role permits), and `invalid_prop_value` naming band, role, group and parameter. Read the role list in the catalog above before proposing a `udc` map; do not invent a role name.';
     $parts[] = '';
-    // Same gate as the section above: with no slot-carrying component left, every
-    // check below is a pre-flight for an action that refuses everything.
-    if ($live_slot_types !== []) {
-        $parts[] = '### Before proposing a style_component action';
-        $parts[] = 'Before generating a style_component proposal, verify all three checks:';
-        $parts[] = '1. **Correct component**: You are targeting the component that owns the style slot. Grid gap is on the grid component, not the section that wraps it. Check the component\'s style slots list above.';
-        $parts[] = '2. **Slot exists**: The style slot you want to change actually exists on the target component\'s schema.';
-        $parts[] = '3. **Value is representable**: The value you want to set is valid for the slot\'s type and does not violate any constraints the user stated.';
-        $parts[] = 'If any check fails, do NOT generate a proposal. Instead, explain in plain language: which component you checked, what slot you looked for, why the request cannot be fulfilled, and what the user could ask for instead.';
-    } // end of the style_component pre-flight section
+    // THE "### Before proposing a style_component action" PRE-FLIGHT WAS HERE (#1101).
+    // Three checks an author was told to run before proposing a slot write. It was gated
+    // on the same empty roster as the value grammar above, so it had already stopped
+    // being emitted; it is deleted rather than left, because a pre-flight for an action
+    // that refuses every component is the most expensive kind of dead prompt — it teaches
+    // a model to prepare carefully for a call that cannot succeed.
     $parts[] = '';
     $parts[] = '### Component prop rules';
     $parts[] = 'Only props declared in a component\'s schema (the props listed for it above) are accepted. `add_component`, `update_component`, `update_composition`, and `create_page` reject a composition whose component carries a prop key not in that component\'s schema with `unknown_prop` — the write does not persist and reports the error, so an unknown key is never silently dropped. This mirrors the style-slot rule: before proposing `add_component`/`update_component`, confirm every prop key you set exists on the target component\'s schema. If a capability the user wants has no corresponding prop, say so plainly instead of inventing a prop name.';
@@ -621,86 +566,6 @@ function pp_ai_system_prompt(): string {
     return implode("\n", $parts);
 }
 
-/**
- * Every style-slot TYPE a shipped component actually carries (#1087).
- *
- * The v1 styling system is down to one component, and its type inventory is what the
- * runtime prompt should teach — not the twelve types the grammar can express. Derived so
- * the answer is a fact about the schemas rather than a sentence someone has to remember to
- * shorten. Empty when the last slot-carrying component is rebuilt, which is the signal the
- * whole v1 section can stop being emitted.
- *
- * @return string[] Sorted, de-duplicated.
- */
-function pp_ai_live_slot_types(): array {
-    $types = [];
-    foreach (array_keys(pp_get_registered_components()) as $component) {
-        foreach (pp_get_style_slots($component) as $slot) {
-            $type = $slot['type'] ?? null;
-            if (is_string($type) && $type !== '') {
-                $types[$type] = true;
-            }
-        }
-    }
-    ksort($types);
-    return array_keys($types);
-}
-
-/**
- * The per-type slot rules, emitted only for types a shipped slot actually carries (#1087).
- *
- * WHY THIS IS DERIVED. The v1 block taught TWELVE slot types. Six of them —
- * `length-or-none`, `number`, `duration`, `font-family`, `position` and `ratio` — had ZERO
- * reachable carriers when this was written, and the prose said so mid-paragraph and then
- * went on teaching them anyway. That is the #1045 class arriving in the runtime prompt
- * itself: an inventory that outlived its members, costing every conversation turn.
- *
- * IT RETURNS '' ON EVERY SHIPPED CONFIGURATION TODAY, and that is the correct state rather
- * than dead weight: the live slot types are align, color, gradient, length, shadow and
- * text-transform, none of which has a conditional rule here. The three branches exist so
- * that a re-added carrier RE-ARMS its rule automatically — which is exactly the promise that
- * justified deleting those grammars from the prompt, and all three are pinned by tests that
- * call this function with synthetic type lists.
- *
- * THE SECTION AROUND IT IS SELF-DELETING, which is the other half. `grid` is the last
- * component on style slots; when its rebuild lands, pp_ai_live_slot_types() empties and the
- * caller drops the whole block. Nobody has to remember to delete it, which is the only kind
- * of cleanup that reliably happens.
- *
- * NOT EVERY TYPE'S PROSE LIVES HERE, deliberately. `font-family` and `ratio` describe
- * grammars shared with surfaces that are NOT slots — design-token overrides for the first,
- * the v2 `sizing.aspect-ratio` parameter for the second — so their shared halves stay in
- * the main grammar paragraph and only the slot-specific sentence is conditional here.
- * Deleting a shared grammar because its SLOT carrier retired would take a live rule off a
- * live surface.
- *
- * @param string[] $live_types  From pp_ai_live_slot_types().
- */
-function pp_ai_slot_type_rules(array $live_types): string {
-    $rules = [];
-
-    if (in_array('position', $live_types, true)) {
-        $rules[] = 'A `position`-typed slot (image/background focal point) accepts 1-2 keywords '
-            . '(`center`, `top`, `bottom`, `left`, `right`) or lengths/percentages with any accepted '
-            . 'CSS unit, INCLUDING viewport units (e.g. `top left`, `20% 80%`, `20vw 30vh`) — no '
-            . 'functions, no `var()`.';
-    }
-
-    if (in_array('ratio', $live_types, true)) {
-        $rules[] = 'A `ratio`-typed slot (aspect ratio) accepts exactly what the v2 '
-            . '`sizing.aspect-ratio` parameter accepts, described once below under GROUPS AND '
-            . 'PARAMETERS — one grammar owns both (`_pp_validate_ratio()`).';
-    }
-
-    if (in_array('length-or-none', $live_types, true)) {
-        $rules[] = 'A `length-or-none`-typed slot accepts everything `length` accepts PLUS the '
-            . 'keyword `none`, which removes the cap and is that slot\'s built-in default — this is '
-            . 'the ONE length family where `none` is a real input. A plain `length` slot (padding, '
-            . 'font-size, radius, and every measure with a real length default) still rejects it.';
-    }
-
-    return implode(' ', $rules);
-}
 
 /**
  * Renders the DEFINITION-SURFACE metadata of one slot or prop definition object

@@ -4741,25 +4741,6 @@ class ActionsTest extends TestCase
     }
 
 
-    public function testFriendlyErrorForInvalidRecipeUnresolvableComponentIdReportsNotFound(): void
-    {
-        $post_id = pp_create_page('Bad Id Recipe Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-doesnotexist',
-        ]);
-
-        $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertStringContainsString('couldn\'t find', $result['user_message']);
-        $this->assertStringNotContainsString('(none)', $result['user_message']);
-    }
-
-
     // ── Cross-Component Hints ───────────────────────────────────────────
 
 

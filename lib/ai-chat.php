@@ -726,34 +726,14 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 'raw_error'             => $raw_msg,
             ];
 
-        case 'invalid_recipe':
-            $available_recipes = [];
-            $composition = pp_get_composition($params['post_id'] ?? 0);
-            $idx         = _pp_resolve_component_index_for_error($params);
-            if (_pp_component_target_not_found($params, $idx)) {
-                return [
-                    'error_code'            => $code,
-                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
-                    'alternatives'          => [],
-                    'cross_component_hints' => (object) [],
-                    'raw_error'             => $raw_msg,
-                ];
-            }
-            if (isset($composition[$idx])) {
-                $comp_name = $composition[$idx]['component'] ?? '';
-                $recipes   = pp_get_style_recipes($comp_name);
-                $available_recipes = array_keys($recipes);
-            }
-            return [
-                'error_code'            => $code,
-                'user_message'          => sprintf(
-                    'That recipe doesn\'t exist. Available recipes: %s',
-                    $available_recipes ? implode(', ', $available_recipes) : '(none)'
-                ),
-                'alternatives'          => $available_recipes,
-                'cross_component_hints' => (object) [],
-                'raw_error'             => $raw_msg,
-            ];
+        // THE `invalid_recipe` ARM WAS HERE AND IS UNREACHABLE (#1101). `style_component`
+        // is the only producer of that code, and its refusal now fires BEFORE the recipe
+        // parameter is read — measured: a real recipe name, a made-up one and a slot value
+        // all return `no_style_slots` (tests/AgedBandStoredStyleMapTest.php). No shipped
+        // component declares a recipe, so there is also no roster for the arm to offer.
+        //
+        // The v2 equivalent of a recipe is a PRESET (`save_preset`), and its refusals are
+        // named by the UDC engine on their own codes rather than routed through here.
 
         default:
             return [
