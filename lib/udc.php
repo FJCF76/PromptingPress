@@ -7632,7 +7632,7 @@ function pp_udc_composition_findings(array $items): array {
     $css_disclosed = 0;
 
     foreach ($items as $i => $item) {
-        if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+        if (!is_array($item)) {
             continue;
         }
         $component = isset($item['component']) && is_scalar($item['component'])
@@ -7640,6 +7640,32 @@ function pp_udc_composition_findings(array $items): array {
             : '';
         if ($component === '' || !pp_udc_is_v2_component($component)) {
             continue;
+        }
+
+        // A BAND WITH NO MAP OF ITS OWN STILL HAS ITEMS TO DISCLOSE (#1101,
+        // Addendum B4). This used to `continue` on an absent `udc`, which was
+        // correct while the walk had one subject and is the SAME early exit
+        // pp_udc_normalize_band() had to correct for the same reason: the owner's
+        // live design styles CARDS and leaves the band alone, so the shape this
+        // skipped is not an edge case, it is the headline one.
+        //
+        // MEASURED BEFORE THE FIX, through the real write path, on identical item
+        // data: a band carrying one unrelated band-level value disclosed
+        // `udc_item_value_shadowed_by_role_default`; the same three cards on a band
+        // with no map of its own disclosed NOTHING. The five-write trap — darken a
+        // card, forget its title ink — went unreported in exactly the arrangement an
+        // author reaches it through.
+        //
+        // NORMALISED RATHER THAN BRANCHED, because every band-tier arm below either
+        // iterates this map or asks whether it is an array; an empty map makes all of
+        // them no-ops without a second condition on each one. Nothing is written back
+        // — `$item` is a by-value copy of one composition entry — so this changes what
+        // is REPORTED and never what is stored.
+        if (!isset($item['udc']) || !is_array($item['udc'])) {
+            if (pp_udc_item_maps($item) === []) {
+                continue; // No band map and no item map: genuinely nothing to say.
+            }
+            $item['udc'] = [];
         }
 
         // THE PARTIAL-APPLY DISCLOSURE (orchestrator ruling, T2).
@@ -7654,41 +7680,61 @@ function pp_udc_composition_findings(array $items): array {
         // Derived from the reference, which minting never rewrites, so this
         // reconstructs identically from submitted and from stored data — the
         // property `wp pp check page` and restore both depend on.
+        //
+        // WALKED AT BOTH GRAINS (#1101, Addendum B4: "`udc_preset_groups_skipped`
+        // applies at item grain unchanged"). The first cut walked the band map
+        // alone, so a preset referenced from inside an items[] entry partially
+        // applied in SILENCE — measured on byte-identical data, `card-media` ->
+        // `_preset: "button"` disclosed the skipped `typography` on a band map and
+        // disclosed NOTHING on an item map. The grain an author writes at must not
+        // decide whether they are told what landed.
+        //
+        // ONE PREDICATE, TWO GRAINS, which is A3 clause 4 rather than a style
+        // preference: `_pp_udc_split_preset_by_permitted()` is the same call the
+        // COMPILER makes, so a second copy of this split here would let a write say
+        // "typography skipped" while the emitter painted it.
         $roles = pp_udc_component_roles($component);
-        foreach ($item['udc'] as $role_name => $role_map) {
-            if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
-                || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
-                continue;
+        $preset_maps = [['', $item['udc']]];
+        foreach (pp_udc_item_maps($item) as $preset_item_id => $preset_item_map) {
+            $preset_maps[] = [(string) $preset_item_id, $preset_item_map];
+        }
+        foreach ($preset_maps as [$locator, $map]) {
+            foreach ($map as $role_name => $role_map) {
+                if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
+                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                    continue;
+                }
+                $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
+                if ($preset === null) {
+                    continue; // Dangling: refused at write, reported there.
+                }
+                $fragment = _pp_udc_preset_fragment($preset, 'role');
+                if (!is_array($fragment) || $fragment === []) {
+                    continue;
+                }
+                $split = _pp_udc_split_preset_by_permitted(
+                    $fragment,
+                    $roles[(string) $role_name]['groups'] ?? []
+                );
+                if ($split['skipped'] === [] || $split['applied'] === []) {
+                    continue; // Nothing skipped, or refused outright at write.
+                }
+                $findings[] = [
+                    'type'    => 'udc_preset_groups_skipped',
+                    'message' => sprintf(
+                        'Component "%s"%s role "%s": the preset "%s" also declares %s, which this role does '
+                        . 'not permit, so %s not applied. Applied: %s.',
+                        $component,
+                        $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
+                        (string) $role_name,
+                        $role_map[PP_UDC_PRESET_KEY],
+                        implode(', ', $split['skipped']),
+                        count($split['skipped']) === 1 ? 'it was' : 'they were',
+                        implode(', ', array_keys($split['applied']))
+                    ),
+                    'index'   => is_int($i) ? $i : null,
+                ];
             }
-            $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
-            if ($preset === null) {
-                continue; // Dangling: refused at write, reported there.
-            }
-            $fragment = _pp_udc_preset_fragment($preset, 'role');
-            if (!is_array($fragment) || $fragment === []) {
-                continue;
-            }
-            $split = _pp_udc_split_preset_by_permitted(
-                $fragment,
-                $roles[(string) $role_name]['groups'] ?? []
-            );
-            if ($split['skipped'] === [] || $split['applied'] === []) {
-                continue; // Nothing skipped, or refused outright at write.
-            }
-            $findings[] = [
-                'type'    => 'udc_preset_groups_skipped',
-                'message' => sprintf(
-                    'Component "%s" role "%s": the preset "%s" also declares %s, which this role does not '
-                    . 'permit, so %s not applied. Applied: %s.',
-                    $component,
-                    (string) $role_name,
-                    $role_map[PP_UDC_PRESET_KEY],
-                    implode(', ', $split['skipped']),
-                    count($split['skipped']) === 1 ? 'it was' : 'they were',
-                    implode(', ', array_keys($split['applied']))
-                ),
-                'index'   => is_int($i) ? $i : null,
-            ];
         }
 
         // THE SHADOWED-PRESET DISCLOSURE (#994, ruling D8, invariant I35).
