@@ -264,17 +264,28 @@ function expectRowAligned(m: ReturnType<typeof measureRowContent>, align: 'start
   );
 }
 
-/** Computed featured-treatment surfaces of one grid card (issue 293). */
-function grabCardStyles(el: Element) {
-  const before = getComputedStyle(el, '::before');
+/**
+ * Computed surfaces of one grid card top BAR (issue 293, repriced at #1101).
+ *
+ * IT READS A REAL ELEMENT NOW. v1 painted the bar with `.grid__item::before` and this
+ * helper read that pseudo-element; the rebuild made the bar a real
+ * `<span class="grid__item-bar">` so the `card-bar` role could address it at all —
+ * ruling A3 defers pseudo-elements, so a literal port would have left the owner's brand
+ * signature with no v2 address on 10 of his 11 production bands.
+ *
+ * Left reading `::before` after the rebuild, every caller would have measured an empty
+ * pseudo-element and read `auto` / `none` for everything — which is a passing assertion
+ * on some shapes and a silently vacuous one on the rest.
+ *
+ * TAKES THE BAR ELEMENT ITSELF, not the card: the caller locates `.grid__item-bar`, so
+ * a missing bar is a locator failure with a name rather than a set of `auto` readings.
+ */
+function grabBarStyles(el: Element) {
   const s = getComputedStyle(el);
   return {
-    barHeight: before.height,
-    barImage: before.backgroundImage,
-    barColor: before.backgroundColor,
-    shadow: s.boxShadow,
-    bg: s.backgroundImage,
-    border: s.borderTopColor,
+    height: s.height,
+    image: s.backgroundImage,
+    color: s.backgroundColor,
   };
 }
 
@@ -294,127 +305,151 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // @smoke — #86: the grid heading-color slot must win on DESKTOP, not just be present
-  // in the CSS. Regression proof for the cross-block override that buried it at >=768px.
-  test('#86 grid heading honors --grid-heading-color at 1280px desktop @smoke', async ({
+  // @smoke — #86: the grid heading colour must win on DESKTOP, not just be present in
+  // the CSS. Regression proof for the cross-block override that buried it at >=768px.
+  //
+  // REPRICED AT #1101 from `--grid-heading-color` onto `heading` -> `typography.color`.
+  // The claim is unchanged and the risk it guards did not retire with the slot: the
+  // shared premium heading rule still exists, and an authored value still has to beat it
+  // at the tier where #86 manifested.
+  //
+  // THE UNSET HALF IS NEW AND IS THE STRONGER ONE. The `heading` role defaults to
+  // `currentColor`, which is the #1046 ruling — base.css declares `color:
+  // var(--color-text)` on every h1–h6 at (0,0,1), so a heading that pinned the light-band
+  // ink would go unreadable on an authored dark band. That is the cta defect #1026
+  // shipped at 1.016:1, and `currentColor` is only observable as a rendered fact.
+  test('#86/#1101 the grid heading follows the band ink, and an authored colour wins @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Grid Heading Color');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid01',
-          title: 'What makes the site AI-operable',
-          items: [{ title: 'One', text: 'First' }],
-        },
-      },
-    ]);
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    const props = {
+      id: 'pp-grid01',
+      title: 'What makes the site AI-operable',
+      items: [{ title: 'One', text: 'First' }],
+    };
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // A vivid color no theme token uses, so a clobber by --color-text would be obvious.
-    const res = await styleComponent(page, pageId, { '--grid-heading-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    // UNSET, on a DARK band: `currentColor` means the heading follows the band's own ink.
+    // A light-band-only read cannot tell an inherited value from a pinned one, which is
+    // precisely the distinction the fourfold condition rule exists to preserve.
+    const dark = await updateComposition(page, pageId, [
+      {
+        component: 'grid',
+        props,
+        udc: { _band: { background: { fill: '#101828' }, typography: { color: '#F2EEE5' } } },
+      },
+    ]);
+    expect(dark.success, `dark band write: ${JSON.stringify(dark)}`).toBe(true);
 
-    // Desktop viewport: this is the breakpoint where #86 manifested.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-
     const heading = page.locator('.grid__heading');
     await expect(heading).toBeVisible({ timeout: 10000 });
+    expect(
+      await heading.evaluate((el) => getComputedStyle(el).color),
+      'the heading follows the band ink through currentColor — a pinned light ink here is #1026',
+    ).toBe('rgb(242, 238, 229)');
 
-    const color = await heading.evaluate((el) => getComputedStyle(el).color);
-    expect(color).toBe('rgb(255, 0, 128)');
-  });
-
-  // The `theme` enum value must PREDICT the rendered band background. The static
-  // schema/helper tests prove the class mapping; only getComputedStyle proves the CSS
-  // cascade actually paints it. Seed one band per theme value and assert the computed
-  // background-color matches the documented meaning:
-  //   default  -> transparent (page background shows through)
-  //   muted    -> --color-surface (#f4f7fb) — the LIGHT tinted band
-  //   inverted -> --color-bg-inverted (#0f172a) — the genuinely dark band
-  //
-  // The fourth band is the STORED-BYTES route (#605). `dark` is no longer an accepted
-  // input value, so this band is seeded directly into composition meta as a page
-  // written before the removal holds it — the write path would now reject it. It must
-  // paint as DEFAULT, not as muted: the deliberate stale-data breakage, proven where
-  // it actually matters, in a real browser's computed cascade.
-  test('theme values render the documented band background; a stored `dark` renders default', async ({ page }) => {
-    pageId = createPage('E2E Theme Band Backgrounds');
-    setComposition(pageId, [
-      { component: 'grid', props: { id: 'pp-theme-default', theme: 'default', items: [{ title: 'D', text: 'x' }] } },
-      { component: 'grid', props: { id: 'pp-theme-muted', theme: 'muted', items: [{ title: 'M', text: 'x' }] } },
-      // Stale storage only — never writable through create_page/update_component.
-      { component: 'grid', props: { id: 'pp-theme-stale-dark', theme: 'dark', items: [{ title: 'K', text: 'x' }] } },
-      { component: 'grid', props: { id: 'pp-theme-inverted', theme: 'inverted', items: [{ title: 'I', text: 'x' }] } },
+    // SET: a vivid colour no theme token uses, so a clobber would be obvious. Desktop is
+    // the breakpoint where #86 manifested.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      { component: 'grid', props, udc: { heading: { typography: { color: '#ff0080' } } } },
     ]);
+    expect(res.success, `heading colour write: ${JSON.stringify(res)}`).toBe(true);
 
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-
-    const bg = async (sel: string) => {
-      const el = page.locator(sel);
-      await expect(el).toBeVisible({ timeout: 10000 });
-      return el.evaluate((n) => getComputedStyle(n).backgroundColor);
-    };
-
-    const SURFACE = 'rgb(244, 247, 251)'; // --color-surface #f4f7fb
-    const INVERTED = 'rgb(15, 23, 42)';   // --color-bg-inverted #0f172a
-    const TRANSPARENT = 'rgba(0, 0, 0, 0)';
-
-    expect(await bg('#pp-theme-default')).toBe(TRANSPARENT);
-    const muted = await bg('#pp-theme-muted');
-    const staleDark = await bg('#pp-theme-stale-dark');
-    expect(muted).toBe(SURFACE);
-    // `muted` is a LIGHT band, not dark — and it still paints through the legacy
-    // `--dark` CSS class name, which #605 deliberately kept (#570 DG-4).
-    expect(muted).not.toBe(INVERTED);
-    // #605: a stored `dark` no longer renders as muted. It renders as DEFAULT.
-    expect(staleDark).toBe(TRANSPARENT);
-    expect(staleDark).not.toBe(SURFACE);
-    expect(await bg('#pp-theme-inverted')).toBe(INVERTED);
+    await expect(heading).toBeVisible({ timeout: 10000 });
+    expect(await heading.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 0, 128)');
   });
 
-  // #349: an explicit per-instance --grid-item-text-color must win over a text_role
-  // color preset (.text-meta / .text-kicker) at BOTH breakpoints. The bug was a
-  // breakpoint split: the role utility (utilities.css, enqueued after components.css)
-  // is (0,1,0) and defeated the (0,1,0) base slot rule on the source-order tie below
-  // 768px, while the (0,2,1) desktop premium rule out-specified it — so the slot was
-  // honored on desktop and DEAD on mobile. A single-viewport pin would miss it exactly
-  // as it shipped, so this asserts at 375px (mobile) AND 1280px (desktop).
+  // ── THE `theme` PROP RETIRED AT #1101, AND ITS RENDERED PIN WITH IT ───────
   //
-  // Four cards prove both halves in one render (per-item `style`, the #306 per-instance
-  // path): cards 0/1 SET --grid-item-text-color and must render the slot colour at both
-  // breakpoints (the fix); cards 2/3 leave it UNSET and must render byte-identically to
-  // today — the role colour on mobile (--text-meta-color=--color-muted #5e6677 /
-  // --text-kicker-color=--color-accent #3157f4), and the premium fallback
-  // --color-text-secondary (#2d3648) on desktop, where the (0,2,1) rule still governs.
-  // The unset assertions guard that the fix changed NO default colour.
-  test('#349 explicit --grid-item-text-color beats text_role at both breakpoints @smoke', async ({
+  // The row here asserted that each `theme` enum value PREDICTED the rendered band
+  // background — `default` transparent, `muted` `@color-surface` through the legacy
+  // `grid--dark` class, `inverted` `@color-bg-inverted` — plus the #605 stale-bytes
+  // route, where a stored `dark` had to paint as DEFAULT rather than as muted.
+  //
+  // grid was the last component carrying `theme`, and the prop is gone: a preset bundle
+  // of colours is exactly what the UDC expresses directly, so the tone is `_band` ->
+  // `background.fill`, the `muted` framing is a `border` pair, and the `inverted` ink is
+  // `_band` -> `typography.color`. `styling.variant_classes` is `["grid--steps"]` and
+  // nothing else, so there is no class left for a computed-background read to key on.
+  //
+  // NOT RECONSTRUCTED AS AN AUTHORED SCENE, deliberately, because the claim does not
+  // survive the translation. "The enum value predicts the background" is a statement
+  // about a MAPPING from three names to three colours; with the names gone there is no
+  // mapping, only an authored value that trivially paints itself. A test that authored
+  // `#0f172a` and asserted `rgb(15, 23, 42)` would be asserting that CSS works.
+  //
+  // WHAT DID SURVIVE IS PINNED ELSEWHERE, at the layer where it is still a real claim:
+  //   - an authored dark band paints, and the heading FOLLOWS its ink rather than
+  //     pinning the light one — '#86/#1101 the grid heading follows the band ink' above,
+  //     which is the half that actually broke on cta at 1.016:1;
+  //   - the band's two ABSENCES (v1's default-theme band measured rgba(0, 0, 0, 0) with
+  //     no border on any edge, so declaring either would repaint every upgraded band) —
+  //     GridRoleDefaultsEmitTest::testTheBandCarriesOnlyTheSharedRhythmAndAFocalPoint;
+  //   - the #605 stale-bytes behaviour, which changed rather than vanished: a stored
+  //     `theme` now refuses with `retired_prop` naming the `_band` role that replaced it,
+  //     instead of `invalid_prop_value` naming three values that no longer exist. That is
+  //     a write-path claim now, not a render one, and it is pinned in ActionsTest.
+
+  // #349 REPRICED AT #1101 — THE PRECEDENCE QUESTION, ASKED AT THE NEW ADDRESS.
+  //
+  // The original: an explicit per-instance `--grid-item-text-color` had to beat a
+  // `text_role` colour preset at BOTH breakpoints. The bug was a breakpoint split — the
+  // role utility (utilities.css, enqueued after components.css) is (0,1,0) and defeated
+  // the (0,1,0) base slot rule on the source-order tie below 768px, while the (0,2,1)
+  // desktop premium rule out-specified it, so the slot was honoured on desktop and DEAD
+  // on mobile. A single-viewport pin would have missed it exactly as it shipped.
+  //
+  // BOTH SIDES OF THAT CONTEST RETIRED TOGETHER: `items[].text_role` is gone (measured
+  // first — `mono` and `meta` rendered byte-identically to the default above 767px, so
+  // two of its four values had no rendered effect at all), and so is the per-item `style`
+  // map. Their single replacement is the entry's own `udc`.
+  //
+  // SO THE CLAIM IS REPRICED, NOT DELETED, because the RISK it guards is identical and
+  // still live: a per-card value has to win at EVERY tier, and the item tier's whole
+  // precedence story rests on source order for the root role (both selectors weigh
+  // (0,2,0)). The two-breakpoint discipline is the part worth keeping — it is the only
+  // reason the original caught anything.
+  //
+  // FOUR CARDS, TWO STYLED AND TWO NOT, exactly as before: cards 0/1 carry per-item
+  // `card-text` colours and must render them at both breakpoints; cards 2/3 carry no map
+  // and must render the ROLE DEFAULT, which is itself a breakpoint map measured off v1 —
+  // `@color-text-secondary` from 768px up and `@color-muted` below it. That default map
+  // is the successor to the unset half's old job: it guards that a per-card write changed
+  // no default, and a map that collapsed to one tier fails right here.
+  test('#349/#1101 a per-card text colour wins at both breakpoints; unset cards keep the tiered default @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Grid Text Role Slot Precedence');
-    const SLOT = '#ff0080'; // vivid, no token uses it — a leak or clobber is obvious
-    setComposition(pageId, [
+    pageId = createPage('E2E Grid Item Text Colour');
+    const INK = '#ff0080'; // vivid, no token uses it — a leak or clobber is obvious
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
           id: 'pp-grid01',
-          title: 'Role vs slot',
+          title: 'Per-card ink',
           items: [
-            { title: 'One', text: 'Set meta', text_role: 'meta', style: { '--grid-item-text-color': SLOT } },
-            { title: 'Two', text: 'Set kicker', text_role: 'kicker', style: { '--grid-item-text-color': SLOT } },
-            { title: 'Three', text: 'Unset meta', text_role: 'meta' },
-            { title: 'Four', text: 'Unset kicker', text_role: 'kicker' },
+            { title: 'One', text: 'Set', udc: { 'card-text': { typography: { color: INK } } } },
+            { title: 'Two', text: 'Set', udc: { 'card-text': { typography: { color: INK } } } },
+            { title: 'Three', text: 'Unset' },
+            { title: 'Four', text: 'Unset' },
           ],
         },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    expect(res.success, `per-card ink write: ${JSON.stringify(res)}`).toBe(true);
 
     const textColor = (i: number) =>
       page.locator('.grid__item').nth(i).locator('.grid__item-text')
@@ -425,19 +460,16 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('.grid__item')).toHaveCount(4, { timeout: 10000 });
 
-      // Set slot wins at BOTH breakpoints (mobile is the case that shipped broken).
-      expect(await textColor(0)).toBe('rgb(255, 0, 128)'); // set + meta
-      expect(await textColor(1)).toBe('rgb(255, 0, 128)'); // set + kicker
+      // The per-card value wins at BOTH breakpoints — mobile is the tier that shipped
+      // broken under the slot, and it is the tier a desktop-only pin would miss.
+      expect(await textColor(0), `card 0 @${width}`).toBe('rgb(255, 0, 128)');
+      expect(await textColor(1), `card 1 @${width}`).toBe('rgb(255, 0, 128)');
 
-      // Unset output is byte-identical to today: role colour on mobile, premium
-      // --color-text-secondary on desktop. No default colour changed.
-      if (width >= 768) {
-        expect(await textColor(2)).toBe('rgb(45, 54, 72)'); // unset meta -> --color-text-secondary
-        expect(await textColor(3)).toBe('rgb(45, 54, 72)'); // unset kicker -> --color-text-secondary
-      } else {
-        expect(await textColor(2)).toBe('rgb(94, 102, 119)'); // unset meta -> --text-meta-color (--color-muted)
-        expect(await textColor(3)).toBe('rgb(49, 87, 244)'); // unset kicker -> --text-kicker-color (--color-accent)
-      }
+      // And the unstyled cards keep the role default, which is a REAL breakpoint map:
+      // v1 measured rgb(45, 54, 72) from 768px up and rgb(94, 102, 119) below it.
+      const expected = width >= 768 ? 'rgb(45, 54, 72)' : 'rgb(94, 102, 119)';
+      expect(await textColor(2), `unset card 2 @${width}`).toBe(expected);
+      expect(await textColor(3), `unset card 3 @${width}`).toBe(expected);
     }
   });
 
@@ -447,21 +479,31 @@ test.describe('Safe-surface rendered proof', () => {
   // forced a low-contrast light numeral with no way to set ink. The default is
   // var(--color-bg), so an UNSET card must render byte-identically to an EXPLICIT
   // var(--color-bg). Three step cards prove both halves in one render:
-  //   card 0 — per-card light lime fill (--grid-step-bg) + per-card ink
-  //            --grid-step-text-color: the issue's exact case. Numeral must be ink,
-  //            badge fill must be the lime (proves the two slots are independent).
-  //            Both slots are item-eligible, so they ride on the card's own `style`.
+  //   card 0 — per-card light lime fill + per-card ink: the issue's exact case. Numeral
+  //            must be ink, badge fill must be the lime (proves the two are independent).
   //   card 1 — UNSET numeral: must render byte-identically to card 2.
-  //   card 2 — explicit --grid-step-text-color: var(--color-bg): the resolved default.
+  //   card 2 — the resolved default written explicitly (`@color-bg`).
   // The numeral has NO breakpoint-specific color rule (only size changes at <=767px),
   // but per the #86/#349 mobile-hid-it lesson we still assert at 1280 AND 375.
-  test('#473 steps badge numeral honors --grid-step-text-color; unset is byte-identical @smoke', async ({
+  //
+  // REPRICED AT #1101 onto the entry's own `udc` map — `step-number` ->
+  // `typography.color` and `background.fill`, the two role parameters that replaced the
+  // two per-card slots. The pairing is the point and the schema now records it as an
+  // OBLIGATION rather than leaving it to be discovered: `step-number` defaults to an
+  // `@color-accent` fill with `@color-bg` ink, so changing one without the other is how a
+  // light badge gets invisible numerals — which is the defect #473 was filed about, and
+  // card 0 is still the scene that proves the two are separately addressable.
+  test('#473/#1101 a per-card step badge takes its own ink and fill; unset is byte-identical @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Grid Step Numeral Color Slot');
+    pageId = createPage('E2E Grid Step Numeral Colour');
     const INK = '#101010'; // ink numeral for the light-fill badge
     const LIME = '#93c22a'; // the issue's light brand-green fill
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
@@ -469,16 +511,24 @@ test.describe('Safe-surface rendered proof', () => {
           title: 'How it works',
           layout: 'steps',
           items: [
-            { title: 'Ink on lime', number: '1', style: { '--grid-step-bg': LIME, '--grid-step-text-color': INK } },
+            {
+              title: 'Ink on lime',
+              number: '1',
+              udc: {
+                'step-number': { typography: { color: INK }, background: { fill: LIME } },
+              },
+            },
             { title: 'Unset', number: '2' },
-            { title: 'Explicit default', number: '3', style: { '--grid-step-text-color': 'var(--color-bg)' } },
+            {
+              title: 'Explicit default',
+              number: '3',
+              udc: { 'step-number': { typography: { color: '@color-bg' } } },
+            },
           ],
         },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    expect(res.success, `step badge write: ${JSON.stringify(res)}`).toBe(true);
 
     const numeral = (i: number) => page.locator('.grid__item').nth(i).locator('.grid__step-number');
     const numeralColor = (i: number) =>
@@ -491,20 +541,23 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('.grid__step-number')).toHaveCount(3, { timeout: 10000 });
 
-      // The set slot reaches the numeral at BOTH breakpoints — the issue's case.
-      expect(await numeralColor(0)).toBe('rgb(16, 16, 16)'); // ink numeral
-      // The fill slot is independent of the numeral slot — the per-card
-      // --grid-step-bg keeps the badge lime.
-      expect(await numeralFill(0)).toBe('rgb(147, 194, 42)');
+      // The per-card ink reaches the numeral at BOTH breakpoints — the issue's case.
+      expect(await numeralColor(0), `@${width}`).toBe('rgb(16, 16, 16)'); // ink numeral
+      // The fill is independently addressable from the ink — the per-card
+      // `background.fill` keeps the badge lime while the ink is dark.
+      expect(await numeralFill(0), `@${width}`).toBe('rgb(147, 194, 42)');
 
-      // Unset numeral renders byte-identically to an explicit var(--color-bg):
-      // #473 changed NO default. (Compared to the resolved default, not a literal,
-      // so this holds whatever theme --color-bg resolves to.)
+      // The unset numeral renders byte-identically to an explicit `@color-bg`: the
+      // reprice changed NO default. (Compared to the resolved default rather than to a
+      // literal, so this holds whatever the theme resolves --color-bg to.)
       const unset = await numeralColor(1);
       const explicitDefault = await numeralColor(2);
-      expect(unset).toBe(explicitDefault);
-      // And the default is NOT the ink slot value — the slot genuinely changed card 0.
+      expect(unset, `unset badge @${width}`).toBe(explicitDefault);
+      // And the default is NOT the ink value — the per-card map genuinely changed card 0
+      // and reached NEITHER sibling, which is the item-scoping claim.
       expect(unset).not.toBe('rgb(16, 16, 16)');
+      expect(await numeralFill(1), 'the lime must not leak to a card that did not ask for it')
+        .not.toBe('rgb(147, 194, 42)');
     }
   });
 
@@ -1216,40 +1269,57 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
-  // #357: grid card content alignment is authorable via the `align`-typed
-  // --grid-item-text-align slot. Default `left` is byte-identical to today; `center`
-  // and `right` must actually MOVE the glyphs, not merely set a declaration. The
-  // StyleSlotContractTest proves the CSS consumes var(--grid-item-text-align, left)
-  // and GridItemStyleTest proves the inline var reaches the card; only a rendered box
-  // proves the browser honors it. Per the #338 lesson (a flex container ignores
-  // text-align for ITEM placement), the card body is a flex column, so we assert BOTH
-  // the computed declaration AND the geometry of a card's title glyphs relative to the
-  // body's content box — center card centered, right card flush right, unset card flush
-  // left (the byte-identical default). Two viewports, per the #86/#349 mobile-hid-it
-  // lesson. #361 extends this: the card's link/button follows the SAME slot value (via
-  // the derived --pp-grid-link-align companion), so the link box is asserted to track
-  // the text — a centered card is fully centered, unset stays left-pinned.
-  test('#357/#361 grid card content + link honor --grid-item-text-align (center/right/left) @smoke', async ({
+  // #357: grid card content alignment is authorable. Default `left` is byte-identical to
+  // today; `center` and `right` must actually MOVE the glyphs, not merely set a
+  // declaration. Per the #338 lesson (a flex container ignores text-align for ITEM
+  // placement), the card body is a flex column, so this asserts BOTH the computed
+  // declaration AND the geometry of a card's title glyphs relative to the body's content
+  // box — center card centered, right card flush right, unset card flush left (the
+  // byte-identical default). Two viewports, per the #86/#349 mobile-hid-it lesson. #361
+  // extends it to the card's link/button, whose BOX has to track the text.
+  //
+  // REPRICED AT #1101 onto the entry's own `udc` map, and the whole measurement apparatus
+  // below is kept unchanged because it is the part that earns its keep: a declaration-only
+  // pin cannot tell "the value reached the element" from "the browser honoured it", and
+  // that distinction is exactly what #338 was about.
+  //
+  // ONE NARROWING, STATED RATHER THAN DISCOVERED. v1 derived a `--pp-grid-link-align`
+  // COMPANION from the same slot, so aligning a card aligned its link for free. There is
+  // no derivation in v2 — a role parameter sets one property on one element and nothing
+  // else — so the link is a SECOND write: `card-link` -> `sizing.align-self`. That is one
+  // prop becoming two writes, and it is the right trade here: the companion was invisible
+  // machinery that only ever did the obvious thing, and an author who wants the link to
+  // sit differently from the text could not express it at all before.
+  //
+  // `align-self` is in the SIZING group, not the layout group, and deliberately so: a box
+  // placing ITSELF is sizing; a box placing its CHILDREN is layout. That is why this write
+  // reaches `card-link` even though `card-link` is not a flex container.
+  test('#357/#361/#1101 a per-card alignment moves the glyphs and the link box (center/right/left) @smoke', async ({
     page,
   }) => {
     pageId = createPage('E2E Grid Item Text Align');
-    setComposition(pageId, [
+    const aligned = (align: string, self: string) => ({
+      'card-body': { typography: { align } },
+      'card-link': { sizing: { 'align-self': self } },
+    });
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const alignRes = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
           id: 'pp-grid01',
           title: 'Alignment',
           items: [
-            { title: 'Center', text: 'hola', link_url: '/x', link_text: 'Reach us', style: { '--grid-item-text-align': 'center' } },
-            { title: 'Right', text: 'hola', link_url: '/x', link_text: 'Reach us', style: { '--grid-item-text-align': 'right' } },
+            { title: 'Center', text: 'hola', link_url: '/x', link_text: 'Reach us', udc: aligned('center', 'center') },
+            { title: 'Right', text: 'hola', link_url: '/x', link_text: 'Reach us', udc: aligned('right', 'flex-end') },
             { title: 'Unset', text: 'hola', link_url: '/x', link_text: 'Reach us' },
           ],
         },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    expect(alignRes.success, `per-card alignment write: ${JSON.stringify(alignRes)}`).toBe(true);
 
     // Computed declaration on the card body (inherited by every content item).
     const bodyAlign = (i: number) =>
@@ -1286,10 +1356,18 @@ test.describe('Safe-surface rendered proof', () => {
       await page.goto(`/?page_id=${pageId}`);
       await expect(page.locator('.grid__item')).toHaveCount(3, { timeout: 10000 });
 
-      // Declaration: the slot value reaches the rendered body; unset falls back to left.
-      expect(await bodyAlign(0)).toBe('center');
-      expect(await bodyAlign(1)).toBe('right');
-      expect(await bodyAlign(2)).toBe('left');
+      // Declaration: the authored value reaches the rendered body; unset falls through.
+      expect(await bodyAlign(0), `@${width}`).toBe('center');
+      expect(await bodyAlign(1), `@${width}`).toBe('right');
+      // `start`, NOT `left`, AND THE DIFFERENCE IS A REAL ONE WORTH RECORDING. v1's slot
+      // rule declared `var(--grid-item-text-align, left)`, so an unset card computed the
+      // literal `left`; v2 declares nothing at all, so CSS's own initial value shows
+      // through. The two are byte-identical in a left-to-right document — which is why
+      // this is a faithful port rather than a regression — but they are NOT identical in
+      // an RTL one, where `start` follows the writing direction and `left` does not.
+      // The rebuild therefore made this card BETTER in RTL by declaring less, and the
+      // geometry assertions below are what prove the rendering did not move in LTR.
+      expect(await bodyAlign(2), `unset card @${width}`).toBe('start');
 
       // Geometry: the glyphs actually moved (this is what a declaration-only pin misses).
       // The sentinels -1 (nothing measured) / -2 (title fills the column) must never
@@ -1308,14 +1386,14 @@ test.describe('Safe-surface rendered proof', () => {
       expect(rightFrac).toBeGreaterThan(0.85);
       expect(leftFrac).toBeLessThan(0.15);
 
-      // #361: the link/button FOLLOWS the card's alignment. The "Read more" link is
-      // a content-width flex item placed by align-self, so per the #338 flex trap
-      // text-align cannot move it; grid.php derives a --pp-grid-link-align companion
-      // from the same slot value so the link tracks the text. Measure the link BOX,
-      // not just the computed property: fraction of the body's leftover horizontal
-      // space that sits LEFT of the link box (0 = flush left, ~0.5 = centered, ~1 =
-      // flush right). This is the mutation-check — delete the companion (or the CSS
-      // var consumption) and center/right collapse to ~0, going red. Unset stays
+      // #361: the link/button tracks the card's alignment. The "Read more" link is a
+      // content-width flex item placed by align-self, so per the #338 flex trap
+      // text-align cannot move it — which is why it takes its own `sizing.align-self`
+      // write now that v1's derived `--pp-grid-link-align` companion is gone. Measure
+      // the link BOX, not just the computed property: fraction of the body's leftover
+      // horizontal space that sits LEFT of the link box (0 = flush left, ~0.5 = centered,
+      // ~1 = flush right). This is the mutation-check — a value that reached the
+      // declaration but not the layout collapses to ~0 and goes red. Unset stays
       // flush-left (byte-identical to today), so this same pin guards the default.
       const linkOffsetFraction = (i: number) =>
         page.locator('.grid__item').nth(i).locator('.grid__item-link')
@@ -1336,7 +1414,7 @@ test.describe('Safe-surface rendered proof', () => {
       const rightLink = await linkOffsetFraction(1);  // --grid-item-text-align: right
       const unsetLink = await linkOffsetFraction(2);  // unset — must stay left-pinned
 
-      // Computed align-self reflects the derived companion (unset falls back to flex-start).
+      // Computed align-self reflects the authored value (unset falls back to flex-start).
       expect(centerLink.alignSelf).toBe('center');
       expect(rightLink.alignSelf).toBe('flex-end');
       expect(unsetLink.alignSelf).toBe('flex-start');
@@ -1847,35 +1925,58 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   // Type-scale axis (#302): the shared premium heading rule used to beat the slot.
-  test('#305 grid heading honors --grid-heading-size at 1280px desktop @smoke', async ({
+  // REPRICED AT #1101 onto `heading` -> `typography.size`. The unset half is added with
+  // the reprice: the role defaults to `@pp-band-heading-size`, the SHARED band-heading
+  // scale every other component resolves, so a grid heading that stopped reaching it
+  // would break the #436 one-size-per-breakpoint contract silently.
+  test('#305/#1101 the grid heading takes the shared scale, and an authored size wins @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Grid Heading Size Slot');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid01',
-          title: 'Scale is controllable',
-          items: [{ title: 'One', text: 'First' }],
-        },
-      },
-    ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, { '--grid-heading-size': '41px' });
-    expect(res.success).toBe(true);
+    pageId = createPage('E2E Grid Heading Size');
+    const props = {
+      id: 'pp-grid01',
+      title: 'Scale is controllable',
+      items: [{ title: 'One', text: 'First' }],
+    };
+    setComposition(pageId, [{ component: 'grid', props }]);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
-
     const heading = page.locator('.grid__heading');
     await expect(heading).toBeVisible({ timeout: 10000 });
 
-    const fontSize = await heading.evaluate((el) => getComputedStyle(el).fontSize);
-    expect(fontSize).toBe('41px');
+    const shared = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--pp-band-heading-size').trim(),
+    );
+    expect(shared, 'the shared band-heading token must exist, or the unset half is vacuous').not.toBe('');
+    expect(
+      await heading.evaluate((el) => getComputedStyle(el).fontSize),
+      'unset, the heading resolves the SHARED band-heading scale',
+    ).toBe(
+      await page.evaluate(
+        (v) => {
+          const probe = document.createElement('div');
+          probe.style.fontSize = v;
+          document.body.appendChild(probe);
+          const px = getComputedStyle(probe).fontSize;
+          probe.remove();
+          return px;
+        },
+        shared,
+      ),
+    );
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      { component: 'grid', props, udc: { heading: { typography: { size: '41px' } } } },
+    ]);
+    expect(res.success, `heading size write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    await expect(heading).toBeVisible({ timeout: 10000 });
+    expect(await heading.evaluate((el) => getComputedStyle(el).fontSize)).toBe('41px');
   });
 
   // Header-rhythm axis (#352), REPRICED TO THE ROLE AT #1046. The claim is unchanged and
@@ -1931,31 +2032,40 @@ test.describe('Safe-surface rendered proof', () => {
   });
 
   // Card-border axis (#226/#292): the featured first card (#226) AND cards 2..N (#292)
-  // each had their own bypass, fixed separately — so assert BOTH boxes render the slot.
-  test('#305 grid cards honor --grid-item-border-color on featured AND non-featured cards @smoke', async ({
+  // each had their own bypass, fixed separately — so assert BOTH boxes take the value.
+  //
+  // REPRICED AT #1101 onto `card` -> `border.color`, and the two surfaces the title names
+  // are ONE surface now: the `:first-child` featured rules were deleted with
+  // `card_emphasis` (ruling D9), so there is no longer a bypass for card 1 to have. That
+  // is why the test keeps two cards and asserts they AGREE rather than asserting each
+  // against its own historic bypass — the claim "every card takes the band's card colour"
+  // is what survived, and an item-grain override reaching a card it was not written for
+  // would break it here.
+  test('#305/#1101 every card takes the band-level card border colour @smoke', async ({
     page,
   }) => {
-    pageId = createPage('E2E Grid Card Border Slot');
-    setComposition(pageId, [
+    pageId = createPage('E2E Grid Card Border');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // A vivid colour no token uses; both accent and neutral fallbacks differ from it.
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
           id: 'pp-grid01',
           title: 'Cards are controllable',
           items: [
-            { title: 'One', text: 'Featured card, the #226 surface' },
-            { title: 'Two', text: 'Non-featured card, the #292 surface' },
+            { title: 'One', text: 'The former #226 surface' },
+            { title: 'Two', text: 'The former #292 surface' },
           ],
         },
+        udc: { card: { border: { color: '#ff0080' } } },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    // A vivid color no token uses; both accent and neutral fallbacks differ from it.
-    const res = await styleComponent(page, pageId, { '--grid-item-border-color': '#ff0080' });
-    expect(res.success).toBe(true);
+    expect(res.success, `card border write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -1983,373 +2093,243 @@ test.describe('Safe-surface rendered proof', () => {
     expect(plain.style).not.toBe('none');
   });
 
-  // Featured remnants (#293), half 1: the rule move into the COMPONENT: grid block
-  // must not change UNSET rendering. Pin the featured defaults at the computed level:
-  // 4px accent bar + inset glow on card 1, 2px hairline + no inset glow on card 2.
-  test('#293 unset grid keeps the featured first-card defaults after the rule move', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Grid Featured Defaults');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid01',
-          title: 'Featured defaults survive',
-          items: [
-            { title: 'One', text: 'Featured card' },
-            { title: 'Two', text: 'Plain card' },
-          ],
-        },
-      },
-    ]);
+  // ── THE FEATURED TREATMENT RETIRED AT #1101 (ruling D9), AND FIVE ROWS WITH IT ──
+  //
+  // Five tests lived here, and every one of them had the SAME subject: what the
+  // `:first-child` featured card renders, and how `card_emphasis: "uniform"` or the
+  // `uniform-cards` recipe switches it off.
+  //
+  //   #293 half 1   unset grid keeps the featured first-card defaults
+  //   #293 half 2   the uniform-cards RECIPE neutralizes the featured treatment
+  //   #293          --grid-featured-shadow renders on the featured card only
+  //   #226          card_emphasis:uniform equalizes the first card
+  //   #226          card_emphasis:uniform neutralizes the muted-band first-card lift
+  //
+  // ALL FIVE PREMISES WENT AT ONCE, which is why they are deleted rather than repriced:
+  //
+  //   the PROP     `card_emphasis` is retired. Ordinal styling contradicts Addendum B
+  //                exclusion 3 — an item is addressed by its minted id so that reordering
+  //                the list carries the styling WITH the card rather than leaving it on a
+  //                position. Keeping an ordinal treatment beside an id-addressed one
+  //                would leave two systems disagreeing about which card is special the
+  //                moment a list is reordered.
+  //   the RULES    every `:not(.grid--uniform) .grid__item:first-child` declaration is
+  //                deleted from components.css — the padding, the larger title, the 4px
+  //                accent bar, the inset glow, the texture stripe and the dark-band lift.
+  //   the SLOTS    `--grid-featured-shadow` and the rest went with all 38 of grid's style
+  //                slots; `--grid-featured-texture-color` retired with NO route at all (a
+  //                second background layer the `fill` grammar refuses).
+  //   the RECIPE   `styling.recipes` is gone; a recipe names slots, and a recipe whose
+  //                vocabulary no longer exists cannot be carried forward literally.
+  //   the THEME    `theme: "muted"` and the `.grid--dark` class the lift keyed off are
+  //                retired too, so the last row's scene cannot even be constructed.
+  //
+  // MEASURED BEFORE RETIRING IT, which is what makes this a decision rather than a
+  // convenience: all ELEVEN of the owner's production grid bands already rendered
+  // `grid--uniform`. The featured treatment was switched off everywhere it could have
+  // applied, so retiring it removes a capability nobody was using and keeps the one that
+  // replaced it — one card, styled through its own `udc` map, wherever it sits in the list.
+  //
+  // WHERE THE SURVIVING CLAIMS WENT, because they did not all evaporate with the rules:
+  //
+  //   "an unset grid renders its documented card surfaces" is the `card` role's defaults,
+  //   pinned against the EMITTED CSS in GridRoleDefaultsEmitTest and rendered at
+  //   '#332 an unstyled grid still renders its default 1px card border' below;
+  //
+  //   "one card can be made to differ from its siblings" is the headline capability of
+  //   Addendum B and is rendered at
+  //   '#332/#1101 a per-card design emits no inline style attribute, and reaches only its
+  //   own card' above, and at the owner's-design pin below — both of which assert the
+  //   thing the featured rules only ever approximated, on a card chosen by identity
+  //   rather than by position.
 
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const cards = page.locator('.grid__item');
-    await expect(cards).toHaveCount(2, { timeout: 10000 });
-
-    const featured = await cards.nth(0).evaluate(grabCardStyles);
-    const plain = await cards.nth(1).evaluate(grabCardStyles);
-
-    expect(featured.barHeight).toBe('4px');
-    expect(featured.barImage).toContain('linear-gradient'); // accent gradient bar
-    expect(plain.barHeight).toBe('2px');
-    expect(plain.barImage).toBe('none'); // hairline is a background-color, not an image
-    expect(featured.shadow).toContain('inset'); // the blue glow's inset ring
-    expect(plain.shadow).not.toContain('inset');
-    expect(featured.bg).toContain('37, 99, 235'); // texture stripe literal
-  });
-
-  // Featured remnants (#293), half 2: the acceptance path, through the documented
-  // uniform-cards RECIPE (so the recipe expansion is exercised end-to-end, not a
-  // re-typed copy of its values) — including at a mobile width, where a separate
-  // featured-glow rule re-declares the shadow chain (the featured-shadow slot would
-  // otherwise silently no-op below 768px).
-  test('#293 uniform-cards recipe neutralizes the featured treatment @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Grid Uniform Row');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid01',
-          title: 'Uniform card row',
-          items: [
-            { title: 'One', text: 'First' },
-            { title: 'Two', text: 'Second' },
-            { title: 'Three', text: 'Third' },
-          ],
-        },
-      },
-    ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, {}, 'uniform-cards');
-    expect(res.success).toBe(true);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const cards = page.locator('.grid__item');
-    await expect(cards).toHaveCount(3, { timeout: 10000 });
-
-    const featured = await cards.nth(0).evaluate(grabCardStyles);
-    const plain = await cards.nth(1).evaluate(grabCardStyles);
-
-    expect(featured.barHeight).toBe('0px'); // bar removed
-    expect(plain.barHeight).toBe('0px');
-    expect(featured.shadow).toBe(plain.shadow); // one shared shadow, no glow
-    expect(featured.shadow).not.toContain('inset');
-    expect(featured.border).toBe(plain.border); // accent-strong border neutralized
-    expect(featured.bg).not.toContain('37, 99, 235'); // texture stripe neutralized
-
-    // Mobile: the max-width 767px featured rule must route the same chain.
-    await page.setViewportSize({ width: 375, height: 800 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(cards).toHaveCount(3, { timeout: 10000 });
-
-    const featuredMobile = await cards.nth(0).evaluate(grabCardStyles);
-    const plainMobile = await cards.nth(1).evaluate(grabCardStyles);
-    expect(featuredMobile.shadow).toBe(plainMobile.shadow);
-    expect(featuredMobile.shadow).not.toContain('inset');
-  });
-
-  // #293: --grid-featured-shadow must have discriminating rendered power of its own.
-  // The uniform-row test neutralizes via --grid-item-shadow, which the PRE-#293 CSS
-  // already routed — it would pass with the featured-shadow chain reverted. This
-  // test sets the featured slot to a distinctive value and proves it renders on the
-  // featured card only, at desktop AND mobile (the two chain sites), and that it
-  // outranks a simultaneously-set --grid-item-shadow.
-  test('#293 --grid-featured-shadow renders on the featured card at both breakpoints', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Grid Featured Shadow Slot');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid01',
-          title: 'Featured shadow slot',
-          items: [
-            { title: 'One', text: 'Featured card' },
-            { title: 'Two', text: 'Plain card' },
-          ],
-        },
-      },
-    ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, {
-      '--grid-featured-shadow': '0 2px 4px rgba(1, 2, 3, 0.5)',
-      '--grid-item-shadow': '0 6px 12px rgba(7, 8, 9, 0.4)',
-    });
-    expect(res.success).toBe(true);
-
-    for (const width of [1280, 375]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const cards = page.locator('.grid__item');
-      await expect(cards).toHaveCount(2, { timeout: 10000 });
-
-      const featured = await cards.nth(0).evaluate(grabCardStyles);
-      const plain = await cards.nth(1).evaluate(grabCardStyles);
-      expect(featured.shadow).toContain('1, 2, 3'); // featured slot wins on card 1
-      expect(plain.shadow).toContain('7, 8, 9'); // shared slot on cards 2..N
-      expect(plain.shadow).not.toContain('1, 2, 3');
-    }
-  });
-
-  // #293: the shared bar slots must pin ONE identical bar on the featured and
-  // plain cards simultaneously — the featured accent-gradient default has to be
-  // overridden, not layered under.
-  test('#293 bar slots pin an identical top bar on featured and plain cards', async ({
+  // THE CARD BAR SURVIVED, AND IT IS THE ONE ROW OF THAT FIVE THAT IS REPRICED (#1101,
+  // ruling D5) — so it stays here, immediately beside the record of what went.
+  //
+  // v1 painted the bar with `.grid__item::before`, which ruling A3 puts out of reach for
+  // the whole of v2, so a literal port would have retired the capability in silence.
+  // MEASURED ON THE OWNER'S LIVE SITE FIRST: 10 of his 11 production grid bands author
+  // both bar slots, all ten with the identical pair
+  // `linear-gradient(120deg,#7B5BFF 0%,#FF5C2E 50%,#3DDFC8 100%)` at `3px`. A brand
+  // signature on 91% of bands is not an unused slot, so the honest port was to give the
+  // thing its own selector: an empty `<span class="grid__item-bar" aria-hidden="true">`,
+  // styled by the `card-bar` role through ordinary `background.fill` and `sizing.height`.
+  // No grammar changed and no contract widened.
+  //
+  // THE ORIGINAL CLAIM IS PRESERVED EXACTLY and is the reason this row is worth keeping:
+  // the bar must render ONE identical bar across every card. Under v1 that meant beating
+  // a featured `:first-child` gradient default that would otherwise layer under it; under
+  // v2 there is no per-card default to beat, so the claim becomes the stronger one that
+  // the band-grain write reaches every card uniformly — which is exactly what the owner's
+  // ten bands do.
+  test('#293/#1101 the card-bar role pins one identical top bar across every card', async ({
     page,
   }) => {
     pageId = createPage('E2E Grid Pinned Bar');
-    setComposition(pageId, [
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+
+    // The owner's production pair, verbatim, so this row also proves the live brand
+    // signature survives the rebuild at its new address.
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
           id: 'pp-grid01',
           title: 'Pinned bar',
           items: [
-            { title: 'One', text: 'Featured card' },
-            { title: 'Two', text: 'Plain card' },
+            { title: 'One', text: 'First card' },
+            { title: 'Two', text: 'Second card' },
           ],
+        },
+        udc: {
+          'card-bar': {
+            background: { fill: 'linear-gradient(120deg,#7B5BFF 0%,#FF5C2E 50%,#3DDFC8 100%)' },
+            sizing: { height: '3px' },
+          },
         },
       },
     ]);
+    expect(res.success, `card-bar write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+
+    const bars = page.locator('.grid__item-bar');
+    await expect(bars).toHaveCount(2, { timeout: 10000 });
+
+    const first = await bars.nth(0).evaluate(grabBarStyles);
+    const second = await bars.nth(1).evaluate(grabBarStyles);
+
+    expect(first.height, 'the authored height reaches the first card').toBe('3px');
+    expect(second.height, 'and the second — one band write, every card').toBe('3px');
+    expect(first.image, 'the brand gradient paints').toContain('linear-gradient');
+    expect(second.image).toContain('linear-gradient');
+    expect(first.image, 'and both cards get the SAME bar').toBe(second.image);
+
+    // IT IS A REAL ELEMENT NOW, not a pseudo-element, and it is hidden from assistive
+    // technology — an empty decorative span announced as a list-item child would be
+    // noise. This is the half a computed-style read alone cannot make.
+    expect(await bars.nth(0).evaluate((el) => el.tagName)).toBe('SPAN');
+    expect(await bars.nth(0).evaluate((el) => el.getAttribute('aria-hidden'))).toBe('true');
+    expect(
+      await page.locator('.grid__item').first().evaluate((el) => getComputedStyle(el, '::before').content),
+      'the v1 pseudo-element must be gone, or the bar would paint twice',
+    ).toBe('none');
+  });
+
+  // THE OWNER'S PRODUCTION DESIGN, RENDERED (#1101 §5, Addendum B).
+  //
+  // This is the acceptance case the whole item tier exists for, and it is Sprint 3's
+  // dress rehearsal: on 4 of the owner's 5 content pages exactly one card inside an
+  // otherwise light uniform grid is dark. v1 expressed it with `items[].style`, a per-item
+  // map rendered as inline custom properties; §3.4 forbids inline style emission outright,
+  // and roles are BAND-grain, so before Addendum B the v2 contract had no address for
+  // "this one card".
+  //
+  // THE FIVE-WRITE OBLIGATION IS WHAT IS ACTUALLY BEING TESTED. v1 kept cards light even
+  // on an inverted band, so `card-title`, `card-text`, `card-bullets` and `card-link` all
+  // PIN their inks rather than following the card. Darkening a card is therefore five
+  // writes, not one, and doing four of them ships dark text on a dark panel. The schema
+  // records that as four obligations; this renders it, at all three tiers, and measures
+  // the contrast so a regression that made the card ink follow the band would show up as
+  // an unreadable card rather than as a passing computed-style read.
+  test('#1101 one dark card in a light grid, per-item ink, at 375/768/1280 @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E 1101 Owner Dark Card');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, {
-      '--grid-item-bar-color': 'rgb(9, 8, 7)',
-      '--grid-item-bar-height': '3px',
-    });
-    expect(res.success).toBe(true);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const cards = page.locator('.grid__item');
-    await expect(cards).toHaveCount(2, { timeout: 10000 });
-
-    const featured = await cards.nth(0).evaluate(grabCardStyles);
-    const plain = await cards.nth(1).evaluate(grabCardStyles);
-
-    expect(featured.barHeight).toBe('3px');
-    expect(plain.barHeight).toBe('3px');
-    expect(featured.barColor).toBe('rgb(9, 8, 7)');
-    expect(plain.barColor).toBe('rgb(9, 8, 7)');
-    expect(featured.barImage).toBe('none'); // gradient default overridden, not layered
-    expect(plain.barImage).toBe('none');
-  });
-
-  // #226: the `card_emphasis: uniform` PROP opts the first card out of the entire
-  // featured treatment so a symmetric/peer card row renders equal cards. This is the
-  // measured 1.0-H symptom: the featured first card's body padding-top (2.25rem) +
-  // larger title pushed card 0's checklist ~36px below its peers, so three spec
-  // cards could not line up. Unlike the uniform-cards RECIPE (slot-only, which can
-  // neutralize the bar/texture/glow but NOT the :first-child padding-top or title
-  // size), the prop drops every featured :first-child rule via :not(.grid--uniform),
-  // so card 0 falls through to the shared all-cards rules and equals its siblings.
-  // Two grids on one page: `uniform` (all cards equal) and `featured` (the default,
-  // which MUST still emphasize card 0 — the byte-identical / mutation guard). On the
-  // pre-#226 CSS the uniform grid's card 0 stays featured and the equality pins fail.
-  test('#226 card_emphasis:uniform equalizes the first card; featured stays emphasized @smoke', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Grid Card Emphasis Uniform');
-    setComposition(pageId, [
+    // The owner's live values, verbatim from the T4 inventory's Chromium read.
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
-          id: 'pp-grid-uniform',
-          card_emphasis: 'uniform',
-          title: 'Uniform spec row',
+          id: 'pp-grid01',
+          title: 'How it works',
           items: [
-            { title: 'Método de análisis', text: 'First' },
-            { title: 'Datos y privacidad', text: 'Second' },
-            { title: 'Compatibilidad', text: 'Third' },
-          ],
-        },
-      },
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid-featured',
-          title: 'Featured row',
-          items: [
-            { title: 'Lead', text: 'First' },
-            { title: 'Two', text: 'Second' },
-            { title: 'Three', text: 'Third' },
+            { title: '01 Audit', text: 'We read the site as an agent would.' },
+            {
+              title: '02 Structure',
+              text: 'The next agent pass should not have to guess through hidden state.',
+              udc: {
+                card: { background: { fill: '#14141F' }, border: { color: '#0A0A12' } },
+                'card-title': { typography: { color: '#F2EEE5' } },
+                'card-text': { typography: { color: '#E8E2D4' } },
+              },
+            },
+            { title: '03 Ship', text: 'And then it is somebody else’s turn.' },
           ],
         },
       },
     ]);
+    expect(res.success, `owner dark-card write: ${JSON.stringify(res)}`).toBe(true);
 
-    // Desktop: the padding-top (min-width:1024px) and larger-title rules that create
-    // the first-card asymmetry live here, so the symptom only manifests at >=1024px.
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 1100 });
+      await page.goto(`/?page_id=${pageId}`);
 
-    // Grab the metrics that make card 0 DIFFERENT from its siblings under the
-    // featured treatment: body padding-top (the 36px push), title font-size, the
-    // ::before accent bar, plus the shared surface fields from grabCardStyles.
-    const cardMetrics = (sel: string) =>
-      page.locator(sel).evaluate((el) => {
-        const body = el.querySelector('.grid__item-body') as HTMLElement;
-        const title = el.querySelector('.grid__item-title') as HTMLElement;
-        const before = getComputedStyle(el, '::before');
-        return {
-          padTop: getComputedStyle(body).paddingTop,
-          titleSize: getComputedStyle(title).fontSize,
-          barHeight: before.height,
-          barImage: before.backgroundImage,
-          shadow: getComputedStyle(el).boxShadow,
-          border: getComputedStyle(el).borderTopColor,
+      const cards = page.locator('.grid__item');
+      await expect(cards).toHaveCount(3, { timeout: 10000 });
+
+      // EXACTLY ONE CARD CARRIES THE HANDLE. An empty attribute would match every
+      // id-less card in the band and paint this design onto all three.
+      expect(
+        await cards.evaluateAll((els) =>
+          els.map((el) => el.getAttribute('data-pp-item')).filter(Boolean).length,
+        ),
+        `exactly one card is addressed @${width}`,
+      ).toBe(1);
+
+      const ink = async (n: number, sel: string) =>
+        cards.nth(n).locator(sel).evaluate((el) => getComputedStyle(el).color);
+      const fill = async (n: number) =>
+        cards.nth(n).evaluate((el) => getComputedStyle(el).backgroundColor);
+
+      // The dark card takes the authored literal EXACTLY; its two siblings must not have
+      // moved, and they are asserted against EACH OTHER rather than against a hardcoded
+      // white. `card` defaults `background.fill: @color-bg`, which is a site token — this
+      // install resolves it to rgb(252, 253, 255) — so pinning a literal here would be
+      // asserting a theme's palette instead of the thing under test, and would go red on
+      // any site that retunes its background. What matters is that the two unstyled cards
+      // still agree with each other and neither one took the dark fill.
+      expect(await fill(1), `card 02 is dark @${width}`).toBe('rgb(20, 20, 31)');
+      expect(await fill(0), `card 01 and card 03 still agree @${width}`).toBe(await fill(2));
+      expect(await fill(0), `card 01 did not take card 02's fill @${width}`).not.toBe('rgb(20, 20, 31)');
+
+      // The per-item ink, which is the half that silently half-works if only four of the
+      // five writes land.
+      expect(await ink(1, '.grid__item-title'), `card 02 title ink @${width}`).toBe('rgb(242, 238, 229)');
+      expect(await ink(1, '.grid__item-text'), `card 02 text ink @${width}`).toBe('rgb(232, 226, 212)');
+
+      // And the siblings keep the light-band ink — the same roles, the same band, a
+      // different card. A selector that lost its item scope would fail here.
+      expect(await ink(0, '.grid__item-title'), `card 01 title ink @${width}`).toBe('rgb(16, 24, 40)');
+      expect(await ink(0, '.grid__item-text'), `card 01 text ink @${width}`).not.toBe('rgb(232, 226, 212)');
+
+      // THE POINT OF THE FIVE WRITES, measured rather than asserted: the dark card's text
+      // has to be readable on it. WCAG relative luminance, AA body text.
+      const contrast = await cards.nth(1).evaluate((card) => {
+        const lum = (c: string) => {
+          const [r, g, b] = (c.match(/[\d.]+/g) || []).map(Number);
+          const f = (v: number) => {
+            const x = v / 255;
+            return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
         };
+        const bg = lum(getComputedStyle(card).backgroundColor);
+        const fg = lum(getComputedStyle(card.querySelector('.grid__item-text') as Element).color);
+        const [hi, lo] = bg > fg ? [bg, fg] : [fg, bg];
+        return (hi + 0.05) / (lo + 0.05);
       });
-
-    await expect(page.locator('#pp-grid-uniform .grid__item')).toHaveCount(3, {
-      timeout: 10000,
-    });
-
-    // ── Uniform grid: card 0 is identical to its siblings ──
-    const uFirst = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(1)');
-    const uSib = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(2)');
-
-    expect(uFirst.padTop).toBe(uSib.padTop); // the 36px offset is gone (THE symptom)
-    expect(uFirst.titleSize).toBe(uSib.titleSize); // no larger featured title
-    expect(uFirst.barHeight).toBe(uSib.barHeight); // hairline, not the 4px accent bar
-    expect(uFirst.barImage).toBe(uSib.barImage); // no accent gradient bar (both 'none')
-    expect(uFirst.barImage).toBe('none');
-    expect(uFirst.shadow).toBe(uSib.shadow); // shared shadow, no blue glow
-    expect(uFirst.shadow).not.toContain('inset');
-    expect(uFirst.border).toBe(uSib.border); // no accent border
-
-    // ── Featured grid (default): card 0 MUST still be emphasized ──
-    // Proves the guard neutralizes emphasis ONLY under .grid--uniform, and that the
-    // default remains byte-identical to the historical featured treatment.
-    const fFirst = await cardMetrics('#pp-grid-featured .grid__item:nth-child(1)');
-    const fSib = await cardMetrics('#pp-grid-featured .grid__item:nth-child(2)');
-
-    expect(fFirst.padTop).not.toBe(fSib.padTop); // featured card 0 sits lower
-    expect(fFirst.titleSize).not.toBe(fSib.titleSize); // featured card 0 title larger
-    expect(fFirst.barHeight).toBe('4px'); // the accent bar
-    expect(fSib.barHeight).toBe('2px');
-    expect(fFirst.barImage).toContain('linear-gradient'); // accent gradient bar
-    expect(fFirst.shadow).toContain('inset'); // the blue glow ring
-
-    // Mobile (<768px): a separate featured-shadow rule (the max-width:767px block)
-    // also carries the :not(.grid--uniform) guard, so the featured glow must be
-    // dropped there too. Pin card 0 == its sibling under uniform, and the featured
-    // grid keeping its glow, at this second chain site.
-    await page.setViewportSize({ width: 375, height: 800 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('#pp-grid-uniform .grid__item')).toHaveCount(3, {
-      timeout: 10000,
-    });
-
-    // The mobile featured glow is a blue-tinted (37,99,235) drop shadow, not the
-    // desktop inset ring; siblings/uniform cards get the neutral (15,23,42) shadow.
-    const uFirstM = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(1)');
-    const uSibM = await cardMetrics('#pp-grid-uniform .grid__item:nth-child(2)');
-    expect(uFirstM.shadow).toBe(uSibM.shadow); // no featured glow on mobile
-    expect(uFirstM.shadow).not.toContain('37, 99, 235'); // not the blue featured glow
-
-    const fFirstM = await cardMetrics('#pp-grid-featured .grid__item:nth-child(1)');
-    expect(fFirstM.shadow).toContain('37, 99, 235'); // featured grid keeps its glow on mobile
-  });
-
-  // #226: the featured treatment includes a dark-theme lift (translateY on card 0 at
-  // >=768px). A partial opt-out that neutralized padding/bar but left the lift would
-  // still misalign a dark uniform row, so card_emphasis:uniform must drop it too.
-  // The lift keys off the `--dark` surface-band class, which the CANONICAL `muted`
-  // value emits (#570 DG-4). The fixture used to author it as `theme: "dark"`; that
-  // input value was removed in #605, so it now authors `muted` and proves the same
-  // thing through the same emitted class.
-  test('#226 card_emphasis:uniform neutralizes the muted-band first-card lift', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E Grid Card Emphasis Muted Lift');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid-muted-uniform',
-          theme: 'muted',
-          card_emphasis: 'uniform',
-          title: 'Dark uniform',
-          items: [
-            { title: 'One', text: 'First' },
-            { title: 'Two', text: 'Second' },
-          ],
-        },
-      },
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid-muted-featured',
-          theme: 'muted',
-          title: 'Dark featured',
-          items: [
-            { title: 'One', text: 'First' },
-            { title: 'Two', text: 'Second' },
-          ],
-        },
-      },
-    ]);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-
-    const transformOf = (sel: string) =>
-      page.locator(sel).evaluate((el) => getComputedStyle(el).transform);
-
-    await expect(page.locator('#pp-grid-muted-uniform .grid__item')).toHaveCount(2, {
-      timeout: 10000,
-    });
-
-    // Uniform: card 0 has NO lift — same transform as its sibling.
-    const duFirst = await transformOf('#pp-grid-muted-uniform .grid__item:nth-child(1)');
-    const duSib = await transformOf('#pp-grid-muted-uniform .grid__item:nth-child(2)');
-    expect(duFirst).toBe(duSib);
-    expect(duFirst).toBe('none');
-
-    // Featured (default): card 0 IS lifted — a real transform, unlike its sibling.
-    const dfFirst = await transformOf('#pp-grid-muted-featured .grid__item:nth-child(1)');
-    const dfSib = await transformOf('#pp-grid-muted-featured .grid__item:nth-child(2)');
-    expect(dfFirst).not.toBe('none'); // translateY lift present
-    expect(dfFirst).not.toBe(dfSib);
+      expect(contrast, `the dark card's body text must be readable @${width}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   // Parent-constrains-child axis (#302's --section-body-measure): the pre-fix bug
@@ -2566,17 +2546,22 @@ test.describe('Safe-surface rendered proof', () => {
     props: Record<string, unknown>;
     slots: Record<string, string>;
   }[] = [
-    {
-      component: 'grid',
-      props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
-      slots: {
-        '--grid-item-border-width': '0px',
-        '--grid-item-border-color': 'transparent',
-        '--grid-eyebrow-border-width': '0px',
-        '--grid-eyebrow-border-color': 'transparent',
-      },
-    },
-    // HERO'S, SECTION'S, CTA'S AND NOW FAQ'S ROWS ARE RETIRED, AND THE CASE IS
+    // GRID'S ROW LEFT AT #1101, AND IT WAS THE LAST ONE — THIS ARRAY IS NOW EMPTY.
+    //
+    // That emptiness is the headline fact of the whole strand rather than an accident of
+    // bookkeeping: issue 332 is WP core injecting `border-style: solid` through
+    // `:where([style*="border-width"])`, which matches on the INLINE STYLE ATTRIBUTE. No
+    // shipped component emits one any more, so there is no longer a component anywhere in
+    // the theme on which the trigger can be CONSTRUCTED. The immunity strand did not lose
+    // its subject to neglect; the subject stopped existing.
+    //
+    // Grid was the last component with style slots at all, which is why its departure
+    // empties this and not merely shortens it. Every row that left is covered by the v2
+    // border-sink loop below, which asserts the stronger claim — the SINK is absent, so
+    // the exposure is unreachable for every trigger core might add rather than for the
+    // slots that happened to exist.
+    //
+    // HERO'S, SECTION'S, CTA'S AND FAQ'S ROWS RETIRED THE SAME WAY, AND THE CASE IS
     // INAPPLICABLE RATHER THAN UNPINNED (#986, #1023, #1026, #1046).
     //
     // It was left here with an EMPTY slot map during the repricing, which made it vacuous:
@@ -2634,15 +2619,29 @@ test.describe('Safe-surface rendered proof', () => {
 
     const covered = new Set(BORDER_TRIGGER_CASES.flatMap((c) => Object.keys(c.slots)));
 
-    // Fail-closed floor: 13 trigger slots existed at issue 332; 11 remained after section's
-    // two left with its slot map (#1023), 7 after cta's four left at #1026, and 4 remain
-    // after faq's three (`--faq-item-border-color`, `--faq-eyebrow-border-width`,
-    // `--faq-eyebrow-border-color`) left at #1046. The floor tracks the v1 surface, which
-    // shrinks one rebuild sprint at a time — it is NOT a statement that the theme has fewer
-    // borders. faq's items still draw a 1px rule and cta's band still draws one top and
-    // bottom; they draw them from role defaults that WP core's substring selector can
-    // never see, because a v2 component emits no inline style attribute for it to match.
-    expect(declared.size).toBeGreaterThanOrEqual(4);
+    // INVERTED AT #1101, BECAUSE THE SURFACE IT GUARDED REACHED ZERO.
+    //
+    // The floor tracked a SHRINKING v1 surface: 13 trigger slots at issue 332, 11 after
+    // section's two left (#1023), 7 after cta's four (#1026), 4 after faq's three (#1046),
+    // and 0 now that grid's four have gone with the last slot map in the theme. A
+    // `toBeGreaterThanOrEqual(4)` floor cannot express "and now there are none" — it can
+    // only fail forever.
+    //
+    // So the guard asserts the END STATE instead, and it is still a guard rather than a
+    // formality: a border-trigger slot REAPPEARING in any schema would mean a component
+    // had grown an inline style attribute again, which is the exposure this whole strand
+    // exists to keep closed. That is the thing worth failing on now, and it is the same
+    // question the old floor asked from the other side.
+    //
+    // It is NOT a statement that the theme has fewer borders. faq's items still draw a
+    // 1px rule, cta's band still draws one top and bottom, and grid's cards still draw
+    // one — they draw them from role defaults that WP core's substring selector can never
+    // see, because a v2 component emits no inline style attribute for it to match.
+    expect(
+      [...declared].sort(),
+      'a border-trigger style slot has come back — the issue-332 exposure needs an inline ' +
+        'style attribute, and no v2 component may emit one',
+    ).toEqual([]);
     expect([...covered].sort()).toEqual([...declared].sort());
   });
 
@@ -2766,6 +2765,21 @@ test.describe('Safe-surface rendered proof', () => {
       },
     },
     {
+      // #1101. grid's INNER element is `.grid__item`, which the issue-332 immunity
+      // baseline named OUTRIGHT until this rebuild dropped it — so this row renders the
+      // very element whose premise the rebuild falsified, on the last component that ever
+      // carried a slot. The card is also where the retired `--grid-item-border-*` pair
+      // fed, so a re-introduced sink would show here first.
+      component: 'grid',
+      rootSel: 'main > .grid',
+      innerSel: '.grid__item',
+      props: { id: 'pp-grid01', eyebrow: 'Q', title: 'Cards', items: [{ title: 'One', text: 'First' }] },
+      udc: {
+        card: { border: { width: '2px', style: 'solid', color: '#345678' } },
+        eyebrow: { border: { width: '3px', style: 'solid', color: '#876543' } },
+      },
+    },
+    {
       // #1023. The `text-panel` layout is chosen deliberately: `.section__panel-row` is
       // one of the three selectors the issue-332 immunity baseline still names, so this
       // row renders the element whose premise the rebuild falsified and proves the sink
@@ -2829,28 +2843,48 @@ test.describe('Safe-surface rendered proof', () => {
   });
   }
 
-  // The OTHER inline-slot surface: issue 306's per-card style renders the custom property
-  // on the .grid__item itself (components/grid/grid.php), so core's [style*=border-width]
-  // matches the CARD, not the root. That is the second half of the immunity baseline and it
-  // had no rendered coverage at all (adversarial-review finding 5) — deleting `.grid__item`
-  // from the baseline broke no test. Per-card style is set through the composition, not
-  // style_component (which is component-scoped).
-  test('#332 a per-card border-trigger slot injects no core 3px border on the card', async ({
+  // THE SECOND INLINE-SLOT SURFACE IS GONE TOO (#1101, Addendum B), AND THIS IS THE ROW
+  // THAT PROVES IT.
+  //
+  // Issue 306's per-card `style` map rendered custom properties on the `.grid__item`
+  // ITSELF, so core's `[style*=border-width]` matched the CARD rather than the root. That
+  // was the second half of the immunity baseline, and until this rebuild it was the only
+  // half still constructible anywhere in the theme — the band roots had all stopped
+  // emitting a style attribute one rebuild at a time, and the cards had not.
+  //
+  // Addendum B replaces the per-card map with the entry's own `udc`, which emits a
+  // band-scoped rule keyed on a minted `data-pp-item` instead of an inline declaration.
+  // So this row asks the question at the new address and gets the stronger answer: not
+  // "the trigger is immune" but "the trigger cannot be built" — on the LAST element in
+  // the theme where it could have been.
+  //
+  // IT IS ALSO THE RENDERED PIN FOR ITEM-GRAIN STYLING ITSELF. Two cards, one styled and
+  // one not, in one band: the per-card design has to reach exactly one of them. A
+  // selector that lost its `data-pp-item` scope would paint both and fail here, which is
+  // the failure an empty attribute would cause and the reason grid.php emits none.
+  test('#332/#1101 a per-card design emits no inline style attribute, and reaches only its own card', async ({
     page,
   }) => {
     pageId = createPage('E2E Border Trigger Grid Per-Card');
-    setComposition(pageId, [
+    // Raw meta mints no item id, so the per-card map has to go through the validated
+    // write path or it would scope to nothing and this test would measure the default
+    // twice while passing.
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
       {
         component: 'grid',
         props: {
           id: 'pp-grid01',
           items: [
-            { title: 'One', text: 'First', style: { '--grid-item-border-width': '0px' } },
+            { title: 'One', text: 'First', udc: { card: { border: { width: '0px' } } } },
             { title: 'Two', text: 'Second' },
           ],
         },
       },
     ]);
+    expect(res.success, `item udc write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -2858,9 +2892,14 @@ test.describe('Safe-surface rendered proof', () => {
     const styledCard = page.locator('.grid__item').first();
     await expect(styledCard).toBeVisible({ timeout: 10000 });
 
-    // The slot really is inline ON THE CARD — otherwise this pin proves nothing.
-    const inline = await styledCard.evaluate((el) => el.getAttribute('style'));
-    expect(inline).toContain('--grid-item-border-width');
+    // THE SINK IS ABSENT. No style attribute on the card at all, so core's substring
+    // selector has nothing to match — and the handle it uses instead is the minted id.
+    const handles = await styledCard.evaluate((el) => ({
+      inline: el.getAttribute('style'),
+      item: el.getAttribute('data-pp-item'),
+    }));
+    expect(handles.inline, 'the card must carry no inline style attribute').toBeNull();
+    expect(handles.item, 'the design is keyed on a minted item id instead').toMatch(/^it-[0-9a-f]{8}$/);
 
     const border = await styledCard.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -2873,10 +2912,12 @@ test.describe('Safe-surface rendered proof', () => {
     });
     expect(border).toEqual({ top: '0px', right: '0px', bottom: '0px', left: '0px' });
 
-    // The sibling card, which carries no per-card style, keeps the 1px default.
+    // The sibling card carries no map, so it carries no handle and keeps the 1px default.
+    // This is the half an empty `data-pp-item` attribute would break: it would match
+    // every id-less card in the band and paint one card's design onto all of them.
     const plain = page.locator('.grid__item').nth(1);
-    const plainWidth = await plain.evaluate((el) => getComputedStyle(el).borderTopWidth);
-    expect(plainWidth).toBe('1px');
+    expect(await plain.evaluate((el) => el.getAttribute('data-pp-item'))).toBeNull();
+    expect(await plain.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px');
   });
 
   // Criterion 2 — "unset output is byte-identical to today". The immunity baseline sits
@@ -2906,24 +2947,27 @@ test.describe('Safe-surface rendered proof', () => {
     expect(border).toEqual({ width: '1px', style: 'solid' });
   });
 
-  // The slot must still DO its job — a fix that simply killed all borders would pass
-  // the immunity pins above. The dogfood's actual intent: a borderless card.
-  test('#332 --grid-item-border-width still reaches the card (0 = no card border)', async ({
+  // The ADDRESS must still DO its job — a fix that simply killed all borders would pass
+  // the immunity pins above. The dogfood's actual intent: a borderless card. Repriced at
+  // #1101 from `--grid-item-border-width` onto `card` -> `border.width`, the role
+  // parameter that replaced it; the claim and the rendered assertion are unchanged.
+  test('#332/#1101 the card border is still authorable to zero (0 = no card border)', async ({
     page,
   }) => {
     pageId = createPage('E2E Border Trigger Grid Card Intent');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
-      },
-    ]);
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
 
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    const res = await styleComponent(page, pageId, { '--grid-item-border-width': '0px' });
-    expect(res.success).toBe(true);
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'grid',
+        props: { id: 'pp-grid01', items: [{ title: 'One', text: 'First' }] },
+        udc: { card: { border: { width: '0px' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -2932,7 +2976,7 @@ test.describe('Safe-surface rendered proof', () => {
     await expect(card).toBeVisible({ timeout: 10000 });
 
     const width = await card.evaluate((el) => getComputedStyle(el).borderTopWidth);
-    expect(width).toBe('0px'); // slot honored: the card lost its default 1px
+    expect(width).toBe('0px'); // authored: the card lost its default 1px
   });
 
   /*
@@ -3356,12 +3400,19 @@ test.describe('Safe-surface rendered proof', () => {
   // (0,1,0), and the subheading is always the header's last child — so the
   // declared `margin-bottom: var(--space-lg)` computed to 0px on every page.
   // All three subheading-bearing components shared the bug.
-  // REPRICED AGAIN (#1023): section left this loop with its slots, exactly as
-  // testimonials did in Sprint 0. Its two header-rhythm halves are pinned on the roles in
-  // the v2 test below, which now covers both v2 components rather than one.
-  for (const { component, slot, expected } of [
-    { component: 'grid', slot: '--grid-subheading-margin-bottom', expected: '32px' },
-  ]) {
+  // REPRICED AGAIN (#1023), AND THEN EMPTIED (#1101): section left this loop with its
+  // slots, exactly as testimonials did in Sprint 0, and grid was the LAST row. Every
+  // component's two header-rhythm halves are pinned on the roles in the v2 tests below.
+  //
+  // THE LOOP IS KEPT EMPTY RATHER THAN DELETED, and the empty array is the assertion:
+  // `styleComponent` has no successful caller left on this strand, so a row reappearing
+  // here would mean a style slot had come back — which is a thing that should have to
+  // argue with a reviewer rather than slip in as a one-line array entry.
+  for (const { component, slot, expected } of [] as Array<{
+    component: string;
+    slot: string;
+    expected: string;
+  }>) {
     test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
       page,
     }) => {
@@ -3433,13 +3484,19 @@ test.describe('Safe-surface rendered proof', () => {
   // a declaration-level assertion would not prove the slot survives the premium
   // override — only computed style does. 1.65rem @ 16px root = 26.4px.
   //
-  // REPRICED (v2 Sprint 0, then #1023): testimonials left this loop with its slots, and
-  // section followed. The header rhythm they pinned is not gone — it moved onto the UDC
-  // roles, where the same two halves are pinned in the v2 test that follows this loop.
-  // Pinned twice: unset -> the real rendered default, and set -> the operator wins.
-  for (const { component, locator, slot, expected } of [
-    { component: 'grid', locator: '.grid__heading', slot: '--grid-heading-margin-bottom', expected: '26.4px' },
-  ]) {
+  // REPRICED (v2 Sprint 0, then #1023), AND EMPTIED (#1101): testimonials left this loop
+  // with its slots, section followed, and grid was the last row. The header rhythm they
+  // pinned is not gone — it moved onto the UDC roles, where the same two halves are
+  // pinned in the v2 tests that follow this loop, grid's included.
+  //
+  // Kept empty for the reason the #336 loop above states: the empty array is what a
+  // returning slot would have to argue with.
+  for (const { component, locator, slot, expected } of [] as Array<{
+    component: string;
+    locator: string;
+    slot: string;
+    expected: string;
+  }>) {
     test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
       page,
     }) => {
@@ -3626,6 +3683,88 @@ test.describe('Safe-surface rendered proof', () => {
           subheading: 'The title must not collide with the sub-heading below it.',
           body: '<p>Body copy.</p>',
         },
+        udc: {
+          subheading: { spacing: { 'margin-bottom': '61px' } },
+          heading: { spacing: { 'margin-bottom': '62px' } },
+        },
+      },
+    ]);
+    expect(res.success, `udc header rhythm write: ${JSON.stringify(res)}`).toBe(true);
+
+    // Read at the PHONE tier deliberately: the authored flat value must override every
+    // tier of the default's map, not just the one that happens to match the viewport.
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/?page_id=${pageId}`);
+    expect(await sub.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('61px');
+    expect(await head.evaluate((el) => getComputedStyle(el).marginBottom)).toBe('62px');
+  });
+
+  // The GRID twin of the two pairs above (#1101), and the last one this strand will get:
+  // grid was the final row of both the #336 and the #343 slot loops, so those loops are
+  // empty now and this is where their claims live.
+  //
+  // WRITTEN AS ITS OWN TEST rather than parameterised with section's, for the reason
+  // section's own comment gives: the numbers that make the pin meaningful are not shared.
+  // grid's heading carries a BREAKPOINT MAP measured off v1 — 1.65rem at desktop and
+  // tablet, 1.25rem at phone — while its subheading rhythm is a flat `@space-lg`. The
+  // phone tier is read explicitly because a map that collapsed to its desktop value would
+  // pass a desktop-only read, which is the whole reason #343 needed a rendered pin rather
+  // than a declaration-level one.
+  //
+  // THE EYEBROW RADIUS RIDES ALONG, because it left the same loop. It was pinned there as
+  // "this component's eyebrow radius slot reaches the element"; the role-defaults block is
+  // what reaches it now, and a declared default that no rule consumes is exactly the
+  // failure a schema assertion cannot see.
+  test('#336/#343 the grid header rhythm holds on its UDC roles, at every tier and when set @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid v2 Header Rhythm');
+    const props = {
+      id: 'pp-grid01',
+      title: 'Rhythm',
+      eyebrow: 'Kicker',
+      subheading: 'The sub-heading must not collide with the content below it.',
+      items: [{ title: 'One', text: 'Card' }],
+    };
+    setComposition(pageId, [{ component: 'grid', props }]);
+
+    const head = page.locator('.grid__heading');
+    const sub = page.locator('.grid__subheading');
+
+    // Unset -> the documented defaults, carried by the role-defaults block.
+    for (const [width, headingMb] of [[1280, '26.4px'], [768, '26.4px'], [375, '20px']] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(sub).toBeVisible({ timeout: 10000 });
+
+      expect(
+        await head.evaluate((el) => getComputedStyle(el).marginBottom),
+        `title gap above the subheading @${width}`,
+      ).toBe(headingMb);
+      expect(
+        await sub.evaluate((el) => getComputedStyle(el).marginBottom),
+        `subheading keeps its bottom rhythm as the header's last child @${width}`,
+      ).toBe('32px');
+      expect(
+        await sub.evaluate((el) => el === el.parentElement?.lastElementChild),
+        'and it really is the last child — the condition that broke it in #336',
+      ).toBe(true);
+    }
+
+    // The eyebrow pill's shape, which left the same loop and has no other rendered pin.
+    expect(
+      await page.locator('.grid__eyebrow').evaluate((el) => getComputedStyle(el).borderRadius),
+      'the eyebrow radius is a role default now, and it still reaches the element',
+    ).toBe('3px');
+
+    // Set -> the author wins, through the validated v2 write path. Values no token
+    // resolves to, so a default leaking through is unmistakable.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'grid',
+        props,
         udc: {
           subheading: { spacing: { 'margin-bottom': '61px' } },
           heading: { spacing: { 'margin-bottom': '62px' } },
@@ -4844,15 +4983,33 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(listStyle).toBe('disc');
   });
 
-  test('#339 grid bullets still honor --grid-item-bullet-color after the shared-treatment refactor @smoke', async ({
+  test('#339/#1101 the grid check mark survives on the shared accent, with no handle of its own', async ({
     page,
   }) => {
-    // Regression proof for the byte-identical grid claim: #339 moved grid's bullet
-    // rules into the shared block and rewired the colour through the internal
-    // --pp-list-marker-color indirection. StyleSlotContractTest only proves
-    // --grid-item-bullet-color is *consumed*; only a rendered box proves the grid
-    // check mark still paints in the operator's colour after the rewrite.
-    pageId = createPage('E2E Grid Bullet Color Regression');
+    // NARROWED AT #1101, AND THE NARROWING IS THE SUBJECT NOW.
+    //
+    // #339 moved grid's bullet rules into the shared block and rewired the colour
+    // through the internal --pp-list-marker-color indirection; this test proved the
+    // check mark still painted in the OPERATOR'S colour afterwards. The grid rebuild
+    // retired `--grid-item-bullet-color` with NO v2 route, and that is a real loss
+    // rather than a move, so it is stated here rather than left to be discovered:
+    //
+    //   - the marker is a `::before` pseudo-element, and ruling A3 defers pseudo-elements
+    //     for the whole of v2, so no role can address it;
+    //   - the `_css` valve cannot reach it either, and not by omission: a custom property
+    //     name is unmatchable by `pp_udc_valid_css_property()`'s charset by construction,
+    //     so `--pp-list-marker-color` cannot be declared through it at any grain.
+    //
+    // WHAT SURVIVES IS WHAT IS ASSERTED. The check mark still renders, and it takes the
+    // shared `--color-accent` — so a site that retunes its accent still retunes its check
+    // marks, which is the capability that actually matters and the one a deleted test
+    // would stop protecting. The lost half is the PER-BAND override, recorded in
+    // components/grid/README.md beside `--grid-featured-texture-color`, the other slot
+    // that retired with no route.
+    //
+    // Kept rather than deleted precisely BECAUSE the capability narrowed: a narrowed
+    // capability with no rendered proof is how the remaining half goes quietly too.
+    pageId = createPage('E2E Grid Bullet Marker');
     setComposition(pageId, [
       {
         component: 'grid',
@@ -4862,12 +5019,6 @@ test.describe('chrome UDC renders (ruling A1)', () => {
         },
       },
     ]);
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-
-    const res = await styleComponent(page, pageId, { '--grid-item-bullet-color': '#ff0080' });
-    expect(res.success).toBe(true);
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/?page_id=${pageId}`);
@@ -4879,8 +5030,35 @@ test.describe('chrome UDC renders (ruling A1)', () => {
       const b = getComputedStyle(el, '::before');
       return { content: b.content, color: b.color };
     });
-    expect(marker.content).not.toBe('none');
-    expect(marker.color).toBe('rgb(255, 0, 128)');
+    expect(marker.content, 'the check mark still renders').not.toBe('none');
+    expect(marker.color, 'and it takes the shared accent, so a retheme still reaches it').toBe(
+      'rgb(49, 87, 244)',
+    );
+
+    // AND THE INDENT THE MARKER SITS IN IS STILL AUTHORABLE, which is the part of this
+    // element that DID keep a handle: `card-bullet` -> `spacing.padding-left`. Without
+    // this the test would read as "the bullets are entirely out of reach", which is
+    // false and would invite someone to delete the role.
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          items: [{ title: 'Perimeter', text: 'x', bullets: ['HTTP headers', 'SSL/TLS'] }],
+        },
+        udc: { 'card-bullet': { spacing: { 'padding-left': '37px' } } },
+      },
+    ]);
+    expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
+
+    await page.goto(`/?page_id=${pageId}`);
+    const indented = await page
+      .locator('.grid__item-bullet')
+      .first()
+      .evaluate((el) => getComputedStyle(el).paddingLeft);
+    expect(indented, 'the bullet indent is a role parameter').toBe('37px');
   });
 
   test('#339 a nested body list keeps its disc under a check marker (direct-child scoping) @smoke', async ({
@@ -8701,22 +8879,40 @@ test.describe('#437 inverted link contrast (rendered)', () => {
       linkSelector: '.embed__content a',
       mode: 'staysAccent',
     },
+    // REBUILT AT #1101 RATHER THAN RETIRED, on the stats precedent below rather than the
+    // cta/testimonials one — and grid is the strongest case of the three for keeping it.
+    //
+    // The row's claim was "the card stays a LIGHT surface even on a dark band, so its
+    // link keeps the plain accent". `theme: 'inverted'` and `.grid--inverted` are both
+    // gone, so the SCENE has to be authored; but unlike cta and testimonials, the thing
+    // being asserted is still a rendered DEFAULT and not an authored value. v1 kept cards
+    // light on an inverted band — measured, card fill, title, text, bullets and link were
+    // byte-identical on a `default` and an `inverted` band — and the rebuild ported that
+    // faithfully: `card` defaults `background.fill: @color-bg` and `card-link` defaults
+    // `typography.color: @color-accent`, neither of which follows `_band`.
+    //
+    // So this now renders exactly the obligation the schema declares: darkening the band
+    // does NOT darken the cards, which is why darkening a CARD is five writes. If a later
+    // change made `card` follow the band's fill, this row would catch it as a contrast
+    // failure on the very same assertion it has always made.
     {
-      name: 'grid card link stays on --color-accent (light card, AA)',
+      name: 'grid card link stays on --color-accent (light card on a dark band, AA)',
       composition: [
         {
           component: 'grid',
           props: {
             id: 'pp-grid01',
-            theme: 'inverted',
-            title: 'Inverted grid',
+            title: 'Dark grid band',
             items: [
               { title: 'Card', text: 'Card body', link_url: '/somewhere', link_text: 'card link' },
             ],
           },
+          udc: {
+            _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          },
         },
       ],
-      linkSelector: '.grid--inverted .grid__item-link',
+      linkSelector: '#pp-grid01 .grid__item-link',
       mode: 'staysAccent',
     },
     // faq's row RETIRED at #1046 with the `theme` prop and the `.faq--inverted` class it
@@ -8783,24 +8979,32 @@ test.describe('#437 inverted link contrast (rendered)', () => {
     // untouched — their components still carry the theme prop.
     {
       // #439: grid.items[].text became an inline-HTML surface, but the card stays a
-      // LIGHT surface even on the inverted band, so its link must STAY on
-      // --color-accent (already AA on the light card) — not be remapped to the dark
-      // on-inverted tint (which would drop to ~2:1 on the light card).
-      name: 'grid item-text link stays on --color-accent (light card, AA)',
+      // LIGHT surface even on a dark band, so its link must STAY on --color-accent
+      // (already AA on the light card) — not be remapped to the dark on-inverted tint
+      // (which would drop to ~2:1 on the light card).
+      //
+      // The scene is authored at #1101 for the reason the row above states; the claim is
+      // unchanged, and it reaches a DIFFERENT element — an <a> the author wrote inside
+      // the card's prose, which no role addresses at all. That is what makes it worth
+      // keeping beside the card-link row rather than folding the two together: the link
+      // role's default cannot vouch for an anchor the theme styles globally.
+      name: 'grid item-text link stays on --color-accent (light card on a dark band, AA)',
       composition: [
         {
           component: 'grid',
           props: {
             id: 'pp-grid02',
-            theme: 'inverted',
-            title: 'Inverted grid text',
+            title: 'Dark grid band, prose link',
             items: [
               { title: 'Card', text: 'See the <a href="/docs">docs</a> for details.' },
             ],
           },
+          udc: {
+            _band: { background: { fill: '@color-bg-inverted' }, typography: { color: '@color-bg' } },
+          },
         },
       ],
-      linkSelector: '.grid--inverted .grid__item-text a',
+      linkSelector: '#pp-grid02 .grid__item-text a',
       mode: 'staysAccent',
     },
   ];
@@ -12206,17 +12410,29 @@ test.describe('#577 dead and defeated style slots render', () => {
   // path rejects a foreign slot) nor resolve it (inline slot properties land on the
   // owning component's root).
   //
-  // REPRICED AT #1046, AND BOTH HALVES SURVIVE — which is the whole reason this is not
-  // deleted. The severance has two claims, and the rebuild only moved one of them:
+  // REPRICED AT #1046, REPRICED AGAIN AT #1101, AND BOTH HALVES STILL SURVIVE — which is
+  // the whole reason this is not deleted. The severance has two claims, and each rebuild
+  // has moved one of them:
   //
-  //   "faq follows its own handle"   faq's radius is the `item` role's `border.radius`
-  //                                  now, authored through the `udc` map
-  //   "grid is unaffected"           unchanged — grid is still on slots, and this is
-  //                                  the half that would silently lose coverage if the
-  //                                  test were retired with faq's slot
+  //   "faq follows its own handle"   faq's radius is the `item` role's `border.radius`,
+  //                                  authored through the `udc` map (#1046)
+  //   "grid follows its own handle"  grid's radius is the `card` role's `border.radius`,
+  //                                  authored through the `udc` map (#1101) — it was a
+  //                                  slot until this rebuild
   //
-  // Deleting it because "faq no longer has that slot" is exactly the #1038 mistake: the
-  // subject is the SEVERANCE, and a severance needs both sides on the page at once.
+  // Deleting it because "neither has that slot any more" is exactly the #1038 mistake:
+  // the subject is the SEVERANCE, and a severance needs both sides on the page at once.
+  // Both doors are now the same KIND of door, which makes the test stronger rather than
+  // weaker: the two roles have to stay severed while sharing one grammar, one engine and
+  // one emitter, which is the arrangement where a shared selector would be easiest to
+  // reintroduce by accident.
+  //
+  // THE `:root` MUTATION-CHECK RETIRED WITH THE SLOT. It drove `--grid-item-radius` from
+  // a stylesheet to prove a grid handle could not reach a faq item; no such custom
+  // property is read by anything now, so the check could only ever pass. Its claim is
+  // carried by the band-scoped assertions instead: each band's radius is keyed on its own
+  // `data-pp-band`, which is a stronger severance than "the shared selector is gone"
+  // because there is no selector either band could share.
 
   test('#577/#1046 A-7: faq and grid item radii are severed — each follows only its own handle', async ({
     page,
@@ -12240,9 +12456,15 @@ test.describe('#577 dead and defeated style slots render', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
 
-    // faq's half, through the v2 door: a `udc` map on the band.
+    // BOTH halves through the v2 door now, in ONE write, with DIFFERENT values — which is
+    // the arrangement the severance claim needs: two roles, two bands, one engine, one
+    // emitter, and no shared selector available to either of them.
     const res = await updateComposition(page, pageId, [
-      { component: 'grid', props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] } },
+      {
+        component: 'grid',
+        props: { id: 'pp-grid01', title: 'Grid', items: [{ title: 'One', text: 'A' }] },
+        udc: { card: { border: { radius: '2px' } } },
+      },
       {
         component: 'faq',
         props: { id: 'pp-faq01', title: 'FAQ', items: [{ question: 'Q?', answer: 'A.' }] },
@@ -12251,79 +12473,50 @@ test.describe('#577 dead and defeated style slots render', () => {
     ]);
     expect(res.success, `udc write: ${JSON.stringify(res)}`).toBe(true);
 
-    // grid's half, unchanged: component_index 0, a DIFFERENT value, through the slot it
-    // still owns. Two different doors, two different values, one page.
-    const res2 = await styleComponent(page, pageId, { '--grid-item-radius': '2px' }, undefined, 0);
-    expect(res2.success).toBe(true);
-
     await page.goto(`/?page_id=${pageId}`);
     const afterFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
     const afterGrid = await computed(page, '#pp-grid01 .grid__item', ['border-top-left-radius']);
     expect(afterFaq['border-top-left-radius'], 'faq follows its OWN role').toBe('18px');
-    expect(afterGrid['border-top-left-radius'], 'grid follows its own slot').toBe('2px');
+    expect(afterGrid['border-top-left-radius'], 'grid follows its own role').toBe('2px');
 
-    // AND THE SEVERANCE ITSELF, which is what the A-7 name is about: driving the grid
-    // slot must not move the faq item. Pre-#577 it did, from one shared selector.
-    await page.addStyleTag({ content: ':root { --grid-item-radius: 31px; }' });
-    const drivenFaq = await computed(page, '#pp-faq01 .faq__item', ['border-top-left-radius']);
-    expect(drivenFaq['border-top-left-radius'], 'a grid slot must never reach a faq item').toBe('18px');
+    // AND THE SEVERANCE ITSELF, which is what the A-7 name is about, asserted on the
+    // EMITTED selectors rather than by driving a custom property that no longer exists:
+    // each band's radius rides its own `data-pp-band`, so neither value has a selector
+    // that could reach the other band's element at any specificity.
+    const scoped = await page.evaluate(() => {
+      const bandOf = (sel: string) =>
+        (document.querySelector(sel)?.closest('[data-pp-band]') as HTMLElement | null)?.dataset.ppBand ?? '';
+      return { faq: bandOf('#pp-faq01 .faq__item'), grid: bandOf('#pp-grid01 .grid__item') };
+    });
+    expect(scoped.faq, 'the faq band must carry its own id').toMatch(/^pp-[0-9a-f]{8}$/);
+    expect(scoped.grid, 'the grid band must carry its own id').toMatch(/^pp-[0-9a-f]{8}$/);
+    expect(scoped.grid, 'two bands, two scopes — that is the severance').not.toBe(scoped.faq);
   });
 
-  // ── A-8a — the ONE declaration that actually defeated --grid-item-padding ──
+  // ── A-8a — RETIRED AT #1101, BOTH HALVES OF ITS SUBJECT AT ONCE ────────────
   //
-  // The issue named three. Verified against the cascade, only the featured-card rule
-  // below was a genuine defeat:
-  //   .grid__item-body:first-child      — [0,2,0], and `main > .grid .grid__item-body
-  //                                       :first-child` [0,3,1] already routed the slot
-  //                                       at both breakpoints, so it is unreachable
-  //                                       inside <main>. It IS routed, but only because
-  //                                       the slot-contract guard requires uniform
-  //                                       routing per subject — not because it defeated
-  //                                       anything. Byte-identical, so no pin here.
-  //   .grid--steps .grid__item          — grid.php renders .grid__item-body for steps
-  //                                       cards too, and that body already routed the
-  //                                       slot. Left alone: routing the outer box
-  //                                       through the SAME slot would double-inset an
-  //                                       authored card and desync the connector.
-  // See both comments in components.css.
-
-  test('#577 A-8a: --grid-item-padding wins on the FEATURED first card body at >=1024', async ({
-    page,
-  }) => {
-    pageId = createPage('E2E 577 grid featured padding');
-    setComposition(pageId, [
-      {
-        component: 'grid',
-        props: {
-          id: 'pp-grid-feat',
-          title: 'Cards',
-          items: [
-            { title: 'One', text: 'A' },
-            { title: 'Two', text: 'B' },
-          ],
-        },
-      },
-    ]);
-
-    // 1280 is the breakpoint where the featured override lives.
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    await expect(page.locator('#pp-grid-feat .grid__item').first()).toBeVisible({ timeout: 10000 });
-    const before = await computed(page, '#pp-grid-feat .grid__item:first-child .grid__item-body', ['padding-top']);
-    expect(before['padding-top'], 'unset featured body top').toBe('36px'); // 2.25rem
-
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await styleComponent(page, pageId, { '--grid-item-padding': LOUD_PX });
-    expect(res.success).toBe(true);
-
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/?page_id=${pageId}`);
-    const after = await computed(page, '#pp-grid-feat .grid__item:first-child .grid__item-body', ['padding-top']);
-    // The 0.25rem residue the grid schema's uniform-cards recipe used to have to
-    // document: card 1's body top no longer diverges from the authored padding.
-    expect(after['padding-top'], 'featured body top follows the slot').toBe(LOUD_PX);
-  });
+  // A-8a asked ONE question: does `--grid-item-padding` beat the FEATURED first card's
+  // own padding rule at >=1024? The grid rebuild retired both sides of that contest in
+  // the same change, so there is no contest left to render:
+  //
+  //   the slot  — all 38 of grid's style slots went (schema.json declares no
+  //               `styling.style_slots`); the card's padding is `card-body` ->
+  //               `spacing.padding`, a role default with a real breakpoint map
+  //               (1.55rem on the phone, 2rem from 768px up)
+  //   the rule  — every `:not(.grid--uniform) .grid__item:first-child` declaration was
+  //               deleted with `card_emphasis` (ruling D9, components.css), measured
+  //               first: all 11 of the owner's production grid bands already rendered
+  //               uniform, so the featured treatment was switched off everywhere it
+  //               could have applied
+  //
+  // NOT REPRICED, DELIBERATELY, and this is the distinction #1038 is about. A-8a's claim
+  // was "the slot wins THIS SPECIFIC FIGHT" — it was never "the padding is authorable".
+  // The authorability claim is alive and pinned at the unit grain, against the emitted
+  // CSS, in GridRoleDefaultsEmitTest::testTheCardBodyOwnsTheCardsPaddingAndKeepsBothTiersOfIt,
+  // which also pins the half A-8a never could: that the padding is on `card-body` rather
+  // than on `card`, so a banner image still bleeds to the card's edges. Reconstructing a
+  // rendered version of a fight whose other side no longer exists would be a test that
+  // can only pass.
 
   // ── A-10 — embed body ink, RE-POINTED TO THE ROLE (#1066) ──────────────────
   //
