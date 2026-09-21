@@ -145,6 +145,19 @@ class ModelFacingRosterTest extends TestCase
                 '/Every v2 component is different, and better:\*\* on all nine of ([^\n]{0,200}?) the band background/',
             ],
             [
+                // THE FILE EVERY OTHER FILE POINTS AT for styling, and the only complete
+                // roster in it — so an omission here reaches a reader who was sent to it
+                // precisely because they needed the authoritative list.
+                'style-component.md\'s opening roster',
+                $this->anchorSource('ai-instructions/style-component.md', "style-component.md's opening roster"),
+                '/Nine composable components and both chrome components work this\s+way: ([^.]{0,200}?), plus/s',
+            ],
+            [
+                'retheme.md\'s rhythm tier split',
+                $this->anchorSource('ai-instructions/retheme.md', "retheme.md's rhythm tier split"),
+                '/\*\*The nine v2 components\*\* \(([^)]{0,200})\)/s',
+            ],
+            [
                 'retheme.md\'s dark-band trap',
                 $this->anchorSource('ai-instructions/retheme.md', "retheme.md's dark-band trap"),
                 '/All NINE v2 components — (.{0,200}?) — have no `theme` prop/s',
@@ -181,11 +194,11 @@ class ModelFacingRosterTest extends TestCase
             );
             $checked++;
         }
-        // FIVE ANCHORS TODAY, and the floor sits just under it. `> 0` was the token floor
+        // SEVEN ANCHORS TODAY, and the floor sits just under it. `> 0` was the token floor
         // this suite rejects everywhere else: four of the five could be deleted from the array
         // and it would still pass, which is the same silent-exemption shape the per-anchor
         // fail-closed match exists to prevent for the prose. Bump it with the array.
-        $this->assertGreaterThan(4, $checked, '5 roster anchors today; deleting one exempts its roster from this guard');
+        $this->assertGreaterThan(6, $checked, '7 roster anchors today; deleting one exempts its roster from this guard');
     }
 
     /**

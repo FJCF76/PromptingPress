@@ -882,8 +882,9 @@ class DocumentedUdcSnippetsTest extends TestCase
      * a full revert of this walk left every downstream test green. The floor is tightened now,
      * but a floor is a smoke alarm — this is the pin that says what the walk must actually do.
      *
-     * The four cases are the contract: the nested `composition` shape this widening exists
-     * for, the two shapes that already worked, the predicate's refusal of a malformed entry,
+     * FOUR PROPERTIES ACROSS SIX CASES: the nested `composition` shape this widening exists
+     * for, the two shapes that already worked (a bare band, a bare list), the predicate's
+     * refusal of a malformed entry (two cases — a non-string `component`, a non-array `udc`),
      * and the no-double-count property (a taken node is still descended into, so a role or
      * group named `component` or `udc` would be the way that could break).
      *

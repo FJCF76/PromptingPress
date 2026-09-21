@@ -170,7 +170,7 @@ opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
 3.2:1 on the default inverted background and fails AA.
 
 Note that `grid` carries no `udc` — it is the one component not on the design contract.
-Style it with `style_component` and its 38 style slots instead.
+Style it with `style_component` and its style slots instead — read them with `wp pp schema grid`.
 
 ---
 
