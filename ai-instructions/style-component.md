@@ -96,7 +96,7 @@ runs its own freshness gate and then OVERWRITES whatever `expected_version` you 
 baseline that gate computed, so a deliberately stale value is accepted rather than refused —
 measured: a write carrying `expected_version: 1` against a composition at version 2 returned
 `ok: true`. The engine's compare-and-swap is sound and the chat and dashboard surfaces honour
-it; it is the CLI wrapper that discards your value. Filed as its own issue.
+it; it is the CLI wrapper that discards your value, and only for COMPOSITION writes — the site-option path on the same CLI refuses a stale `expected_version` correctly with `site_option_conflict`, so the chrome promises elsewhere hold. Filed as its own issue.
 
 Until that lands, treat the CLI as last-write-wins and make the window small: read the version,
 read the composition, edit, and write **immediately**, in one unbroken sequence. Do not carry a

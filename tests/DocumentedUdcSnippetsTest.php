@@ -347,12 +347,12 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         // Fail-closed. A walk that stops finding documented maps — a fence style changing,
         // a docs directory moving — must not read as compliance.
-        // FAIL-CLOSED AT THE REAL COUNT (45 today; 42 before the `an-embed` glob fix), not
-        // at a token floor. 15 was low enough that two thirds of the corpus could stop
-        // being scanned unnoticed — the understated-floor defect this PR fixed in the emit
-        // tests and then repeated here.
+        // FAIL-CLOSED AT THE REAL COUNT (48 today), not at a token floor. 15 was low enough
+        // that two thirds of the corpus could stop being scanned unnoticed — the
+        // understated-floor defect this PR fixed in the emit tests and then repeated here.
+        // The `45` this comment carried was measured before the bash-fence lifter landed.
         $this->assertGreaterThan(
-            38,
+            45,
             $checked,
             'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
@@ -796,13 +796,15 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
 
-        // 21 pairings today (runtime prompt 9, build-landing-page 3, composition 4,
-        // style-component 5). A floor set at a token value is a floor that never fires: this
-        // walk could lose ten of its subjects — every chrome subject among them — and a `> 2`
-        // floor would still call it a pass. The same argument applied to `> 10` once the
-        // widened extractor took this walk from 13 subjects to 21, so it moves with the count.
+        // 26 pairings today. This number has now been wrong twice in one PR, both times in
+        // the same direction, so it is worth saying why: `21` was the count measured while
+        // `ancestorRoleFill()` was STUBBED during a probe, and it was left standing as
+        // "today's" — which put the floor at `> 19`, BELOW the stubbed count, so stubbing the
+        // helper dropped the class to 21 and still passed. A floor picked against a number
+        // taken with the mechanism disabled cannot detect the mechanism being disabled.
+        // Measured with everything live, and the floor sits just under it.
         $this->assertGreaterThan(
-            19,
+            24,
             $checked,
             'the contrast walk found fewer background+ink pairings than the corpus carries; '
             . 'the extractor or the ink resolver stopped reaching most of its subjects'
@@ -1243,6 +1245,19 @@ class DocumentedUdcSnippetsTest extends TestCase
     /** A literal hex, or a hex an `@token` resolves to. Null when it is neither. */
     private function hex($value, array $tokens): ?string
     {
+        // A BREAKPOINT MAP IS A REAL FILL, and returning null for one made the ancestor
+        // resolution silently inert exactly where it was most needed. nav's `submenu` ships
+        // `{"d": "@color-surface", "p": "transparent"}`, so a dark-header example that
+        // re-inks `link` renders its dropdown links at 1.01:1 on desktop — the same defect,
+        // the same number, as the testimonials card — and the container map entry for it
+        // existed but never fired because the fill was a map rather than a string.
+        //
+        // The DESKTOP tier is the one to resolve: it is the base, carries no media query, and
+        // is the tier every documented example is written against. A tier that resolves to
+        // `transparent` is correctly not a fill and falls through to null.
+        if (is_array($value)) {
+            $value = $value['d'] ?? null;
+        }
         if (!is_string($value)) {
             return null;
         }

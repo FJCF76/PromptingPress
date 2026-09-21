@@ -734,9 +734,14 @@ wp pp action execute update_composition --run-id=<uuid> --params='{
 }'
 ```
 
-Passing the `version` you read back as `expected_version` makes a concurrent edit a refusal instead
-of a lost update. Re-send each band's `id` as you read it, so the ids stay stable across the
-re-apply.
+Pass the `version` you read back as `expected_version`. **On the CLI today that is weaker than
+it sounds** — `wp pp action execute` overwrites the value you send with its own freshness
+baseline, so a stale one is accepted rather than refused (measured: `expected_version: 1`
+against a composition at version 7 returned `ok: true`). The engine's compare-and-swap is sound
+and the chat and dashboard surfaces honour it; the CLI wrapper discards it, and that is filed.
+Until it lands, keep the window small — version, bytes, edit, write, in one unbroken sequence —
+and see the `expected_version` note in `ai-instructions/style-component.md`. Re-send each band's
+`id` as you read it, so the ids stay stable across the re-apply.
 
 ---
 

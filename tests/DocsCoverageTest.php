@@ -436,7 +436,9 @@ class DocsCoverageTest extends TestCase
             ],
             [
                 'ai-instructions/validate-site.md',
-                "nineteen keys across eight components",
+                // Derived, like its two siblings. A hardcoded literal here fails on a correct
+                // update and passes on a stale one — the failure direction inverted.
+                "{$words[$total]} keys across",
                 '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, ([^\n]{0,800}?) `table` is v2/',
             ],
             [
@@ -479,11 +481,21 @@ class DocsCoverageTest extends TestCase
             //
             // The real divider is the NEXT possessive. Splitting on it gives each component
             // exactly its own entry, whichever punctuation the file uses inside it.
+            // THE FIRST SEGMENT ONLY, and parentheticals stripped. Concatenating every
+            // mention of a component let any later reference satisfy it — "logos' `theme` —
+            // hero's old `width` slot is unrelated" certified hero's `width` while hero's own
+            // entry omitted it. And a parenthetical inside an entry does the same within one
+            // segment: "stats' `theme` (its `background_image` moved to the `_band` role)"
+            // certified a pair the roster does not claim. Neither is exotic prose; both are
+            // how these rosters already read.
             $possessive = "/([a-z]+)`?(?:'s|') /";
             $segments   = [];
             $parts      = preg_split($possessive, $roster[1], -1, PREG_SPLIT_DELIM_CAPTURE);
             for ($i = 1; $i < count($parts); $i += 2) {
-                $segments[$parts[$i]] = ($segments[$parts[$i]] ?? '') . ' ' . ($parts[$i + 1] ?? '');
+                if (isset($segments[$parts[$i]])) {
+                    continue;
+                }
+                $segments[$parts[$i]] = preg_replace('/\([^)]*\)/', '', $parts[$i + 1] ?? '') ?? '';
             }
 
             foreach ($keys as [$component, $prop]) {

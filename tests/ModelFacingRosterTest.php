@@ -254,7 +254,13 @@ class ModelFacingRosterTest extends TestCase
                 // qualifies something else.
                 //
                 // AND STARTING IT AT THE CLAUSE, not the sentence, closes the hole that
-                // sentence-start opened. "There is no simpler route: the stats component has
+                // sentence-start opened. A COLON OR SEMICOLON ONLY, deliberately: commas and
+                // dashes sit INSIDE one clause far more often than they start a new one, and
+                // the commonest English roster is exactly that shape — "No v2 component —
+                // hero, section, stats — declares style slots" is a TRUE negative whose
+                // internal punctuation pushed the window past its own "No" and failed the
+                // build on a correct sentence. Probed against seven shapes, all four roster
+                // forms and all three defect forms. "There is no simpler route: the stats component has
                 // style slots for its numbers" is a FALSE claim whose sentence happens to
                 // begin with a negation about something else — measured exempt under the
                 // sentence-start window, and scanned under this one. The three real shapes it
@@ -266,7 +272,7 @@ class ModelFacingRosterTest extends TestCase
                 $claimStart = (int) strpos($sentence, $claim[0]);
                 $before     = substr($sentence, 0, $claimStart);
                 $clauseAt   = 0;
-                foreach ([':', ';', ','] as $separator) {
+                foreach ([':', ';'] as $separator) {
                     $at = strrpos($before, $separator);
                     if ($at !== false && $at + 1 > $clauseAt) {
                         $clauseAt = $at + 1;
