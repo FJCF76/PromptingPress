@@ -1286,11 +1286,22 @@ function _pp_no_style_slots_clause(string $component_name): string {
         );
     }
 
+    // THE REPAIR SENTENCE IS EXACT, AND IT USED TO BE WRONG (#1101). It said "to clear a
+    // stored slot, send it as null" — singular. An author who followed that on a band
+    // carrying two stored slots was REFUSED, because this same validator walks the WHOLE
+    // merged map and the sibling slot is still undeclared; and the refusal named the
+    // sibling, so it read as a new problem rather than as "you have to send them all".
+    // Measured: props-only edit REFUSED, one-of-two cleared REFUSED, both cleared in one
+    // call ACCEPTED and the `style` key removed entirely. Say that.
     return sprintf(
         '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
         . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s), through '
-        . 'update_composition or create_page — those are the two actions that carry a whole band. To '
-        . 'clear a stored slot, send it as null through update_component\'s `style` param.',
+        . 'update_composition or create_page — those are the two actions that carry a whole band. If '
+        . 'this band was written before the rebuild it still carries a stored `style` map, and that '
+        . 'map refuses EVERY update_component edit to the band until it is gone — a props-only edit '
+        . 'included. Clear it in one call: send `style` with EVERY stored slot name set to null (a '
+        . 'partial clear is refused, naming whichever slot you left behind), and `props` as `{}` if '
+        . 'you are changing no props.',
         $component_name,
         implode(', ', $roles) ?: '(none declared)'
     );

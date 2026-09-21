@@ -426,8 +426,14 @@ reported, and the way to remove it is to write the band without it.
 A recipe was a named bundle of slot values, applied through `style_component`'s optional
 `recipe` parameter. `grid` declared the last three (`dark-showcase`, `dense-cards`,
 `uniform-cards`) and they retired with its slot map at #1101; `cta`'s two went at #1026 and
-`section`'s at #1023. **No composable component ships one**, so the table below is all dashes
-and asking for a recipe by name is refused with `invalid_recipe`.
+`section`'s at #1023. **No composable component ships one**, so the table below is all dashes.
+
+Asking for one by name is refused with **`no_style_slots`**, not `invalid_recipe` — measured,
+because the order matters to anyone reading the code back: `style_component` checks whether the
+component declares any slots at all BEFORE it looks at the `recipe` parameter, so a component
+with none never reaches the recipe lookup and the refusal names the real reason. `invalid_recipe`
+is unreachable from every shipped component; it fires only where a slot-declaring component
+exists to look a name up on.
 
 | component | recipe |
 |---|---|
