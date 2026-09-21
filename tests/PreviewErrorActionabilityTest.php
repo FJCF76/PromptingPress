@@ -205,9 +205,14 @@ class PreviewErrorActionabilityTest extends TestCase
         // #625 reads the target-not-found branch of _pp_build_friendly_error()'s
         // invalid_style_slot case as a second instance of the mislabelling. It is not
         // reachable from the chat: the target is resolved before any slot work, and a
-        // stale id fails with its own code, which is painted pp-ai-step-failed — never
-        // the grey "impossible". That branch answers only unstamped, hand-built errors
-        // (pinned in tests/FriendlyErrorSlotContextTest.php).
+        // stale id fails with its own code — never the grey "impossible". That branch
+        // answers only unstamped, hand-built errors, and it is pinned by
+        // testAnUnresolvableIdIsReportedAsNotFoundRatherThanAsStyling above, re-homed into
+        // this file at #1101 when tests/FriendlyErrorSlotContextTest.php was deleted.
+        //
+        // Two details changed at #1101: that branch now returns `component_not_found`
+        // rather than echoing the code it was handed, and the chat paints it FIXABLE
+        // rather than `failed`, because correcting the id is a real next action.
         $post_id = $this->authorPage('Stale id', [
             ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi']],
         ]);
