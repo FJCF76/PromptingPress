@@ -372,7 +372,7 @@ class AiContextTest extends TestCase
 
         // Fail-closed: 16 today. A composition step that stopped emitting rosters would make
         // both loops above vacuous and still pass.
-        $this->assertGreaterThan(12, count($declared), 'the declared obligations disappeared');
+        $this->assertSame(16, count($declared), 'the obligation corpus changed — update deliberately');
     }
 
     /**
@@ -620,9 +620,16 @@ class AiContextTest extends TestCase
         );
 
         // The example must not put the plain accent anywhere in the nav block.
+        // SLICED BY ITS OWN DELIMITER, not a magic length. A hard-coded 420-byte window over
+        // a 386-byte example leaves 34 bytes of slack: adding one more role pushes the tail
+        // outside the window and the accent check silently stops covering it. The specialist
+        // proved it by appending an AA-failing `toggle` state past byte 420 and watching the
+        // suite stay green.
         $start = strpos($prompt, 'Example: `{"nav"');
         $this->assertNotFalse($start);
-        $block = substr($prompt, $start, 420);
+        $end = strpos($prompt, '`', $start + strlen('Example: `'));
+        $this->assertNotFalse($end, 'the example must be a closed backtick span');
+        $block = substr($prompt, $start, $end - $start + 1);
         $this->assertStringNotContainsString(
             '"@color-accent"',
             $block,
@@ -676,14 +683,36 @@ class AiContextTest extends TestCase
         $summary = \pp_udc_chrome_own_ink_summary();
         $this->assertStringContainsString($summary, $prompt, 'the derived roster must reach the prompt');
 
+        // AN INDEPENDENT ORACLE, read from the raw schema rather than from a copy of the
+        // production predicate. The first cut re-implemented pp_udc_chrome_own_ink_summary()'s
+        // own condition inline, so a wrong predicate would have been wrong identically on both
+        // sides and passed — a chrome role declaring its ink only inside a breakpoint map
+        // would be missed by production AND by the test. A recursive walk for any `color` key
+        // at any depth cannot share that blind spot. (Checked: no shipped chrome role declares
+        // ink that way today, so this is guarding the next one, not fixing a live gap.)
         $counted = 0;
         foreach (\pp_udc_chrome_names() as $component) {
-            foreach (\pp_udc_component_roles($component) as $role => $definition) {
+            $schema = json_decode(
+                (string) file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"),
+                true
+            );
+            foreach (($schema['roles'] ?? []) as $role => $definition) {
                 $typography = $definition['defaults']['typography'] ?? [];
-                $owns = array_key_exists('color', $typography)
-                    || isset($typography[':hover']['color'])
-                    || isset($typography[':focus-visible']['color'])
-                    || isset($typography[':active']['color']);
+                $owns = false;
+                if (is_array($typography)) {
+                    array_walk_recursive($typography, static function ($value, $key) use (&$owns) {
+                        if ($key === 'color') {
+                            $owns = true;
+                        }
+                    });
+                    // array_walk_recursive visits leaves only, so a `color` whose value is a
+                    // breakpoint map is descended into; catch that shape explicitly.
+                    foreach ($typography as $key => $value) {
+                        if ($key === 'color' || (is_array($value) && array_key_exists('color', $value))) {
+                            $owns = true;
+                        }
+                    }
+                }
                 if ($owns) {
                     $counted++;
                     $this->assertMatchesRegularExpression(
@@ -695,7 +724,7 @@ class AiContextTest extends TestCase
                 }
             }
         }
-        $this->assertGreaterThan(8, $counted, 'the own-ink sweep found almost nothing');
+        $this->assertGreaterThan(10, $counted, 'the own-ink sweep lost subjects; 11 chrome roles declare their own ink');
         $this->assertStringNotContainsString(
             'THE ONE PAIRING THAT IS STILL MANDATORY',
             $prompt,
@@ -754,6 +783,51 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('A `length-or-none`-typed slot accepts everything', $restored);
         $this->assertStringContainsString('PLUS the keyword `none`', $restored);
         $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
+    }
+
+    /**
+     * EVERY conditional branch restores its own grammar (#1087).
+     *
+     * pp_ai_slot_type_rules() has three branches and the test above exercised one. The other
+     * two — `position` and `ratio` — had ZERO coverage, because no shipped slot carries
+     * either type, so neither branch ever runs against the real registry. The pre-landing
+     * testing specialist mutation-verified it: corrupting both trigger keys to nonsense left
+     * the whole suite green.
+     *
+     * That matters because self-restoration IS the claim. The grammar was deleted from the
+     * prompt on the promise that it returns the day a carrier reappears; a promise verified
+     * for one branch of three is a promise for one branch of three.
+     *
+     * @dataProvider slotTypeRuleBranchProvider
+     */
+    public function testEverySlotTypeRuleBranchIsRestoredByItsCarrier(string $type, string $marker): void
+    {
+        $this->assertStringContainsString(
+            $marker,
+            \pp_ai_slot_type_rules([$type]),
+            "the {$type} rule must come back the day a slot declares the type"
+        );
+        $this->assertStringNotContainsString(
+            $marker,
+            \pp_ai_slot_type_rules([]),
+            "and stay absent while nothing carries {$type}"
+        );
+        // And it must not be emitted by an unrelated carrier.
+        $others = array_values(array_diff(['position', 'ratio', 'length-or-none'], [$type]));
+        $this->assertStringNotContainsString(
+            $marker,
+            \pp_ai_slot_type_rules($others),
+            "the {$type} rule must key off its own type, not any carrier at all"
+        );
+    }
+
+    public static function slotTypeRuleBranchProvider(): array
+    {
+        return [
+            'position'       => ['position', 'A `position`-typed slot'],
+            'ratio'          => ['ratio', 'A `ratio`-typed slot'],
+            'length-or-none' => ['length-or-none', 'A `length-or-none`-typed slot'],
+        ];
     }
 
     /**

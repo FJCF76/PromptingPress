@@ -101,6 +101,13 @@ class ModelFacingRosterTest extends TestCase
             // guards cannot disagree about what a complete roster is.
             ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)]+)\)/'],
         ];
+        // ONE ANCHOR TODAY, AND THAT IS THE HONEST STATE RATHER THAN THE INTENDED ONE.
+        // No `ai-instructions/*.md` roster is anchored here yet: those files are being
+        // rewritten wholesale in the prose PR, and anchoring prose that is about to be
+        // replaced would pin the stale version. The anchors for them land WITH that rewrite,
+        // which is the whole reason this mechanism merges first — every rewritten roster
+        // arrives already pinned. Until then this suite's instruction-file coverage is the
+        // reverse-membership check below, not this one.
 
         $checked = 0;
         foreach ($anchors as [$label, $haystack, $pattern]) {
@@ -144,11 +151,22 @@ class ModelFacingRosterTest extends TestCase
         foreach ($this->modelFacingFiles() as $file) {
             foreach ($this->sentences((string) file_get_contents($file)) as $sentence) {
                 // Only sentences that make a POSITIVE slot claim.
-                if (!preg_match('/\b(declares?|carries|carry|has|have|its|their)\b[^.]{0,60}\bstyle slots?\b/i', $sentence)) {
+                if (!preg_match('/\b(declares?|carries|carry|has|have|its|their)\b[^.]{0,60}\bstyle slots?\b/i', $sentence, $claim)) {
                     continue;
                 }
-                // A sentence saying a component declares NO slots is the correct statement.
-                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $sentence)) {
+                // A claim that a component declares NO slots is the correct statement, so it
+                // is exempt — but the exemption is scoped to THE CLAUSE THAT MAKES THE CLAIM,
+                // not to the sentence.
+                //
+                // Sentence scope is how this guard was found asserting on nothing. Measured
+                // over the real sixteen-file corpus: 16 sentences make a positive slot claim,
+                // 15 carried a "no" or "not" SOMEWHERE and were exempted, and exactly ONE was
+                // ever scanned. A true defect with an unrelated negation later in the
+                // sentence — "declares style slots, but not for its background" — was silently
+                // exempt. That is the 46%-by-accident shape this repo has already paid for,
+                // and the vacuity probe missed it because it counted HITS (zero, correctly)
+                // instead of SUBJECTS SCANNED (one).
+                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $claim[0])) {
                     continue;
                 }
                 $scanned++;
@@ -162,10 +180,23 @@ class ModelFacingRosterTest extends TestCase
 
         $this->assertSame([], array_unique($failures), "a v2 component is described as carrying style slots:\n"
             . implode("\n", array_unique($failures)));
-        // Not fail-closed on $scanned: zero positive slot claims in the corpus is a legitimate
-        // end state once `grid` is rebuilt, and asserting a floor here would then fail for
-        // being correct. The anchored test above is what guarantees this suite has subjects.
-        $this->addToAssertionCount(1);
+
+        // FAIL-CLOSED, BUT GATED. Zero positive slot claims is a legitimate end state once
+        // `grid` is rebuilt and nothing has slots to describe — so the floor applies only
+        // while a slot-carrying component still exists. Unconditional here would fail for
+        // being correct; absent entirely (the first cut) let the guard scan ONE sentence out
+        // of sixteen and report success.
+        if (\pp_ai_live_slot_types() !== []) {
+            $this->assertGreaterThan(
+                2,
+                $scanned,
+                'the reverse check scanned fewer positive slot claims than the corpus carries. '
+                . 'MEASURED TODAY: 16 sentences make a slot claim, 13 of those claim-clauses '
+                . 'say the component declares NO slots (correct, and correctly exempt), and 3 '
+                . 'are scanned. If this drops, the negation exemption has widened again and '
+                . 'the guard is passing on an empty set rather than on clean docs'
+            );
+        }
     }
 
     /**
@@ -267,7 +298,13 @@ class ModelFacingRosterTest extends TestCase
     private function sentences(string $text): array
     {
         $text = preg_replace('/```.*?```/s', ' ', $text) ?? $text;
-        $parts = preg_split('/(?<=[.!?])\s+|\n{2,}|\n(?=[-*|#])/', $text) ?: [];
+        // MARKDOWN EMPHASIS SITS BETWEEN THE TERMINATOR AND THE SPACE. A bolded sentence
+        // ends `slots.** Everything below...`, so a splitter looking for `[.!?]\s` never
+        // breaks there and fuses two sentences into one. That fusion is not cosmetic: it
+        // carried the component names of the SECOND sentence into the first one's claim, and
+        // produced a false positive against prose that was entirely correct. Allow closing
+        // emphasis marks to follow the terminator.
+        $parts = preg_split('/(?<=[.!?])[*_`]{0,3}\s+|\n{2,}|\n(?=[-*|#])/', $text) ?: [];
         return array_values(array_filter(array_map('trim', $parts), static fn ($s) => $s !== ''));
     }
 }

@@ -30,6 +30,17 @@
  *
  * The ceiling is not a target. It exists so that growth is a deliberate, argued act:
  * raising it means writing down why the prompt needs to be bigger.
+ *
+ * THE MARGIN IS TIGHT ON PURPOSE, and this is the intended posture rather than an oversight
+ * nobody noticed. The assembled prompt measures 91,742 bytes against this 92,000, which is
+ * 258 bytes — about one sentence. The gate that set this number REDUCED the prompt's dead
+ * weight and added derived rosters in the same pass, and the maintainer ruled the ceiling
+ * should hold rather than be widened to a comfortable round figure. So the next sentence
+ * added anywhere in this file WILL fail CI, and that is the design: the argument for it gets
+ * written down, here, before the number moves. The separate cost problem — this string is
+ * re-sent every conversation turn because the provider layer has no prompt caching — is
+ * filed on its own; the two fixes compose, and a byte pin is what makes the second one
+ * measurable.
  */
 const PP_AI_PROMPT_BUDGET = 92000;
 

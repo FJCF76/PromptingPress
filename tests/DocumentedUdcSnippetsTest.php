@@ -406,7 +406,8 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        $this->assertGreaterThan(3, $checked, 'the instruction-file `udc` walk found almost nothing');
+        // 7 self-identifying maps today.
+        $this->assertGreaterThan(6, $checked, 'the instruction-file `udc` walk lost subjects');
     }
 
     /** Component-attributed `udc` maps in one decoded block, at either depth. */
@@ -465,7 +466,8 @@ class DocumentedUdcSnippetsTest extends TestCase
             $checked++;
         }
 
-        $this->assertGreaterThan(2, $checked, 'the prompt example extractor found almost nothing');
+        // 4 attributable examples today.
+        $this->assertGreaterThan(3, $checked, 'the prompt example extractor lost subjects');
     }
 
     /**
@@ -616,8 +618,8 @@ class DocumentedUdcSnippetsTest extends TestCase
                     if ($role === '_band' || !is_array($groups)) {
                         continue;
                     }
-                    foreach ([$groups['typography'] ?? [], $groups['typography'][':hover'] ?? []] as $state) {
-                        $ink = $this->hex($state['color'] ?? null, $tokens);
+                    foreach ($this->inksIn($groups['typography'] ?? []) as $rawInk) {
+                        $ink = $this->hex($rawInk, $tokens);
                         if ($ink === null) {
                             continue;
                         }
@@ -643,12 +645,105 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
 
+        // 12 pairings today. A floor set at a token value is a floor that never fires: this
+        // walk could lose ten of its twelve subjects — every chrome subject among them — and
+        // a `> 2` floor would still call it a pass.
         $this->assertGreaterThan(
-            2,
+            10,
             $checked,
-            'the contrast walk found almost no background+ink pairing to check; the extractor '
-            . 'or the resolver stopped working and this is asserting on an empty set'
+            'the contrast walk found fewer background+ink pairings than the corpus carries; '
+            . 'the extractor or the ink resolver stopped reaching most of its subjects'
         );
+    }
+
+    /**
+     * EVERY ink a typography map declares, at any depth (#1087).
+     *
+     * The first cut of the contrast walk read exactly two places: the resting `color` and
+     * `:hover.color`. That is half-blind, and the pre-landing testing specialist proved it
+     * by planting a 1.3:1 `:focus-visible` colour on the prompt's own dark-band example —
+     * the example whose prose calls dark-on-dark "the single most common way this goes
+     * wrong" — and watching the whole suite stay green.
+     *
+     * A colour is ink wherever it is declared. The contract permits three states, and a
+     * breakpoint map on every value, so the only honest walk is recursive.
+     *
+     * NOT array_walk_recursive, and the reason is worth keeping: that helper visits LEAVES
+     * only, so a breakpoint map under `color` (`"color": {"d": "#111", "p": "#222"}`) is
+     * descended INTO and its members arrive keyed `d` and `p` — never as ink. The first
+     * version of this fix used it and silently skipped every responsive colour, which the
+     * unchanged assertion count is what exposed. This walk tests the KEY on the way down and
+     * flattens a map found there into its members, so each breakpoint's colour is measured
+     * on its own.
+     *
+     * @return array<int, mixed> Raw values; the caller resolves and filters them.
+     */
+    private function inksIn($typography): array
+    {
+        if (!is_array($typography)) {
+            return [];
+        }
+        $inks = [];
+        foreach ($typography as $key => $value) {
+            if ($key === 'color') {
+                // A literal, or a breakpoint map whose members are each a colour.
+                foreach (is_array($value) ? $value : [$value] as $member) {
+                    if (!is_array($member)) {
+                        $inks[] = $member;
+                    }
+                }
+                continue;
+            }
+            // A state map (`:hover`, `:focus-visible`, `:active`) or any future nesting.
+            if (is_array($value)) {
+                $inks = array_merge($inks, $this->inksIn($value));
+            }
+        }
+        return $inks;
+    }
+
+    /**
+     * The ink walk sees every state and every breakpoint (#1087).
+     *
+     * Pinned directly because the shipped corpus happens to declare its example inks only at
+     * rest — so a regression here would not move any count in the walk above, and the guard
+     * would go quietly blind again exactly as it was found.
+     *
+     * @dataProvider inkWalkProvider
+     */
+    public function testTheInkWalkSeesEveryStateAndBreakpoint(array $typography, array $expected, string $why): void
+    {
+        $this->assertSame($expected, $this->inksIn($typography), $why);
+    }
+
+    public static function inkWalkProvider(): array
+    {
+        return [
+            'resting colour' => [['color' => '#111111'], ['#111111'], 'the simple case'],
+            'hover' => [[':hover' => ['color' => '#222222']], ['#222222'], 'a hover colour is ink'],
+            'focus-visible' => [
+                [':focus-visible' => ['color' => '#2a2a2a']], ['#2a2a2a'],
+                'the state the first cut was blind to — a 1.3:1 plant here stayed green',
+            ],
+            'active' => [[':active' => ['color' => '#333333']], ['#333333'], 'and the third state'],
+            'breakpoint map' => [
+                ['color' => ['d' => '#111111', 'p' => '#222222']], ['#111111', '#222222'],
+                'each breakpoint is its own colour on its own band; array_walk_recursive missed both',
+            ],
+            'breakpoint map inside a state' => [
+                [':hover' => ['color' => ['d' => '#444444', 'p' => '#555555']]], ['#444444', '#555555'],
+                'both dimensions at once, which is what the contract actually permits',
+            ],
+            'everything at once' => [
+                ['color' => '#f7f8fa', ':active' => ['color' => '#333333'], ':hover' => ['color' => ['d' => '#111111', 'p' => '#222222']]],
+                ['#f7f8fa', '#333333', '#111111', '#222222'],
+                'no ink left behind',
+            ],
+            'non-colour parameters are not ink' => [
+                ['size' => '19px', 'weight' => '600'], [], 'only colours are measured for contrast',
+            ],
+            'not an array' => [[], [], 'a role with no typography contributes nothing'],
+        ];
     }
 
     /** A literal hex, or a hex an `@token` resolves to. Null when it is neither. */

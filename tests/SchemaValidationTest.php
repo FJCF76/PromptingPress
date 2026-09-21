@@ -6306,8 +6306,64 @@ class SchemaValidationTest extends TestCase
         // Both floors sit just under the real counts (125 roles, 16 records). A walk that
         // stops finding roles, or a population step that silently emptied every list, must
         // fail here rather than pass on an empty set.
-        $this->assertGreaterThan(110, $checked, 'the role walk stopped finding roles');
-        $this->assertGreaterThan(12, $records, 'the declared obligations disappeared');
+        $this->assertSame(125, $checked, 'the role count changed — update this number deliberately');
+        $this->assertSame(16, $records, 'the obligation corpus changed — update this number deliberately');
+    }
+
+    /**
+     * THE NON-DERIVABLE OBLIGATIONS ARE PINNED BY NAME (#1087).
+     *
+     * The net below covers one obligation shape. The other — `outranked_by_default`, where a
+     * sibling role's DEFAULT beats a value authored here — is not derivable from selectors at
+     * all, so nothing mechanical notices if one is deleted.
+     *
+     * Found by the pre-landing testing specialist, mutation-verified: emptying the
+     * `obligations` list on BOTH `logos.image` and `nav.link` left the whole suite green,
+     * eight assertions lighter. Both are real model-facing obligations that would simply stop
+     * reaching the prompt. Only `faq.question` and `footer.social` had individual pins.
+     *
+     * Naming them is the only guard available for a fact no derivation can find, which is
+     * also the argument for declaring them in the first place.
+     */
+    public function testTheNonDerivableObligationsArePinnedByName(): void
+    {
+        $declared = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['roles'] ?? []) as $role => $def) {
+                foreach (($def['obligations'] ?? []) as $entry) {
+                    $declared["{$component}.{$role} -> {$entry['with']}"] = $entry['kind'];
+                }
+            }
+        }
+
+        $expected = [
+            'faq.question -> question-open'   => 'outranked_by_default',
+            'nav.link -> link-current'        => 'outranked_by_default',
+            'logos.image -> image-labeled'    => 'outranked_by_default',
+            'footer.social -> social-link'    => 'reached_only_by_inheritance',
+        ];
+        foreach ($expected as $pair => $kind) {
+            $this->assertArrayHasKey(
+                $pair,
+                $declared,
+                "`{$pair}` cannot be derived from selectors, so deleting it is silent unless "
+                . 'it is named here'
+            );
+            $this->assertSame($kind, $declared[$pair], "`{$pair}` changed kind");
+        }
+
+        // Every `outranked_by_default` record must be in the pinned set — a new one added
+        // without a pin is exactly as undeletable-by-accident as these were.
+        foreach ($declared as $pair => $kind) {
+            if ($kind === 'outranked_by_default') {
+                $this->assertArrayHasKey(
+                    $pair,
+                    $expected,
+                    "`{$pair}` is a non-derivable obligation with no pin. Add it above, or "
+                    . 'nothing notices when it is removed'
+                );
+            }
+        }
     }
 
     /**
