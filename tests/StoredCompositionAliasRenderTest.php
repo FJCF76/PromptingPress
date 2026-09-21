@@ -920,7 +920,37 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('cards, steps', $result->get_error_message());
         // AND NOT COERCED: a strict enum names the set rather than silently clamping to a
         // default, which is the half #605 was actually about.
-        $this->assertStringNotContainsString('masonry', strtolower((string) $result->get_error_data()['coerced'] ?? ''));
+        //
+        // THIS ASSERTION WAS VACUOUS AND IS THE REASON THE SUITE GAINED A WARNING (#1101).
+        // It read:
+        //
+        //     assertStringNotContainsString('masonry', strtolower((string) $result->get_error_data()['coerced'] ?? ''))
+        //
+        // Three things were wrong with it and they compounded. `get_error_data()` returns
+        // `['index' => 0]` on this refusal and has never carried a `coerced` key, so the
+        // subscript raised "Undefined array key" on every run — the one warning separating
+        // this branch's count from main's, which an earlier handoff recorded as
+        // fixture-loader noise. The `??` could not suppress it either: `??` binds looser
+        // than the cast, so it guards the already-cast `''` rather than the array access.
+        // And the value it compared was therefore ALWAYS the empty string, which contains
+        // no substring at all — so the assertion could not fail for any input.
+        //
+        // WHAT NON-COERCION ACTUALLY LOOKS LIKE HERE, asserted instead. A coercing enum
+        // returns SUCCESS having silently substituted its default; a strict one refuses
+        // and REPORTS THE VALUE YOU SENT, so the author can see what was rejected rather
+        // than discovering a default later on a rendered page. The refusal above is the
+        // first half; the message naming `masonry` is the second, and it is the half that
+        // distinguishes "refused" from "refused with a useless message".
+        $this->assertStringContainsString(
+            'masonry',
+            $result->get_error_message(),
+            'a strict enum reports the value it rejected — a message that named only the '
+            . 'accepted set would leave an author guessing which of their values was wrong'
+        );
+        // And the refusal carries no coercion channel at all: the data shape is the band
+        // locator and nothing else, so there is no key through which a clamped value could
+        // reach a caller that did not read the message.
+        $this->assertSame(['index' => 0], $result->get_error_data());
     }
 
     // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
