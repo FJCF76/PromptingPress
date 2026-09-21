@@ -1,6 +1,6 @@
 {
   "component": "grid",
-  "description": "Responsive card grid for discrete content objects — posts, features, team members. Not for decorative icon grids. Cards are 1-col mobile, 2-col tablet, 3-col desktop.",
+  "description": "Responsive card grid for discrete content objects — posts, features, team members, process steps. Not for decorative icon grids. Cards are 1-col mobile, 2-col tablet, 3-col desktop unless `columns` says otherwise. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. It is also the FIRST component to declare `item_roles`, so a single card can carry its own `udc` map and be styled on its own (BUILD-SPEC Addendum B). See docs/v2/BUILD-SPEC-sprint0.md §3 and Addendum B.",
   "props": {
     "id": {
       "type": "string",
@@ -32,145 +32,681 @@
       "default": "",
       "description": "Optional supporting line below the title. Plain text — HTML is escaped."
     },
-    "title_align": {
-      "type": "enum", "strict": true,
-      "values": ["start", "center"],
-      "required": false,
-      "default": "start",
-      "description": "Alignment of the eyebrow/title/subheading header block. 'start' = left-aligned (default, unchanged historical behavior). 'center' = centered."
-    },
     "layout": {
-      "type": "enum", "strict": true,
-      "values": ["cards", "steps"],
+      "type": "enum",
+      "strict": true,
+      "values": [
+        "cards",
+        "steps"
+      ],
       "required": false,
       "default": "cards",
-      "description": "Structural layout. 'cards' = standard card grid. 'steps' = numbered process cards, each carrying a filled circular number badge above its title. Use 'steps' for How-it-works / process flows."
-    },
-    "card_emphasis": {
-      "type": "enum", "strict": true,
-      "values": ["featured", "uniform"],
-      "required": false,
-      "default": "featured",
-      "description": "Whether the first card gets the emphasized 'featured' treatment (accent top bar, tinted fill, larger title, extra top padding, and — on the muted theme — a lift). 'featured' (default, unchanged historical behavior) emphasizes the first card, drawing the eye to a lead item. 'uniform' renders every card identically — use it for a symmetric/peer card row where all cards are equal (e.g. three specification cards whose checklists must line up, or an equal-weight feature/plan row). Cards-layout concept: it has NO VISUAL EFFECT on 'steps', because every featured rule is scoped :not(.grid--steps). The grid--uniform class is still EMITTED on steps markup — that is deliberate, so a future steps-specific first-card emphasis could be guarded with the same hook — so do not read the class's presence as evidence the treatment applied."
-    },
-    "theme": {
-      "type": "enum", "strict": true,
-      "values": ["default", "muted", "inverted"],
-      "required": false,
-      "default": "default",
-      "description": "Background color/tone for this band. 'default' = the band's own default background (no tone override). 'muted' = light tinted surface band (renders the --color-surface background with framing top and bottom borders). 'inverted' = inverted dark background for strong contrast; use 'inverted' for a genuinely dark band."
+      "description": "Structural layout. 'cards' = standard card grid. 'steps' = numbered process cards, each carrying a filled circular number badge above its title. Use 'steps' for How-it-works / process flows. This is STRUCTURE, not styling: it changes which elements render (the badge, and no card images), so it stays a prop. The badge's look is the `step-number` role."
     },
     "columns": {
       "type": "number",
       "required": false,
       "min": 1,
       "max": 4,
-      "description": "Optional explicit desktop (>=768px) column count, an integer 1-4. Unset (key absent, null, or empty) keeps the default auto-derivation from item count (unchanged, byte-identical). When set it forces that many equal-width columns at >=768px, spanning the container, overriding the item-count grain; the single-column collapse below 768px is unchanged. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected, not clamped. Cards-layout concept; ignored on 'steps' (which keeps its fixed process grain). Set with create_page / update_component, not style_component."
-    },
-    "image_treatment": {
-      "type": "enum",
-      "values": ["banner", "icon"],
-      "required": false,
-      "default": "banner",
-      "strict": true,
-      "description": "How each card's image_url renders. 'banner' (default, unchanged historical behavior) is a full-width 16:9 cover banner above the card body. 'icon' renders the image at a small fixed icon size (the --grid-item-icon-size slot, default 48px) above the title, un-cropped (object-fit: contain) — for icon+title+text feature cards where a ~45px logo/glyph would otherwise be blown up into a cropped banner. Unset keeps 'banner' (byte-identical). Invalid values are rejected with the standard invalid_prop_value envelope (closed set: banner|icon), not silently coerced. Cards-layout concept; ignored on 'steps' (which renders no item images). Set with create_page / update_component, not style_component."
+      "description": "Optional explicit desktop (>=768px) column count, an integer 1-4. Unset (key absent, null, or empty) keeps the default auto-derivation from item count. When set it forces that many equal-width columns at >=768px, spanning the container; the single-column collapse below 768px is unchanged. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected, not clamped. Cards-layout concept; ignored on 'steps', which keeps its fixed process grain. Track geometry is structure, so this stays a prop — the same reason hero kept `split_ratio`. For a per-breakpoint count, the `list` role's `layout.columns` is the UDC route."
     },
     "items": {
       "type": "array",
       "item_type": "object",
       "required": true,
-      "description": "Array of card items. Each: { title, text, bullets, image_url, image_alt, image_id, link_url, link_text }. When layout is 'steps', also include: { number }.",
+      "description": "Array of card items. Each: { title, text, bullets, image_url, image_alt, image_id, link_url, link_text }. When layout is 'steps', also include: { number }. A single card may ALSO carry its own `udc` map to style just that card — see `item_roles` and BUILD-SPEC Addendum B. The `udc` and `id` keys on an entry are engine-owned and are not listed as fields here: `id` is minted on write and must not be authored, and `udc` is a design map rather than content.",
       "items": {
-        "number":    { "type": "string", "required": false, "description": "Step number label (e.g. '1', '01', '1.'). Required when grid layout is 'steps'." },
-        "title":     { "type": "string", "required": false, "description": "Card heading. Plain text — HTML is escaped." },
-        "text":      { "type": "string", "required": false, "description": "Card body / supporting text. Inline HTML allowed: a, strong, em, br." },
-        "text_role": { "type": "enum", "values": ["mono", "meta", "label", "kicker"], "strict": true, "required": false, "description": "Optional typography role for the card text: 'mono' (code), 'meta' (captions), 'label', or 'kicker' (eyebrow). Adds a .text-<role> class. Unset (key absent, null, or empty) → default body text; a value outside the set is rejected at write. Set via update_component. 'meta'/'kicker' also set a preset text color; an explicit --grid-item-text-color style slot overrides that preset color at ALL breakpoints (the explicit slot always wins), while the role's size/weight/letter-spacing/transform still apply." },
-        "bullets":   { "type": "array", "item_type": "string", "required": false, "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.", "items": { "type": "string" } },
-        "image_url": { "type": "string", "required": false, "format": "image_url" },
-        "image_alt": { "type": "string", "required": false, "default": "", "description": "Alt text for the card image. Leave empty only if the image is purely decorative." },
-        "image_id":  { "type": "number", "required": false, "default": 0, "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply." },
-        "link_url":  { "type": "string", "required": false, "format": "link_url", "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time." },
-        "link_text": { "type": "string", "required": false, "default": "Read more" },
-        "style":     { "type": "object", "required": false, "description": "Optional per-card style overrides for THIS card only (issue 306). Accepts ONLY the CARD-SCOPED style slots — the ones flagged item_eligible in styling.style_slots because they are consumed on the .grid__item and its contents (issue 323): --grid-item-bg, --grid-item-border-color, --grid-item-border-width, --grid-item-radius, --grid-item-shadow, --grid-item-bar-color, --grid-item-bar-height, --grid-featured-texture-color, --grid-featured-shadow, --grid-item-padding, --grid-item-gap, --grid-item-text-align, --grid-item-icon-size, --grid-item-title-size, --grid-item-title-color, --grid-item-text-color, --grid-item-bullet-color, --grid-item-link-color, --grid-item-link-hover-color, --grid-step-bg, --grid-step-text-color. Validated by the shared style engine exactly like grid-level slots (unknown slot names and invalid values are rejected). Rendered as inline custom properties on this card's .grid__item, so a per-card slot overrides the grid-level value by cascade proximity. Container/heading slots (--grid-bg, --grid-gap, --grid-heading-*, --grid-heading-accent-color, --grid-eyebrow-*, --grid-subheading-*, --grid-padding-*) are read on the section/list/header, not the card, so a per-card override would render nothing — they are REJECTED here with invalid_style_slot naming the card; set those on the grid-level style instead. Use per-card style for one distinct card in a row: a dark CTA panel beside light checklist cards, or a green-on-dark terminal card. Set via the composition (update_component / update_composition / create_page), not style_component (which is component-scoped)." }
+        "number": {
+          "type": "string",
+          "required": false,
+          "description": "Step number label (e.g. '1', '01', '1.'). Required when grid layout is 'steps'."
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "Card heading. Plain text — HTML is escaped."
+        },
+        "text": {
+          "type": "string",
+          "required": false,
+          "description": "Card body / supporting text. Inline HTML allowed: a, strong, em, br."
+        },
+        "bullets": {
+          "type": "array",
+          "item_type": "string",
+          "required": false,
+          "description": "Optional checklist lines rendered below text, each prefixed with a check mark. Plain text only — no HTML/markdown; each line is escaped independently. Use for scannable feature/benefit lists instead of cramming items into one text sentence.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "image_url": {
+          "type": "string",
+          "required": false,
+          "format": "image_url"
+        },
+        "image_alt": {
+          "type": "string",
+          "required": false,
+          "default": "",
+          "description": "Alt text for the card image. Leave empty only if the image is purely decorative."
+        },
+        "image_id": {
+          "type": "number",
+          "required": false,
+          "default": 0,
+          "description": "Media Library attachment ID (NOT a URL). When it resolves to a real attachment, the image renders responsively with srcset/sizes via wp_get_attachment_image() instead of a single fixed-size <img>. Falls back to image_url when unset or unresolvable. Get an attachment id via the import_media apply."
+        },
+        "link_url": {
+          "type": "string",
+          "required": false,
+          "format": "link_url",
+          "description": "Optional card link destination. Accepts an absolute URL, a site-relative /path, an #anchor, mailto:, or tel:; a disallowed protocol (javascript:, data:) is rejected at write time."
+        },
+        "link_text": {
+          "type": "string",
+          "required": false,
+          "default": "Read more"
+        }
       }
+    }
+  },
+  "item_roles": {
+    "_note": "BUILD-SPEC Addendum B5. Which of this component's roles a SINGLE items[] entry may address through its own `udc` map, and which prop holds the repeater. The engine reads this declaration and holds no list of component names, so any repeater component can declare the same thing. `root` is the role whose element carries the minted `data-pp-item` attribute. The band-level header roles (_band, header, eyebrow, heading, heading-accent, subheading, list, empty) are deliberately absent: they exist once per band, so styling them 'for one card' has no meaning.",
+    "prop": "items",
+    "root": "card",
+    "roles": [
+      "card",
+      "card-bar",
+      "card-media",
+      "card-body",
+      "card-title",
+      "card-text",
+      "card-bullets",
+      "card-bullet",
+      "card-link",
+      "step-number"
+    ]
+  },
+  "retired_props": {
+    "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1101). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
+    "theme": "the `_band` role — and it takes MORE than a background, which is why the route names several roles rather than one. MEASURED in Chromium at 375/768/1280, all three values, before the prop went: `default` painted NO background at all (transparent) with no border; `muted` painted `@color-surface` plus a 1px solid `@color-border` rule top and bottom (it emitted the legacy `grid--dark` class, #570 DG-4); `inverted` painted `@color-bg-inverted`, re-coloured the heading to `@color-bg` and the subheading to `@color-bg`, and left the CARDS light — measured, card fill, title, text, bullets and link were byte-identical on a `default` and an `inverted` band, because v1 deliberately kept cards light on a dark band. So: the tone is `_band` -> `background.fill`; the `muted` framing is `border.width-top`/`width-bottom` = \"1px\" with `style-top`/`style-bottom` = \"solid\" and `color` = \"@color-border\"; the `inverted` ink is `typography.color` on `_band`, which the `heading` role follows through `currentColor`. THE SUBHEADING DOES NOT FOLLOW and needs its own write — see that role. `dark` was not an accepted input value: it was removed at #605 and `pp_theme_class()` clamped it to `default`.",
+    "title_align": "the `header` role — `typography.align` for the text, which the eyebrow pill and the heading both follow, the pill because an inline-block is an inline-level box and text alignment moves it. MEASURED before the route was written: v1's `center` value set `text-align: center` on `.grid__header` and ALSO added `margin-left`/`margin-right: auto` to the header, the heading and the subheading, which centres each capped BOX as well as its text. Only the heading's cap (`@measure-heading`) and the subheading's 40rem ever bind, so the box half is visible only on short copy; it is `spacing.margin-left`/`margin-right` = \"auto\" on those two roles, which the spacing group accepts as a keyword. Two writes instead of one prop, and both are ordinary role parameters — no grammar changed.",
+    "card_emphasis": "the `card`, `card-bar`, `card-title` and `card-body` roles on a SINGLE item, through that item's own `udc` map (Addendum B). RETIRED RATHER THAN PORTED, and the reason is the contract rather than convenience: v1's `featured` treatment was `:first-child`, which is ORDINAL styling, and Addendum B exclusion 3 rules that an item is addressed by its minted id and nothing else so that reordering carries styling WITH the item. Keeping an ordinal treatment beside an id-addressed one would leave two systems disagreeing about which card is special the moment a list is reordered. MEASURED ON THE OWNER'S LIVE SITE before retiring it: all 11 production grid bands render `grid--uniform`, i.e. the featured treatment was already switched off everywhere it could have applied.",
+    "image_treatment": "the `card-media` role — `sizing.aspect-ratio` plus `sizing.width`/`sizing.height` for the box. v1's `icon` value rendered a 48x48 un-cropped box instead of the 16:9 cover banner; in v2 that is `card-media` -> `sizing` -> `{\"width\": \"48px\", \"height\": \"48px\", \"aspect-ratio\": \"auto\"}`. THE UN-CROPPED FIT IS A STATED NARROWING: `object-fit` has no typed parameter in the Sizing group, so the `contain` half of the icon treatment is reachable only through the raw-CSS valve, `card-media` -> `_css` -> `{\"object-fit\": \"contain\"}`. Measured live exposure of `image_treatment` before retiring it: ZERO bands and zero card images across all 11 production grid bands.",
+    "items[].text_role": "the `card-text` role's own `udc` map on that item (Addendum B), or a custom preset (#1016). v1's four values were mono/meta/label/kicker. MEASURED, all four, at desktop: `mono` and `meta` rendered byte-identically to the default body text — the premium typography tier's own `.grid__item-text` rule out-ranked both presets, so two of the four values had NO rendered effect at all and the schema's claim that meta and kicker 'also set a preset text color' was false at every viewport above 767px. Only `label` (letter-spacing 0.01em) and `kicker` (letter-spacing 0.08em + uppercase) changed anything. Per-item typography is exactly what an item `udc` map expresses, so the capability is wider after the retirement than before it.",
+    "items[].style": "the entry's own `udc` map (Addendum B1), addressing the SAME roles the component declares — `card` for the panel itself, `card-bar`, `card-media`, `card-body`, `card-title`, `card-text`, `card-bullets`, `card-bullet`, `card-link` and `step-number` for its parts (see `item_roles`). v1 accepted 21 card-scoped slot names here and rendered them as INLINE custom properties on that card's `.grid__item`; §3.4 forbids inline style emission outright, so the replacement is `{\"udc\": {\"card\": {\"background\": {\"fill\": \"#14141F\"}}, \"card-title\": {\"typography\": {\"color\": \"#F2EEE5\"}}}}` on the entry, which emits `[data-pp-band=\"…\"] [data-pp-item=\"…\"]` rules instead. This is the capability Addendum B exists for, and it is WIDER than the slot map was: same engine, same grammar, same refusal codes as a band map, and the id the engine mints means the design travels with the card rather than with its position."
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>. Set the band's own background here to make a dark or tinted band; the v1 `theme` prop is gone because a preset bundle of colours is exactly what the UDC expresses directly. THE DEFAULTS ARE WHAT v1's UNTHEMED BAND RENDERED, measured in Chromium at 375/768/1280 rather than read off the stylesheet: the shared band rhythm and NOTHING ELSE. v1's `.grid` declared `background: transparent` and no border on any edge, so silence here is the faithful port — the framing rules belonged to `.grid--dark`, the retired `theme: \"muted\"` variant. A band background image is `background.image` (an attachment id) with `background.overlay` for the scrim. SETTING `typography.color` HERE RE-INKS THE HEADING AND NOTHING ELSE ON THIS COMPONENT. The `heading` role follows it through `currentColor`; every other text role pins a measured v1 value and a pinned role default is a DIRECT declaration that an inherited band colour can never beat. THE CARDS ARE THE REASON, and it is a design decision v1 made deliberately: on a v1 `inverted` band the cards stayed LIGHT, so `card-title`, `card-text`, `card-bullets` and `card-link` measured byte-identical on a dark band and a light one. If you darken THIS band and leave the cards alone, the cards stay light and everything in them is still legible — that is the supported shape. If you ALSO darken the cards (`card` -> `background.fill`), you own the ink inside them: set `card-title`, `card-text`, `card-bullets` and `card-link` colours in the same write. `subheading` and `empty` sit on the BAND fill, not inside a card, so a dark band strands both unless you re-ink them; `eyebrow` carries its own `@color-surface-accent` pill fill so it does not strand, and `heading-accent` on `@color-bg-inverted` measures 3.23:1, which clears the 3:1 large-text floor only because the heading clamp floors at 28px — re-ink it deliberately rather than by accident.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "position": "center"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "subheading",
+          "why": "The subheading pins @color-muted, so a colour set on the band does not reach it. A dark band leaves it at 3.1:1 or worse unless you set subheading typography.color too."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "empty",
+          "why": "The empty-state line pins @color-muted and renders on the band fill, not inside a card, so darkening the band strands it."
+        }
+      ]
+    },
+    "header": {
+      "selector": ".grid__header",
+      "description": "The eyebrow/title/subheading block above the cards. It owns the alignment of the whole header — v1's retired `title_align` prop — and nothing else: measured, it declared no padding, no margin and no background of its own at any viewport. Set `typography.align` to centre the text; the eyebrow pill is an inline-block whose BOX does not follow text alignment once the header is a flex column, so centre it with `layout.align` in the same write. IT DECLARES NO `layout` GROUP, and that is a box fact rather than an omission: `.grid__header` is an ordinary block, so `justify-content` or `align-items` on it would paint nothing at any value (the #1006 inert class). Centre the header with `typography.align` — the eyebrow pill is an inline-level box, so it follows the text alignment — and give the heading and subheading `spacing.margin-left`/`margin-right` of `auto` if you also want their capped boxes centred rather than only their text.",
+      "groups": [
+        "typography",
+        "spacing",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {},
+      "obligations": []
+    },
+    "eyebrow": {
+      "selector": ".grid__eyebrow",
+      "description": "The kicker pill above the heading. Measured byte-identical to cta's, section's, faq's and hero's eyebrow roles, and declared per-schema rather than extracted for the reason #1023 recorded: role declaration is data the engine shares, so a fifth copy of the same values is the contract working rather than duplication to factor out. It carries its own `@color-surface-accent` fill, which is why a dark band does not strand it the way it strands `subheading`.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "0.8125rem",
+          "weight": "600",
+          "letter-spacing": "0.04em",
+          "transform": "uppercase",
+          "color": "@color-text"
+        },
+        "spacing": {
+          "padding": "0.35rem 0.85rem",
+          "margin-bottom": "@space-sm"
+        },
+        "border": {
+          "width": "0",
+          "style": "solid",
+          "color": "transparent",
+          "radius": "3px"
+        },
+        "background": {
+          "fill": "@color-surface-accent"
+        }
+      },
+      "obligations": []
+    },
+    "heading": {
+      "selector": ".grid__heading",
+      "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, AND THAT IS A MEASURED PORT RATHER THAN A TRANSCRIPTION. v1's rule was `color: var(--grid-heading-color, var(--color-text))` — a pinned literal — but the only way v1 could render a dark grid band was `theme: \"inverted\"`, which supplied a light heading colour through `--pp-grid-heading-theme-color`, and that prop is retired. Measured both ways before choosing: `#101828` on a light band and `#fcfdff` on an inverted one, so a pinned literal would reproduce exactly one of the two and would pin the heading against the one band shape v2 newly makes easy. `currentColor` in the `color` property is defined to mean `inherit`, so an authored `_band` -> `typography.color` reaches this heading and an authored value on this role still wins. Identical to `@color-text` on every band v1 could actually express. ITS WEIGHT, LEADING AND RHYTHM ARE RESTATED and its family, tracking and `text-wrap` are not: the weight and leading came from `main > .grid .grid__heading` rules that existed ONLY inside media queries, so dropping them would have restyled every tier, while the other three come from base.css's shared h1-h6 rule and restating a global value would move it to the unlayered tier and beat that rule in every state. Measured letter-spacing is exactly -0.03em at all three tiers, which IS base.css's global — hence no default.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "size": "@pp-band-heading-size",
+          "color": "currentColor",
+          "weight": "560",
+          "line-height": {
+            "d": "1.12",
+            "t": "1.12",
+            "p": "1.15"
+          }
+        },
+        "spacing": {
+          "margin-bottom": {
+            "d": "1.65rem",
+            "t": "1.65rem",
+            "p": "1.25rem"
+          }
+        },
+        "sizing": {
+          "max-width": "@measure-heading"
+        }
+      },
+      "obligations": []
+    },
+    "heading-accent": {
+      "selector": ".grid__heading-accent",
+      "description": "The accented substring inside the heading, rendered only when title_accent occurs in title exactly. It PINS `@color-accent` and therefore does NOT follow a band colour — on `@color-bg-inverted` that measures 3.23:1, which passes the 3:1 large-text floor only because the heading's clamp floors at 28px. It is an 80% cut in margin beside a 17.54:1 heading, so re-ink it deliberately on a dark band rather than by accident.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent"
+        }
+      },
+      "obligations": []
+    },
+    "subheading": {
+      "selector": ".grid__subheading",
+      "description": "The supporting line below the heading. IT PINS `@color-muted` AND THAT IS THE MEASURED PORT, not an oversight — and it is the one role on this component where neither `currentColor` nor a pinned literal reproduces both of v1's configurations. Measured: `rgb(94,102,119)` on a light band and `#fcfdff` on a v1 `inverted` one. `currentColor` would reproduce the dark case and CHANGE the light one, which is the overwhelmingly common band; the literal reproduces every band v1 could express and strands only the band shape v2 newly makes easy. The literal wins, and the cost is recorded here and as an obligation on `_band`: darken the band and this line needs its own `typography.color` in the same write. Its size and leading come from base.css and are deliberately not restated. ITS MEASURE IS A PORTED DEFAULT, not an omission: v1 declared `max-width: 40rem` on this element at every tier (measured), the same measure section's and testimonials' subheadings carry, so it is `sizing.max-width` here rather than a literal left in the stylesheet.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-muted"
+        },
+        "spacing": {
+          "margin-bottom": "@space-lg"
+        },
+        "sizing": {
+          "max-width": "40rem"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "_band",
+          "why": "This role pins @color-muted, so a typography.color set on the band does not reach it. Set it here too when you darken the band."
+        }
+      ]
+    },
+    "list": {
+      "selector": ".grid__list",
+      "description": "The card grid itself — the <ul>. It owns the GAP between cards and, through `layout.columns`, the track count. The track count is also settable structurally with the `columns` prop; the difference is that the prop is one number for >=768px while `layout.columns` takes a breakpoint map, so reach for the role when the phone, tablet and desktop counts differ. The measured gap is tier-variant and is a real breakpoint map rather than a token: 0.85rem / 1rem / 1.05rem.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "layout",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "gap": {
+            "d": "1.05rem",
+            "t": "1rem",
+            "p": "0.85rem"
+          }
+        }
+      },
+      "obligations": []
+    },
+    "card": {
+      "selector": ".grid__item",
+      "description": "One card — the <li>, and THE ITEM ROOT: this is the element that carries `data-pp-item` when an entry declares its own `udc` map, so an item-grain `card` write emits at `[data-pp-band=\"…\"] [data-pp-item=\"…\"]`. ITS FILL IS LOAD-BEARING FOR EVERY INK INSIDE IT. v1 kept cards light even on an inverted band — measured, `card-title`, `card-text`, `card-bullets` and `card-link` were byte-identical on a `default` and an `inverted` band — which is why all four pin their colours instead of following the band. THE CONSEQUENCE IS YOURS TO CARRY: if you darken this fill, whether on the band or on one item, set `card-title`, `card-text`, `card-bullets` and `card-link` colours in the SAME write, or the text keeps a dark value on a dark panel. That is exactly what the owner's production design does per card, and it is the acceptance case Addendum B exists for. `overflow: hidden` is structural — it is what clips a banner image to this box's radius — and it is also why `card-link`'s focus ring is drawn INSET rather than outset (see that role). ONE MEASURED DEFAULT CHANGED RATHER THAN PORTED, stated because it is visible: v1's fill was `linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)`, a very subtle top-to-bottom tint. The value grammar accepts a gradient of LITERALS and a bare `@token`, but not a token INSIDE a gradient — so the two ways to port it were a token-following flat fill or a hex gradient frozen against every retheme. The flat `@color-bg` wins, matching what faq's `item` and testimonials' `card` already default for the same visual job: a default that stops following the design tokens is a worse failure than a lost 2% tint, and an author who wants the tint can still write the literal gradient here.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "layout",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "background": {
+          "fill": "@color-bg"
+        },
+        "border": {
+          "width": "1px",
+          "style": "solid",
+          "color": "@color-border",
+          "radius": "4px"
+        },
+        "shadow": {
+          "box": "0 10px 24px rgba(15, 23, 42, 0.055)"
+        },
+        "motion": {
+          "transition-duration": "0.15s",
+          "timing-function": "ease"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "card-title",
+          "why": "The card title pins @color-text, so darkening the card fill does not re-ink it. Set card-title typography.color in the same write."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "card-text",
+          "why": "The card text pins its own colour, so darkening the card fill does not re-ink it. Set card-text typography.color in the same write."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "card-bullets",
+          "why": "The checklist pins @color-muted, so darkening the card fill does not re-ink it. Set card-bullets typography.color in the same write."
+        },
+        {
+          "kind": "reached_only_by_inheritance",
+          "with": "card-link",
+          "why": "A colour here lands on the wrapper and reaches an <a> inside it only by inheritance, while the stylesheet gives every anchor its own direct rule. Set the paired link role named above too, and its `:hover`."
+        }
+      ]
+    },
+    "card-bar": {
+      "selector": ".grid__item-bar",
+      "description": "The thin rule across the top of every card. IT IS A REAL ELEMENT IN v2 AND WAS A PSEUDO-ELEMENT IN v1, and that change is why the capability survived the rebuild at all. v1 painted it with `.grid__item::before`, and Addendum B6 exclusion 6 defers pseudo-elements — so ported literally, the bar's colour and height would have had no v2 address and would have retired. MEASURED ON THE OWNER'S LIVE SITE BEFORE DECIDING: 10 of his 11 production grid bands author both slots, all ten with the identical pair `linear-gradient(120deg,#7B5BFF 0%,#FF5C2E 50%,#3DDFC8 100%)` at `3px`. That is a brand signature on 91% of bands, not an unused slot, so the honest port was to give the thing its own selector — the same move `nav.link-current` and `faq.question-open` already make when the selector grammar cannot reach something. An empty <span aria-hidden=\"true\"> costs one element per card and keeps a capability the reconstruction depends on. Measured default: `@color-border` at 2px on an ordinary card. It renders on the cards layout only; steps has no bar.",
+      "groups": [
+        "background",
+        "sizing",
+        "border",
+        "spacing",
+        "motion"
+      ],
+      "defaults": {
+        "background": {
+          "fill": "@color-border"
+        },
+        "sizing": {
+          "height": "2px"
+        }
+      },
+      "obligations": []
+    },
+    "card-media": {
+      "selector": ".grid__item-image-wrap",
+      "description": "The card's image box. It owns the BOX; the image inside it is sized structurally to fill that box. The measured default is a 16:9 cover banner at every viewport. v1's retired `image_treatment: \"icon\"` is this role with `sizing` set to a small square and `aspect-ratio` cleared — see `retired_props` for the exact shape, including the one narrowing that carries: `object-fit` has no typed parameter in the Sizing group, so the un-cropped `contain` fit is reachable only through `_css`.",
+      "groups": [
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "sizing": {
+          "aspect-ratio": "16 / 9"
+        }
+      },
+      "obligations": []
+    },
+    "card-body": {
+      "selector": ".grid__item-body",
+      "description": "The padded content area inside a card — everything below the image. IT OWNS THE CARD'S PADDING, not the `card` role, and the split is structural rather than arbitrary: a banner image is full-bleed to the card's edges while the text is inset, so the padding cannot live on the element the image is a sibling of. Set padding here; set the card's fill, border, radius and shadow on `card`. The measured padding is tier-variant and a real breakpoint map: 1.55rem on the phone, 2rem from 768px up. It also owns the vertical rhythm between title, text, bullets and link through `spacing.gap`. IT CARRIES `typography` FOR ONE MEASURED REASON: v1's `--grid-item-text-align` set `text-align` on THIS element, and its children (title, text, bullets) are full-width flex items, so the alignment inherits into all of them from here. `typography.align` is that slot's route. The card link is the exception the #338 flex trap describes — it is a content-width flex item whose BOX text alignment cannot move, so it follows `card-link` -> `sizing.align-self` instead.",
+      "groups": [
+        "typography",
+        "spacing",
+        "sizing",
+        "layout",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding": {
+            "d": "2rem",
+            "t": "2rem",
+            "p": "1.55rem"
+          },
+          "gap": "@space-sm"
+        }
+      },
+      "obligations": []
+    },
+    "card-title": {
+      "selector": ".grid__item-title",
+      "description": "The card heading (an <h3>). It PINS `@color-text` and therefore does not follow a band or card colour — measured byte-identical on a v1 `default` and `inverted` band, because v1 kept cards light on a dark band. Darken the card and you must set this too. Its size, weight and leading are restated because they came from media-query-scoped rules that would otherwise have restyled every tier; the measured weight is genuinely tier-variant (660 on the phone, 670 above it), which is a real breakpoint map rather than a rounding artefact.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-text",
+          "size": {
+            "d": "1.14rem",
+            "t": "1.14rem",
+            "p": "1.06rem"
+          },
+          "weight": {
+            "d": "670",
+            "t": "670",
+            "p": "660"
+          },
+          "line-height": "1.28",
+          "letter-spacing": "-0.03em"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "card",
+          "why": "This role pins @color-text, so a typography.color set on the card does not reach it. Set it here too when you darken a card."
+        }
+      ]
+    },
+    "card-text": {
+      "selector": ".grid__item-text",
+      "description": "The card's supporting paragraph. ITS COLOUR IS A BREAKPOINT MAP AND THAT IS MEASURED, NOT INVENTED: v1 rendered `@color-muted` below 768px and `@color-text-secondary` from 768px up, because the premium typography tier only lightened the paragraph at the wider tiers. Porting one of the two would have changed the other. Like every ink inside a card it pins rather than inherits, so darkening a card fill needs this role set in the same write.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": {
+            "d": "@color-text-secondary",
+            "t": "@color-text-secondary",
+            "p": "@color-muted"
+          },
+          "size": {
+            "d": "1.005rem",
+            "t": "1.005rem",
+            "p": "1rem"
+          },
+          "weight": "430",
+          "line-height": {
+            "d": "1.68",
+            "t": "1.68",
+            "p": "1.65"
+          }
+        },
+        "spacing": {
+          "margin-bottom": "@space-md"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "card",
+          "why": "This role pins its own colour, so a typography.color set on the card does not reach it. Set it here too when you darken a card."
+        }
+      ]
+    },
+    "card-bullets": {
+      "selector": ".grid__item-bullets",
+      "description": "The checklist below the card text — the <ul>. It owns the colour, type and gap of the whole list; the individual line's indent is `card-bullet`. NOTE THE MEASURED ASYMMETRY WITH `card-text`, which is a real v1 behaviour rather than an inconsistency to tidy: the bullet list has NO desktop tier of its own, so it stays `@color-muted` at every viewport while the paragraph above it lightens to `@color-text-secondary` from 768px up. Setting this role's colour is what makes the two agree. THE CHECK-MARK GLYPH'S COLOUR HAS NO v2 ADDRESS: it is painted by a pseudo-element, which Addendum B6 exclusion 6 defers, so v1's `--grid-item-bullet-color` retired with a stated narrowing — measured live exposure on the owner's site was ZERO bands. #1028 is the ruling that would give it a home.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "layout",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-muted",
+          "size": "0.9375rem",
+          "line-height": "1.5"
+        },
+        "spacing": {
+          "gap": "@space-sm"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "card",
+          "why": "This role pins @color-muted, so a typography.color set on the card does not reach it. Set it here too when you darken a card."
+        }
+      ]
+    },
+    "card-bullet": {
+      "selector": ".grid__item-bullet",
+      "description": "One checklist line. It exists as its own role for exactly one measured value: the 1.5rem left indent that makes room for the check-mark glyph. Colour, size and leading are NOT declared here — they inherit from `card-bullets`, which is where you set them, and restating them would give this role a direct declaration that beat its own container for no reason.",
+      "groups": [
+        "spacing",
+        "sizing",
+        "typography",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-left": "1.5rem"
+        }
+      },
+      "obligations": []
+    },
+    "card-link": {
+      "selector": ".grid__item-link",
+      "description": "The card's 'Read more' link. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so darkening a card means setting this colour in the same write. ITS FOCUS RING IS DRAWN INSET, AND THAT IS STRUCTURAL RATHER THAN DECORATIVE: `.grid__item` declares `overflow: hidden` to clip a banner image to the card radius, and base.css paints focus rings 2px OUTSIDE the control, so an outset ring on this link lands entirely in the clipped region and paints nothing. v1 survived that only because the card's padding happened to be wider than the 4px the ring needs; in v2 that padding is an ordinary authored value on `card-body`, so the defect was one write away (#1056). The remedy is #1046's, already proven on faq: a negative outline offset, applied structurally so no authored value can reopen it. ITS UNDERLINE IS A STATE PAIR, ported whole: base.css underlines every `a`, v1 removed it at rest and put it back on hover, and measured `text-decoration-line` read `none` at rest and `underline` on hover with `@color-accent-hover` ink. Both halves are defaults here — `typography.decoration` plus a `:hover` block — on nav `link`'s precedent, because keeping the rest half in the stylesheet would have left an authored `decoration` unable to win the hover.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "layout",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-accent",
+          "decoration": "none",
+          "size": "0.9rem",
+          "weight": "600",
+          "line-height": "1.6",
+          ":hover": {
+            "decoration": "underline",
+            "color": "@color-accent-hover"
+          }
+        },
+        "spacing": {
+          "gap": "0.45rem",
+          "padding-top": "0.2rem"
+        },
+        "motion": {
+          "transition-duration": "0.15s",
+          "timing-function": "ease"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "card",
+          "why": "This role pins @color-accent, which measures 3.2:1 on a dark card fill. Set it here too when you darken a card."
+        }
+      ]
+    },
+    "step-number": {
+      "selector": ".grid__step-number",
+      "description": "The filled circular number badge on the steps layout. Renders only when `layout` is 'steps'. Its fill and its numeral ink are a PAIR: the fill defaults to `@color-accent` and the numeral to `@color-bg`, so setting one without the other is how a light badge ends up with invisible numerals. Its measured box is tier-variant — 40px on the phone, 44px from 768px up — and the 44px is the shared tap-target floor rather than a free choice (#1058).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-bg",
+          "size": {
+            "d": "1.25rem",
+            "t": "1.25rem",
+            "p": "1.125rem"
+          },
+          "weight": "700"
+        },
+        "background": {
+          "fill": "@color-accent"
+        },
+        "border": {
+          "radius": "50%"
+        },
+        "sizing": {
+          "width": {
+            "d": "44px",
+            "t": "44px",
+            "p": "40px"
+          },
+          "height": {
+            "d": "44px",
+            "t": "44px",
+            "p": "40px"
+          }
+        },
+        "spacing": {
+          "margin-bottom": "@space-md"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "card",
+          "why": "The badge pins @color-accent as its fill and @color-bg as its numeral. Changing one without the other is how a light badge gets invisible numerals."
+        }
+      ]
+    },
+    "empty": {
+      "selector": ".grid__empty",
+      "description": "The line rendered when the band has no items. IT SITS ON THE BAND FILL, NOT INSIDE A CARD, which is the whole reason it needs its own mention: darkening the cards cannot strand it and re-inking the card roles cannot rescue it. It pins `@color-muted`, so a dark BAND strands it at roughly 3.1:1 unless you set this role's colour in the same write.",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "motion"
+      ],
+      "defaults": {
+        "typography": {
+          "color": "@color-muted"
+        },
+        "spacing": {
+          "padding-top": "@space-md",
+          "padding-bottom": "@space-md"
+        }
+      },
+      "obligations": [
+        {
+          "kind": "outranked_by_default",
+          "with": "_band",
+          "why": "The empty-state line pins @color-muted and sits on the band fill, so a typography.color set on the band does not reach it."
+        }
+      ]
     }
   },
   "styling": {
     "root_class": "grid",
-    "variant_classes": ["grid--steps", "grid--dark", "grid--inverted", "grid--uniform", "grid--image-icon"],
-    "tokens": ["--color-bg", "--color-surface", "--color-border", "--color-bg-inverted"],
-    "style_slots": {
-      "--grid-padding-top": { "type": "length", "default": "var(--pp-band-padding)", "description": "Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override." },
-      "--grid-padding-bottom": { "type": "length", "default": "var(--pp-band-padding)", "description": "Bottom padding of the band. Defaults to the shared symmetric band rhythm; set an explicit length to override." },
-      "--grid-bg": { "type": "gradient", "default": "transparent", "description": "Background color or gradient" },
-      "--grid-heading-color": { "type": "color", "default": "var(--color-text)", "description": "Heading text color. Defaults to the theme text colour (the inverted variant supplies its own light default). LEAVE IT UNSET unless THIS band must differ: recolouring every heading on the site is ONE update_design_token write on --color-text, not one slot write per band.", "applies_when": [{"prop": "title", "present": true}] },
-      "--grid-heading-accent-color": { "type": "color", "default": "var(--color-accent)", "description": "Color of the title_accent substring within the heading. Ignored unless title_accent is set AND occurs as a substring of title — no accent span is rendered otherwise, so this slot has nothing to colour.", "applies_when": [{"prop": "title", "present": true}] },
-      "--grid-eyebrow-color": { "type": "color", "default": "var(--color-text)", "description": "Eyebrow pill text color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-eyebrow-bg": { "type": "color", "default": "var(--color-surface-accent)", "description": "Eyebrow pill background color", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-eyebrow-radius": { "type": "length", "default": "3px", "description": "Eyebrow pill corner radius. Set a large value (e.g. 999px) for a fully rounded pill.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-eyebrow-border-width": { "type": "length", "default": "0", "description": "Eyebrow pill border width. Set a non-zero width (with --grid-eyebrow-border-color) for an outlined pill; 0 (default) renders no border.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-eyebrow-border-color": { "type": "color", "default": "transparent", "description": "Eyebrow pill border color. Takes effect when --grid-eyebrow-border-width is non-zero.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-eyebrow-text-transform": { "type": "text-transform", "default": "uppercase", "description": "Eyebrow pill letter-casing. Default uppercase renders the kicker in caps; set none to keep it as authored (e.g. sentence case), or lowercase / capitalize.", "applies_when": [{"prop": "eyebrow", "present": true}] },
-      "--grid-subheading-color": { "type": "color", "default": "var(--color-muted)", "description": "Subheading text color", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--grid-subheading-margin-bottom": { "type": "length", "default": "var(--space-lg)", "description": "Space between the subheading and the content below it", "applies_when": [{"prop": "subheading", "present": true}] },
-      "--grid-heading-margin-bottom": { "type": "length", "default": "1.65rem", "description": "Space between the heading and the subheading below it. 1.65rem is the effective default at desktop (>=768px); below 768px it is 1.25rem.", "applies_when": [{"prop": "title", "present": true}] },
-      "--grid-heading-size": { "type": "length", "default": "var(--pp-band-heading-size)", "description": "Heading font size. Defaults to the shared responsive band-heading scale (fluid ~28px mobile to ~42px desktop), which every band heading in the theme routes. LEAVE IT UNSET unless THIS band must differ from the rest of the site: the shared scale is not a design token and no action in the write path can retune it, so setting this slot changes THIS band only and never the others.", "applies_when": [{"prop": "title", "present": true}] },
-      "--grid-heading-measure": { "type": "length", "role": "measure", "default": "var(--measure-heading)", "description": "Maximum width of the grid heading — increase to let a long heading use the available horizontal space. Routes the shared --measure-heading design token (40rem) by default, so retuning that ONE token changes every routed band heading at once; set a length here only when THIS band must differ from the rest of the site.", "applies_when": [{"prop": "title", "present": true}] },
-      "--grid-gap": { "type": "length", "default": "1rem", "description": "Gap between grid cards, on every layout. It is read on the .grid__list, so it is a GRID-LEVEL control only: it sets the spacing of the whole card row and is not settable per card (it carries no item_eligible flag, and a per-card value is rejected at write and dropped at render). 1rem is the effective default on a composed page (1.05rem at >=1024px, 0.85rem below 768px)." },
-      "--grid-item-bg": { "item_eligible": true, "type": "gradient", "default": "linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)", "description": "Card background color or gradient. The stated gradient is the effective default on a composed page for the standard cards; the FEATURED first card defaults to an accent gradient instead, an inverted grid defaults its cards to var(--color-bg) so they stay light on a dark band, and a steps card falls back to var(--color-surface). Setting this replaces the fill layer on every card it applies to; the decorative texture stripe above it is a separate layer and stays" },
-      "--grid-item-border-color": { "item_eligible": true, "type": "color", "default": "var(--color-border)", "description": "Card border color. The featured first card overrides this with its own accent border unless you set this slot." },
-      "--grid-item-border-width": { "item_eligible": true, "type": "length", "default": "1px", "description": "Card border width" },
-      "--grid-item-radius": { "item_eligible": true, "type": "length", "default": "4px", "description": "Card border radius. 4px on a composed page, at every viewport." },
-      "--grid-item-shadow": { "item_eligible": true, "type": "shadow", "default": "0 10px 24px rgba(15, 23, 42, 0.055)", "description": "Card box shadow / glow (preset var(--shadow-sm|md|lg) or a bounded box-shadow). The stated value is the effective default on a composed page; the featured first card carries its own blue glow instead, via --grid-featured-shadow." },
-      "--grid-item-bar-color": { "item_eligible": true, "type": "gradient", "default": "var(--color-border)", "description": "Card top-bar color or gradient (cards layout only; no bar exists on steps). The featured first card defaults to an accent gradient; setting this slot pins one bar color on every card", "applies_when": [{"prop": "layout", "equals": "cards"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express" },
-      "--grid-item-bar-height": { "item_eligible": true, "type": "length", "default": "2px", "description": "Card top-bar height (cards layout only; the featured first card defaults to 4px). 0 removes the bar on every card", "applies_when": [{"prop": "layout", "equals": "cards"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express" },
-      "--grid-featured-texture-color": { "item_eligible": true, "type": "color", "default": "rgba(37, 99, 235, 0.055)", "description": "Texture-stripe line color painted on the featured first card only (cards layout on composed pages). transparent removes the stripe. The stripe's COLOUR is what this slot reaches; its repeat PERIOD (2.75rem on the featured card, 3rem on the non-featured ones) is a stated default with no slot — the period is what makes the pattern read as texture rather than as ruled lines, and it is not a value composed from content. See components/grid/README.md, 'Stated defaults'", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "card_emphasis", "equals": "featured"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only" },
-      "--grid-featured-shadow": { "item_eligible": true, "type": "shadow", "default": "var(--grid-item-shadow)", "description": "Box shadow of the featured first card only (cards layout on composed pages); overrides the shared --grid-item-shadow there. When both are unset a built-in blue glow renders. Set none (or set --grid-item-shadow for all cards) to remove the featured glow", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "card_emphasis", "equals": "featured"}], "conditionality_note": "the component sits at the top level of a composed page — these rules are scoped `main > .grid`, a composed-page context the clause grammar cannot express, and it paints the FIRST card only" },
-      "--grid-item-padding": { "item_eligible": true, "type": "length", "default": "2rem", "description": "Card body padding. 2rem is the effective default at desktop (>=768px) on a composed page; below 768px it is 1.55rem, and the featured first card takes 2.25rem of top padding at >=1024px." },
-      "--grid-item-gap": { "item_eligible": true, "type": "length", "default": "var(--space-sm)", "description": "Gap between card body elements" },
-      "--grid-item-text-align": { "item_eligible": true, "type": "align", "default": "left", "description": "Alignment of the card's content within the card body. 'left' (default) is unchanged historical behavior; 'center' centers the content (use for centered emoji/label contact cards); also accepts 'right', 'start', 'end', 'justify'. Governs BOTH the text (title, text, bullets) via text-align AND the 'Read more' link/button, which follows the same alignment via the derived --pp-grid-link-align companion (issue 361: left/start/justify->flex-start, center->center, right/end->flex-end), so a centered card is fully centered. Item-eligible, so settable grid-wide or per-card." },
-      "--grid-item-icon-size": { "item_eligible": true, "type": "length", "default": "48px", "description": "Icon size (width and height) of a card image when image_treatment is 'icon' — the fixed box the un-cropped icon renders in, above the title. No effect under the default 'banner' treatment (the 16:9 cover banner ignores it). Item-eligible, so settable grid-wide or per-card.", "applies_when": [{"prop": "layout", "equals": "cards"}, {"prop": "image_treatment", "equals": "icon"}], "conditionality_note": "at least one item declares an image_url — the icon box IS that item's image wrapper" },
-      "--grid-item-title-size": { "item_eligible": true, "type": "length", "default": "1.14rem", "description": "Card title font size. 1.14rem is the effective default at desktop (>=768px) on the default cards layout; below 768px it is 1.06rem, the featured first card takes 1.22rem at >=1024px, and a steps card takes 1.04rem." },
-      "--grid-item-title-color": { "item_eligible": true, "type": "color", "default": "var(--color-text)", "description": "Card title text color" },
-      "--grid-item-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-text-secondary)", "description": "Card description text color. var(--color-text-secondary) is the effective default at desktop (>=768px); below 768px it is var(--color-muted). DUAL JOB: it also colours the card BULLET text, and it overrides the preset colour of the meta and kicker text roles at every breakpoint — so this one slot governs the whole non-title body of the card, not just the description paragraph. Note the bullet list has no desktop tier of its own: UNSET, bullets stay var(--color-muted) at every viewport while the description paragraph lightens to var(--color-text-secondary) at >=768px. Setting the slot makes both surfaces agree." },
-      "--grid-item-bullet-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Checklist bullet marker color (grid card bullets)" },
-      "--grid-item-link-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "RESTING card link color. Its positional twin is --grid-item-link-hover-color: a colour set here and left unset there reverts to the default accent-hover under the pointer, so set both or neither." },
-      "--grid-item-link-hover-color": { "item_eligible": true, "type": "color", "default": "var(--color-accent-hover)", "description": "HOVER card link color — the positional twin of --grid-item-link-color, which owns the resting colour. The hover MUST stay visually distinct from rest: setting both to the same value erases the hover feedback on the card link." },
-      "--grid-step-bg": { "item_eligible": true, "type": "color", "default": "var(--color-accent)", "description": "Step badge background (fill) color (steps layout). The numeral text color is a separate slot, --grid-step-text-color (default var(--color-bg)) — pair the two for a light fill with ink numerals", "applies_when": [{"prop": "layout", "equals": "steps"}] },
-      "--grid-step-text-color": { "item_eligible": true, "type": "color", "default": "var(--color-bg)", "description": "Step numeral (number text) color (steps layout). Defaults to var(--color-bg) so unset renders byte-identically; set it to an ink color when --grid-step-bg is a light fill (e.g. a lime badge) so the numeral stays high-contrast, mirroring the --grid-item-bg/--grid-item-title-color fill+ink pairing on cards", "applies_when": [{"prop": "layout", "equals": "steps"}] }
-    },
-    "recipes": {
-      "dark-showcase": {
-        "description": "Dark background with light cards for product showcase",
-        "slots": {
-          "--grid-bg": "#1a1a2e",
-          "--grid-heading-color": "#f0f0f0",
-          "--grid-item-bg": "#ffffff",
-          "--grid-gap": "2.5rem",
-          "--grid-item-radius": "1rem"
-        }
-      },
-      "dense-cards": {
-        "description": "Tight card spacing for compact layouts",
-        "slots": {
-          "--grid-gap": "1rem",
-          "--grid-item-padding": "1rem",
-          "--grid-item-gap": "0.5rem"
-        }
-      },
-      "uniform-cards": {
-        "description": "Neutralize the featured first-card treatment for a uniform row: removes the top bars, the featured texture stripe, and the featured glow, and pins one shared border, background, shadow, and title size on every card. Residual differences that stay: the faint texture on cards 2+, a 0.25rem body padding-top difference on card 1 at desktop, and the dark-theme lift",
-        "slots": {
-          "--grid-item-bar-height": "0",
-          "--grid-featured-texture-color": "transparent",
-          "--grid-item-shadow": "0 10px 24px rgba(15, 23, 42, 0.055)",
-          "--grid-item-border-color": "var(--color-border)",
-          "--grid-item-bg": "var(--color-surface)",
-          "--grid-item-title-size": "1.25rem"
-        }
-      }
-    }
+    "variant_classes": [
+      "grid--steps"
+    ],
+    "tokens": [
+      "--color-accent",
+      "--color-accent-hover",
+      "--color-bg",
+      "--color-border",
+      "--color-muted",
+      "--color-surface-accent",
+      "--color-text",
+      "--color-text-secondary",
+      "--measure-heading",
+      "--space-lg",
+      "--space-md",
+      "--space-sm"
+    ]
   },
-  "safe_to_edit": ["grid.php", "../../assets/css/components.css (COMPONENT: grid section)"],
-  "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
+  "safe_to_edit": [
+    "grid.php",
+    "../../assets/css/components.css (COMPONENT: grid section)"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
 }

@@ -201,72 +201,63 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
         // A map under `array`: refused by the list rule, not the object rule's business.
         $this->assertFalse(_pp_schema_list_value_is_valid('array', ['first' => 1]));
         $this->assertTrue(_pp_schema_object_value_is_valid('array', ['first' => 1]));
-    }
-
-    // ── §2. Uniform coverage across both depths, by inventory ───────────────
-
-    /**
-     * Every NESTED `type: "object"` field in the shipped schemas refuses a populated list.
+    }    /**
+     * THE WRITE-PATH HALF OF THIS SUITE RETIRED AT #1101: `grid.items[].style` was the
+     * only nested `object` field any shipped schema declared, and it is gone.
      *
-     * INVENTORY-DRIVEN, not case-driven, for the reason #744's and #738's sibling sweeps
-     * give: a two-case pin proves the helper changed; it does not prove every
-     * object-typed schema path reaches it. The count is asserted so a NEW declaration is
-     * covered the day it lands and a DELETED one is noticed.
+     * Seven tests drove the object-shape rule through the REAL authoring surfaces —
+     * `update_composition`, `create_page`, `update_component`, `add_component`,
+     * `restore_composition` and the collect-all findings walk — each asserting that a
+     * populated LIST in an object-typed field is refused with `invalid_prop_value`,
+     * that the MAP form is still accepted, and that a restore REPORTS rather than blocks
+     * (#233). They needed a declared object field to write into, and there is none: a
+     * card's design is an `items[].udc` map now, which is ENGINE-OWNED and deliberately
+     * not a declared sub-field, so it is not a subject for the container rules at all.
+     *
+     * THE RULE ITSELF IS UNTOUCHED AND STILL UNIT-COVERED. The predicate tests above —
+     * the object leg's list/map split, the empty container, the not-applicable types, the
+     * scalar case and the independence of the list and object predicates — drive
+     * `_pp_prop_container_shape_error()` directly and need no shipped declaration. What is
+     * gone is the end-to-end half: nothing in the shipped schemas can carry the shape to
+     * a write path any more.
+     *
+     * THAT IS A GENUINE COVERAGE LOSS AND IT IS NOT PAPERED OVER. The rule is live
+     * production code with no live consumer, which is precisely the measurement PR2 owes
+     * (issue #1101 §4, "retire what is provably dead; file what needs a ruling"). It is
+     * deliberately NOT re-homed onto `ppfixture`: that fixture's nested fields sit under
+     * an `item_fields` key no engine code reads, and the fixture is itself scheduled for
+     * deletion in that same PR2. Re-homing would move seven tests into the delete pile and
+     * buy nothing.
+     *
+     * The census below is what remains, and it is the claim that matters: ZERO nested
+     * object fields. It replaces testEveryNestedObjectFieldRefusesAPopulatedList, whose
+     * own comment already said the walk would cover "a different set" if the count moved.
      */
-    public function testEveryNestedObjectFieldRefusesAPopulatedList(): void
+    public function testNoShippedSchemaDeclaresANestedObjectFieldAnyMore(): void
     {
-        $seen = 0;
-        foreach (pp_composable_components() as $component => $schema) {
-            foreach (($schema['props'] ?? []) as $prop_name => $prop_def) {
-                if (($prop_def['type'] ?? null) !== 'array' || !is_array($prop_def['items'] ?? null)) {
-                    continue;
-                }
-                foreach ($prop_def['items'] as $field_name => $field_def) {
-                    if (!is_array($field_def) || ($field_def['type'] ?? null) !== 'object') {
-                        continue;
+        $fields = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            foreach (($schema['props'] ?? []) as $prop => $def) {
+                foreach ((is_array($def) ? ($def['items'] ?? []) : []) as $sub => $subDef) {
+                    if (is_array($subDef) && ($subDef['type'] ?? null) === 'object') {
+                        $fields[] = basename(dirname($file)) . ".{$prop}[].{$sub}";
                     }
-                    $seen++;
-
-                    $entry = $this->wellFormedEntry($prop_def['items']);
-                    $entry[$field_name] = ['#fff'];
-                    $rejected = pp_validate_composition([[
-                        'component' => $component,
-                        'props'     => $this->wellFormedProps($component, [$prop_name => [$entry]]),
-                    ]]);
-
-                    $this->assertInstanceOf(WP_Error::class, $rejected, sprintf(
-                        '%s.%s[].%s declares type:object and must refuse a populated list',
-                        $component, $prop_name, $field_name
-                    ));
-                    $this->assertSame('invalid_prop_value', $rejected->get_error_code());
-                    $this->assertStringContainsString(
-                        sprintf('field "%s" must be an object, but this one is a JSON list (1 entry).', $field_name),
-                        $rejected->get_error_message(),
-                        'and the message names the FIELD and the shape it actually got'
-                    );
-
-                    // Paired with the well-formed counterpart, so a fixture failing for
-                    // an unrelated reason cannot read as a pass.
-                    $entry[$field_name] = [];
-                    $this->assertTrue(
-                        pp_validate_composition([[
-                            'component' => $component,
-                            'props'     => $this->wellFormedProps($component, [$prop_name => [$entry]]),
-                        ]]) === true,
-                        sprintf('%s.%s[].%s must still accept the empty container', $component, $prop_name, $field_name)
-                    );
                 }
             }
         }
-
-        // Two -> ONE at #1023: `section.panel_items[].style` retired with section's slot
-        // system, because v2 has no address for a per-item style map (roles are
-        // band-grain). BUILD-SPEC Addendum B is the contract question and #1024 the gate;
-        // when it is ruled this count goes back up at item grain.
-        $this->assertSame(1, $seen,
-            'the registry declares exactly one nested `object` field today'
-            . ' (grid.items[].style) — if this count moved, the walk above covered a'
-            . ' different set than the one this file claims and the number needs updating deliberately');
+        $this->assertSame(
+            [],
+            $fields,
+            'a nested object field is declared again — restore the seven write-path tests '
+            . 'this assertion replaced in the same commit, or the shape rule ships with no '
+            . 'end-to-end coverage at all.'
+        );
+        // ANTI-VACUITY: the walk must still be reading real schemas with real nested
+        // fields, or an empty result proves the glob broke rather than the field left.
+        $grid = json_decode((string) file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
+        $this->assertArrayHasKey('bullets', $grid['props']['items']['items'], 'the walk reaches nested fields');
+        $this->assertSame('array', $grid['props']['items']['items']['bullets']['type']);
     }
 
     /**
@@ -289,136 +280,6 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
         $this->assertSame([], $found,
             'a top-level `object` prop now ships — the §5 synthetic arm is no longer the only'
             . ' coverage that rule has, and this file should pin the real declaration too');
-    }
-
-    // ── §3. The authoring path (Section 14.1) ───────────────────────────────
-
-    /**
-     * THE REFUSAL THROUGH THE ACTION AN AUTHOR ACTUALLY USES.
-     *
-     * Section 14.1 requires this to run through the real surface rather than a raw
-     * `_pp_composition` write, because tests/bootstrap.php accepts an already-decoded
-     * array on raw writes and so bypasses the decode filter — which is exactly how a
-     * schema-contract defect escaped in #488.
-     */
-    public function testUpdateCompositionRefusesAListStyleAndStoresNothing(): void
-    {
-        $post_id = pp_create_page('Existing page', 'draft');
-        $before  = [['component' => 'grid', 'props' => [
-            'id' => 'pp-keep', 'items' => [['title' => 'Original card', 'text' => 'Body']],
-        ]]];
-        pp_update_composition($post_id, $before);
-        $stored_before = $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'];
-
-        $result = pp_execute_action('update_composition', [
-            'post_id'     => $post_id,
-            'composition' => [['component' => 'grid', 'props' => [
-                'items' => [['title' => 'Card', 'text' => 'Body', 'style' => json_decode('["#fff"]', true)]],
-            ]]],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a list where an object belongs must not return ok:true');
-        $this->assertSame('invalid_prop_value', $result['error_code']);
-        // The standard envelope: band, then prop, then item, then field, then what to send.
-        $this->assertStringContainsString('Component 0 ("grid")', $result['error']);
-        $this->assertStringContainsString('prop "items" item 0 field "style"', $result['error']);
-        $this->assertStringContainsString('must be an object, but this one is a JSON list (1 entry).', $result['error']);
-        $this->assertStringContainsString('Send it as an object with keys ({...}), not an array ([...]).', $result['error']);
-        // The SHAPE rule answers, not the slot engine that used to stand in for it.
-        $this->assertStringNotContainsString('has no style slot', $result['error'],
-            'the rule that owns the declared type answers now — the slot engine owns slot NAMES');
-
-        $this->assertSame(
-            $stored_before,
-            $GLOBALS['_pp_test_store']['post_meta'][$post_id]['_pp_composition'],
-            'a rejected write stores nothing — not even partially'
-        );
-    }
-
-    /**
-     * The WELL-FORMED counterpart, same card, same action. Paired with the refusal above
-     * so a fixture that started failing for an unrelated reason cannot read as a pass.
-     */
-    public function testUpdateCompositionStillAcceptsTheMapForm(): void
-    {
-        $post_id = pp_create_page('Existing page', 'draft');
-        pp_update_composition($post_id, [['component' => 'grid', 'props' => ['items' => [['title' => 'x']]]]]);
-
-        $decoded = json_decode(
-            '{"items":[{"title":"Card","text":"Body","style":{"--grid-item-bg":"#111111"}}]}',
-            true
-        );
-        $result = pp_execute_action('update_composition', [
-            'post_id' => $post_id, 'composition' => [['component' => 'grid', 'props' => $decoded]],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the map form must still be accepted');
-        $style = pp_get_composition($post_id)[0]['props']['items'][0]['style'];
-        $this->assertSame(['--grid-item-bg' => '#111111'], $style, 'and it is stored verbatim');
-    }
-
-    /** create_page — the other whole-composition verb, refusing the same payload. */
-    public function testCreatePageRefusesAListStyleAndCreatesNoPage(): void
-    {
-        $before = count($GLOBALS['_pp_test_store']['posts']);
-
-        $result = pp_execute_action('create_page', [
-            'title'       => 'Should not exist',
-            'composition' => [['component' => 'grid', 'props' => [
-                'items' => [['title' => 'Card', 'text' => 'Body', 'style' => ['#fff']]],
-            ]]],
-        ]);
-
-        $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('field "style" must be an object', $result['error']);
-        $this->assertCount($before, $GLOBALS['_pp_test_store']['posts'], 'a refused create_page creates nothing');
-    }
-
-    /**
-     * update_component — the action an agent reaches for most often when repairing one
-     * band, and the one that validates the MERGED whole composition rather than the patch.
-     */
-    public function testUpdateComponentRefusesAListStyleAndLeavesTheBandUntouched(): void
-    {
-        $post_id = pp_create_page('Patch me', 'draft');
-        pp_update_composition($post_id, [['component' => 'grid', 'props' => [
-            'id' => 'pp-target', 'items' => [['title' => 'Original card', 'text' => 'Body']],
-        ]]]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-target',
-            'props'        => ['items' => [['title' => 'Card', 'text' => 'Body', 'style' => ['#fff']]]],
-        ]);
-
-        $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('field "style" must be an object', $result['error']);
-        $this->assertSame(
-            'Original card',
-            pp_get_composition($post_id)[0]['props']['items'][0]['title'],
-            'a refused patch leaves the stored band exactly as it was'
-        );
-    }
-
-    /**
-     * add_component — judged by pp_validate_composition_item(), which wraps the ONE new
-     * band in a synthetic array and runs the same shared engine, so the refusal reaches
-     * it without a second validator.
-     */
-    public function testAddComponentRefusesAListStyle(): void
-    {
-        $post_id = pp_create_page('Append to me', 'draft');
-        pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'Hi']]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $post_id,
-            'component' => 'grid',
-            'props'     => ['items' => [['title' => 'Card', 'text' => 'Body', 'style' => ['#fff']]]],
-        ]);
-
-        $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('field "style" must be an object', $result['error']);
-        $this->assertCount(1, pp_get_composition($post_id), 'nothing was appended');
     }
 
     /**
@@ -453,47 +314,6 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
         $this->assertStringContainsString('style', $result['error']);
         $this->assertStringContainsString('label', $result['error'],
             'the refusal names the fields a panel entry does accept');
-    }
-
-    // ── §4. The route table: what refuses, and what deliberately bypasses ───
-
-    /**
-     * restore_composition IS NEVER BLOCKED BY CURRENT VALIDATION RULES (#233), and this is
-     * the most important assertion in the file.
-     *
-     * Undo is wired to restore. A restore that current rules refuse would fail exactly
-     * when a user most needs it, and a narrowing that blocked restore would strand the
-     * very pages it exists to name. Restore replays a snapshot VERBATIM and REPORTS rule
-     * violations in `findings` instead of vetoing them.
-     */
-    public function testRestoreCompositionRestoresAListStyleAndReportsRatherThanBlocking(): void
-    {
-        $post_id = pp_create_page('History page', 'draft');
-        // v1 holds the list-shaped style. pp_update_composition() is the storage writer,
-        // not a validator, which is precisely how a pre-rule composition got into a ring.
-        pp_update_composition($post_id, [['component' => 'grid', 'props' => [
-            'items' => [['title' => 'Card one', 'text' => 'Body', 'style' => ['#fff']]],
-        ]]]);
-        pp_update_composition($post_id, [['component' => 'grid', 'props' => [
-            'items' => [['title' => 'Clean card', 'text' => 'Body']],
-        ]]]);
-
-        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'version' => 1]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? 'restore must not be blocked by a write rule');
-        $this->assertSame(
-            ['#fff'],
-            pp_get_composition($post_id)[0]['props']['items'][0]['style'],
-            'and it is restored VERBATIM — no key synthesis, no coercion (D-A)'
-        );
-
-        // REPORTS, not just "does not block", which is the half the #233 contract is
-        // actually about and the half a silent regression would eat.
-        $messages = array_column($result['findings'] ?? [], 'message');
-        $this->assertNotEmpty(array_filter(
-            $messages,
-            static fn (string $m): bool => str_contains($m, 'field "style" must be an object')
-        ), 'the restore envelope must REPORT the shape defect it declined to block on');
     }
 
     /**
@@ -542,35 +362,6 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
         // And a numeric object that is NOT a 0-based run stays a map, so the limit is
         // narrow rather than "numeric keys are banned".
         $this->assertTrue(_pp_schema_object_value_is_valid('object', json_decode('{"1":"a","0":"b"}', true)));
-    }
-
-    /**
-     * BOTH FINDINGS SURVIVE ON A COLLECT-ALL SURFACE, and the write path still returns one.
-     *
-     * The shape rule claims `prop/<prop>/<entry>/<field>` and the per-item style engine
-     * claims `item-style/<prop>/<entry>`, so a reporting surface names the shape defect
-     * AND the slot defect for one list-shaped `style`. Two true sentences about one value
-     * is the posture #621 and #738 both chose over suppression. The write path is
-     * unaffected: budget 1, first-error-wins, and the shape rule runs first — so an
-     * authoring agent gets exactly one message and it is the one about the shape.
-     */
-    public function testACollectAllSurfaceNamesBothTheShapeAndTheSlotDefect(): void
-    {
-        $post_id = pp_create_page('Findings page', 'draft');
-        pp_update_composition($post_id, [['component' => 'grid', 'props' => [
-            'items' => [['title' => 'Card', 'text' => 'Body', 'style' => ['#fff']]],
-        ]]]);
-
-        $messages = array_column(_pp_composition_findings(pp_get_composition($post_id)), 'message');
-
-        $this->assertNotEmpty(array_filter(
-            $messages,
-            static fn (string $m): bool => str_contains($m, 'field "style" must be an object')
-        ), 'the shape rule reports');
-        $this->assertNotEmpty(array_filter(
-            $messages,
-            static fn (string $m): bool => str_contains($m, 'has no style slot')
-        ), 'and the slot engine still reports too — a distinct claim role, so neither suppresses the other');
     }
 
     /**

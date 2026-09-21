@@ -248,15 +248,19 @@ class ContainerPropWriteEnforcementTest extends TestCase
         sort($checked);
         $this->assertSame(
             [
-                // `section.panel_items[].style` left this set at #1023: per-item style
-                // maps went with section's slot system, and v2 has no address for one
-                // (roles are band-grain). The contract question is BUILD-SPEC Addendum B,
-                // gated on #1024 — when it is ruled this entry comes back at item grain.
+                // `section.panel_items[].style` left this set at #1023 and
+                // `grid.items[].style` at #1101 — per-item style maps went with each
+                // component's slot system. ADDENDUM B ANSWERED THE QUESTION #1023 LEFT
+                // OPEN, and the answer does NOT bring an entry back here: a card's design
+                // is an `items[].udc` map, which is ENGINE-OWNED and deliberately not a
+                // declared sub-field (the `items` prop description says so), so it is
+                // validated by the UDC engine against the component's own roles rather
+                // than by the container-shape rule. `bullets` is the last declared nested
+                // container in the theme, and this suite's remaining subject.
                 'grid.items[].bullets',
-                'grid.items[].style',
             ],
             $checked,
-            'the shipped schemas declare exactly two nested container fields; update this pin deliberately'
+            'the shipped schemas declare exactly one nested container field; update this pin deliberately'
         );
     }
 
@@ -350,32 +354,31 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $this->assertStringContainsString('item 0', $result['error']);
         $this->assertStringContainsString('must be an array', $result['error']);
         $this->assertSame([], $GLOBALS['_pp_test_store']['posts'], 'a rejected create_page must create no post');
-    }
-
-    /**
-     * The object leg through the same action. Both shipped `object` declarations are
-     * per-item `style` maps, so this is the shape an agent reaches for when it wants
-     * one card to look different — and the one that used to silently do nothing.
+    }    /**
+     * THE OBJECT LEG'S END-TO-END TESTS RETIRED AT #1101, and the reason is that the leg
+     * lost its only shipped declaration rather than its rule.
      *
-     * @dataProvider nonContainerScalars
+     * `grid.items[].style` was the last nested `object` field in any schema
+     * (`section.panel_items[].style` went at #1023), so the four tests that drove the
+     * object leg through a REAL authoring surface — a scalar refused at `create_page`,
+     * the empty-map case, the sibling-card finding, and the "a list in an object field is
+     * the shape rule's business, not this one" boundary — have no field left to write
+     * into. A card's design is an `items[].udc` map now, which is ENGINE-OWNED and
+     * deliberately undeclared, so it is validated against the component's own roles by
+     * the UDC engine instead of by the container-shape rule.
+     *
+     * THE ARRAY LEG IS UNTOUCHED AND IS THE WHOLE SUITE'S SUBJECT NOW: `grid.items[]
+     * .bullets` is the last declared nested container in the theme, it still drives every
+     * surface, and the #805 accordion lockout it pins is still the reason this file
+     * exists. Where a test asserted BOTH legs, the object half was removed and the array
+     * half kept, rather than the test being dropped.
+     *
+     * The object leg's own PREDICATE coverage is also untouched — it lives in
+     * tests/ObjectShapedPropWriteEnforcementTest.php, which drives
+     * `_pp_prop_container_shape_error()` directly and needs no declaration; that file
+     * carries the same note about what its write-path half lost, and the measurement PR2
+     * owes on whether the rule now has any consumer at all.
      */
-    public function testCreatePageRejectsAScalarInANestedObjectField($bad): void
-    {
-        $result = pp_execute_action('create_page', [
-            'title'       => 'Rejected at creation, object leg',
-            'composition' => [[
-                'component' => 'grid',
-                'props'     => ['items' => [['title' => 'Card', 'text' => 'T', 'style' => $bad]]],
-            ]],
-        ]);
-
-        $this->assertFalse($result['ok']);
-        $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('style', $result['error']);
-        $this->assertStringContainsString('item 0', $result['error']);
-        $this->assertStringContainsString('must be an object', $result['error']);
-        $this->assertSame([], $GLOBALS['_pp_test_store']['posts'], 'a rejected create_page must create no post');
-    }
 
     /**
      * The well-formed counterpart: the same writes with real containers are accepted
@@ -389,7 +392,7 @@ class ContainerPropWriteEnforcementTest extends TestCase
     public function testCreatePageStillAcceptsWellFormedContainers(): void
     {
         $decoded = json_decode(
-            '{"items":[{"title":"Card","text":"T","bullets":["Fast","Honest"],"style":{"--grid-item-bg":"#111111"}}]}',
+            '{"items":[{"title":"Card","text":"T","bullets":["Fast","Honest"]}]}',
             true
         );
 
@@ -412,7 +415,10 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $this->assertTrue($result['ok'], $result['error'] ?? 'a well-formed container write must still be accepted');
         $stored = pp_get_composition($result['target']['post_id']);
         $this->assertSame(['Fast', 'Honest'], $stored[0]['props']['items'][0]['bullets']);
-        $this->assertSame(['--grid-item-bg' => '#111111'], $stored[0]['props']['items'][0]['style']);
+        // The per-item `style` map left this fixture at #1101 with the declaration. The
+        // JSON round trip above is the load-bearing part and it still is: `bullets`
+        // decodes to a PHP array exactly as an object would, which is the ambiguity this
+        // whole rule exists to resolve.
         $this->assertSame([['label' => 'Uptime', 'value' => '99%']], $stored[1]['props']['panel_items'],
             'the section container round-trips, without a per-item style map to carry');
     }
@@ -455,9 +461,13 @@ class ContainerPropWriteEnforcementTest extends TestCase
         // would prove almost nothing: the validator stops at the first failure, so
         // the pin could not say WHICH declaration refused, and disabling the `array`
         // leg entirely would leave it green on the `object` leg's refusal.
+        // `style` left this pair at #1101 with the declaration. THE COMMENT ABOVE STILL
+        // APPLIES TO WHAT REMAINS: the validator stops at the first failure, so a fixture
+        // that flattened two fields at once could not say which declaration refused —
+        // which is why each flattened field is still driven on its own row rather than
+        // together.
         $flattened = [
             'bullets' => ['Fast,Honest', 'must be an array'],
-            'style'   => ['[object Object]', 'must be an object'],
         ];
         foreach ($flattened as $field => $case) {
             [$scalar, $shape_message] = $case;
@@ -487,7 +497,6 @@ class ContainerPropWriteEnforcementTest extends TestCase
             'composition' => [['component' => 'grid', 'props' => ['items' => [[
                 'title'    => 'Card A2',
                 'bullets'  => ['Fast', 'Honest'],
-                'style'    => ['--grid-item-bg' => '#111111'],
                 'image_id' => 42,
             ]]]]],
         ]);
@@ -496,8 +505,12 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $item = pp_get_composition($post_id)[0]['props']['items'][0];
         $this->assertSame('Card A2', $item['title']);
         $this->assertSame(['Fast', 'Honest'], $item['bullets']);
-        $this->assertSame(['--grid-item-bg' => '#111111'], $item['style']);
         $this->assertIsInt($item['image_id'], 'a number sub-key must survive the editor as a number');
+        // THE #805 CLAIM SURVIVES THE SHRINK, and it is worth saying which half was doing
+        // the work: the lockout was about a sub-field whose declared TYPE no text control
+        // can round-trip, and `bullets` (array) plus `image_id` (number) are both still
+        // that. The `style` object was a third instance of the same shape, not a third
+        // shape.
     }
 
     /**
@@ -536,9 +549,11 @@ class ContainerPropWriteEnforcementTest extends TestCase
             ['component' => 'grid', 'props' => ['items' => [['title' => 'Card', 'bullets' => ['Kept']]]]],
         ]);
 
+        // THE OBJECT LEG LEFT THIS LOOP AT #1101 with `items[].style`; the array leg is
+        // the whole rule's shipped subject now. The loop is kept rather than flattened so
+        // a second declared container re-joins it by adding a row.
         foreach ([
             ['bullets' => 'Fast, honest', 'must be an array'],
-            ['style'   => 'dark',         'must be an object'],
         ] as $case) {
             $field    = array_key_first($case);
             $expected = $case[array_key_last($case)];
@@ -571,12 +586,12 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $post_id = pp_create_page('Page to append to', 'draft');
         pp_update_composition($post_id, [['component' => 'hero', 'props' => ['title' => 'T']]]);
 
-        // BOTH LEGS through this route, because the route is the point: a regression
-        // isolated to the item-only path would otherwise be caught for `array` and
-        // missed for `object`, which is the same half-coverage #744 is about.
+        // ONE LEG through this route since #1101 — `items[].style` was the object leg's
+        // only shipped declaration. The loop shape is kept deliberately: this route
+        // validates the ITEM alone, so a second declared container must be driven through
+        // it too, and adding a row is how that happens.
         foreach ([
             ['bullets', 'Fast, honest', 'must be an array'],
-            ['style',   'dark',         'must be an object'],
         ] as [$field, $bad, $expected]) {
             $result = pp_execute_action('add_component', [
                 'post_id'   => $post_id,
@@ -606,8 +621,11 @@ class ContainerPropWriteEnforcementTest extends TestCase
      */
     public function testTheUnsetSentinelsAndEmptyContainersAreAccepted(): void
     {
+        // `style` left this roster at #1101 with the declaration; `bullets` is the last
+        // declared nested container, and the sentinel rule is the same for whatever joins
+        // it next.
         foreach ([null, '', []] as $sentinel) {
-            foreach (['bullets', 'style'] as $field) {
+            foreach (['bullets'] as $field) {
                 $this->assertTrue(
                     pp_validate_composition([[
                         'component' => 'grid',
@@ -616,58 +634,6 @@ class ContainerPropWriteEnforcementTest extends TestCase
                     sprintf('%s must accept the sentinel %s', $field, var_export($sentinel, true))
                 );
             }
-        }
-    }
-
-    /**
-     * A JSON LIST in an `object` field is not THIS rule's business — and since #883 it
-     * has a rule of its own.
-     *
-     * WHAT CHANGED AND WHAT DID NOT. PHP has one shape for both JSON containers, so this
-     * rule enforces "container, not scalar" and decides nothing about what a container
-     * may hold. That is unchanged. What changed is who answers next: map-vs-list was
-     * unowned when this landed, #738 closed the `array` direction in a second predicate
-     * (_pp_schema_list_value_is_valid()), and #883 closed the `object` direction in a
-     * third (_pp_schema_object_value_is_valid()). So a list-shaped `style` is still
-     * refused — as this test always asserted — but by the rule that owns the declared
-     * TYPE rather than by the rule that owns style SLOT NAMES.
-     *
-     * THE ERROR CODE MOVED, AND THAT IS THE POINT OF UPDATING THIS PIN RATHER THAN
-     * DELETING IT. `invalid_style_slot` / `has no style slot "0"` was a true message
-     * from the wrong rule: it described a naming mistake the author did not make, and it
-     * held only because both shipped `object` fields happen to route to the slot engine.
-     * The set of refused writes is unchanged for these two fields; the vocabulary is not.
-     * Anything keyed on the old code for THIS shape is what #883's disclosure is about.
-     *
-     * The original warning still stands for what remains unowned: what an item `style`
-     * may CONTAIN is nobody's rule, and the entry-shape question one level up is owned by
-     * `item_type: "object"`, which is a different rule with a different message.
-     */
-    public function testAListInAnObjectFieldIsNotThisRulesBusinessAndIsCaughtByTheShapeRule(): void
-    {
-        $this->assertTrue(
-            pp_validate_composition([[
-                'component' => 'grid',
-                'props'     => ['items' => [['title' => 'Card', 'style' => []]]],
-            ]]) === true,
-            'an empty map is a container and is not this rule\'s business'
-        );
-
-        // AND THE LIST CASE IS STILL REFUSED. Both halves are asserted together on
-        // purpose — reading the accept above alone would suggest a list quietly
-        // persists. Since #883 the refusal carries the SHAPE rule's code and message.
-        foreach ([
-            // section's row is gone with its per-item style map (#1023); grid's is the
-            // remaining shipped instance of the shape rule.
-            ['grid',    ['items' => [['title' => 'Card', 'style' => ['#fff']]]]],
-        ] as [$component, $props]) {
-            $rejected = pp_validate_composition([['component' => $component, 'props' => $props]]);
-            $this->assertInstanceOf(WP_Error::class, $rejected, "a list-shaped {$component} style must not persist");
-            $this->assertSame('invalid_prop_value', $rejected->get_error_code(),
-                'and since #883 it is refused by the rule that owns the declared TYPE, not by the slot rule');
-            $this->assertStringContainsString('field "style" must be an object', $rejected->get_error_message());
-            $this->assertStringNotContainsString('has no style slot', $rejected->get_error_message(),
-                'the write path reports one message and it is the shape one (budget 1, and the shape rule runs first)');
         }
     }
 
@@ -718,10 +684,14 @@ class ContainerPropWriteEnforcementTest extends TestCase
      */
     public function testCompositionFindingsNameEveryOffendingField(): void
     {
+        // TWO CARDS, ONE LEG SINCE #1101. The collect-all claim is about REPORTING EVERY
+        // OFFENDING ITEM rather than about covering two declared types, so the fixture
+        // keeps two offending cards and moves the second onto the surviving leg. A
+        // first-error-only answer still fails here, which is the whole point.
         $messages = array_column(_pp_composition_findings([
             ['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Card A', 'bullets' => 'Fast, honest'],
-                ['title' => 'Card B', 'style' => 'dark'],
+                ['title' => 'Card B', 'bullets' => 'Also flattened'],
             ]]],
         ]), 'message');
         $joined = implode(' | ', $messages);
@@ -729,34 +699,10 @@ class ContainerPropWriteEnforcementTest extends TestCase
         $this->assertStringContainsString('item 0', $joined);
         $this->assertStringContainsString('bullets', $joined);
         $this->assertStringContainsString('item 1', $joined);
-        $this->assertStringContainsString('style', $joined);
         $this->assertGreaterThanOrEqual(2, count(array_filter(
             $messages,
-            static fn ($m) => str_contains($m, 'must be an array') || str_contains($m, 'must be an object')
+            static fn ($m) => str_contains($m, 'must be an array')
         )), 'both cards must be reported — a first-error-only answer sends an operator round the loop twice');
-    }
-
-    /**
-     * A REJECTED SCALAR `style` MUST NOT SWALLOW THE SLOT DIAGNOSTIC on a sibling card.
-     *
-     * The per-item style engine claims the role segment `item-style`, not `prop`,
-     * specifically so a scalar-typed `style` field could not claim a card's location
-     * and silence the slot finding — that comment was written before this rule existed
-     * and anticipated it. A suppressed diagnostic is the one failure mode the claim set
-     * must never cause, so the anticipation is pinned rather than trusted.
-     */
-    public function testAScalarStyleDoesNotSuppressTheSlotFindingOnASiblingCard(): void
-    {
-        $messages = array_column(_pp_composition_findings([
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card A', 'style' => 'dark'],
-                ['title' => 'Card B', 'style' => ['--not-a-real-slot' => '#fff']],
-            ]]],
-        ]), 'message');
-        $joined = implode(' | ', $messages);
-
-        $this->assertStringContainsString('must be an object', $joined, 'card 0 reports the type defect');
-        $this->assertStringContainsString('--not-a-real-slot', $joined, 'card 1 still reports its dead slot');
     }
 
     /**

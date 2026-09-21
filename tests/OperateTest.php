@@ -1976,14 +1976,21 @@ class OperateTest extends TestCase
         $this->assertArrayNotHasKey('panel_items', $section);    // array prop, not a scalar
         $this->assertArrayNotHasKey('body_items', $section);     // string-array, not addressable
 
-        // grid — nested item scalars + top-level number/enum.
+        // grid — nested item scalars + a top-level number and enum.
+        //
+        // TWO ROWS RETIRED AT #1101 and their absence is asserted rather than dropped:
+        // `card_emphasis` (the ordinal featured treatment, retired under ruling D9) and
+        // `items[].text_role` (the theme's only nested enum). `layout` takes over as this
+        // component's enum row — it is STRUCTURE rather than styling, so it stayed a prop
+        // — which keeps the "a top-level enum is patchable since #509" claim covered by a
+        // grid row rather than only by hero's.
         $grid = $this->fieldMap('grid');
         $this->assertSame('number', $grid['columns']);
-        $this->assertSame('enum', $grid['card_emphasis']);
         $this->assertSame('string', $grid['items[].title']);
         $this->assertSame('link_url', $this->fieldFormat('grid', 'items[].link_url'));
-        $this->assertSame('enum', $grid['items[].text_role']);
         $this->assertArrayNotHasKey('items[].bullets', $grid);   // nested array excluded
+        $this->assertArrayNotHasKey('card_emphasis', $grid, 'retired at #1101');
+        $this->assertArrayNotHasKey('items[].text_role', $grid, 'retired at #1101');
         $this->assertArrayNotHasKey('items[].style', $grid);     // nested object excluded
 
         // faq
@@ -2031,10 +2038,17 @@ class OperateTest extends TestCase
         $embed = $this->fieldMap('embed');
         $this->assertSame('string', $embed['content']);
         $this->assertArrayNotHasKey('theme', $embed, 'embed is a v2 component: its theme is the `_band` role');
-        // logos' `theme` retired at #1066 PR2 with stats'. GRID IS THE LAST ENUM-BEARING
-        // component, and the claim is that the matrix derives an `enum` TYPE correctly —
-        // not that any particular component has one — so it keeps its full value here.
-        $this->assertSame('enum', $this->fieldMap('grid')['theme']);
+        // logos' `theme` retired at #1066 PR2 with stats', and GRID'S — the last one —
+        // at #1101. The claim this line makes is that the matrix derives an `enum` TYPE
+        // correctly, NOT that any particular component has a `theme`, so it re-points at
+        // an enum that still ships rather than retiring: `layout` is structure (it changes
+        // which elements render) and stayed a prop on five components.
+        $this->assertSame('enum', $this->fieldMap('grid')['layout']);
+        $this->assertArrayNotHasKey(
+            'theme',
+            $this->fieldMap('grid'),
+            "grid is a v2 component since #1101: its tone is the `_band` role's background"
+        );
 
         // Unknown/unschema'd type returns empty (composability guard intact).
         $this->assertSame([], pp_get_component_fields('nonexistent'));
@@ -2868,25 +2882,48 @@ class OperateTest extends TestCase
     public function testInspectCompositionIncludesStyleSlots(): void
     {
         $post_id = pp_create_page('Style inspect test');
-        // `grid` since #1026 (`cta` from #1023, `section` before): inspect must report the
-        // slot catalog for a band that HAS one, and grid is the widest component still on
-        // slots. See #1025 on why this keeps re-homing and what the durable fix is.
-        pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]]],
+        // `ppfixture` SINCE #1101 — the fourth and last re-homing of this host (`section`,
+        // then `cta` at #1023, then `grid` at #1026). inspect must report the slot catalog
+        // for a band that HAS one, and after grid's rebuild no SHIPPED component does; the
+        // fixture is the only carrier left, which is exactly what #1025 created it for. It
+        // goes with this test in the v1 machinery sweep.
+        //
+        // PER-TEST OPT-IN (#1025), matching testInspectCompositionShowsCurrentStyleValues
+        // below: this class also asserts registry-wide facts that must see only shipped
+        // components, so the fixture is activated for this test alone and deactivated in a
+        // `finally` so a failing assertion cannot leak it into the next test.
+        FixtureTheme::activate();
+        try {
+            pp_update_composition($post_id, [
+                ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '1', 'label' => 'Card']]]],
+            ]);
+
+            $result = pp_inspect_composition($post_id);
+            $this->assertCount(1, $result);
+            $this->assertArrayHasKey('style_slots', $result[0]);
+            $this->assertCount(16, $result[0]['style_slots'], 'the fixture declares 16 slots');
+
+            // Verify slot structure.
+            $first_slot = $result[0]['style_slots'][0];
+            $this->assertArrayHasKey('slot', $first_slot);
+            $this->assertArrayHasKey('type', $first_slot);
+            $this->assertArrayHasKey('default', $first_slot);
+            $this->assertArrayHasKey('current', $first_slot);
+            $this->assertNull($first_slot['current']); // no overrides set
+        } finally {
+            FixtureTheme::deactivate();
+        }
+
+        // AND THE OTHER HALF, which the single-host version could not say: a v2 band
+        // reports an EMPTY slot catalog. Without this the test would keep passing if
+        // inspect started reporting an empty list for everything — which is exactly the
+        // shape the count assertion above would no longer catch on its own now that the
+        // only non-empty answer comes from a fixture.
+        $v2 = pp_create_page('Style inspect v2');
+        pp_update_composition($v2, [
+            ['component' => 'grid', 'props' => ['id' => 'pp-ccdd3344', 'title' => 'Hello', 'items' => [['title' => 'Card', 'text' => 'B']]]],
         ]);
-
-        $result = pp_inspect_composition($post_id);
-        $this->assertCount(1, $result);
-        $this->assertArrayHasKey('style_slots', $result[0]);
-        $this->assertCount(38, $result[0]['style_slots'], 'grid declares 38 slots');
-
-        // Verify slot structure.
-        $first_slot = $result[0]['style_slots'][0];
-        $this->assertArrayHasKey('slot', $first_slot);
-        $this->assertArrayHasKey('type', $first_slot);
-        $this->assertArrayHasKey('default', $first_slot);
-        $this->assertArrayHasKey('current', $first_slot);
-        $this->assertNull($first_slot['current']); // no overrides set
+        $this->assertSame([], pp_inspect_composition($v2)[0]['style_slots'] ?? []);
     }
 
     public function testInspectCompositionShowsCurrentStyleValues(): void

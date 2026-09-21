@@ -3,15 +3,55 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Schema contract: enums SHARED across component schemas must describe every value
- * identically. This is the test that would have caught the #442 drift, where the
- * `theme` enum's `dark` value was documented as "dark surface" in 3 schemas and
- * "surface background with borders" in 5 — the AI's belief depended on which schema
- * it read last. The rule is generic (any prop name shared across 2+ components), so
- * it also guards `layout`, `card_emphasis`, or any future shared enum.
+ * THE SHARED `theme` ENUM AND THE BAND-PADDING SLOT FAMILY — RETIRED WITH GRID (#1101),
+ * AND THE TWO CLAIMS RE-ASSERTED AT THE ADDRESS THEY LIVE AT NOW.
  *
- * It also pins the #442 migration outcome directly: the `theme` enum advertises
- * `default | muted | inverted` (no `dark`), byte-identical across all eight bands.
+ * WHAT THE THREE TESTS IN THIS FILE PROVED, so the record survives the subject.
+ *
+ *   1. `testSharedEnumPropsAreDescribedIdenticallyAcrossComponents` — a prop name AND
+ *      value set shared by 2+ schemas must carry a byte-identical `description` in every
+ *      one of them. This is the test that would have caught the #442 drift, where all
+ *      eight `theme` enums advertised the same three values while THREE described `dark`
+ *      as "dark surface" and FIVE as "surface background with borders": the authoring
+ *      model's belief about a band depended on which schema it happened to read last.
+ *      The rule was deliberately generic — grouped by VALUE SET, so a `layout` whose
+ *      values genuinely differ per component was never forced into false agreement.
+ *
+ *   2. `testThemeEnumAdvertisesMutedNotDark` — the #442/#605 migration outcome: the enum
+ *      advertises `default | muted | inverted` and never the removed `dark` alias, on
+ *      every component that declared it, with descriptions that steer a dark band toward
+ *      `inverted`.
+ *
+ *   3. `testBandPaddingSlotDefaultsAreUniformAndTruthful` — every band's
+ *      `--*-padding-top` / `--*-padding-bottom` slot declared the SAME, TRUTHFUL default,
+ *      `var(--pp-band-padding)`. This is the #446 drift: six band schemas still declared
+ *      `var(--space-xl)` long after #431 routed those slots through the shared rhythm, so
+ *      the `default` field — which is descriptive metadata the AI reads to predict unset
+ *      output, never emitted as CSS — taught the wrong geometry for every band. hero was
+ *      excluded and guarded as excluded, because its padding genuinely falls back to the
+ *      space scale rather than to the band rhythm.
+ *
+ * WHY ALL THREE SUBJECTS ARE GONE. `theme` left component by component across the v2
+ * rebuilds — testimonials #958, section #1023, cta #1026, faq #1046, embed and table
+ * #1066, stats and logos #1066 PR2 — and GRID WAS THE LAST DECLARER; #1101 retired it
+ * with the rest of grid's v1 prop surface. A dark band is the `_band` role's
+ * `background.fill` now, plus the ink the retirement route names. In the same change grid
+ * became the last component to declare `styling.style_slots` at all, so the band-padding
+ * slot FAMILY has no member left either: nothing in the theme declares a slot, so there
+ * is no slot `default` anywhere that could drift from any other.
+ *
+ * WHERE EACH CLAIM WENT, and both are asserted below rather than assumed:
+ *
+ *   - The shared-enum rule keeps its whole generic body (the loop still runs over every
+ *     enum in every schema) and gains an explicit pin that NO prop name is shared across
+ *     components today. An inert loop reading as a passing audit is the vacuous-pass
+ *     shape this repo refuses; the emptiness is stated out loud so re-declaring a shared
+ *     enum turns the loop back on with a failure rather than in silence.
+ *   - The band-rhythm claim survives INTACT and stronger: it is the `_band` role's
+ *     `spacing.padding-top` / `padding-bottom` defaults, which must be the shared
+ *     `@pp-band-padding` on every band, derived from the schemas rather than listed. The
+ *     hero exclusion survives with it, as does the rule that a DEFAULT and the value the
+ *     page actually renders must agree — the #446 defect class, one vocabulary later.
  */
 class SchemaThemeConsistencyTest extends TestCase
 {
@@ -33,80 +73,84 @@ class SchemaThemeConsistencyTest extends TestCase
     }
 
     /**
-     * Components that share the SAME enum — the same prop name AND the same set of
-     * values — must describe it identically. Two enums that merely share a name but
-     * carry different value sets (e.g. `layout`, whose values differ per component)
-     * are genuinely different enums and are allowed to differ; grouping by value set
-     * lets those through while still pinning a true shared vocabulary like `theme`.
+     * The #442 rule, kept whole, over a vocabulary that no longer shares anything.
      *
-     * This is precisely the test that fails on the #442 drift: all eight `theme`
-     * enums declared the same values ([default, dark, inverted]) yet 3 described the
-     * band as "dark surface" and 5 as "surface background with borders" — one group,
-     * divergent descriptions.
+     * The loop below is the original: group every enum by prop name AND value set, and
+     * require one description per group. What changed is that no group has two members,
+     * so the loop is inert — and an inert loop reporting green is indistinguishable from
+     * an audit that checked something. Three things are therefore asserted directly:
+     * the scan SAW enums (10 of them ship, on cta, grid, hero, section and testimonials),
+     * NO prop is shared across components, and `theme` in particular is declared by
+     * nobody — the fact that retired this file's headline subject.
      */
-    public function testSharedEnumPropsAreDescribedIdenticallyAcrossComponents(): void
+    public function testNoEnumIsSharedAcrossComponentsSoTheIdenticalDescriptionRuleIsInert(): void
     {
         $schemas = $this->loadSchemas();
 
         // prop name => value-set-signature => [component => description]
-        $groups = [];
+        $groups     = [];
+        $enumsSeen  = 0;
         foreach ($schemas as $component => $schema) {
             foreach (($schema['props'] ?? []) as $propName => $def) {
                 if (($def['type'] ?? null) !== 'enum') {
                     continue;
                 }
+                $enumsSeen++;
                 $signature = json_encode($def['values'] ?? null);
                 $groups[$propName][$signature][$component] = $def['description'] ?? null;
             }
         }
 
-        // `theme` STOPPED BEING A SHARED ENUM AT #1066 PR2, and that is asserted rather
-        // than worked around. This test's premise was that `theme` appears on 2+ components
-        // with one value set, so their descriptions must agree — a real risk when six
-        // components advertised the same three values and could drift apart in wording.
-        //
-        // stats and logos were the last two beside grid, and both retired the prop. Grid is
-        // the only declarer now, so there is nothing left to be consistent WITH: a
-        // one-component enum cannot disagree with itself.
-        $this->assertArrayHasKey('theme', $groups, 'theme enum not found in any schema');
-        $themeSharedGroups = array_filter($groups['theme'], static fn ($comps) => count($comps) >= 2);
-        $this->assertSame(
-            [],
-            $themeSharedGroups,
-            'theme is declared by grid alone since #1066 PR2. If a second component ever '
-            . 'declares it again, this assertion fails and the identical-description rule '
-            . 'below starts doing work again — which is the point of pinning the emptiness '
-            . 'rather than deleting the premise.'
+        // ANTI-VACUITY, FIRST: the derivation must still be able to SEE enums, or every
+        // claim below is a statement about a broken scan rather than about the schemas.
+        $this->assertGreaterThan(
+            0,
+            $enumsSeen,
+            'the enum scan found nothing at all — props/type/enum parsing has broken, and '
+            . 'the emptiness pinned below would then prove nothing'
         );
 
-        // AND THE GENERIC RULE STILL RUNS. The loop below is not theme-specific: any prop
-        // name sharing one value set across 2+ components must be described identically.
-        // No prop qualifies today, so the loop is inert — pinned out loud here so an inert
-        // loop cannot read as a passing audit (the vacuous-pass shape).
-        $sharedAny = 0;
-        foreach ($groups as $bySignature) {
-            foreach ($bySignature as $componentsToDesc) {
+        // `theme` IS DECLARED BY NOBODY SINCE #1101. grid was the last of the eight
+        // declarers; a dark band is the `_band` role's `background.fill` now.
+        $this->assertArrayNotHasKey(
+            'theme',
+            $groups,
+            'a component declares a `theme` enum again. It was retired component by '
+            . 'component across the v2 rebuilds and left entirely with grid at #1101; if '
+            . 'this is deliberate, restore the muted-not-dark guard (#442/#605) this '
+            . 'assertion replaced in the same commit, or the enum ships with no guard at all'
+        );
+
+        // AND NO OTHER PROP NAME IS SHARED EITHER, so the loop below has no subject. It is
+        // kept whole rather than deleted: a second declarer of any enum name turns it back
+        // on, and this pin is what makes that a deliberate edit rather than a silent one.
+        $shared = [];
+        foreach ($groups as $propName => $bySignature) {
+            foreach ($bySignature as $signature => $componentsToDesc) {
                 if (count($componentsToDesc) >= 2) {
-                    $sharedAny++;
+                    $shared[] = $propName . ' ' . $signature;
                 }
             }
         }
+        sort($shared);
         $this->assertSame(
-            0,
-            $sharedAny,
-            'no enum prop is shared across components since #1066 PR2 — every one is '
-            . 'per-component now. A non-zero count means the loop below is live again.'
+            [],
+            $shared,
+            'an enum prop is shared across 2+ components with one value set again — the '
+            . 'identical-description loop below is live, and this pin is the notice'
         );
 
-        $checkedTheme = false;
+        // The loop itself, unchanged and inert. `layout` is declared by five components
+        // and reaches here every run; it never groups, because its value sets genuinely
+        // differ per component, which is the distinction the value-set signature exists
+        // to preserve.
+        $checked = 0;
         foreach ($groups as $propName => $bySignature) {
             foreach ($bySignature as $signature => $componentsToDesc) {
                 if (count($componentsToDesc) < 2) {
                     continue; // a per-component enum (or a lone occurrence) — nothing shared to enforce
                 }
-                if ($propName === 'theme') {
-                    $checkedTheme = true;
-                }
+                $checked++;
                 $uniqueDescriptions = array_unique(array_values($componentsToDesc), SORT_REGULAR);
                 $this->assertCount(
                     1,
@@ -121,176 +165,148 @@ class SchemaThemeConsistencyTest extends TestCase
                 );
             }
         }
+        $this->assertSame(0, $checked, 'the shared-enum loop did work while the roster above said it could not');
+    }
 
-        $this->assertFalse(
-            $checkedTheme,
-            'theme is no longer shared, so the identical-description loop must not have '
-            . 'checked it — if it did, a second declarer reappeared and the roster above is stale'
+    /**
+     * THE RETIREMENT IS ROUTED, NOT MERELY ABSENT — which is what stops #442's subject
+     * from vanishing without an answer for the author who meets `theme` on an aged page.
+     *
+     * `testThemeEnumAdvertisesMutedNotDark` used to pin the enum's values on every
+     * declarer. Nobody declares it, so what remains to guard is the other half of a
+     * retirement: each component that HAD the prop names, in `retired_props`, the v2
+     * surface that replaced it. SchemaValidationTest checks those routes in both
+     * directions (a key still present in `props`, or a route naming a role the component
+     * does not declare, fails there); this pins the ROSTER, so a component cannot quietly
+     * drop the route and leave the name unexplained.
+     */
+    public function testEveryFormerThemeDeclarerStillNamesTheRouteThatReplacedIt(): void
+    {
+        $schemas = $this->loadSchemas();
+
+        $routed  = [];
+        foreach ($schemas as $component => $schema) {
+            $this->assertArrayNotHasKey(
+                'theme',
+                $schema['props'] ?? [],
+                "'{$component}' declares a live `theme` prop again — see the docblock at the top of this file"
+            );
+            if (isset($schema['retired_props']['theme'])) {
+                $route = (string) $schema['retired_props']['theme'];
+                $this->assertStringContainsString(
+                    '_band',
+                    $route,
+                    "'{$component}' retires `theme` without naming the `_band` role, which is "
+                    . 'where a band tone is expressed on v2 — a route that does not route is '
+                    . 'a dead end wearing an explanation'
+                );
+                $routed[] = $component;
+            }
+        }
+        sort($routed);
+
+        // EXACT, NOT A FLOOR. The eight bands that advertised the enum plus faq, whose own
+        // rebuild retired it the same way. A shrink means a component dropped the route and
+        // left the name unexplained; a growth means a new component retired a prop it never
+        // declared, which is a schema mistake rather than a migration.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'testimonials'],
+            $routed,
+            'the components whose `retired_props` still explain where `theme` went'
         );
     }
 
     /**
-     * Pins the #442 migration: `theme` advertises muted, not dark, everywhere.
-     */
-    public function testThemeEnumAdvertisesMutedNotDark(): void
-    {
-        // testimonials is absent: it was rebuilt on the Universal Design Contract (v2),
-        // so it declares no `theme` prop and no style slots at all. A dark testimonials band
-        // is now expressed directly: the `_band` role's background plus the text
-        // roles' colours. The other eleven components keep `theme` untouched until
-        // their own rebuild sprints, which is what this list still guards.
-        // section left this roster at #1023 with the `theme` prop: a dark band is the
-        // `_band` role's `background` group now, so there is no enum to advertise.
-        // cta left at #1026 with its `theme` prop; section at #1023, testimonials at #958.
-        // faq left at #1046 with the `theme` prop itself: `retired_props` names the
-        // `_band` route now, and SchemaValidationTest's registry loop guards it in both
-        // directions. The components below still declare the enum and still have to
-        // advertise `muted` rather than the removed `dark` input (#605).
-        // embed left this roster at #1066 with its `theme` prop. THREE remain, and the
-        // claim is unchanged for them: a `theme` enum must advertise `muted`, never the
-        // `dark` alias #605 removed. embed's replacement is the `retired_props` route,
-        // which states all three measured values — and SchemaValidationTest checks that
-        // route in both directions.
-        // stats and logos left at #1066 PR2 with their `theme` props and slot maps.
-        // GRID IS THE LAST THEMED BAND in the theme; when it rebuilds, `theme` leaves
-        // entirely and this file retires with the prop rather than narrowing to nothing.
-        $bandComponents = ['grid'];
-        $schemas        = $this->loadSchemas();
-
-        foreach ($bandComponents as $component) {
-            $this->assertArrayHasKey($component, $schemas, "missing schema for '{$component}'");
-            $theme = $schemas[$component]['props']['theme'] ?? null;
-            $this->assertIsArray($theme, "'{$component}' has no theme prop");
-            $this->assertSame(
-                ['default', 'muted', 'inverted'],
-                $theme['values'],
-                "'{$component}' theme enum must advertise default|muted|inverted (no dark) — #442"
-            );
-            $this->assertNotContains('dark', $theme['values'], "'{$component}' still advertises the removed 'dark' (#605)");
-            // The description must steer toward inverted for a dark band, and must not
-            // present 'dark' as an offered value.
-            $this->assertStringContainsString('muted', $theme['description']);
-            $this->assertStringContainsString('inverted', $theme['description']);
-        }
-    }
-
-    /**
-     * Schema contract: the band padding slots must state ONE truthful default
-     * everywhere. This is the test that would have caught the #446 drift, where
-     * six older band schemas (section, grid, cta, stats, faq, testimonials) still
-     * declared `"default": "var(--space-xl)"` on their `--*-padding-top/bottom`
-     * slots even though the CSS has routed those slots through
-     * `var(--pp-band-padding)` since #431 — while the three #438 schemas (table,
-     * logos, embed) already declared the truthful `var(--pp-band-padding)`. The
-     * `default` field is descriptive metadata the AI reads to predict unset output
-     * (never emitted as CSS — see pp_render_style_vars(), which reads only a slot's
-     * `type`), so a stale default teaches the AI wrong geometry for every band.
+     * #446's CLAIM, RE-ASSERTED ON THE ROLE DEFAULTS — the same defect class, one
+     * vocabulary later.
      *
-     * The band set is hardcoded rather than derived from CSS on purpose: these
-     * nine are the canonical bands that route padding through the shared
-     * `--pp-band-padding` rhythm. `hero` ALSO has `--hero-padding-top/bottom`
-     * slots, but its CSS falls back to `var(--space-xl)` / `var(--space-2xl)`
-     * (NOT the band rhythm), so its `var(--space-xl)` default is truthful and it
-     * is deliberately excluded — the drift class this test guards is band-only.
+     * The original pinned that every band's two padding SLOTS declared the same truthful
+     * `var(--pp-band-padding)` default, because a stale `default` teaches the authoring
+     * model geometry the page does not render. Not one slot is declared anywhere in the
+     * theme since #1101, so the slot half has no subject — but the claim never depended
+     * on the slot: it is that every band states ONE shared rhythm, that the statement is
+     * truthful, and that hero's deliberate opt-out is not folded in by a later
+     * "consistency" pass.
+     *
+     * DERIVED, NOT LISTED, so a component rebuilt later is covered the moment it lands.
      */
-    public function testBandPaddingSlotDefaultsAreUniformAndTruthful(): void
+    public function testEveryBandStatesTheOneSharedPaddingRhythmAndHeroStillOptsOut(): void
     {
-        // The canonical band components: their `--*-padding-top/bottom` slots
-        // route through `--pp-band-padding`. `hero` is NOT a band here (see docblock).
-        // Intentional delta from the 8-member $bandComponents in
-        // testThemeEnumAdvertisesMutedNotDark() above: `table` has no `theme` prop
-        // (so it is absent from the #442 theme list) but DOES route padding through
-        // the band rhythm, so it belongs here. Do not "sync" the two lists.
-        // testimonials is absent: its band padding is no longer a style slot with a
-        // `var(--pp-band-padding)` default but the `_band` role's `spacing.padding-top`
-        // / `padding-bottom` defaults, which carry the same clamp() literal AND the
-        // narrow-viewport tier the old second :root block supplied.
-        // section left this roster at #1023: its band padding is the `_band` role's
-        // `spacing` default, falling back to the same shared `@pp-band-padding` this
-        // guard pins for every component still declaring the slots.
-        // cta left at #1026: its band padding is the `_band` role's `spacing.padding-top` /
-        // `padding-bottom`, both defaulting to the shared `@pp-band-padding` this test pins.
-        // faq left at #1046 and table at #1066: their two padding slots are the `_band`
-        // role's `spacing.padding-top` / `padding-bottom` defaults, both
-        // `@pp-band-padding`. The claim is unchanged for the four that remain — this
-        // guard is about slot DEFAULTS agreeing, not about any particular component — and
-        // table's v2 half is asserted against the EMITTED declaration in
-        // TableRoleDefaultsEmitTest, which also pins that the fluid token is not frozen
-        // to one tier.
-        // stats and logos left at #1066 PR2; grid is the last band with a padding slot.
-        $bandComponents = ['grid'];
-        $schemas        = $this->loadSchemas();
+        $schemas  = $this->loadSchemas();
+        $expected = '@pp-band-padding';
 
-        $expected = 'var(--pp-band-padding)';
+        // CHROME IS NOT A BAND and never was: nav has no band padding at all, and footer's
+        // is its own @space-lg chrome rhythm. hero is the documented band-shaped exclusion
+        // (its own @space-2xl/@space-xl tiers), guarded explicitly below rather than merely
+        // skipped here.
+        $exceptions = ['nav', 'footer', 'hero'];
 
-        // family suffix (`padding-top` | `padding-bottom`) => [component => default]
-        $families = [];
-        foreach ($bandComponents as $component) {
-            $this->assertArrayHasKey($component, $schemas, "missing schema for '{$component}'");
-            $slots = $schemas[$component]['styling']['style_slots'] ?? null;
-            $this->assertIsArray($slots, "'{$component}' has no style_slots");
-
-            $found = 0;
-            foreach ($slots as $slotName => $slotDef) {
-                if (!preg_match('/-(padding-(?:top|bottom))$/', $slotName, $m)) {
-                    continue;
-                }
-                $this->assertArrayHasKey('default', $slotDef, "'{$component}' slot '{$slotName}' has no default");
-                $families[$m[1]][$component] = $slotDef['default'];
-                $found++;
+        $bands = [];
+        foreach ($schemas as $component => $schema) {
+            if (in_array($component, $exceptions, true)) {
+                continue;
             }
-            // Every band declares exactly a top and a bottom band-padding slot.
-            $this->assertSame(2, $found, "'{$component}' must declare exactly one padding-top and one padding-bottom band slot");
+            $spacing = $schema['roles']['_band']['defaults']['spacing'] ?? [];
+            foreach (['padding-top', 'padding-bottom'] as $edge) {
+                $this->assertSame(
+                    $expected,
+                    $spacing[$edge] ?? null,
+                    sprintf(
+                        "'%s' must state the shared band rhythm on `_band` -> spacing.%s. "
+                        . 'Every band declaring the SAME truthful value is what #446 closed: a '
+                        . 'per-band literal is a default the page does not render, and the '
+                        . 'authoring model reads defaults to predict unset output.',
+                        $component,
+                        $edge
+                    )
+                );
+            }
+            $bands[] = $component;
         }
+        sort($bands);
 
-        $this->assertArrayHasKey('padding-top', $families, 'no band padding-top slots found');
-        $this->assertArrayHasKey('padding-bottom', $families, 'no band padding-bottom slots found');
+        // Fail-closed AND exact, for the same reason the roster above is: a shrink means a
+        // band stopped stating the rhythm, a growth is a new band to review here.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            $bands,
+            'the nine bands that route the shared --pp-band-padding rhythm'
+        );
 
-        foreach ($families as $family => $componentToDefault) {
-            $uniqueDefaults = array_unique(array_values($componentToDefault), SORT_REGULAR);
-            $this->assertCount(
-                1,
-                $uniqueDefaults,
-                sprintf(
-                    "Band slot family '%s' has divergent `default` values across components (%s). "
-                    . "Every band's padding default must be the same, truthful `%s` — the shared "
-                    . "rhythm the CSS actually routes through since #431/#438 (#446).",
-                    $family,
-                    implode(', ', array_map(
-                        static fn ($c, $d) => "{$c}={$d}",
-                        array_keys($componentToDefault),
-                        array_values($componentToDefault)
-                    )),
-                    $expected
-                )
-            );
-            $this->assertSame(
-                $expected,
-                $uniqueDefaults[0],
-                sprintf(
-                    "Band slot family '%s' default is '%s' but must be the truthful '%s' (#446). "
-                    . "The CSS routes these slots through the shared band rhythm; declaring "
-                    . "`var(--space-xl)` teaches the AI the wrong unset geometry.",
-                    $family,
-                    $uniqueDefaults[0],
-                    $expected
-                )
-            );
-        }
-
-        // Guard the exclusion: hero must NOT silently adopt the band default on
-        // EITHER edge — if it ever does, either hero became a band (update this list)
-        // or someone mis-edited it (including a one-sided top-only/bottom-only edit).
-        // Its truthful default is the space-scale token.
-        $heroSlots = $schemas['hero']['styling']['style_slots'] ?? [];
-        foreach (['--hero-padding-top', '--hero-padding-bottom'] as $heroSlot) {
+        // THE EXCLUSION, GUARDED ON BOTH EDGES — including a one-sided edit, which is how
+        // the original found its way into the slot version of this test. hero's truthful
+        // default is the space scale, and it carries a breakpoint map rather than one value.
+        $heroSpacing = $schemas['hero']['roles']['_band']['defaults']['spacing'] ?? [];
+        foreach (['padding-top', 'padding-bottom'] as $edge) {
             $this->assertNotSame(
                 $expected,
-                $heroSlots[$heroSlot]['default'] ?? null,
-                "hero is not a band (its CSS falls back to var(--space-xl)/var(--space-2xl)); "
-                . "if hero now routes through --pp-band-padding, add it to \$bandComponents (#446). "
-                . "Offending slot: {$heroSlot}."
+                $heroSpacing[$edge] ?? null,
+                "hero is not a band (its padding falls back to the space scale, not the band "
+                . "rhythm); if hero now routes @pp-band-padding, remove it from the exception "
+                . "list above deliberately (#446). Offending edge: {$edge}."
+            );
+            $this->assertIsArray(
+                $heroSpacing[$edge] ?? null,
+                "hero's {$edge} is a per-tier map (@space-2xl desktop, @space-xl below), which "
+                . 'is the shape that made it an exclusion rather than an oversight'
             );
         }
+
+        // AND THE SLOT HALF IS EMPTY, ASSERTED RATHER THAN ASSUMED. The padding slot family
+        // is the reason this file existed at all; nothing declares one, and a re-added slot
+        // map must fail here rather than quietly reopen a second place to state the rhythm.
+        $declarers = [];
+        foreach ($schemas as $component => $schema) {
+            if (($schema['styling']['style_slots'] ?? []) !== []) {
+                $declarers[] = $component;
+            }
+        }
+        $this->assertSame(
+            [],
+            $declarers,
+            'a component declares `styling.style_slots` again. The band-padding slot family '
+            . 'left with grid at #1101; two places to state one rhythm is exactly the drift '
+            . '#446 closed'
+        );
     }
 }

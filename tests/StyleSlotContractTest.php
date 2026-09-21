@@ -2,33 +2,117 @@
 /**
  * tests/StyleSlotContractTest.php
  *
- * KEYSTONE contract test (#92): proves every declared style_slot is actually
- * honored by the renderer's CSS — not just that the slot exists in schema.json.
+ * THE v1 STYLE-SLOT CONTRACT, RETIRED WITH ITS LAST SUBJECT (#1101).
  *
- * For each styleable component it asserts, scoped to that component's own block
- * in components.css (delimited by the `COMPONENT: <name>` header):
- *   1. the slot is CONSUMED as `var(--slot ...)` inside that block (comments stripped);
- *   2. at least one consumption sits on a property COMPATIBLE with the slot's
- *      declared type (shadow→box-shadow, color→color/background/border-color…,
- *      length→padding/size/radius/border-width…, number→line-height/weight…).
+ * WHAT THIS FILE WAS. The KEYSTONE contract test (#92): it proved that every declared
+ * `styling.style_slots` entry was actually HONOURED by the renderer's CSS, not merely
+ * present in a schema. A slot the API accepted and the stylesheet dropped or mis-wired
+ * was the defect class it existed to catch — an authoring surface that reports success
+ * and paints nothing, which is the accepted-stored-ignored failure the whole v2 engine
+ * was later built to close. Twenty-six tests, auto-discovering components from
+ * `components/*.schema.json`, deriving the slot -> subject -> property contract from the
+ * stylesheet itself, and failing closed on every derivation that collapsed.
  *
- * A slot accepted by the API but dropped (or mis-wired) by the renderer fails
- * the build. Negative check: delete a `var(--…)` consumption in components.css
- * and testEverySlotConsumedInComponentBlock goes red.
+ * WHAT THE TWENTY-SIX PROVED, grouped as the file itself grouped them. This is the whole
+ * record; nothing below it is a summary of something still asserted elsewhere unless it
+ * says so.
  *
- * Issue 305 added the generalized bypass guard (check 5): components are
- * auto-discovered from schema.json, the slot->subject->property contract is
- * auto-derived from the CSS itself, and any literal re-declaration that defeats
- * a consumed slot fails the build unless explicitly waived in the shrink-only
- * issue 309 ledger. Check 3's hand-maintained map remains as a stricter,
- * value-level pin for the color slots it names.
+ *   DISCOVERY AND ITS FLOOR
+ *   `testDiscoveryFindsTheKnownStyledComponents` — the fail-closed floor for every other
+ *       check here: the schema glob must actually find the slot-bearing components, or an
+ *       empty list would pass all twenty-five of them vacuously. It also asserted the
+ *       NEGATIVE — that a v2 component must NOT be discovered — so the suite could never
+ *       start enforcing a slot contract against a component that has none.
  *
- * Note: a schema-default == CSS-fallback check was considered (eng-review 7A) but
- * deliberately NOT implemented — slots are consumed multiple times per block with
- * intentionally different fallbacks across theme variants (a slot's base rule may
- * fall back to `inherit` while `.cta--dark`/`.cta--inverted` fall back to a
- * contrasting token). The schema `default` is an AI/human-facing effective-default
- * description, not a literal CSS fallback, so equivalence does not hold by design.
+ *   CHECK 1-2: THE SLOT IS WIRED
+ *   `testEverySlotConsumedInComponentBlock` — every declared slot is consumed as
+ *       `var(--slot …)` INSIDE its own `COMPONENT: <name>` block, comments stripped. The
+ *       negative was stated and verified: delete a consumption and this goes red.
+ *   `testSlotConsumedOnTypeCompatibleProperty` — at least one consumption sits on a
+ *       property the slot's declared TYPE can paint (shadow -> box-shadow, color ->
+ *       color/background/border-color, length -> padding/size/radius/border-width, number
+ *       -> line-height/weight). A `color` slot consumed only on `padding` was wired and
+ *       useless, and nothing else in the suite could tell the difference.
+ *
+ *   CHECK 3-5: THE SLOT IS NOT DEFEATED
+ *   `testSlottedPropertyNotClobberedAnywhereInStylesheet` — a hand-maintained cross-block
+ *       contract (slot -> the selector that must read it -> the property), pinning that no
+ *       rule ANYWHERE re-declares that property on that subject and so silently outranks
+ *       the slot. Each entry carried its own anti-vacuity floor: if the scan found no
+ *       declaration of that property on that selector at all, the entry was stale and the
+ *       test said so rather than passing.
+ *   `testDarkSurfaceVariantsRouteForegroundColorsThroughSlots` — #61: a dark-surface
+ *       variant's descendant colour rules had to route slots rather than pin literals, or
+ *       a themed band could not be re-inked at all.
+ *   `testDeclaredSlotsNotBypassedByLiteralReDeclarations` (+ `testWaiverLedgerOnlyShrinks`,
+ *       `testGuardDetectsTheDeadSlotClass`) — #305's generalized bypass guard: the
+ *       slot/subject/property contract DERIVED from the CSS, with any literal
+ *       re-declaration that defeats a consumed slot failing the build unless waived in the
+ *       shrink-only #309 ledger. The ledger could only shrink, and the guard carried a
+ *       mutation self-test proving it still detected the dead-slot class.
+ *   `testIssue293FeaturedRemnantSlotFallbacks`, `testIssue584LogosConditionalityNoteMatches
+ *       TheStylesheet` — two per-issue pins of exact fallback chains and of a schema
+ *       conditionality note against the rules that implement it.
+ *
+ *   THE WP-CORE BORDER TRIGGER (a defect found by dogfooding, 1.0-H)
+ *   `testNoBorderTriggerSlotBelongsToChrome`, `testBorderTriggerSlotsHaveCascadeImmunity`,
+ *       `testInlineSlotSurfacesAreCoveredByTheImmunityBaseline`,
+ *       `testImmunityGuardDetectsAMissingBaseline`,
+ *       `testBorderTriggerDiscoveryCoversPerSideCoreRules` — setting any `border-*-width`
+ *       or `border-*-color` slot made WordPress core's own block rules apply a 3px border,
+ *       so every inline slot surface needed a baseline declaration ahead of the component
+ *       rules to be immune. Discovery, the baseline, the ORDER of the baseline relative to
+ *       the component rules, and a mutation self-test for the guard.
+ *
+ *   THE CROSS-SHEET AND PARSER LAYER
+ *   `testNoStylesheetRuleDeclaresASchemaSlot` — no rule may DECLARE a slot custom property
+ *       (as opposed to reading one), with an exact, documented exemption list diffed by
+ *       COUNT so a duplicate re-declaration could not slip through.
+ *   `testNoUnacknowledgedCrossSheetClobber` (+ `testCrossSheetLedgerOnlyShrinks`,
+ *       `testCrossSheetGuardDetectsANewClobber`, `testCrossSheetLoadOrderAssumptionHolds`)
+ *       — the same clobber question across stylesheet BOUNDARIES, where load order decides
+ *       the winner, with its own shrink-only ledger and mutation self-test.
+ *   `testWhereContributesNoSpecificityIncludingItsArguments`,
+ *       `testTheSubjectParserSplitsAtParenDepthZero`,
+ *       `testARuleAfterTheLayerWrapperIsStillTopLevel`,
+ *       `testALayerStatementDoesNotSwallowTheNextRule`,
+ *       `testABaselineInsideAMediaBlockStillDoesNotCount`,
+ *       `testTheOrderCheckStillSeesABaselineBelowTheComponentRules` — the specificity
+ *       scorer and the CSS parsers the guards above are built on, each pinned against
+ *       synthetic input so a parser regression could not silently disarm a guard.
+ *
+ * WHY THE WHOLE CONTRACT HAS NO SUBJECT. Every single check above begins by asking a
+ * schema which style slots it declares. The answer is now `[]` for every component in the
+ * theme. The v2 rebuilds emptied the roster one component at a time — testimonials #958,
+ * hero #986, section #1023, cta #1026, faq #1046, table and embed #1066, stats and logos
+ * #1066 PR2 — and #1101 rebuilt GRID, which this file's own floor recorded as "the last
+ * component in the theme that declares a style slot at all", with the decision that the
+ * suite "retires WITH grid's rebuild, not before". This is that retirement.
+ *
+ * Nine of the twenty-six went RED at #1101 rather than green, and every one of them was a
+ * fail-closed floor firing: "the bypass guard would pass vacuously", "discovery found
+ * fewer border-trigger slots than the 4 known today", "the cross-sheet guard would pass
+ * vacuously". That is the guard machinery working exactly as designed, and it is why this
+ * file could not be narrowed to nothing quietly — which was the point of building the
+ * floors in the first place.
+ *
+ * WHERE THE CLAIMS WENT. Not here, and that is deliberate: a contract about how a slot
+ * must be wired has no v2 translation, because a v2 value is not wired through the
+ * stylesheet at all. The engine emits a band-scoped rule from a role's declared groups,
+ * so "is this slot consumed", "is it consumed on a compatible property", "does a literal
+ * elsewhere defeat it" and "does another stylesheet clobber it" are questions the
+ * architecture no longer permits to be asked. What replaced them is per-component: each
+ * v2 component has its own `*RoleDefaultsEmitTest` asserting the EMITTED declaration, and
+ * `tests/js/css-lint.test.js` holds the stylesheet-text half (its own rosters emptied at
+ * #1101 too, and are asserted empty there rather than deleted).
+ *
+ * WHAT IS LEFT HERE, AND WHY IT IS THREE TESTS RATHER THAN NONE. The file stays so the
+ * retirement cannot be reversed in silence: the surface is asserted EMPTY, the discovery
+ * that found it empty is proved still able to SEE a slot map, and the stylesheet is
+ * pinned as declaring no slot custom property at all. A schema that re-declares
+ * `styling.style_slots` fails here, loudly, with the twenty-six-test record above sitting
+ * directly beside the failure — which is the only thing that makes re-adding one a
+ * deliberate decision rather than an accident nobody can price.
  */
 
 declare(strict_types=1);
@@ -50,2757 +134,221 @@ class StyleSlotContractTest extends TestCase
     }
 
     /**
+     * THE DISCOVERY PREDICATE, EXTRACTED SO IT CAN BE PROVED (#1101).
+     *
+     * It was an inline `!empty($schema['styling']['style_slots'])` inside the discovery
+     * loop, which was fine while the roster was non-empty: any bug in it showed up as a
+     * missing component. With the roster empty, a bug in it is INDISTINGUISHABLE from the
+     * emptiness it is being used to establish — so it is a named function with its own
+     * detection proof below, and the two assertions are no longer the same assertion.
+     */
+    private static function declaresStyleSlots(array $schema): bool
+    {
+        return ($schema['styling']['style_slots'] ?? []) !== [];
+    }
+
+    /**
      * Components that declare style_slots, AUTO-DISCOVERED from components/x/schema.json
      * (issue 305). Previously a hand-maintained list — a NEW component's slots were
      * invisible to every check in this file until someone remembered to add it here.
      * Discovery makes "a new schema slot with no CSS consumer fails out of the box"
-     * hold for components that do not exist yet.
+     * hold for components that do not exist yet, and it is what makes the emptiness below
+     * a fact about the theme rather than about a list nobody updated.
+     *
+     * @return array{0: list<string>, 1: list<string>}  [slot-bearing components, all components]
      */
-    private function styledComponents(): array
+    private function discover(): array
     {
-        $components = [];
+        $bearing = [];
+        $all     = [];
         foreach (glob($this->themeRoot . '/components/*/schema.json') as $schemaFile) {
-            $schema = json_decode(file_get_contents($schemaFile), true);
+            $component = basename(dirname($schemaFile));
+            $schema    = json_decode(file_get_contents($schemaFile), true);
             // A malformed schema must fail loudly, not silently exit every check.
-            $this->assertNotNull(
+            $this->assertIsArray(
                 $schema,
-                basename(dirname($schemaFile)) . '/schema.json is not valid JSON — discovery would silently skip it.'
+                $component . '/schema.json is not valid JSON — discovery would silently skip it.'
             );
-            if (!empty($schema['styling']['style_slots'])) {
-                $components[] = basename(dirname($schemaFile));
+            $all[] = $component;
+            if (self::declaresStyleSlots($schema)) {
+                $bearing[] = $component;
             }
         }
-        sort($components);
-        return $components;
+        sort($bearing);
+        sort($all);
+        return [$bearing, $all];
     }
 
     /**
-     * Fail-closed floor for the discovery itself: if the glob breaks (moved directory,
-     * renamed schema files), every discovery-driven check below would pass vacuously
-     * over an empty list. Pin the THREE components that declare slots today — grid,
-     * logos and stats; new slot-bearing components extend discovery automatically
-     * without touching this.
+     * THE SURFACE IS EMPTY, AND THE DERIVATION THAT SAYS SO CAN STILL SEE A SLOT MAP.
      *
-     * This sentence said SEVEN until #1066, which is how it ended up contradicting the
-     * assertion four lines below it: the number shrank at every v2 rebuild and the
-     * docblock was never one of the halves anyone repriced. table and embed were the
-     * last two to leave. Corrected here rather than filed, because a floor whose prose
-     * disagrees with its own count is exactly the thing a reader trusts instead of
-     * checking (#1038).
+     * Three separate facts, because collapsing them is how an emptiness claim goes wrong:
+     * the schemas declare no slots, the ENGINE agrees with the schemas (a fallback slot
+     * table inside `pp_get_style_slots()` would make the first true and the behaviour
+     * false), and the predicate that produced both answers still returns true for a schema
+     * that DOES declare a slot map.
+     *
+     * The detection proof is a synthetic decoded schema rather than a fixture on disk. The
+     * fixture component `tests/fixtures/components/ppfixture` still declares sixteen slots
+     * and would have served — but it is scheduled for deletion, and a proof that dies with
+     * a fixture is a proof that stops proving on someone else's schedule.
      */
-    public function testDiscoveryFindsTheKnownStyledComponents(): void
+    public function testNoComponentDeclaresAStyleSlotAndDiscoveryCouldStillSeeOne(): void
     {
-        $found = $this->styledComponents();
-        // ONE: grid. stats and logos left at #1066 PR2, and grid is the last component in
-        // the theme that declares a style slot at all. The number is written out rather than counted
-        // because this is the fail-closed floor for every discovery-driven check in the
-        // file — a component silently dropping out of discovery would quietly disable its
-        // whole slot contract.
-        //
-        // THIS COMMENT HAS DRIFTED AT ALMOST EVERY REBUILD and the drift is the reason it
-        // is stated as a count AND a list a reader can compare in one glance: it said
-        // "FOUR, not seven" while listing THREE, then "SIX" while listing five, then
-        // "FOUR" while listing four with a tail sentence naming embed — which #1066 had
-        // just made v2. Count the list below before editing this line.
-        //
-        // table and embed left at #1066; stats and logos left in the same issue's second
-        // half. GRID ALONE REMAINS, and this file's retirement is now the live question its
-        // own comment predicted — answered deliberately here: it STAYS while grid ships
-        // slots, because grid is the last component the slot contract governs and the last
-        // place a slot-shaped defect can hide. It retires WITH grid's rebuild, not before.
-        foreach (['grid'] as $known) {
-            $this->assertContains($known, $found, "Schema discovery lost the {$known} component.");
-        }
-        // …and the v2 components must NOT be discovered here, or this suite would start
-        // asserting a slot contract against a component that has none. testimonials left the
-        // style-slot system in #958, hero in #986, section in #1023 and cta in #1026; their
-        // authoring surface is roles, and the contract that replaced this one is the UDC
-        // engine's own. nav and footer are chrome and were never in this set.
-        foreach (['hero', 'section', 'testimonials', 'cta', 'faq', 'table', 'embed'] as $v2) {
-            $this->assertNotContains($v2, $found, "{$v2} is a v2 component: it declares no style slots.");
-        }
-    }
-
-    /** 1. Every declared slot is consumed in its own component block. */
-    public function testEverySlotConsumedInComponentBlock(): void
-    {
-        foreach ($this->styledComponents() as $component) {
-            $block = $this->stripComments($this->componentBlock($component));
-            foreach ($this->slots($component) as $slot => $def) {
-                $this->assertMatchesRegularExpression(
-                    '/var\(\s*' . preg_quote($slot, '/') . '\b/',
-                    $block,
-                    "Slot {$slot} is declared in {$component}/schema.json but never consumed "
-                    . "as var({$slot}) inside the COMPONENT: {$component} block of components.css. "
-                    . "Either wire it into the CSS or remove the slot."
-                );
-            }
-        }
-    }
-
-    /** 2. Each slot is consumed on a property compatible with its declared type. */
-    public function testSlotConsumedOnTypeCompatibleProperty(): void
-    {
-        foreach ($this->styledComponents() as $component) {
-            $block = $this->stripComments($this->componentBlock($component));
-            foreach ($this->slots($component) as $slot => $def) {
-                $type       = $def['type'] ?? 'length';
-                $properties = $this->propertiesConsuming($block, $slot);
-
-                // Only the properties we know how to classify constrain the check;
-                // an unmapped property is treated as compatible (lenient), so this
-                // never false-fails on novel CSS, only catches clear mismatches.
-                $mapped = array_filter($properties, fn ($p) => isset(self::PROPERTY_TYPES[$p]));
-                if (empty($mapped)) {
-                    continue; // consumed only on unmapped properties — accept.
-                }
-
-                $compatible = false;
-                foreach ($mapped as $prop) {
-                    if (in_array($type, self::PROPERTY_TYPES[$prop], true)) {
-                        $compatible = true;
-                        break;
-                    }
-                }
-
-                $this->assertTrue(
-                    $compatible,
-                    "Slot {$slot} (type {$type}) in {$component} is consumed only on "
-                    . "type-incompatible properties [" . implode(', ', array_unique($mapped)) . "]. "
-                    . "A {$type} slot must drive a {$type}-compatible property."
-                );
-            }
-        }
-    }
-
-    /**
-     * 3. Cross-block override guard (#86): a slot can be CONSUMED inside its component
-     * block (so checks 1-2 pass) yet still be CLOBBERED by a rule elsewhere in the
-     * stylesheet that targets the same element and re-sets the property to a non-slot
-     * value. The #86 bug was exactly that — the desktop "premium typography" rule
-     * (outside the COMPONENT: grid block) hardcoded `color: var(--color-text)` on
-     * `.grid__heading`, burying the dark-band heading on desktop while mobile passed.
-     *
-     * For each entry in the contract map, scan EVERY rule in the whole stylesheet whose
-     * selector targets the mapped class. Any declaration of the mapped property on that
-     * selector MUST consume the slot var; a non-slot value fails the build. This is
-     * fail-closed: an unexplained hardcoded color on a slotted heading is rejected, not
-     * silently allowed.
-     *
-     * Scope/limitation: keyed on the theme's BEM heading classes (how headings are
-     * actually rendered — see grid.php `class="grid__heading"`). Element-only overrides
-     * (e.g. a bare `main h2 { color }`) are out of scope by design; widening to element
-     * selectors would false-fail on every generic heading rule.
-     */
-    public function testSlottedPropertyNotClobberedAnywhereInStylesheet(): void
-    {
-        $css = $this->stripComments($this->css);
-        // Innermost rules only: `[^{}]` stops at braces, so rules nested in @media match
-        // individually while the @media wrapper (its body holds braces) does not.
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-        foreach (self::CROSS_BLOCK_SLOT_CONTRACT as $selectorToken => [$slot, $property]) {
-            $declsSeen = 0;
-            foreach ($rules as $rule) {
-                $selector = $rule[1];
-                $body     = $rule[2];
-                // Boundary-aware match: a plain substring check would treat
-                // .grid__heading-accent as a match for the token .grid__heading
-                // (BEM's hyphen-based modifier/element separator doesn't create
-                // a regex \b word-boundary), incorrectly flagging a deliberately
-                // separate element's own, differently-named slot as "clobbering"
-                // the token's slot. Require the token NOT be immediately
-                // followed by a hyphen or word character.
-                if (!preg_match('/' . preg_quote($selectorToken, '/') . '(?![-\w])/', $selector)) {
-                    continue;
-                }
-                // Property declarations in this rule, excluding hyphenated namesakes
-                // (so `color` never matches `background-color` / `border-color`).
-                if (!preg_match_all(
-                    '/(?<![-a-z])' . preg_quote($property, '/') . '\s*:\s*([^;}]+)/i',
-                    $body,
-                    $decls
-                )) {
-                    continue;
-                }
-                $declsSeen += count($decls[1]);
-                foreach ($decls[1] as $value) {
-                    $consumesSlot = (bool) preg_match(
-                        '/var\(\s*' . preg_quote($slot, '/') . '\b/',
-                        $value
-                    );
-                    $this->assertTrue(
-                        $consumesSlot,
-                        "Rule `" . trim($selector) . "` sets `{$property}` to a value that does NOT "
-                        . "consume `{$slot}` (`" . trim($value) . "`). This clobbers the per-instance "
-                        . "slot for elements matching `{$selectorToken}` (cross-block override, the #86 "
-                        . "class of bug). Either route the value through `var({$slot}, …)` or remove the "
-                        . "declaration from this selector."
-                    );
-                }
-            }
-
-            // Fail-closed: the guard is only meaningful if the slot is actually consumed
-            // on the mapped selector somewhere. If a refactor removed every consumption,
-            // the loop above would pass vacuously — so require at least one declaration.
-            $this->assertGreaterThan(
-                0,
-                $declsSeen,
-                "No `{$property}` declaration found on any `{$selectorToken}` rule. The "
-                . "cross-block guard for `{$slot}` would pass vacuously — the slot must be "
-                . "consumed on its selector, or the contract entry is stale."
-            );
-        }
-    }
-
-    /**
-     * 4. Dark-surface foreground authority (#61): a genuinely dark surface
-     * (`--inverted`, or `--has-bg-image`'s dark scrim) must not hardcode a
-     * foreground `color:` on a specific descendant element — it must route
-     * through that component's own `--{component}-*` slot so an AI can fix
-     * contrast on that instance without a one-off late-cascade patch (the
-     * production incident, PP-004/Ink-2, that #61 was filed from).
-     *
-     * `--dark` is deliberately EXCLUDED: per this theme's actual token values
-     * (base.css), `--color-surface` (#f4f7fb) is a barely-tinted near-white,
-     * not a real contrast risk — several schemas even call it "surface
-     * background with borders" rather than "dark." Only `--inverted`
-     * (`--color-bg-inverted` = #0f172a) and `--has-bg-image` (dark scrim
-     * overlay) are genuine low-contrast risks.
-     *
-     * Scope/limitation: only checks selectors with a DESCENDANT combinator
-     * (e.g. `.grid--inverted .grid__heading`) — a bare `.{component}--inverted
-     * { color: ... }` sets an ambient/inherited default for whatever isn't
-     * otherwise more-specifically slotted (several components additionally
-     * redefine a shared token like `--color-muted` at that scope for exactly
-     * this purpose), and is not itself the final authority for any specific
-     * rendered text role. Requiring it to be slotted too would false-fail on
-     * that legitimate pattern without closing any real gap, since the actual
-     * rendered elements are covered by their own descendant-selector checks.
-     */
-    public function testDarkSurfaceVariantsRouteForegroundColorsThroughSlots(): void
-    {
-        $css = $this->stripComments($this->css);
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-        $variantPattern = '/\.(hero|cta|grid|section|faq|stats|pp-section)[a-z_-]*--(inverted|has-bg-image)\S*\s+\S/i';
-        $checked = 0;
-
-        foreach ($rules as $rule) {
-            $selector = trim($rule[1]);
-            $body     = $rule[2];
-
-            if (!preg_match($variantPattern, $selector, $m)) {
-                continue; // not a dark-surface descendant selector
-            }
-            $component = strtolower($m[1]) === 'pp-section' ? 'section' : strtolower($m[1]);
-
-            if (!preg_match('/(?<![-a-z])color\s*:\s*([^;}]+)/i', $body, $colorMatch)) {
-                continue; // this rule doesn't set color at all
-            }
-            $value = trim($colorMatch[1]);
-            $checked++;
-
-            $this->assertMatchesRegularExpression(
-                '/var\(\s*--' . preg_quote($component, '/') . '-/',
-                $value,
-                "Rule `{$selector}` sets `color` to `{$value}` on a dark-surface descendant "
-                . "without routing through a --{$component}-* slot. Dark-surface foreground "
-                . "colors must be fixable via safe surfaces without a late-cascade patch (#61)."
-            );
-        }
-
-        // Fail-closed: this guard is only meaningful if it actually examined something.
-        $this->assertGreaterThan(0, $checked, 'No dark-surface descendant color rules found — the #61 guard would pass vacuously.');
-    }
-
-    /**
-     * 5. GENERALIZED bypass guard (issue 305): auto-derived, fail-closed successor to
-     * check 3's hand-maintained CROSS_BLOCK_SLOT_CONTRACT map. That map was fail-OPEN —
-     * the #302 padding/type/width slots and #292's border slot were never added to it,
-     * so they shipped dead three separate times while every check here stayed green.
-     *
-     * How it works (no hand-listed contract):
-     *   DERIVE — for every `var(--slot)` consumption in components.css, record the
-     *   (subject, property, slot) triple. The subject is each class in the LAST
-     *   compound of the selector (the element the rule actually styles), tagged with
-     *   its pseudo-element so `::before` boxes are tracked separately from the host
-     *   box, and matched to the slot's owning component by BEM block (`.grid__item`
-     *   -> grid, `.pp-section--inverted` -> section). Shared primitives styled by a
-     *   DIFFERENT component's slot family (`.btn` inside `.hero` rules) derive no
-     *   triple — they are per-context surfaces, not the dead-slot class.
-     *
-     *   ENFORCE — every rule in the whole stylesheet whose subject matches a derived
-     *   triple and re-declares its property must route the value through the slot.
-     *   A value routing through ANY OTHER declared slot of the same component is
-     *   allowed (`.faq__item[open] > .faq__question { color: var(--faq-question-open-color) }` is
-     *   an intentional state handoff to a sibling slot, still author-controllable).
-     *   Anything else is a bypass: the exact mechanism of #226/#292/#302/#61.
-     *
-     * KNOWN-DEAD WAIVERS: the audit this guard performed on landing found 27
-     * slot/surface pairs (56 declaration instances; chained var() fallbacks make
-     * some physical declarations kill several slots at once, accounted per slot)
-     * that were ALREADY dead — filed as issue 309 with per-pair evidence. Issue
-     * 309 burned that ledger down: 21 pairs (49 declarations across hero, section,
-     * grid, and cta) were routed through var(--slot, <literal>) (the #226/#302
-     * idiom, unset output byte-identical), so their entries are GONE from this map.
-     *
-     * 6 of the 8 entries below are the two decision-flagged pair GROUPS the issue 309
-     * ✅ decision (2026-07-12) singled out: routing them would change intended
-     * interaction/variant semantics, so they are PERMANENT, documented waivers.
-     * Each is explained inline. The remaining 2 are the issue 609 hero spacing pair,
-     * waived under this map's own escape hatch ("fix it or file an issue and add a
-     * waiver citing it") pending that issue's decision. No pair may be waived
-     * silently: a new dead slot is fixed or gets its own issue.
-     *
-     * The ledger is SHRINK-ONLY:
-     *   - a waived pair that stops offending fails (remove its entry with the fix);
-     *   - a count drop fails (partial fix — shrink the count in the same change);
-     *   - a count rise or a new pair fails (a NEW dead slot; fix it or file an issue
-     *     and add a waiver citing it — never add one silently);
-     *   - the ledger-size pin below must be updated in the same change, so a waiver
-     *     can never slip in through a merge unnoticed.
-     */
-    private const KNOWN_DEAD_SLOT_WAIVERS = [
-        // issue 309's grid-link hover waiver RETIRED in issue 581 (A-18). The waiver
-        // existed because routing the hover through the REST slot would have flattened
-        // hover onto rest. Declaring the positional twin --grid-item-link-hover-color and
-        // routing the hover through THAT solves it without that side effect, so the pair
-        // no longer offends and the entry is gone (ledger is shrink-only).
-        // issue 309's testimonials --stack reset group (5 entries, 6 declarations)
-        // RETIRED by the v2 rebuild. The waiver existed because the --stack variant
-        // hard-coded a card-less presentation — padding:0, transparent background,
-        // border:none, box-shadow:none — which necessarily defeated the card slots,
-        // and #901 later reported the cost: a framed single quote was inexpressible
-        // in either layout. On the UDC there are no card slots to defeat and no
-        // variant reset to defeat them with. Both layouts share one `card` role, and
-        // a frameless quote is authored rather than baked into a variant. Ledger is
-        // shrink-only and this is a genuine shrink: the offence is gone, not waived.
-        // issue 609 WAIVER, pending decision — hero `spacing` prop vs the hero padding
-        // slots. `.hero { padding-top: var(--hero-padding-top, …) }` is (0,1,0); the
-        // three `spacing` override tiers (base, min-width:768px, max-width:767px)
-        // declare bare literals at (0,2,0)/(0,2,1), so a hero with spacing != default
-        // has ALWAYS ignored an authored --hero-padding-top/bottom. 6 declarations per
-        // property: 2 base + 2 desktop + 2 mobile.
-        //
-        // PRE-EXISTING, NOT INTRODUCED BY THE CHANGE THAT ADDED THIS ENTRY. Before #578
-        // these selectors read `[data-pp-component][data-pp-spacing="…"]`, whose subject
-        // token is `[data-pp-component]` — not a `.hero` class — so the subject parser
-        // never attributed them to hero and the guard could not see the bypass. #578's
-        // A-15 scoped them to `.hero` at IDENTICAL specificity (a class + an attribute is
-        // (0,2,0), exactly as two attributes were), which changed no rendered byte and
-        // made the defect visible. Fixing it means deciding whether the per-instance slot
-        // or the coarse `spacing` prop wins — a render change either way, so it is #609's
-        // call, not a mechanical routing this gate could make.
-    ];
-
-    public function testDeclaredSlotsNotBypassedByLiteralReDeclarations(): void
-    {
-        $analysis  = $this->slotBypassOffenders($this->css, $this->slotsByComponent());
-        $offenders = $analysis['offenders'];
-
-        // Fail-closed floor: derivation over the real stylesheet must find a healthy
-        // triple population, or a parser regression could silently gut the guard.
-        // 76 triples today, down from 97 when faq's twenty-one slots and the fourteen
-        // rules that consumed them left at #1046, and from 147 before cta's rebuild — a
-        // population that shrinks one component per rebuild sprint, so the floor moves
-        // with it. It sits close enough to catch a fifth of the remainder vanishing while
-        // leaving room for ordinary CSS evolution. FLOORS ARE LOWERED WITH THE MEASURED
-        // NUMBER IN HAND, never rounded down to whatever makes the run green: the gap
-        // between the count and the floor is the whole guard.
-        // LOWERED 65 -> 33 AT #1066 PR2 WITH THE MEASURED NUMBER IN HAND, which is what
-        // the paragraph above requires: the derivation now counts 41 consumption triples
-        // (stats' seventeen slots and logos' eight left the stylesheet with their blocks),
-        // and 33 keeps the same ~one-fifth headroom this floor has always carried. Rounding
-        // down to whatever made the run green would have retired the guard while leaving it
-        // looking armed.
-        $this->assertGreaterThan(
-            33,
-            $analysis['tripleCount'],
-            'Slot-consumption derivation collapsed — the bypass guard would pass vacuously.'
-        );
-
-        $failures = [];
-
-        foreach ($offenders as $key => $decls) {
-            $waived = self::KNOWN_DEAD_SLOT_WAIVERS[$key] ?? null;
-            if ($waived === null) {
-                $failures[] = "NEW dead slot: {$key} is bypassed by " . count($decls)
-                    . " literal declaration(s):\n    " . implode("\n    ", $decls)
-                    . "\n  Route each through var(<slot>, <literal>) (the #226/#302 idiom), "
-                    . "or file an issue and add a waiver citing it.";
-            } elseif (count($decls) > $waived) {
-                $failures[] = "{$key}: bypass count rose ({$waived} waived, " . count($decls)
-                    . " found) — a new literal re-declaration was added:\n    "
-                    . implode("\n    ", $decls);
-            } elseif (count($decls) < $waived) {
-                $failures[] = "{$key}: bypass count dropped ({$waived} waived, " . count($decls)
-                    . " found) — a fix landed; shrink this waiver in the same change "
-                    . "(the issue 309 ledger is shrink-only).";
-            }
-        }
-
-        foreach (self::KNOWN_DEAD_SLOT_WAIVERS as $key => $waived) {
-            if (!isset($offenders[$key])) {
-                $failures[] = "STALE waiver: {$key} no longer offends — remove its entry "
-                    . "from KNOWN_DEAD_SLOT_WAIVERS (and update the ledger-size pin).";
-            }
-        }
+        [$bearing, $all] = $this->discover();
 
         $this->assertSame(
             [],
-            $failures,
-            "Slot-contract bypass guard (issue 305):\n- " . implode("\n- ", $failures)
-        );
-    }
-
-    /**
-     * Ledger-size pin, EXACT: any ledger edit in either direction — adding a
-     * waiver (even a remove-one-add-one swap the <= form would let through) or
-     * removing one — must also touch this test, so no waiver ever slips in or
-     * drifts out through a merge unnoticed.
-     */
-    public function testWaiverLedgerOnlyShrinks(): void
-    {
-        $this->assertSame(0, count(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'The waiver ledger changed size. Fixes shrink it (update this pin in the same change); new dead slots are fixed or get their own issue — never silently waived. The ledger is EMPTY: the last two entries were the issue 609 hero spacing/padding pairs, and they retired with hero\'s slot map in #986 — there is no slot left for a literal to bypass. The testimonials --stack reset group (5 entries, 6 declarations) retired with the v2 rebuild: the UDC has no card slots for a variant reset to defeat.');
-        $this->assertSame(0, array_sum(self::KNOWN_DEAD_SLOT_WAIVERS),
-            'Total waived bypass declarations changed. Update this pin in the same change as the ledger edit it reflects.');
-    }
-
-    /**
-     * Detection proof (issue 305 acceptance): the guard must catch the CLASS, not just
-     * today's instances. This fixture reproduces, in miniature, the exact mechanisms of
-     * the three shipped incidents — plus the two intentional patterns the guard must
-     * NOT flag — so the detector's power is proven in CI forever, without depending on
-     * git history. (The one-time proof against the real pre-#292/#302 tree lives in the
-     * PR: run against `git show a6a6bf3:assets/css/components.css`, this guard reports
-     * the #302 padding families, --grid-heading-size, the --section-heading-size premium
-     * clobber, and #292's --grid-item-border-color as direct unwaived offenders, and goes red
-     * on --section-body-measure via the ledger. That slot's pre-fix shape — a literal on
-     * the never-slotted OUTER .section__body capping the slotted inner .section__content
-     * — is a parent-constrains-child bug no same-subject textual scan can prove; the
-     * rendered-output E2E pins are the layer that owns that class.)
-     */
-    public function testGuardDetectsTheDeadSlotClass(): void
-    {
-        $slots = [
-            'grid' => [
-                '--grid-padding-top'  => 'length',  // #302 mechanism: later bare re-declaration
-                '--grid-item-border-color'  => 'color',   // #292 mechanism: higher-specificity literal
-                '--grid-item-bg'      => 'color',   // negative control: type-compatible alt-slot escape
-                '--grid-accent'       => 'color',
-                '--grid-heading-size' => 'length',  // laundering probe: length slot on a color property
-            ],
-        ];
-
-        $fixture = <<<'CSS'
-            .grid { padding-top: var(--grid-padding-top, var(--space-xl)); }
-            .grid__item { border-color: var(--grid-item-border-color, var(--color-border)); }
-            .grid__item { background: var(--grid-item-bg, transparent); }
-            @media (min-width: 768px) {
-              .grid { padding-top: clamp(4.25rem, 6vw, 5rem); }          /* #302: bypass */
-            }
-            main > .grid .grid__item { border-color: var(--color-border); } /* #292: bypass */
-            main > .grid--tight { padding: 4rem 0; }                        /* not a subject match */
-            .grid { padding: 4rem 0; }                       /* shorthand reset: bypass */
-            .grid--featured .grid__item { background: var(--grid-accent, gold); } /* alt-slot, color-on-color: OK */
-            .grid--loud .grid__item { border-color: var(--grid-heading-size, red); } /* laundering: length slot on color prop */
-            .grid__item::before { background: linear-gradient(red, blue); }  /* pseudo box: OK */
-            CSS;
-
-        $offenders = $this->slotBypassOffenders($fixture, $slots)['offenders'];
-
-        $this->assertArrayHasKey(
-            '--grid-padding-top|.grid|padding-top',
-            $offenders,
-            'The guard failed to detect the #302 mechanism (later bare re-declaration).'
-        );
-        $this->assertArrayHasKey(
-            '--grid-padding-top|.grid|padding',
-            $offenders,
-            'The guard failed to detect a shorthand reset (padding: kills a padding-top slot).'
-        );
-        $this->assertArrayHasKey(
-            '--grid-item-border-color|.grid__item|border-color',
-            $offenders,
-            'The guard failed to detect the #292 mechanism (higher-specificity literal).'
-        );
-        // Laundering: a LENGTH sibling slot on a COLOR property is not a state
-        // handoff — the type gate must reject it and report the declaration.
-        $launderKey = '--grid-item-border-color|.grid__item|border-color';
-        $this->assertTrue(
-            (bool) array_filter($offenders[$launderKey], fn ($d) => str_contains($d, '--grid-heading-size')),
-            'The guard let a literal launder through a type-incompatible sibling slot.'
-        );
-        $this->assertCount(
-            3,
-            $offenders,
-            'The guard over-flagged: the type-compatible alt-slot handoff and the '
-            . 'pseudo-element box must not be reported. Got: ' . implode(', ', array_keys($offenders))
-        );
-    }
-
-    /**
-     * Featured first-card remnant slots (issue 293): value-level fallback pins.
-     *
-     * The generic checks above prove the slots are consumed and unbypassed; they do
-     * NOT pin the fallback literals. Byte-identical unset output depends on those
-     * literals being exactly the values that used to be hardcoded, in a two-tier
-     * shape (base card vs featured first card), plus the mobile featured-shadow
-     * chain — a fourth consumer the issue body never listed, where the slot would
-     * otherwise silently no-op below 768px.
-     */
-    public function testIssue293FeaturedRemnantSlotFallbacks(): void
-    {
-        $block = $this->stripComments($this->componentBlock('grid'));
-
-        // Bar slots, two-tier: base hairline vs featured accent gradient.
-        $this->assertStringContainsString('height: var(--grid-item-bar-height, 2px)', $block);
-        $this->assertStringContainsString('background: var(--grid-item-bar-color, var(--color-border))', $block);
-        $this->assertStringContainsString('height: var(--grid-item-bar-height, 4px)', $block);
-        $this->assertStringContainsString(
-            'background: var(--grid-item-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)))',
-            $block
+            $bearing,
+            'a component declares `styling.style_slots` again — the first since grid left at '
+            . '#1101. Read the twenty-six-test record at the top of this file before '
+            . 'proceeding: a declared slot ships with NO wiring contract, no bypass guard, '
+            . 'no WP-core border immunity and no cross-sheet clobber guard, because all '
+            . 'twenty-six retired with their last subject.'
         );
 
-        // Texture stripe: featured-only color slot over the original 0.055 literal.
-        $this->assertStringContainsString(
-            'linear-gradient(90deg, var(--grid-featured-texture-color, rgba(37, 99, 235, 0.055)) 1px, transparent 1px)',
-            $block
+        // ANTI-VACUITY 1: the glob must have found the theme's components, or the emptiness
+        // above is a fact about a broken scan.
+        $this->assertGreaterThanOrEqual(
+            12,
+            count($all),
+            'schema discovery found fewer components than the theme ships'
         );
 
-        // Featured glow: featured slot first, shared card shadow second (unchanged
-        // semantics), original glow literal last.
-        $this->assertMatchesRegularExpression(
-            '/box-shadow:\s*var\(--grid-featured-shadow,\s*var\(--grid-item-shadow,\s*inset 0 0 0 1px rgba\(37, 99, 235, 0\.055\),\s*0 18px 42px rgba\(37, 99, 235, 0\.10\)\)\)/',
-            $block
-        );
-
-        // Mobile featured glow (max-width: 767px, final cascade) re-declares the
-        // same chain with its own literal — delete the chain there and the slot
-        // reports success while mobile renders the old glow.
-        $css = $this->stripComments($this->css);
-        $this->assertStringContainsString(
-            'box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)))',
-            $css,
-            'The mobile featured-glow rule must route through --grid-featured-shadow (issue 293).'
-        );
-    }
-
-    // RETIRED (#986): `--hero-proof-color` is the `proof` role's `typography.color`.
-
-    /**
-     * Stats display-number typography slots (issue 472): byte-identical-unset pins.
-     *
-     * The number's family was never declared (so it took the page BODY font) and its
-     * weight was the literal 700, which left the largest text in the component off
-     * the heading system with no way to bring it on. The generic checks above prove
-     * --stats-number-font / --stats-number-weight are consumed on type-compatible
-     * properties inside the stats block; they do NOT pin the fallbacks, and the
-     * fallbacks are the whole compatibility story here. `inherit` is what the ABSENT
-     * font-family declaration already did, and 700 is the literal it replaces.
-     *
-     * Routing either fallback through the heading tokens instead would move existing
-     * pages: --font-weight-heading is 650, not 700, and --font-heading is exactly what
-     * differs from --font-body on the sites this slot is for. So heading-system parity
-     * is opt-in, and these two literals are what makes that true.
-     */
-    /**
-     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
-     *
-     * #472's claim — the display figure's typography is authorable per instance and the
-     * stylesheet carries no literal that would shadow it — moved to the `number` role at
-     * #1066 PR2. It is asserted against the EMITTED declaration in
-     * StatsNumberTypographyTest, which was repriced wholesale in the same change, and the
-     * stylesheet half is now stronger than this test could be: the structural-CSS boundary
-     * lint refuses ANY typography in stats' block, fail-closed, rather than checking one
-     * property's fallback shape.
-     */
-
-    // RETIRED (#986): hero's button fill slots are the `cta` / `cta-secondary` roles'
-    // `background.fill` (and its `:hover`), covered by ActionsTest's UDC contract test.
-
-    // RETIRED (#1023), and this pair is retired TOGETHER because they pinned two halves
-    // of one mechanism: the panel CTA's variant-carved fill keystone (#536) and the hover
-    // ring twin (#584) that kept a rest-state ring from dissolving under the pointer.
-    //
-    // Section's panel CTA is the `panel-cta` role now. Everything both tests protected is
-    // gone WITH ITS CAUSE rather than merely relocated, which is why nothing replaces
-    // them here:
-    //
-    //   - The masked-fill class (#514/#526/#536) existed because `.section__panel-cta`
-    //     has no .hero/.cta ancestor, so the shared premium `main .btn:not(...)` gradient
-    //     was its only fill winner and a background-COLOR set in the section block sat
-    //     invisibly beneath it. A role's block is emitted UNLAYERED and band-scoped, so
-    //     it beats every layer including pp-v1 — there is no masking rule left to lead.
-    //
-    //   - The load-bearing shape was that all three slots had to share ONE [0,4,0]
-    //     variant carve-out, because wiring the elevation slot on the bare [0,1,0] rule
-    //     would have painted a drop shadow on a transparent outline/ghost CTA that
-    //     schema.json promised it never reached. That contract cannot be contradicted
-    //     any more: `panel_cta_variant` is retired, so there is no variant set to carve
-    //     away from. An author puts `"_preset": "button"` on the role and overrides
-    //     beside it, and whatever they set is what paints — the promise and the
-    //     behaviour became the same statement.
-    //
-    //   - The hover ring's positional twin is the role's `':hover'` state nested inside
-    //     `border`, which the engine emits from the same map as the resting value, so
-    //     the two cannot split the way `.btn:hover` and a hand-written keystone could.
-    //
-    // The v2 replacements are covered by UdcEngineTest (every role selector matches an
-    // element the component actually renders, and `panel-cta` is one of section's
-    // nineteen) and by the cascade contract in docs/explanation-cascade-layers.md.
-
-    /**
-     * Heading rhythm completes its family (issue 584, A-41).
-     *
-     * Band fusing — the documented procedure for closing the seam between two bands that
-     * share a background (ai-instructions/style-component.md, "the step easy to miss") —
-     * is "set --<component>-heading-margin-bottom to 0". Four components could execute it;
-     * six could not, because the gap was a bare literal. This pins the routing AND the
-     * fallback literal for each of the six, which is what makes the addition byte-identical:
-     * every slot carries the exact value its own rule declared before.
-     *
-     * hero is the odd one and is pinned deliberately. It had NO margin-bottom declaration at
-     * all — base.css's universal `margin: 0` reset was the whole story and .hero__content's
-     * flex `gap` supplies the visible spacing — so its fallback is `0`, not a --space-* token.
-     * A future edit that "harmonises" it to --space-md would push every hero headline down.
-     */
-    /**
-     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
-     *
-     * #584's heading-rhythm claim — each band's heading margin is zeroable per instance
-     * without a global retune — moved to each component's `heading` role
-     * (`spacing.margin-bottom`, still `@space-lg`). stats and logos were the last two
-     * members here; grid keeps the slot-shaped version, asserted in ActionsTest's
-     * style_component persistence test with the fixture beside it.
-     */
-
-    /**
-     * Logo sizing completes its family (issue 584, A-40).
-     *
-     * ONE slot at BOTH cap sites, mirroring --grid-item-icon-size's shape (which drives
-     * width AND height from a single knob). Each site keeps its own literal, so unset the
-     * shipped label-driven switch survives: 3rem for a bare logo, 2.5rem for a labelled
-     * tile. The rendered proof that those two literals are what actually paint lives in
-     * tests/e2e/style-render.spec.ts ("#583 logos mixed labeled/unlabeled strip"), which
-     * measures 48px and 40px in one strip; this pins the routing that must not drift from it.
-     *
-     * NOT a dark-band unblocker: no --logos-bg is added here, and none should be added on the
-     * strength of a sizing slot (the heading renders 1.02:1 and the label has no colour slot
-     * on a dark band — owned by the deferred band-background gate).
-     */
-    /**
-     * RETIRED AT #1066 PR2 — the claim moved, it was not dropped (#1038).
-     *
-     * #584's logos sizing claim retired with the slots at #1066 PR2, and it is the one
-     * case in this file where the CAPABILITY genuinely changed rather than moving: v1 read
-     * ONE slot at BOTH cap sites with different fallbacks, and a role carries one default,
-     * so the caps are the `image` and `image-labeled` roles now and the label-driven switch
-     * survives by SPECIFICITY instead. Rendered default byte-identical (measured 48px /
-     * 40px); the two caps are independently authorable. Asserted in
-     * LogosRoleDefaultsEmitTest and stated in components/logos/README.md.
-     */
-
-    /**
-     * The schema note that tells an agent WHICH cap a logo item gets had the two values the
-     * wrong way round (it said "3rem labelled, 2.5rem unlabelled"; the CSS is the opposite,
-     * and the rendered #583 strip measures 48px unlabelled / 40px labelled). It is corrected
-     * here because --logos-image-size overrides both caps, so the note is now describing
-     * behaviour this issue changes. Pinned so the correction cannot silently revert.
-     *
-     * REPRICED AT #1066: the slot retired with logos' whole slot map and the two caps
-     * became two ROLES. The note had to change or it would describe a defeat mechanism
-     * that no longer exists — and it also had to stay UNDER THE 400-CHARACTER BOUND that
-     * `SchemaValidationTest::testEveryShippedDefinitionObjectConformsToTheClosedContract`
-     * enforces on bounded prose, which the first rewrite blew past at 515. Both guards
-     * fired on the same edit, which is the system working.
-     */
-    public function testIssue584LogosConditionalityNoteMatchesTheStylesheet(): void
-    {
-        $schema = json_decode(
-            file_get_contents($this->themeRoot . '/components/logos/schema.json'),
-            true
-        );
-        $note = $schema['props']['items']['conditionality_note'] ?? '';
-        // THE TWO MEASURED NUMBERS SURVIVE THE REBUILD UNCHANGED, which is why they are
-        // still the first two assertions: the label-driven switch is the subject, and
-        // #1066 moved where it is expressed without moving what it renders.
-        $this->assertStringContainsString('2.5rem labelled', $note);
-        $this->assertStringContainsString('3rem unlabelled', $note);
-
-        // THE THIRD ASSERTION IS REPRICED, NOT DROPPED. It read
-        // `'--logos-image-size overrides both'` — a claim about a slot logos no longer
-        // declares. The note's JOB is unchanged: warn an author that this condition is
-        // item-level and tell them how to defeat it. The v2 answer is "write both roles",
-        // and the retired slot is still named so an author meeting it on an aged page can
-        // match it up, which is what the shipped note says.
-        $this->assertStringContainsString('`image` and `image-labeled`', $note);
-        $this->assertStringContainsString('write both for a flat strip', $note);
-        $this->assertStringContainsString('`--logos-image-size`, which overrode both, is retired', $note);
-    }
-
-    // RETIRED (#1026): SEVEN TESTS AND THEIR PROVIDER, together, because they pinned ONE
-    // thing — the ORDER of links inside cta's filled-button `var()` chains. cta was their
-    // only remaining subject; hero's rows left at #986 and section's panel-CTA rows at #1023.
-    //
-    //   testIssue474CtaButton2SlotIsolationAndFillRouting
-    //   testIssue548CtaPrimaryHoverBorderRanksTheAccentAboveTheFill
-    //   testIssue548EveryFilledHoverRingRanksItsAccentAboveItsOwnFill (+ filledHoverBorderChains)
-    //   testIssue564AccentOutranksTheGlobalRingKnob
-    //   testIssue564FillChainsRankTheAccentAboveTheGlobalFillKnobToo
-    //   testIssue565NoGlobalKnobSurvivesInAnOverlayRingChain
-    //   testIssue565TheBaseChainsKeepTheGlobalFillKnob
-    //
-    // THE RULINGS ARE NOT REVERSED; THEIR SUBJECT IS GONE. #538, #548, #564 and #565 each
-    // arbitrated which of two links won when both were set — the band accent against the
-    // per-instance fill, the band accent against the global knob, the global knob against a
-    // measured on-overlay role. Every per-instance link in those chains was a style slot, and
-    // cta's rebuild removed the last of them, so each chain is now one global `--btn-*` knob
-    // and one literal. Two links that cannot both exist cannot be mis-ordered: a replacement
-    // pin would have nothing to hold and would pass vacuously, which is the failure mode
-    // #1023's round-15 audit named and the reason these are deleted rather than narrowed.
-    //
-    // #474's isolation pin is in this list for a DIFFERENT reason, worth separating. It did
-    // not pin an ORDER; it pinned a re-pointing rule that stopped the PRIMARY button's slots
-    // inheriting down onto the second button, which they did because slots were emitted as
-    // inline custom properties on the BAND ROOT and custom properties inherit. Nothing is
-    // emitted on the root now, so nothing inherits: the two buttons are separate ROLES with
-    // separate blocks, and the isolation is a property of the emitter rather than a rule that
-    // could be deleted by mistake.
-    //
-    // WHERE THE CAPABILITY WENT, so this reads as a move rather than a deletion. A v2 band
-    // sets its button design on the `button` / `button-secondary` roles, whose blocks are
-    // emitted UNLAYERED and therefore outrank this whole stylesheet at any specificity,
-    // instead of competing for position inside a fallback chain. The rest/hover parity those
-    // rulings fought for is structural there: a `:hover` map nests INSIDE its group and is
-    // emitted from the same role map as the resting value, so the two cannot drift apart the
-    // way a hand-written rule and its `:hover` twin could.
-    //
-    // WHAT STILL GUARDS #554's CONTRACT (a site-wide button retheme reaches every filled
-    // surface): `--btn-*` is now the only per-property link in those chains, and the guard is
-    // RENDERED rather than textual — tests/e2e/style-render.spec.ts's '#458 the global button
-    // surface is a real one-knob' for the resting half and its '#539 ... survives a hover' for
-    // the hover half. Both read the four knobs against real buttons. (An earlier draft of this
-    // note credited css-lint.test.js's premium-fill pins; those were retired in the same
-    // change, so the e2e pair is the whole of it.)
-
-    // THE CHAIN-READING HELPERS WENT WITH THOSE SEVEN TESTS, and one of them had to:
-    // filledChainOrder() called $this->filledRuleBody(), which is declared NOWHERE in this
-    // file. That call was unreachable — the only path to it ran through hoverChainOrder() and
-    // hoverBorderOrder(), whose last caller was a test in the list above — so PHP never
-    // resolved it and the suite stayed green over a method that does not exist. Leaving the
-    // subtree would leave a latent fatal for the next author who reached for a
-    // "read this button's chain order" helper. The three that are gone:
-    // filledChainOrder(), hoverChainOrder(), hoverBorderOrder().
-    //
-    // Nothing replaces them here. A v2 button's values are asserted on the EMITTED CSS
-    // (tests/CtaRoleDefaultsEmitTest.php) rather than by reading the order of links inside a
-    // stylesheet fallback chain, because an unlayered role block does not participate in one.
-
-    // RETIRED (#1026): testIssue538FillFollowIsScopedToTheFilledSecondButton and its
-    // provider nonFilledSecondButtonHoverRules. #538 ruled that the border FOLLOWS the fill
-    // on a FILLED second button and must NOT on the transparent-fill variants, and the test
-    // pinned the negative half on cta's three `.btn--outline` / `--secondary` / `--ghost`
-    // button2 rules. Those rules went with `button2_variant`: both buttons render as a bare
-    // `.btn` now, so there are no variant rules left for the scoping to be scoped AGAINST.
-    // The provider's `$hero` rows had already gone at #1007 for the same reason, leaving
-    // cta as its only subject — a dead local variable that outlived its rows, which is the
-    // shape a vacuous provider takes just before it stops covering anything.
-    //
-    // The POSITIVE half of #538 is not lost. A v2 role states its ring and its fill
-    // independently, per state, in one map — `border.color` beside `background.fill`, each
-    // with its own `':hover'` — so "does the border follow the fill" is no longer a chain
-    // ORDER an author can get wrong; it is two values they write or omit.
-
-
-    // RETIRED (#986): the two CTAs are separate roles with separate selectors, so the
-    // isolation this pinned holds by construction; ActionsTest proves it on the
-    // emitted CSS rather than on a fallback chain.
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /**
-     * Cross-block override contract: `selector class token => [slot, property]`.
-     * These slots are consumed both inside their COMPONENT block AND in the global
-     * "premium typography" media rules, so they are the ones at risk of a cross-block
-     * clobber. Extend this map when a new slot becomes reachable outside its block.
-     */
-    private const CROSS_BLOCK_SLOT_CONTRACT = [
-        '.grid__heading'     => ['--grid-heading-color', 'color'],
-        // section's two rows retired in #1023: both slots went with its slot map, and the
-        // four `main > .section` premium-typography rules that made them cross-block
-        // reachable were DELETED in the same change (they were dead code — pp-v1 loses to
-        // the unlayered role defaults the engine emits). So the cross-block hazard this
-        // map exists for no longer has a mechanism on section, not merely no slot.
-        // Body/content + card text slots are ALSO re-declared in the desktop
-        // "premium typography" media rules. The original #86 fix only covered
-        // the two heading slots above; these four were left clobbered (desktop
-        // hardcoded a token, ignoring the per-instance slot) until caught by a
-        // dev smoke test against a dark-band benchmark. Same cross-block class.
-        '.grid__item-title'  => ['--grid-item-title-color', 'color'],
-        '.grid__item-text'   => ['--grid-item-text-color', 'color'],
-        // cta's row retired in #1026 for the reason section's did in #1023, with one detail
-        // worth keeping: the two `main > .cta .cta__body` premium-typography rules that made
-        // this slot cross-block reachable were DELETED in the same change, and their
-        // font-weight and line-height had to be PORTED rather than dropped — cta had no
-        // unconditional rule for either, so they lived only inside those two media blocks.
-        // The cross-block hazard this map exists for has no mechanism on cta any more.
-        // faq's TWO ROWS LEFT AT #1046 with its rebuild, and the long note below is kept
-        // because it records why `.faq__question` was never in this map — a reason that
-        // outlived the slot. The open-accordion state used a DIFFERENT slot from the
-        // resting one, which this whole-sheet clobber scan cannot tell from an accidental
-        // override; that distinction is now the `question` / `question-open` ROLE pair,
-        // cross-referenced in both directions by SchemaTruthfulnessTest's role-twin loop.
-        // The two rows that did leave are below, struck rather than deleted so the next
-        // reader can see the map shrank by rebuild rather than by neglect:
-        //   '.faq__heading' => ['--faq-heading-color', 'color']
-        //   '.faq__answer'  => ['--faq-answer-color', 'color']
-        // Both are `typography.color` on their roles now, emitted unlayered — which is
-        // what makes the clobber this map guards against structurally impossible for
-        // them, rather than merely unobserved.
-        //
-        // faq (#100): this is the exact bug the "premium typography" comment above
-        // already documented ("faq has no heading-color slot, so it keeps the token")
-        // before #100 added one — .faq__heading/.faq__answer are re-declared in the
-        // same desktop media rules as the slots above.
-        // NOTE: .faq__question is deliberately NOT in this map. Its open-accordion
-        // state (.faq__item[open] > .faq__question) intentionally uses a DIFFERENT
-        // slot (--faq-question-open-color, not --faq-question-color) — a real, in-component state
-        // change, not a cross-block clobber. This test matches by class substring
-        // across the whole stylesheet and can't distinguish "different intentional
-        // state" from "accidental override," so .faq__question would false-fail here.
-        // HISTORICAL as of #1046: the desktop cross-block rule for .faq__question WAS
-        // fixed (it routed through --faq-question-color), and both are now gone — the
-        // rule was deleted from components.css and --faq-question-color is one of the 21
-        // retired slots. The surviving reasoning is in the #1046 paragraph above; this
-        // note is kept only to explain why the pair was never in the map.
-    ];
-
-    /**
-     * Property → compatible slot types. Properties absent from this map are
-     * treated as compatible (lenient) so the test never false-fails on novel CSS.
-     */
-    private const PROPERTY_TYPES = [
-        'box-shadow'                 => ['shadow'],
-        'color'                      => ['color'],
-        'background'                 => ['color', 'gradient'],
-        // Deliberately NOT ['color', 'gradient'] — background-color: cannot hold a
-        // gradient in real CSS (that's the exact #99 bug: --hero-bg/--grid-item-bg
-        // were consumed via background-color: in some rules, silently invalid for a
-        // gradient override). Keeping this list ['color']-only means a future
-        // gradient-typed slot wired to background-color: still gets caught here
-        // (unless it's ALSO consumed compatibly elsewhere — see the "at least one
-        // compatible use" note above).
-        'background-color'           => ['color'],
-        'border'                     => ['length', 'color'],
-        'border-top'                 => ['length', 'color'],
-        'border-bottom'              => ['length', 'color'],
-        'border-color'               => ['color'],
-        'border-top-color'           => ['color'],
-        'border-right-color'         => ['color'],
-        'border-bottom-color'        => ['color'],
-        'border-left-color'          => ['color'],
-        'outline-color'              => ['color'],
-        'fill'                       => ['color'],
-        'stroke'                     => ['color'],
-        'padding'                    => ['length'],
-        'padding-top'                => ['length'],
-        'padding-right'              => ['length'],
-        'padding-bottom'             => ['length'],
-        'padding-left'               => ['length'],
-        'margin'                     => ['length'],
-        'margin-top'                 => ['length'],
-        'margin-bottom'              => ['length'],
-        'gap'                        => ['length'],
-        'row-gap'                    => ['length'],
-        'column-gap'                 => ['length'],
-        'width'                      => ['length'],
-        'min-width'                  => ['length'],
-        // `max-width` is the one CSS property whose "remove the cap" value is the
-        // keyword `none`, so it is the only property the #579 `length-or-none`
-        // grammar drives. Plain `length` stays compatible: --*-measure slots keep it.
-        'max-width'                  => ['length', 'length-or-none'],
-        'height'                     => ['length'],
-        'font-size'                  => ['length'],
-        'border-width'               => ['length'],
-        'border-top-width'           => ['length'],
-        'border-bottom-width'        => ['length'],
-        'border-radius'              => ['length'],
-        'letter-spacing'             => ['length'],
-        'line-height'                => ['number'],
-        'font-weight'                => ['number'],
-        'opacity'                    => ['number'],
-        'font-family'                => ['font-family'],
-        'text-align'                 => ['align'],
-        'text-transform'             => ['text-transform'],
-    ];
-
-    /**
-     * WP core's global stylesheet (block-library / global-styles) ships
-     * attribute-SUBSTRING selectors, verified in the rendered page on WP 7.0:
-     *
-     *   html :where([style*="border-width"])      { border-style: solid }
-     *   html :where([style*="border-color"])      { border-style: solid }
-     *   html :where([style*="border-top-width"])  { border-top-style: solid }
-     *   ... and the right/bottom/left twins for both width and color (11 unscoped
-     *   rules in total; every other [style*=…] trigger core ships is scoped to a
-     *   .wp-block-* class this theme never emits).
-     *
-     * Core means the block editor's `style="border-width:2px"`. We render style slots
-     * as inline CUSTOM PROPERTIES, so a slot whose NAME embeds any of these substrings
-     * makes the selector match our component root on the property name alone — even
-     * when the value is 0 and the border lives on a descendant.
-     *
-     * Matched as a regex, not a fixed 2-item list: a future slot named
-     * `--x-border-top-width` trips core's per-side rule while containing NEITHER
-     * "border-width" nor "border-color" (adversarial-review finding).
-     */
-    private const WP_CORE_BORDER_TRIGGER_REGEX = '/border(?:-(?:top|right|bottom|left))?-(?:width|color)/';
-
-    /**
-     * The elements that can carry a slot's inline custom properties: every component
-     * root (all 12 carry data-pp-component) and the per-card .grid__item of issue 306.
-     * These are what the immunity baseline must cover.
-     */
-    // `.section__panel-row` LEFT THIS LIST AT #1026, one rebuild after the surface itself
-    // stopped qualifying. Section has been v2 since #1023, so its rows carry no style
-    // attribute and WP core's `:where([style*=border-width])` can never match one — the term
-    // was immunising an element that no longer had the problem. Removing it is the narrowing
-    // #1023 recorded as owed; the measured before/after that justified narrowing the baseline
-    // at all is in the baseline's own comment in components.css.
-    private const BORDER_IMMUNITY_SELECTORS = ['[data-pp-component]', '.grid__item'];
-
-    /**
-     * The baseline must DECLARE these longhands with these VALUES. Asserting the value —
-     * not merely the property name — is load-bearing: a baseline reading
-     * `border-style: solid; border-width: 3px` names both properties and IS issue 332,
-     * rendered by our own stylesheet. A name-only check green-lights it
-     * (adversarial-review finding 1).
-     */
-    private const BORDER_IMMUNITY_DECLARATIONS = [
-        'border-style' => '/^(none|hidden)$/i',
-        'border-width' => '/^0(px|em|rem|%)?$/i',
-    ];
-
-    /**
-     * 7. Third-party cascade immunity (issue 332).
-     *
-     * The #305 bypass guard cannot see this class of defect: the slot IS consumed,
-     * our CSS text IS correct, and the damage is contributed by a FOREIGN stylesheet
-     * at runtime — core's rule lands `border-style: solid` on a root that declared no
-     * border, which then computes at the initial `medium` width (3px). The 1.0-H
-     * dogfood lost two documented slots to it.
-     *
-     * Division of labour, stated honestly: only a rendered box under real core CSS can
-     * prove the immunity holds, and that pin lives in tests/e2e/style-render.spec.ts
-     * (`#332 …`), which asserts the computed border per affected component. THIS check
-     * owns the half a browser cannot: it fails when a NEW slot name embeds a core
-     * trigger substring while the baseline does not cover the surface that carries it —
-     * i.e. it keeps the immunity honest as the slot surface grows, without waiting for
-     * someone to notice a 3px border on a page.
-     *
-     * WHICH LONGHAND CARRIES THE IMMUNITY CHANGED UNDER CASCADE LAYERS (#986), and the
-     * belt-and-braces in the baseline is why nothing broke. The v1 stylesheet now lives
-     * in `@layer pp-v1`; core's `html :where([style*="border-width"]){border-style:solid}`
-     * is UNLAYERED, and unlayered beats layered at any specificity. So the baseline's
-     * `border-style: none` now LOSES to core where it used to win on (0,1,0) vs (0,0,1).
-     *
-     * `border-width: 0` still wins, because core injects a STYLE and never a width, so
-     * nothing unlayered competes for that longhand. `solid` at a zero width paints
-     * nothing, so the rendered outcome is unchanged — verified by computed read, not
-     * assumed: a `.cta` carrying only `--cta-border-color` computes 0px on the edges no
-     * component rule draws, not the 3px `medium` that issue 332 was.
-     *
-     * That is exactly the contingency the baseline's own comment in components.css
-     * anticipated ("border-width: 0 keeps it defeated if core ever injects a width
-     * instead") arriving from the other direction. It is ALSO the reason the baseline
-     * was not hoisted out of the layer to restore the old mechanism: an unlayered
-     * baseline would outrank every layered component rule that legitimately draws a
-     * border (`.cta--dark`, `.grid--dark`, `.logos--dark`, …) and erase all of
-     * them. The rendered pin remains the proof that matters.
-     *
-     * `.site-footer` is NOT one of those rules any more, and the docblock immediately
-     * below is why: #994 made the footer's top border a `_band` role default, and this
-     * baseline was silently deleting it until chrome was excluded.
-     */
-    /**
-     * THE CHROME EXCLUSION COSTS THE IMMUNITY NOTHING (#994).
-     *
-     * `isBaselineFor()` accepts `[data-pp-component]:not(:where([data-pp-chrome]))` as
-     * the baseline, because the unexcluded form silently deleted the header's and the
-     * footer's borders once #994 made them `_band` role defaults. That is only
-     * admissible if chrome can never be one of the elements the baseline defends — so
-     * this asserts it instead of the comment merely claiming it.
-     *
-     * Two independent reasons, both checked: chrome declares zero style slots (so no
-     * slot of its can embed a WP-core trigger substring), and its templates emit no
-     * `style` attribute at all (so core's `[style*="border-width"]` substring selector
-     * has nothing to match on). Either alone would be enough; both are pinned, because
-     * the first could change with a schema edit and the second with a template edit.
-     */
-    public function testNoBorderTriggerSlotBelongsToChrome(): void
-    {
-        foreach (array_keys($this->borderTriggerSlots()) as $slot) {
-            foreach (['nav', 'footer'] as $chrome) {
-                $this->assertStringNotContainsString(
-                    $chrome,
-                    (string) $slot,
-                    "the immunity baseline excludes chrome, so a chrome border-trigger slot "
-                    . "({$slot}) would be left exposed"
-                );
-            }
-        }
-
-        foreach (['nav', 'footer'] as $chrome) {
+        // ANTI-VACUITY 2: the engine's own answer, per component, not inferred from the
+        // schemas it was just asked about.
+        foreach ($all as $component) {
             $this->assertSame(
                 [],
-                pp_get_style_slots($chrome),
-                "{$chrome} must declare no style slots — the chrome exclusion in the issue-332 "
-                . 'baseline depends on it'
-            );
-        }
-    }
-
-    public function testBorderTriggerSlotsHaveCascadeImmunity(): void
-    {
-        $triggerSlots = $this->borderTriggerSlots();
-
-        // Fail-closed floor: 4 such slots exist today. 13 at issue 332, minus section's two
-        // (`--section-border-width`, `--section-panel-border-width`) in #1023, cta's four
-        // (`--cta-border-width`, `--cta-border-color`, `--cta-eyebrow-border-width`,
-        // `--cta-eyebrow-border-color`) in #1026, and faq's three at #1046
-        // (`--faq-eyebrow-border-width`, `--faq-eyebrow-border-color`,
-        // `--faq-item-border-color`) — a v2 band's border is the `_band`, `eyebrow` or
-        // `item` role's `border` group, emitted by the engine into a band-scoped rule
-        // rather than an inline style attribute, so it never meets WP core's 3px trigger
-        // this immunity baseline exists to defeat. If discovery breaks, every assertion
-        // below would pass over an empty list.
-        $this->assertGreaterThanOrEqual(
-            4,
-            count($triggerSlots),
-            'Discovery found fewer border-trigger slots than the 4 known today — '
-            . 'the schema scan is broken and this guard would pass vacuously.'
-        );
-
-        $gaps = $this->immunityGaps($this->css);
-        $this->assertSame(
-            [],
-            $gaps,
-            "components.css does not carry the issue 332 immunity baseline:\n  - "
-            . implode("\n  - ", $gaps)
-            . "\n\nSlots whose NAME embeds a WP-core trigger substring (so core's "
-            . ":where([style*=…]) matches the element that carries them inline):\n  "
-            . implode("\n  ", array_keys($triggerSlots))
-        );
-    }
-
-    /**
-     * Every element that receives a slot's inline custom properties must be covered by
-     * the immunity baseline. Today the renderer echoes its `pp_render_style_vars()`
-     * output onto exactly two kinds of element: the component root (data-pp-component)
-     * and grid's per-card .grid__item. Moving an inline style attribute onto some other
-     * element would silently re-open issue 332 on that element — this fails if that happens.
-     */
-    public function testInlineSlotSurfacesAreCoveredByTheImmunityBaseline(): void
-    {
-        $emitted   = 0;
-        $generated = 0;
-
-        foreach (glob($this->themeRoot . '/components/*/*.php') as $template) {
-            $source = file_get_contents($template);
-
-            // Every call that BUILDS inline slot custom properties. Each one must end up
-            // echoed onto an immune element — comparing the two counts is what stops a new
-            // surface from slipping past the line scan below (Codex outside-voice finding:
-            // a regex over echo lines alone is bypassable).
-            //
-            // COUNTED ON COMMENT-STRIPPED SOURCE (#708). Ten component templates now carry a
-            // guard block that NAMES the helper in prose ("...before it reaches the typed
-            // pp_render_style_vars(array $style, ...)"), and a raw-source regex counts each
-            // of those sentences as a call. That inflated `generated` from 12 to 25 and
-            // tripped the fail-closed check below with a message describing a surface leak
-            // that does not exist. Stripping via PHP's own tokenizer is exact rather than
-            // heuristic, and it keeps the checker honest in the other direction too: a call
-            // commented OUT is correctly not a call. Same fix, same reason, as the #706
-            // catcher in tests/InvariantTest.php.
-            $generated += preg_match_all('/pp_render_style_vars\s*\(/', $this->stripPhpComments($source));
-
-            // SAME stripped source as the $generated count above. Both halves of the
-            // `emitted >= generated` comparison must see identical input: an inflated
-            // $emitted is the SILENT-failure direction, so a comment quoting an echo line
-            // (`echo $hero_style_attr;`) inside one of the ten verbose guard blocks would
-            // mask a genuinely missing emit surface — the exact bug this check exists to
-            // catch. stripPhpComments() preserves newlines, so `$i + 1` is still the real
-            // line number in the failure message below.
-            foreach (explode("\n", $this->stripPhpComments($source)) as $i => $line) {
-                // Match both the long `echo $x_style_attr;` form and the short-echo
-                // `<?=` form, plus any variable whose name carries style+attr.
-                // (No literal PHP close tag in this comment — it would end PHP mode.)
-                if (!preg_match('/(?:echo|<\?=)\s*\$[a-z_]*style[a-z_]*attr/i', $line)) {
-                    continue;
-                }
-                $emitted++;
-                $covered = str_contains($line, 'data-pp-component=')
-                    || preg_match('/class="[^"]*\bgrid__item\b/', $line) === 1
-                    || preg_match('/class="[^"]*\bsection__panel-row\b/', $line) === 1;
-
-                $this->assertTrue(
-                    $covered,
-                    basename($template) . ':' . ($i + 1) . " emits inline style slots onto an element "
-                    . "that the issue 332 immunity baseline does not cover ("
-                    . implode(' / ', self::BORDER_IMMUNITY_SELECTORS) . "). WP core's "
-                    . ":where([style*=border-width]) will match it on the slot NAME and inject a "
-                    . "3px solid border. Give the element data-pp-component, or extend the baseline "
-                    . "in components.css AND self::BORDER_IMMUNITY_SELECTORS.\n  " . trim($line)
-                );
-            }
-        }
-
-        // Fail-closed: 3 styled components render a root style attr and grid renders a
-        // per-card one, so 4. Two left in #1023 with section's rebuild (its root attribute
-        // and the per-row one issue 334 added — the panel rows are roles now), faq's
-        // root attribute left at #1046, and table's and embed's at #1066. A v2 template
-        // emits `data-pp-band` and no `style` attribute at all, which is why each rebuild
-        // takes exactly one surface off this count. If the scan finds nothing, the loop
-        // above proved nothing.
-        // TWO since #1066 PR2: stats' and logos' root attributes left with their slot maps,
-        // exactly as table's and embed's did earlier in the same issue. Both remaining
-        // surfaces are grid's — its root attribute and the per-card one — so this floor and
-        // grid's rebuild now retire together.
-        $this->assertGreaterThanOrEqual(
-            2,
-            $emitted,
-            'Found fewer inline slot surfaces than the 4 known today — the template scan is broken.'
-        );
-
-        // Every pp_render_style_vars() call must reach an emit site the loop above actually
-        // inspected. If a template starts routing one through a helper or a differently
-        // named variable, `emitted` drops below `generated` and this trips — instead of the
-        // surface going silently unguarded (Codex outside-voice finding).
-        //
-        // NOT equality: footer.php legitimately emits inline custom properties
-        // (--footer-bg/-text/-link-color, from site options) WITHOUT pp_render_style_vars,
-        // because footer declares no schema style_slots. It is still an inline
-        // custom-property surface, so it is still covered above via data-pp-component —
-        // which is exactly the immunity this check exists to enforce. Extra emit sites are
-        // fine and get coverage-checked; a MISSING one is the bug.
-        $this->assertGreaterThanOrEqual(
-            $generated,
-            $emitted,
-            "pp_render_style_vars() is called {$generated}x but only {$emitted} inline style "
-            . 'attribute(s) were found. A slot surface is being emitted by a path this guard '
-            . 'cannot see — extend the scan (issue 332).'
-        );
-    }
-
-    /**
-     * Returns $source with every comment token removed, so a source-level checker can tell
-     * a real call from a mention in prose. Uses PHP's own tokenizer rather than a regex,
-     * because the guard blocks these templates carry are long comment blocks that quote the
-     * very identifiers being counted. Mirrors the helper of the same name in
-     * tests/InvariantTest.php.
-     */
-    private function stripPhpComments(string $source): string
-    {
-        $out = '';
-        foreach (token_get_all($source) as $token) {
-            if (is_array($token)) {
-                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
-                    // Replaced by its own newlines, not dropped outright, so line numbers
-                    // survive the strip. A caller that reports `file.php:N` in a failure
-                    // message would otherwise cite a line that drifts further out of true
-                    // with every comment above it — and this file polices templates whose
-                    // guard blocks run to forty comment lines each.
-                    $out .= str_repeat("\n", substr_count($token[1], "\n"));
-                    continue;
-                }
-                $out .= $token[1];
-                continue;
-            }
-            $out .= $token;
-        }
-        return $out;
-    }
-
-    /**
-     * Negative control (mirrors testGuardDetectsTheDeadSlotClass): the immunity check
-     * must actually FAIL on CSS that lacks the baseline. Without this, a refactor that
-     * broke `immunityGaps()` would leave check 7 passing on an empty result forever.
-     */
-    public function testImmunityGuardDetectsAMissingBaseline(): void
-    {
-        // No baseline at all.
-        $this->assertNotSame([], $this->immunityGaps('.grid { padding: 1rem; }'));
-
-        // Baseline present but only covers the roots — the per-card surface is exposed.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps('[data-pp-component] { border-style: none; border-width: 0; }')
-        );
-
-        // Baseline declares style but not width: core injecting a WIDTH would still land.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps('[data-pp-component], .grid__item { border-style: none; }')
-        );
-
-        // Baseline present but BELOW a component block: the component rules (equal
-        // specificity, (0,1,0)) no longer win on source order — it would clobber them.
-        //
-        // THIS ROW USED TO PASS FOR THE WRONG REASON, found at #1026 and worth recording
-        // because it is the vacuous-control class this file's other guards are built to
-        // avoid. Its fixture's component rule was `.nav`, which is NOT in
-        // styledComponentRoots() — chrome's root entries became `.nav__container` /
-        // `.site-footer__inner` at #994 — so firstComponentRuleOffset() returned null, the
-        // source-order branch never ran, and the row was carried by the OTHER half of the
-        // check: `.section__panel-row` was in BORDER_IMMUNITY_SELECTORS and the fixture did
-        // not cover it, so a gap was reported for a missing surface rather than for bad
-        // order. Removing that surface at #1026 took the accidental support away and the
-        // row failed, which is the guard doing its job one layer up. The fixture now uses
-        // `.grid`, a root the scan really recognises, so the branch under test actually runs.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps(
-                ".grid { color: red; }\n"
-                . '[data-pp-component], .grid__item { border-style: none; border-width: 0; }'
-            )
-        );
-
-        // The real shape passes (both remaining inline-slot surfaces covered: roots and the
-        // grid card). The issue-334 panel row left this fixture at #1026 with the constant —
-        // section is v2 and its rows carry no style attribute, so there is nothing to immunise.
-        $this->assertSame(
-            [],
-            $this->immunityGaps(
-                "[data-pp-component],\n.grid__item { border-style: none; border-width: 0; }\n"
-                . "/* COMPONENT: nav */\n.nav { color: red; }"
-            )
-        );
-
-        // ...and so does the SHIPPED spelling, with both qualifiers (#1026). Asserted here
-        // rather than only against the real stylesheet so the matcher's acceptance of
-        // `:where([style])` is proven on a fixture the test controls — otherwise a matcher
-        // that accepted anything would pass the real-sheet check just as happily.
-        $this->assertSame(
-            [],
-            $this->immunityGaps(
-                "[data-pp-component]:where([style]):not(:where([data-pp-chrome])),\n"
-                . ".grid__item:where([style]) { border-style: none; border-width: 0; }\n"
-                . "/* COMPONENT: nav */\n.nav { color: red; }"
-            )
-        );
-
-        // And the qualifier is not a blanket "anything goes": a DIFFERENT attribute
-        // qualifier must still fail, or the acceptance above would be vacuous.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps(
-                "[data-pp-component]:where([data-x]),\n"
-                . ".grid__item:where([data-x]) { border-style: none; border-width: 0; }"
-            )
-        );
-
-        // ...and so does the equivalent split into one rule per surface. The guard checks
-        // cascade coverage, not formatting (Codex outside-voice finding: requiring a single
-        // combined rule would reject a perfectly valid implementation).
-        $this->assertSame(
-            [],
-            $this->immunityGaps(
-                "[data-pp-component] { border-style: none; border-width: 0; }\n"
-                . ".grid__item { border-style: none; border-width: 0; }\n"
-                . "/* COMPONENT: nav */\n.nav { color: red; }"
-            )
-        );
-
-        // --- Bypasses closed after adversarial review. Each of these NAMES both longhands
-        // --- and would have passed the name-only/regex-parsed guard while shipping the bug.
-
-        // 1. Values are solid/3px: this rule IS issue 332, drawn by our own stylesheet.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps('[data-pp-component], .grid__item { border-style: solid; border-width: 3px; }'),
-            'A baseline declaring solid/3px must NOT count as immunity — it is the defect itself.'
-        );
-
-        // 2. Baseline nested in an at-rule: immune above 768px, 3px border on every phone.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps(
-                "@media (min-width: 768px) {\n"
-                . "  [data-pp-component], .grid__item { border-style: none; border-width: 0; }\n"
-                . "}\n/* COMPONENT: nav */\n.nav { color: red; }"
-            ),
-            'A baseline inside @media only applies at that breakpoint — it is not immunity.'
-        );
-
-        // 3. Ancestor-scoped baseline: roots outside .wrapper stay exposed.
-        $this->assertNotSame(
-            [],
-            $this->immunityGaps('.wrapper [data-pp-component], .wrapper .grid__item { border-style: none; border-width: 0; }'),
-            'A descendant-scoped baseline does not immunize roots outside that ancestor.'
-        );
-
-        // The at-rule-aware parser must still see a legitimate baseline that merely has an
-        // @media block ABOVE it (the regex parser used to lift inner rules out to top level).
-        $this->assertSame(
-            [],
-            $this->immunityGaps(
-                "@media (min-width: 768px) { .unrelated { color: red; } }\n"
-                . "[data-pp-component], .grid__item, .section__panel-row { border-style: none; border-width: 0; }\n"
-                . "/* COMPONENT: nav */\n.nav { color: red; }"
-            )
-        );
-    }
-
-    /**
-     * Core's per-SIDE triggers (`[style*=border-top-width]` → `border-top-style: solid`) mean
-     * a slot named `--x-border-top-width` is a trigger while containing neither "border-width"
-     * nor "border-color". The old fixed 2-substring list dropped it silently
-     * (adversarial-review finding 6). No such slot exists today; the regex is what keeps the
-     * discovery honest if one is ever added.
-     */
-    public function testBorderTriggerDiscoveryCoversPerSideCoreRules(): void
-    {
-        foreach (
-            [
-                '--grid-item-border-width'   => true,
-                '--faq-item-border-color'    => true,
-                '--grid-item-border-color'   => true,  // #576 renamed --grid-card-border, ADDING a trigger
-                '--x-border-top-width'       => true,  // core: [style*=border-top-width]
-                '--x-border-left-color'      => true,  // core: [style*=border-left-color]
-                '--grid-item-border'         => false, // hypothetical: no width/color suffix — no core rule
-                '--grid-item-radius'         => false,
-                '--grid-item-bar-height'     => false, // core's [style*=height] is .wp-block-* scoped
-            ] as $slot => $isTrigger
-        ) {
-            $this->assertSame(
-                $isTrigger,
-                (bool) preg_match(self::WP_CORE_BORDER_TRIGGER_REGEX, $slot),
-                "Border-trigger discovery misclassified `{$slot}`."
-            );
-        }
-    }
-
-    /** Slots (across every component schema) whose NAME embeds a WP-core trigger substring. */
-    private function borderTriggerSlots(): array
-    {
-        $trigger = [];
-        foreach ($this->styledComponents() as $component) {
-            foreach ($this->slots($component) as $slot => $type) {
-                if (preg_match(self::WP_CORE_BORDER_TRIGGER_REGEX, $slot)) {
-                    $trigger[$slot] = $component;
-                }
-            }
-        }
-        ksort($trigger);
-        return $trigger;
-    }
-
-    /**
-     * TOP-LEVEL rules only: [ ['selector' => …, 'body' => …, 'offset' => …], … ].
-     *
-     * A brace-counting scan, not a regex. `/([^{}]+)\{([^{}]*)\}/` cannot match a block
-     * whose body contains braces, so it SKIPS the `@media` wrapper and lifts the rules
-     * inside it out to look top-level. That made a baseline hidden inside
-     * `@media (min-width: 768px)` — or `@media print` — read as immune while every phone
-     * rendered the 3px border (adversarial-review finding 2). At-rule bodies are stepped
-     * over wholesale here, so a baseline nested in one is simply NOT FOUND, and the caller
-     * fails closed.
-     */
-    /**
-     * Blanks a sheet-wide `@layer name { … }` wrapper and any `@layer a, b;` statement,
-     * PRESERVING EVERY BYTE OFFSET (#986).
-     *
-     * The wrapper is transparent to this guard by design: it changes how the sheet ranks
-     * against everything OUTSIDE it and nothing at all inside it — no conditionality, no
-     * reordering, every rule still in the same sequence. A CONDITIONAL at-rule is the
-     * opposite (a baseline inside `@media` really does leave other breakpoints exposed),
-     * so @media and @supports are still skipped by the scanner without descending.
-     *
-     * Blanking rather than descending, and same-length blanking rather than deletion, for
-     * three reasons the descent version got wrong:
-     *
-     *   1. The scanner only reacts to `{`, so a descent never consumed the wrapper's
-     *      matching `}` — it was swept into the next selector. Harmless only while the
-     *      wrapper closes at EOF with nothing after it.
-     *   2. An `@layer a, b, c;` STATEMENT has no block at all. base.css carries one on
-     *      line 1 today, so that shape is one copy-paste from components.css.
-     *   3. `offset` is used to compare rule ORDER (the immunity baseline must sit above
-     *      the first component rule), so the offsets have to survive intact. Replacing
-     *      with spaces of equal length is what guarantees that.
-     */
-    private function unwrapCascadeLayers(string $css): string
-    {
-        // Statements first: `@layer a, b;` with no block.
-        $css = preg_replace_callback(
-            '/@layer[^{};]*;/',
-            static fn(array $m): string => str_repeat(' ', strlen($m[0])),
-            $css
-        );
-
-        // Then each `@layer <name> {` and its matching close.
-        while (preg_match('/@layer[^{;]*\{/', $css, $m, PREG_OFFSET_CAPTURE)) {
-            $open  = $m[0][1];
-            $len   = strlen($m[0][0]);
-            $depth = 1;
-            $j     = $open + $len;
-            $n     = strlen($css);
-            while ($j < $n && $depth > 0) {
-                if ($css[$j] === '{') {
-                    $depth++;
-                } elseif ($css[$j] === '}') {
-                    $depth--;
-                    if ($depth === 0) {
-                        break;
-                    }
-                }
-                $j++;
-            }
-            $css = substr($css, 0, $open) . str_repeat(' ', $len) . substr($css, $open + $len);
-            if ($j < $n && $css[$j] === '}') {
-                $css = substr($css, 0, $j) . ' ' . substr($css, $j + 1);
-            }
-        }
-
-        return $css;
-    }
-
-    private function topLevelRules(string $css): array
-    {
-        $css    = $this->unwrapCascadeLayers($css);
-        $rules  = [];
-        $len    = strlen($css);
-        $i      = 0;
-        $selStart = 0;
-
-        while ($i < $len) {
-            $ch = $css[$i];
-
-            if ($ch === '{') {
-                $selector = trim(substr($css, $selStart, $i - $selStart));
-
-                // Step over the whole balanced block.
-                $depth = 1;
-                $bodyStart = $i + 1;
-                $j = $bodyStart;
-                while ($j < $len && $depth > 0) {
-                    if ($css[$j] === '{') {
-                        $depth++;
-                    } elseif ($css[$j] === '}') {
-                        $depth--;
-                    }
-                    $j++;
-                }
-
-                // An at-rule (@media/@supports) is NOT a style rule, and its inner
-                // rules are not top-level. Skip the block entirely — do not descend.
-                // (`@layer` never reaches here: the wrapper is blanked before the scan,
-                // see unwrapCascadeLayers().)
-                if ($selector !== '' && $selector[0] !== '@') {
-                    $rules[] = [
-                        'selector' => $selector,
-                        'body'     => substr($css, $bodyStart, ($j - 1) - $bodyStart),
-                        'offset'   => $selStart,
-                    ];
-                }
-
-                $i = $j;
-                $selStart = $i;
-                continue;
-            }
-
-            $i++;
-        }
-
-        return $rules;
-    }
-
-    /** True when this rule is a valid immunity baseline for $surface. */
-    private function isBaselineFor(array $rule, string $surface): bool
-    {
-        // Anchored, not str_contains: `.wrapper [data-pp-component]` CONTAINS the surface
-        // but only immunizes roots inside .wrapper, leaving every other root exposed
-        // (adversarial-review finding 3). Require the surface to stand alone as one whole
-        // comma-separated compound selector.
-        //
-        // ONE EXCLUSION IS ALLOWED, and only one (#994). `[data-pp-component]` matches the
-        // site header and footer too, and once chrome's `_band` role defaults carried the
-        // header's `border-bottom` and the footer's `border-top`, this baseline deleted
-        // both: it sits in `@layer pp-v1` while a root default emits into `@layer pp-zero`
-        // BELOW it, and it claims exactly those two longhands. Measured in Chromium at
-        // 375/768/1280 — `border-bottom-width` on `.site-header` read `0px` where it had
-        // read `1px`.
-        //
-        // Excluding chrome costs the guarantee NOTHING, which is why it is admissible
-        // here rather than a hole in the guard: this baseline defends elements that carry
-        // inline slot custom properties, and chrome declares ZERO style slots by ratified
-        // contract (#223) and emits no style attribute at all. Not one of the
-        // border-trigger slots discovered above belongs to nav or footer, and the test
-        // below proves that rather than assuming it.
-        //
-        // `:where(...)` IS REQUIRED IN THE SPELLING. A bare `:not([data-pp-chrome])` would
-        // raise the baseline from (0,1,0) to (0,2,0) and start beating the thirteen
-        // component rules that legitimately draw a border. `:where()` contributes zero, so
-        // the weight the source-order check below depends on is unchanged.
-        // THE PREMISE AS A QUALIFIER (#1026). The baseline's scope was stated in prose —
-        // "every element that can carry inline slot custom properties" — and approximated by
-        // a roster, which drifted twice: `.section__panel-row` stopped qualifying at #1023
-        // and the cta root at #1026, because a v2 component emits no style attribute at all.
-        // `:where([style])` is that premise written as the selector, so it cannot drift
-        // again. Accepted here in the same shape as the chrome exclusion and for the same
-        // specificity reason: `:where()` contributes zero, so the (0,1,0) weight the
-        // source-order check below depends on is unchanged — and core's
-        // `:where([style*="border-width"])` matches a strict SUBSET of `[style]`, so the
-        // immunity is exactly as strong as it was.
-        $chromeExclusion = ':not(:where([data-pp-chrome]))';
-        $styleQualifier  = ':where([style])';
-        $accepted        = [
-            $surface,
-            $surface . $chromeExclusion,
-            $surface . $styleQualifier,
-            $surface . $styleQualifier . $chromeExclusion,
-        ];
-        $selects = false;
-        foreach (self::splitTopLevel($rule['selector'], ',') as $part) {
-            if (in_array(trim($part), $accepted, true)) {
-                $selects = true;
-                break;
-            }
-        }
-        if (!$selects) {
-            return false;
-        }
-
-        // VALUES, not just property names — see BORDER_IMMUNITY_DECLARATIONS.
-        foreach (self::BORDER_IMMUNITY_DECLARATIONS as $property => $valuePattern) {
-            if (!preg_match(
-                '/(?<![-a-z])' . preg_quote($property, '/') . '\s*:\s*([^;}]+)/i',
-                $rule['body'],
-                $m
-            )) {
-                return false;
-            }
-            if (!preg_match($valuePattern, trim($m[1]))) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Returns the reasons the given CSS fails to grant issue 332 immunity ([] = immune).
-     *
-     * A surface is immune when SOME top-level rule (a) selects exactly that surface,
-     * (b) declares border-style:none AND border-width:0, and (c) sits ABOVE the first
-     * component rule. (c) is load-bearing: an attribute selector and a class selector both
-     * weigh (0,1,0), so a baseline placed below the component rules would win on source
-     * order and erase the borders components legitimately draw.
-     */
-    private function immunityGaps(string $css): array
-    {
-        $stripped = $this->stripComments($css);
-        $rules    = $this->topLevelRules($stripped);
-        $gaps     = [];
-
-        $firstComponentRule = $this->firstComponentRuleOffset($rules);
-
-        // Each surface is checked INDEPENDENTLY: one combined rule and one rule per surface
-        // are both valid CSS, and the guard must not couple correctness to formatting.
-        foreach (self::BORDER_IMMUNITY_SELECTORS as $surface) {
-            $baselineOffset = null;
-
-            foreach ($rules as $rule) {
-                if ($this->isBaselineFor($rule, $surface)) {
-                    $baselineOffset = $rule['offset'];
-                    break;
-                }
-            }
-
-            if ($baselineOffset === null) {
-                $gaps[] = "no TOP-LEVEL rule selects exactly `{$surface}` while declaring "
-                    . 'border-style:none + border-width:0 — WP core will inject '
-                    . '`border-style: solid` at the initial 3px width on any element of this '
-                    . 'kind that carries a border-trigger slot. (A baseline nested in a '
-                    . 'CONDITIONAL @media/@supports block, scoped under an ancestor, or '
-                    . 'declaring a non-zero/solid value does NOT count. A sheet-wide '
-                    . '@layer wrapper DOES count — it is transparent to intra-sheet order; '
-                    . 'see the note on which longhand carries the immunity under layers.)';
-                continue;
-            }
-
-            // Source order. Deliberately CONSERVATIVE: the baseline only needs to outrank
-            // WP core's (0,0,1) rule, which it does on specificity alone. But the component
-            // rules that legitimately draw borders weigh the SAME (0,1,0) as the baseline,
-            // so they only beat it by coming later. Requiring "baseline above the component
-            // rules" is a sufficient (not necessary) condition for both to hold, and it is
-            // the one a human can check by eye.
-            if ($firstComponentRule !== null && $baselineOffset > $firstComponentRule) {
-                $gaps[] = "the `{$surface}` baseline sits BELOW the first component rule; at "
-                    . 'equal (0,1,0) specificity it would override the borders components draw';
-            }
-        }
-
-        return $gaps;
-    }
-
-    /** Offset of the first top-level rule whose subject is a known component root class. */
-    private function firstComponentRuleOffset(array $rules): ?int
-    {
-        foreach ($rules as $rule) {
-            $isBaseline = false;
-            foreach (self::BORDER_IMMUNITY_SELECTORS as $immune) {
-                if ($this->isBaselineFor($rule, $immune)) {
-                    $isBaseline = true;
-                    break;
-                }
-            }
-            if ($isBaseline) {
-                continue; // the baseline itself is not a component rule
-            }
-            foreach (self::styledComponentRoots() as $root) {
-                if (preg_match('/(?<![-\w])' . preg_quote($root, '/') . '(?![-\w])/', $rule['selector'])) {
-                    return $rule['offset'];
-                }
-            }
-        }
-        return null;
-    }
-
-    /** Component root class selectors (`.nav`, `.grid`, …). */
-    private static function styledComponentRoots(): array
-    {
-        // '.site-footer__inner' / '.nav__container' (#994): chrome's ROOT selectors are
-        // gone from components.css entirely — the retirement moved `.site-footer`'s and
-        // `.site-header`'s declarations into `_band` role defaults — so the plain root
-        // entries this list used to carry ('.site-footer', '.nav') matched nothing and the
-        // first-component-rule scan stopped seeing chrome. That is the same regression
-        // issue 581 fixed when a '.footer' entry matched nothing, arriving from the other
-        // direction: the entries were right and the stylesheet moved. Naming a selector
-        // each component still renders keeps the scan honest without pretending the roots
-        // are still styled here.
-        return ['.nav__container', '.hero', '.section', '.faq', '.grid', '.table', '.cta', '.site-footer__inner', '.stats', '.logos', '.embed', '.testimonials'];
-    }
-
-    /**
-     * 6. Slots may only be SET by the renderer's inline style attribute
-     * (issue 305, review finding): `style_component` writes the custom property
-     * on the component root, and descendants inherit it. A stylesheet rule that
-     * DECLARES a schema slot (`.grid .grid__item { --grid-item-border-color: ... }`)
-     * beats that inheritance on every matched descendant and deadens the slot
-     * while every consumption still routes through var() — invisible to the
-     * bypass guard, which only inspects consumptions.
-     *
-     * ISOLATION EXEMPTIONS (issue 526) — the only declarations allowed, listed exactly.
-     * The hero's second CTA is a DESCENDANT of the .hero root, so it inherits the
-     * PRIMARY button's #514 --hero-button-* slots; a filled (`primary`) cta2 sits in the
-     * same shared premium button cascade and was repainted by them. Re-declaring those
-     * three slots on the cta2 element is the fix, and it does not deaden anything an
-     * author can set THERE: cta2's own author-facing slots are --hero-button2-*, none of
-     * which is declared. --hero-button-bg is re-pointed at --hero-button2-bg (routing the
-     * cta2 fill into the premium gradient-clearing chain); the other two are reset to the
-     * guaranteed-invalid `initial`. Any OTHER rule/slot pair still fails, and this list is
-     * exact — adding or dropping an entry fails until it is updated deliberately.
-     */
-    // EMPTY SINCE #1026, and empty is the correct state rather than a gap. Every entry this
-    // ledger ever held was one line of the #474/#526/#530/#581 isolation rule, which declared
-    // a PRIMARY button's slot on the SECOND button to re-point or invalidate it. That rule
-    // existed because slots were emitted as inline custom properties on the band root and
-    // custom properties inherit to every descendant. cta declared the last of them; with no
-    // slots emitted anywhere, no stylesheet rule declares a schema slot, which is what this
-    // test asserts in the first place. The exemption list existing at all was the measure of
-    // how much the slot system had to work around its own inheritance.
-    private const SLOT_DECLARATION_EXEMPTIONS = [];
-
-    // THE ISSUE-545 NEUTRALISATION RULE IS RETIRED (#1026) and so is the data that described
-    // it. It reset every per-instance button slot family to `initial` on any composed `.btn`
-    // the renderer does not own, so a band's button styling could not reach a `.btn` an
-    // author hand-wrote into a rich-text prop. Each family retired with its component —
-    // `--hero-button-*` at #986, `--section-panel-cta-*` at #1023, `--cta-button*-*` at
-    // #1026 — and no schema declares a button slot any more, so the rule was neutralising
-    // properties no write path could produce.
-    //
-    // THE GUARANTEE HOLDS WITHOUT IT, by construction rather than by a rule. On a v2 band an
-    // author-written `.btn` sits inside whatever ROLE its container declares and takes that
-    // role's value; the band's design reaches it because the author aimed the band's design
-    // at it, which is the opposite of the leak. The leak was per-instance styling arriving
-    // somewhere nobody asked for it, and a role is an address the author chose.
-    //
-    // `:not(.section__panel-cta)` had already been dropped from the selector at #1023, for
-    // the same reason one step earlier. That was the last narrowing this rule could take.
-
-    /**
-     * The full exemption ledger. It has no entries since #1026 and the accessor is kept
-     * rather than inlined: it is the seam the next component to need an exemption writes to,
-     * and collapsing it would make the empty state look like an absence of the concept.
-     */
-    private static function slotDeclarationExemptions(): array
-    {
-        return self::SLOT_DECLARATION_EXEMPTIONS;
-    }
-
-    public function testNoStylesheetRuleDeclaresASchemaSlot(): void
-    {
-        $css = $this->stripComments($this->css);
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-        $allSlots = [];
-        foreach ($this->slotsByComponent() as $slots) {
-            $allSlots = array_merge($allSlots, array_keys($slots));
-        }
-        $this->assertNotEmpty($allSlots);
-
-        $offenders = [];
-        foreach ($rules as $rule) {
-            foreach ($allSlots as $slot) {
-                if (preg_match('/(?<![\w-])' . preg_quote($slot, '/') . '\s*:/', $rule[2])) {
-                    $offenders[] = trim(preg_replace('/\s+/', ' ', $rule[1])) . " declares {$slot}";
-                }
-            }
-        }
-        // The issue 526 cta2 isolation rule is the one documented exemption; every entry
-        // must still be present (a stale exemption means the fix silently vanished).
-        // Compare by COUNT, not by value: array_diff would drop every offender equal to an
-        // exemption, so a SECOND rule with the same selector re-declaring the same slot
-        // would slip through the slot-deadening guard entirely.
-        $seen     = array_count_values($offenders);
-        $expected = array_count_values(self::slotDeclarationExemptions());
-
-        $unexpected = [];
-        foreach ($seen as $decl => $count) {
-            $allowed = $expected[$decl] ?? 0;
-            for ($i = 0; $i < $count - $allowed; $i++) {
-                $unexpected[] = $allowed === 0 ? $decl : "{$decl} (declared more than once)";
-            }
-        }
-        $missing = [];
-        foreach ($expected as $decl => $count) {
-            for ($i = 0; $i < $count - ($seen[$decl] ?? 0); $i++) {
-                $missing[] = $decl;
-            }
-        }
-
-        $this->assertSame(
-            [],
-            $unexpected,
-            "Stylesheet rules re-declare schema slots, overriding the renderer's inline "
-            . "style attribute on descendants:\n- " . implode("\n- ", $unexpected)
-        );
-        $this->assertSame(
-            [],
-            $missing,
-            "STALE exemption: these declarations are listed in SLOT_DECLARATION_EXEMPTIONS "
-            . "but no longer exist — the issue 526 cta2 isolation rule was removed or "
-            . "renamed (the #514 slot leak would be back). Restore it or drop the entry:\n- "
-            . implode("\n- ", $missing)
-        );
-    }
-
-    /**
-     * 8. Cross-sheet silent-clobber guard (issue 342).
-     *
-     * Checks 1-7 all read ONLY components.css. That single-sheet blind spot is
-     * exactly how #336 hid: base.css:187 `p:last-child { margin-bottom: 0 }`
-     * (specificity (0,1,1)) outranks a bare `.grid__subheading` (0,1,0), and the
-     * subheading is always its header's last child — so the component's declared
-     * `margin-bottom` computed to 0px on three components while every unit check
-     * here stayed green. The #336 fix out-specified the reset at header scope but
-     * added NO structural guard, so the next element/pseudo-class reset added to
-     * base.css reopens the class.
-     *
-     * WHAT THIS PROVES, STATED HONESTLY (issue 342, decision Option 2): a static
-     * text scan cannot resolve the cascade — specificity, source order, and
-     * whether two selectors match the SAME rendered element are a browser's job.
-     * So this guard does NOT claim the cascade resolves correctly. It proves the
-     * weaker, still-load-bearing thing: every cross-sheet rule that COULD win the
-     * cascade against a bare component class on a slot-consumed property is
-     * explicitly ACCOUNTED FOR. A new such rule fails the build until a human
-     * acknowledges it with evidence. The TRUE cascade proof lives in the rendered
-     * computed-style pins in tests/e2e/style-render.spec.ts (the `#336 …`
-     * subheading tests prove the slot actually lands under the real cascade).
-     * This is the same division of labour as check 7 (WP-core immunity): the
-     * static half keeps the contract honest as the surface grows; the rendered
-     * half owns what only a browser can prove.
-     *
-     * SCOPE — the AUTOMATIC-MATCH class only. A hazard is a rule in a cross-sheet
-     * stylesheet (base.css, utilities.css) whose SUBJECT compound carries NO
-     * class/id/attribute — a pure element/pseudo-class selector (`p:last-child`,
-     * `a:hover`) that matches component-rendered elements BY TAG, with no template
-     * opt-in. That is the silent mechanism of #336. Class-subject rules (the
-     * `.mb-*`/`.text-*`/`.sr-only` utilities) are deliberately OUT of scope here:
-     * they reach a slotted element only when a template explicitly adds the class,
-     * a visible, greppable composition rather than a silent cascade defeat. One
-     * such opt-in path IS a real, breakpoint-split clobber today — `text_role`
-     * adds `.text-meta`/`.text-kicker` (which set `color`) onto `.grid__item-text`,
-     * defeating `--grid-item-text-color` below 768px — but it needs a role-vs-slot
-     * DESIGN decision, so it is tracked separately as issue #349, with the rendered
-     * pins owning its proof. Do not widen this guard to swallow that case without
-     * that decision: a guard cannot enforce a contract that is not yet decided.
-     *
-     * LOAD-ORDER ASYMMETRY (functions.php:88/104/111): base.css → components.css →
-     * utilities.css. A base.css rule only beats a bare component class when its
-     * specificity is STRICTLY greater than (0,1,0) — an equal (0,1,0) loses on
-     * source order to the later component sheet. A utilities.css rule (later than
-     * components) wins at >= (0,1,0). testCrossSheetLoadOrderAssumptionHolds pins
-     * that ordering so the threshold logic can't silently invert under a reorder.
-     *
-     * The ledger is SHRINK-ONLY, same discipline as KNOWN_DEAD_SLOT_WAIVERS:
-     *   - a new automatic-match hazard fails (acknowledge it with a justification
-     *     and, where it maps to a real element, the rendered pin that proves the
-     *     slot still lands — or fix the reset and don't add an entry);
-     *   - a ledger entry that stops offending fails (remove it with the fix);
-     *   - the exact-size pin below must move in the same change, so an entry can
-     *     never slip in or drift out through a merge unnoticed.
-     */
-    private const CROSS_SHEET_CLOBBER_LEDGER = [
-        // The #336 prose reset. Auto-matches every <p>, including component
-        // subheadings (always their header's last child). SAFE because the three
-        // subheading-bearing components out-specify it at header scope
-        // `.X__header > .X__subheading` (0,2,0), proven under the real cascade by
-        // style-render.spec.ts `#336 <component> subheading keeps its bottom
-        // rhythm`. Legitimate for prose blocks (`.section__content`, `.cta__body`)
-        // — must NOT be weakened; components out-specify it, they don't delete it.
-        'base.css|p:last-child|margin-bottom'          =>
-            'issue 336 prose reset; components out-specify at (0,2,0), pinned by style-render.spec.ts #336.',
-        // Sibling reset for blockquotes. No component declares a slotted
-        // margin-bottom on a blockquote today (exhaustive #336 sweep), so no slot
-        // is at risk now; the entry keeps a future blockquote margin slot honest.
-        'base.css|blockquote:last-child|margin-bottom' =>
-            'issue 336 sibling reset; no component slots margin-bottom on a blockquote today.',
-        // Global link hover state. A component that slots a link colour owns its
-        // RESTING colour at its own class specificity and hands the hover off
-        // intentionally (see KNOWN_DEAD_SLOT_WAIVERS `--grid-item-link-color` hover
-        // entry). The hover MUST visually override the resting slot — routing it
-        // through the slot would erase hover feedback. Not a silent clobber.
-        'base.css|a:hover|color'                       =>
-            'global link hover state; slotted link colours own resting colour and hand off the hover (see grid-link waiver).',
-    ];
-
-    /** Front-end stylesheets, besides components.css, that share the component cascade,
-     * with whether a same-specificity rule there WINS a tie against a component class
-     * (true when the sheet is enqueued AFTER components.css). Admin/chat sheets
-     * (pp-admin-editor.css, pp-ai-chat.css) render in a different context and are out
-     * of scope. */
-    private function crossSheetSpecs(): array
-    {
-        return [
-            ['name' => 'base.css',      'winsTie' => false,
-             'css'  => file_get_contents($this->themeRoot . '/assets/css/base.css')],
-            ['name' => 'utilities.css', 'winsTie' => true,
-             'css'  => file_get_contents($this->themeRoot . '/assets/css/utilities.css')],
-        ];
-    }
-
-    public function testNoUnacknowledgedCrossSheetClobber(): void
-    {
-        $watched = $this->watchedSlotProperties();
-
-        // Vacuity floor: the derivation must find a healthy watched-property
-        // population, or a parser regression would gut the guard silently.
-        $this->assertGreaterThan(
-            8,
-            count($watched),
-            'Watched slot-property derivation collapsed — the cross-sheet guard would pass vacuously.'
-        );
-
-        $hazards = $this->crossSheetClobberHazards($this->crossSheetSpecs(), $watched);
-
-        // Fail-closed: the three known automatic-match hazards MUST be found, or the
-        // base.css scan / specificity parser regressed and this guard passes vacuously.
-        foreach (array_keys(self::CROSS_SHEET_CLOBBER_LEDGER) as $known) {
-            $this->assertArrayHasKey(
-                $known,
-                $hazards,
-                "Cross-sheet hazard discovery lost `{$known}` — the scan or specificity "
-                . 'parser regressed and this guard would pass vacuously.'
+                pp_get_style_slots($component),
+                "pp_get_style_slots('{$component}') returns slots the schema does not declare"
             );
         }
 
-        $failures = [];
-        foreach ($hazards as $key => $decls) {
-            if (!isset(self::CROSS_SHEET_CLOBBER_LEDGER[$key])) {
-                $failures[] = "NEW cross-sheet clobber: `{$key}` declares ["
-                    . implode(', ', array_unique($decls)) . '] at a specificity that '
-                    . 'defeats a bare (0,1,0) component class. A pure element/pseudo-class '
-                    . 'rule matches component elements by tag with no template opt-in — the '
-                    . '#336 silent-clobber mechanism. Out-specify the slot in components.css '
-                    . '(header-scope the rule), add a rendered pin, and acknowledge it in '
-                    . 'CROSS_SHEET_CLOBBER_LEDGER — or remove the reset.';
-            }
-        }
-        foreach (array_keys(self::CROSS_SHEET_CLOBBER_LEDGER) as $key) {
-            if (!isset($hazards[$key])) {
-                $failures[] = "STALE ledger entry: `{$key}` no longer offends — remove it "
-                    . 'from CROSS_SHEET_CLOBBER_LEDGER (and update the size pin).';
-            }
-        }
-
-        $this->assertSame(
-            [],
-            $failures,
-            "Cross-sheet slot-clobber guard (issue 342):\n- " . implode("\n- ", $failures)
-        );
-    }
-
-    /** Exact-size pin: any ledger edit in either direction must touch this test, so a
-     * cross-sheet acknowledgement can never slip in or drift out through a merge. */
-    public function testCrossSheetLedgerOnlyShrinks(): void
-    {
-        $this->assertSame(
-            3,
-            count(self::CROSS_SHEET_CLOBBER_LEDGER),
-            'The issue 342 cross-sheet ledger changed size. A new automatic-match reset is '
-            . 'fixed (out-specify it) or acknowledged with evidence; a fixed one is removed. '
-            . 'Update this pin in the same change. The 3 entries are base.css p:last-child + '
-            . 'blockquote:last-child (margin-bottom) and a:hover (color).'
-        );
-    }
-
-    /**
-     * Detection proof / negative control (mirrors testGuardDetectsTheDeadSlotClass):
-     * the guard must go RED on a NEW cross-sheet clobber and stay silent on the
-     * patterns it must NOT flag — proving both its power and its precision, in CI
-     * forever, without depending on the real sheets' current contents.
-     */
-    public function testCrossSheetGuardDetectsANewClobber(): void
-    {
-        $watched = ['margin-bottom', 'color', 'padding-top'];
-
-        // A NEW element+pseudo-class clobber in an EARLY (base-order) sheet: caught.
-        $this->assertArrayHasKey(
-            'x.css|li:last-child|margin-bottom',
-            $this->crossSheetClobberHazards(
-                [['name' => 'x.css', 'winsTie' => false, 'css' => 'li:last-child { margin-bottom: 0; }']],
-                $watched
-            ),
-            'The guard failed to detect a new element/pseudo-class clobber (the #336 mechanism).'
-        );
-
-        // A bare element rule (0,0,1) is out-specified by ANY component class → NOT a hazard.
-        $this->assertSame(
-            [],
-            $this->crossSheetClobberHazards(
-                [['name' => 'x.css', 'winsTie' => false, 'css' => 'li { margin-bottom: 0; }']],
-                $watched
-            ),
-            'A bare element rule (0,0,1) loses to every component class — it must not be flagged.'
-        );
-
-        // A class-subject (opt-in) rule is excluded even when it would win a tie in a
-        // later sheet: it only reaches a slotted element if a template adds the class.
-        $this->assertSame(
-            [],
-            $this->crossSheetClobberHazards(
-                [['name' => 'u.css', 'winsTie' => true, 'css' => '.mb0 { margin-bottom: 0; }']],
-                $watched
-            ),
-            'An opt-in utility class must not be flagged as a silent automatic-match clobber.'
-        );
-
-        // Source-order asymmetry, load-order logic actually bites: an element-less
-        // pseudo-class rule at (0,1,0) TIES a bare component class — it loses in an
-        // earlier sheet (not a hazard) and wins in a later one (a hazard).
-        $this->assertSame(
-            [],
-            $this->crossSheetClobberHazards(
-                [['name' => 'e.css', 'winsTie' => false, 'css' => ':hover { color: red; }']],
-                $watched
-            ),
-            '(0,1,0) in a sheet BEFORE components ties and loses on source order — not a hazard.'
-        );
-        $this->assertArrayHasKey(
-            'l.css|:hover|color',
-            $this->crossSheetClobberHazards(
-                [['name' => 'l.css', 'winsTie' => true, 'css' => ':hover { color: red; }']],
-                $watched
-            ),
-            '(0,1,0) in a sheet AFTER components ties and wins on source order — a hazard.'
-        );
-
-        // Reset-shorthand path: a `margin` shorthand kills a `margin-bottom` slot.
-        $this->assertArrayHasKey(
-            't.css|p:last-child|margin',
-            $this->crossSheetClobberHazards(
-                [['name' => 't.css', 'winsTie' => false, 'css' => 'p:last-child { margin: 0; }']],
-                ['margin']
-            ),
-            'A shorthand reset (margin: kills a margin-bottom slot) must be detected.'
-        );
-
-        // A hazard nested inside @media is still caught: the innermost-rule parse
-        // matches the inner rule on its own; the @media wrapper (its body holds braces)
-        // is not lifted out. Fail-closed for hazard detection (Codex outside-voice: the
-        // regex must not skip @media-nested resets).
-        $this->assertArrayHasKey(
-            'm.css|p:last-child|margin-bottom',
-            $this->crossSheetClobberHazards(
-                [['name' => 'm.css', 'winsTie' => false,
-                  'css'  => '@media (min-width: 768px) { p:last-child { margin-bottom: 0; } }']],
-                $watched
-            ),
-            'A clobber nested in @media must still be caught (innermost-rule parse).'
-        );
-
-        // A pseudo-ELEMENT subject is a separate box, not the slot-bearing element —
-        // it must NOT be flagged even in a later (tie-winning) sheet.
-        $this->assertSame(
-            [],
-            $this->crossSheetClobberHazards(
-                [['name' => 'p.css', 'winsTie' => true, 'css' => 'p::first-line { color: red; }']],
-                $watched
-            ),
-            'A pseudo-element box is not the slot-bearing element — must not be flagged.'
-        );
-
-        // A type selector inside :not() counts toward specificity: `:hover:not(p)` is
-        // really (0,1,1) and beats a bare component class, so it IS a hazard in an
-        // early sheet. If the type were dropped it would mis-compute to (0,1,0) and slip.
-        $this->assertArrayHasKey(
-            'n.css|:hover:not(p)|color',
-            $this->crossSheetClobberHazards(
-                [['name' => 'n.css', 'winsTie' => false, 'css' => ':hover:not(p) { color: red; }']],
-                $watched
-            ),
-            'A type selector inside :not() must count toward specificity (else a real clobber slips past).'
-        );
-    }
-
-    /**
-     * The threshold logic in specWinsAgainstBareClass depends on base.css loading
-     * BEFORE components.css and utilities.css loading AFTER it. Pin that enqueue
-     * order so a reorder in functions.php can't silently invert which cross-sheet
-     * rules count as hazards (adversarial: swap the enqueues and every base.css
-     * tie flips from "loses" to "wins" and vice-versa).
-     */
-    public function testCrossSheetLoadOrderAssumptionHolds(): void
-    {
-        $fn = file_get_contents($this->themeRoot . '/functions.php');
-        $base  = strpos($fn, 'assets/css/base.css');
-        $comps = strpos($fn, 'assets/css/components.css');
-        $utils = strpos($fn, 'assets/css/utilities.css');
-
-        $this->assertNotFalse($base,  'functions.php no longer references base.css.');
-        $this->assertNotFalse($comps, 'functions.php no longer references components.css.');
-        $this->assertNotFalse($utils, 'functions.php no longer references utilities.css.');
+        // ANTI-VACUITY 3: the predicate itself. Without this, deleting the `!== []` and
+        // returning a bare `false` would make every assertion above pass.
         $this->assertTrue(
-            $base < $comps && $comps < $utils,
-            'functions.php enqueue order changed (expected base.css < components.css < utilities.css). '
-            . 'The cross-sheet guard\'s tie-breaking (base ties LOSE, utilities ties WIN) assumes it — '
-            . 'update crossSheetSpecs() winsTie flags and this pin together.'
+            self::declaresStyleSlots(['styling' => ['style_slots' => ['--x-bg' => ['type' => 'color']]]]),
+            'the discovery predicate no longer recognises a declared slot map, so the '
+            . 'emptiness it reports is meaningless'
+        );
+        $this->assertFalse(self::declaresStyleSlots(['styling' => ['style_slots' => []]]));
+        $this->assertFalse(self::declaresStyleSlots([]));
+    }
+
+    /**
+     * NO STYLESHEET RULE DECLARES A SLOT CUSTOM PROPERTY — `testNoStylesheetRuleDeclaresA
+     * SchemaSlot`'s claim, now unconditional.
+     *
+     * That test held the strictest half of the contract: a rule may READ a slot
+     * (`var(--grid-bg, …)`) but must never DECLARE one, because a declaration in the
+     * stylesheet competes with the author's inline value and decides the cascade by source
+     * order rather than by intent. It carried an exact exemption list, diffed by COUNT so a
+     * DUPLICATE rule re-declaring the same slot could not slip past a set comparison, and
+     * that list was empty by the time grid left.
+     *
+     * The claim survives the schemas that gave it its vocabulary: the names are derived
+     * from the component roster, so `--grid-item-bg` is exactly as forbidden today as it
+     * was when grid declared it — more so, since nothing would read it back.
+     */
+    public function testNoStylesheetRuleDeclaresAComponentSlotCustomProperty(): void
+    {
+        [, $all]  = $this->discover();
+        $stripped = $this->stripComments($this->css);
+        $pattern  = '/(--(?:' . implode('|', array_map('preg_quote', $all)) . ')-[a-z0-9-]+)\s*:/';
+
+        preg_match_all($pattern, $stripped, $m);
+        $declared = array_values(array_unique($m[1]));
+        sort($declared);
+
+        $this->assertSame(
+            [],
+            $declared,
+            'components.css DECLARES a component-scoped custom property. A stylesheet '
+            . 'declaration of a slot-shaped name competes with an author\'s value and '
+            . 'resolves by source order rather than by intent — which is the defect '
+            . 'testNoStylesheetRuleDeclaresASchemaSlot existed to keep out, and no component '
+            . 'declares a slot for it to be the legitimate value of.'
+        );
+
+        // DETECTION PROOF: the matcher must still catch the shipped-and-removed spelling,
+        // or this absence is a statement about a broken regex.
+        $this->assertSame(
+            1,
+            preg_match($pattern, '.grid__item { --grid-item-bg: #111111; }'),
+            'the slot-declaration matcher no longer recognises a declared slot'
+        );
+        $this->assertSame(
+            0,
+            preg_match($pattern, '.grid__item { background: var(--grid-item-bg, #fff); }'),
+            'the matcher has started flagging a READ as a declaration — the distinction is '
+            . 'the entire point of this check'
         );
     }
 
-    // ── Issue 342 cross-sheet analyzer ─────────────────────────────────────────
-
     /**
-     * The set of CSS properties actually driven by a component slot (a compatible
-     * var(--slot) consumption in components.css), plus every shorthand that RESETS
-     * one of them (RESETTING_SHORTHANDS). A cross-sheet rule declaring one of these
-     * at a cascade-winning specificity is what can defeat a slot.
-     */
-    private function watchedSlotProperties(): array
-    {
-        $slotsByComponent = $this->slotsByComponent();
-        $slotToComponent  = [];
-        foreach ($slotsByComponent as $component => $slots) {
-            foreach ($slots as $slot => $type) {
-                $slotToComponent[$slot] = $component;
-            }
-        }
-
-        $css = $this->stripComments($this->css);
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-        $props = [];
-        foreach ($rules as $rule) {
-            if (!preg_match_all('/([a-z-]+)\s*:\s*([^;{}]*)/i', $rule[2], $decls, PREG_SET_ORDER)) {
-                continue;
-            }
-            foreach ($decls as $decl) {
-                $property = strtolower(trim($decl[1]));
-                foreach ($slotToComponent as $slot => $component) {
-                    if (!preg_match('/var\(\s*' . preg_quote($slot, '/') . '\b/', $decl[2])) {
-                        continue;
-                    }
-                    // Type gate, mirroring check 2 / the #305 derivation: a
-                    // type-incompatible appearance is not a real consumption.
-                    $compatible = self::PROPERTY_TYPES[$property] ?? null;
-                    $slotType   = $slotsByComponent[$component][$slot];
-                    if ($compatible !== null && !in_array($slotType, $compatible, true)) {
-                        continue;
-                    }
-                    $props[$property] = true;
-                }
-            }
-        }
-
-        // A cross-sheet shorthand that resets a watched longhand clobbers it too.
-        foreach (array_keys($props) as $p) {
-            foreach (self::RESETTING_SHORTHANDS[$p] ?? [] as $shorthand) {
-                $props[$shorthand] = true;
-            }
-        }
-
-        return array_keys($props);
-    }
-
-    /**
-     * Returns "sheet|subject|property" => [declared value, …] for every cross-sheet
-     * rule that is an AUTOMATIC-MATCH hazard: its subject compound carries no
-     * class/id/attribute (a pure element/pseudo-class selector), it declares a
-     * watched property, and its specificity defeats a bare (0,1,0) component class
-     * under that sheet's tie-break. Innermost-rule parse (same as checks 3/5) so a
-     * hazard nested in an @media block is caught, not lifted out and missed.
-     */
-    private function crossSheetClobberHazards(array $sheetSpecs, array $watched): array
-    {
-        $hazards = [];
-        foreach ($sheetSpecs as $spec) {
-            $css = $this->stripComments($spec['css']);
-            preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
-
-            foreach ($rules as $rule) {
-                foreach (self::splitTopLevel($rule[1], ',') as $part) {
-                    $part = trim($part);
-                    if ($part === '' || !$this->subjectIsAutomaticMatch($part)) {
-                        continue;
-                    }
-                    if (!$this->specWinsAgainstBareClass($this->selectorSpecificity($part), $spec['winsTie'])) {
-                        continue;
-                    }
-                    foreach ($watched as $prop) {
-                        if (!preg_match_all(
-                            '/(?<![-a-z])' . preg_quote($prop, '/') . '\s*:\s*([^;}]+)/i',
-                            $rule[2],
-                            $m
-                        )) {
-                            continue;
-                        }
-                        foreach ($m[1] as $value) {
-                            $hazards["{$spec['name']}|{$part}|{$prop}"][] = trim($value);
-                        }
-                    }
-                }
-            }
-        }
-        ksort($hazards);
-        return $hazards;
-    }
-
-    /**
-     * True when the SUBJECT (last compound) of a selector part carries no
-     * class/id/attribute — a pure element/pseudo-class selector that matches
-     * component-rendered elements by tag with no template opt-in. Class-subject
-     * rules (utilities) are opt-in and out of the silent-clobber scope (see #349).
-     */
-    private function subjectIsAutomaticMatch(string $selectorPart): bool
-    {
-        $part      = trim(self::flattenCombinators($selectorPart));
-        $compounds = self::splitTopLevel($part, ' ');
-        $subject   = (string) end($compounds);
-        if ($subject === '' || preg_match('/[.#\[]/', $subject)) {
-            return false;
-        }
-        // A pseudo-ELEMENT (::before/::marker/::first-line) is a SEPARATE box, not the
-        // element that carries the slot — check 5 tracks it as its own subject for the
-        // same reason. A rule on it does not clobber the host element's slot, so it is
-        // out of the automatic-match hazard scope (Codex outside-voice finding).
-        return !str_contains($subject, '::');
-    }
-
-    /**
-     * Pins the :where() parser upgrade that v2 Sprint 0 required.
+     * THE TWO DEAD READS, PINNED AS A SHRINK-ONLY LEDGER RATHER THAN LEFT UNNAMED.
      *
-     * `selectorSpecificity()` feeds the slot-bypass guard's "does this rule outrank
-     * a bare component class" decision. Before the upgrade the whole construct was
-     * banned outright, so this path had never run; scoring `:where()`'s arguments
-     * would silently inflate every wrapped rule and mis-flag it. The zero-specificity
-     * wrapper is load-bearing in components.css, so the scorer that reasons about it
-     * gets its own pin rather than being exercised only incidentally.
+     * Reading a slot is not forbidden the way declaring one is, and two reads outlived
+     * their declarers: `.stats` and `.logos` still route their band padding through
+     * `var(--<name>-padding-top, var(--pp-band-padding-adjacent-top))` although both
+     * components became v2 at #1066 PR2. Nothing declares those names, nothing can write
+     * them, and no composition can make them resolve — so each `var()` falls back on every
+     * render, which is why they are harmless and why nobody noticed them.
+     *
+     * They are pinned rather than tolerated, in the shape this file used for exactly this
+     * situation (the #309 waiver ledger and the cross-sheet ledger, both shrink-only): the
+     * derived set must EQUAL the ledger. A new dead read fails because the set grew; a
+     * cleanup fails because it shrank, which forces the cleanup to be a deliberate edit
+     * that removes the entry here in the same commit rather than a drive-by. Both
+     * directions matter — an unpinned residue is how a reader concludes the name still
+     * works.
      */
-    public function testWhereContributesNoSpecificityIncludingItsArguments(): void
+    public function testTheOnlySlotReadsLeftAreTheTwoKnownDeadFallbacks(): void
     {
-        $spec = new \ReflectionMethod($this, 'selectorSpecificity');
-        $spec->setAccessible(true);
-        $score = fn (string $sel): array => $spec->invoke($this, $sel);
+        // Shrink-only. Every entry is a read of a name NO component declares.
+        $ledger = ['--logos-padding-top', '--stats-padding-top'];
 
-        // The real selector this upgrade exists for: [0,2,1] unwrapped, [0,0,0] wrapped.
-        $this->assertSame([0, 2, 1], $score('main > [data-pp-component] + [data-pp-component]'));
-        $this->assertSame([0, 0, 0], $score(':where(main > [data-pp-component] + [data-pp-component])'));
+        [, $all]  = $this->discover();
+        $stripped = $this->stripComments($this->css);
+        $pattern  = '/var\(\s*(--(?:' . implode('|', array_map('preg_quote', $all)) . ')-[a-z0-9-]+)/';
 
-        // :where() zeroes only itself — what sits outside it still counts.
-        $this->assertSame([0, 1, 0], $score(':where(main > [data-pp-component]) .testimonials__quote'));
+        preg_match_all($pattern, $stripped, $m);
+        $read = array_values(array_unique($m[1]));
+        sort($read);
 
-        // Contrast with :not(), whose ARGUMENTS do count while the pseudo-class
-        // itself does not — the distinction the stripper must not flatten.
-        $this->assertSame([0, 1, 0], $score(':not(.a)'));
+        $this->assertSame(
+            $ledger,
+            $read,
+            'the set of stylesheet reads of an undeclared slot name changed. A GROWTH is a '
+            . 'new dead read — a `var()` that can never resolve, which reads to the next '
+            . 'author as a live authoring surface. A SHRINK is a cleanup: delete the entry '
+            . 'from the ledger above in the same commit, so removing the last one is a '
+            . 'decision rather than a silent narrowing of this guard to nothing.'
+        );
 
-        // Nested parentheses must not end the scan early.
-        $this->assertSame([0, 0, 1], $score(':where(.a:not(.b)) main'));
-    }
-
-    /**
-     * Remove every `:where(...)` and its arguments, honouring nested parentheses.
-     * Used by selectorSpecificity(): :where() adds nothing to specificity, and its
-     * arguments add nothing either, so the whole construct must go before counting.
-     */
-    private function stripWhere(string $selector): string
-    {
-        while (($at = stripos($selector, ':where(')) !== false) {
-            $depth = 0;
-            $end   = null;
-            for ($i = $at + 6, $len = strlen($selector); $i < $len; $i++) {
-                if ($selector[$i] === '(') {
-                    $depth++;
-                } elseif ($selector[$i] === ')') {
-                    $depth--;
-                    if ($depth === 0) {
-                        $end = $i;
-                        break;
-                    }
-                }
-            }
-            if ($end === null) {
-                break; // unbalanced; leave it rather than loop forever
-            }
-            $selector = substr($selector, 0, $at) . ' ' . substr($selector, $end + 1);
-        }
-
-        return $selector;
-    }
-
-    /**
-     * CSS specificity [a=ids, b=classes/attrs/pseudo-classes, c=elements/pseudo-elements]
-     * for a single (comma-free) selector. Accurate enough to compare against a bare
-     * component class (0,1,0). :not()/:is() add no specificity themselves (their
-     * arguments do, and are counted inline); :where() adds nothing — the repo bans
-     * :is()/:where() (asserted in slotBypassOffenders), so only :not() is netted out.
-     */
-    private function selectorSpecificity(string $selector): array
-    {
-        $s = trim($selector);
-
-        // `:where()` contributes zero specificity INCLUDING its arguments, unlike
-        // :not()/:is() whose arguments do count. Remove it wholesale before any
-        // counting, or a `:where(main > [data-pp-component] + [data-pp-component])`
-        // would be scored [0,2,1] — the very weight wrapping it was meant to drop.
-        $s = $this->stripWhere($s);
-
-        $ids            = preg_match_all('/#[\w-]+/', $s);
-        $classes        = preg_match_all('/\.[\w-]+/', $s);
-        $attrs          = preg_match_all('/\[[^\]]*\]/', $s);
-        $pseudoElements = preg_match_all('/::[\w-]+/', $s);
-        $pseudoClasses  = preg_match_all('/(?<!:):(?!:)[\w-]+/', $s);
-        $funcKeywords   = preg_match_all('/(?<!:):(?:not|is|where)\(/', $s);
-
-        $b = $classes + $attrs + max(0, $pseudoClasses - $funcKeywords);
-
-        // Elements (type selectors), INCLUDING those inside functional pseudo-class
-        // arguments such as :not(a): strip pseudo-class/element NAMES but KEEP their
-        // arguments, drop the paren delimiters, then strip class/id/attr and count the
-        // bare type names left. Stripping the whole `:not(a)` dropped the `a` type and
-        // undercounted specificity, which could let a real base.css clobber like
-        // `:hover:not(p)` ((0,1,1)) slip past as (0,1,0) (Codex outside-voice finding).
-        $stripped = preg_replace('/::?[\w-]+/', ' ', $s);                         // pseudo NAMES only
-        $stripped = str_replace(['(', ')'], ' ', $stripped);                      // keep inner selectors, drop parens
-        $stripped = preg_replace('/\.[\w-]+|#[\w-]+|\[[^\]]*\]/', ' ', $stripped); // class/id/attr
-        $stripped = preg_replace('/[>+~*,]/', ' ', $stripped);                    // combinators + universal + stray commas
-        $elements = preg_match_all('/[a-zA-Z][\w-]*/', $stripped, $mm) ? count($mm[0]) : 0;
-
-        return [$ids, $b, $elements + $pseudoElements];
-    }
-
-    /**
-     * True when $spec defeats a bare component class (0,1,0): strictly greater when
-     * the sheet is enqueued before components (a tie loses on source order), or
-     * greater-or-equal when it is enqueued after (a tie wins).
-     */
-    private function specWinsAgainstBareClass(array $spec, bool $winsTie): bool
-    {
-        $cmp = ($spec[0] <=> 0) ?: (($spec[1] <=> 1) ?: ($spec[2] <=> 0));
-        return $winsTie ? $cmp >= 0 : $cmp > 0;
-    }
-
-    // ── Issue 305 analyzer ────────────────────────────────────────────────────
-
-    /**
-     * Shorthands that RESET a longhand: a later `padding: 2rem` kills a slot
-     * consumed via `padding-top:` just as dead as a literal `padding-top:` would
-     * (the review's mutation probe demonstrated exactly that hole). For each
-     * triple property, ENFORCE also scans these. Partial-axis siblings are
-     * deliberately NOT expanded (a `row-gap` does not reset `gap`'s column axis,
-     * and #255 intentionally zeroes row-gap on a gap-slotted grid), so the
-     * expansion stays reset-only and cannot flag that legitimate pattern.
-     */
-    private const RESETTING_SHORTHANDS = [
-        'padding-top'        => ['padding'],
-        'padding-right'      => ['padding'],
-        'padding-bottom'     => ['padding'],
-        'padding-left'       => ['padding'],
-        'margin-top'         => ['margin'],
-        'margin-right'       => ['margin'],
-        'margin-bottom'      => ['margin'],
-        'margin-left'        => ['margin'],
-        'border-color'       => ['border'],
-        'border-width'       => ['border'],
-        'border-top-color'   => ['border-top', 'border-color', 'border'],
-        'border-bottom-color'=> ['border-bottom', 'border-color', 'border'],
-        'font-size'          => ['font'],
-        'line-height'        => ['font'],
-    ];
-
-    /** component => [slot name => declared type], for every styled component. */
-    private function slotsByComponent(): array
-    {
-        $map = [];
-        foreach ($this->styledComponents() as $component) {
-            $map[$component] = array_map(
-                fn ($def) => $def['type'] ?? 'length',
-                $this->slots($component)
+        // And each ledger entry is genuinely dead: no component declares it, so it cannot
+        // be written and cannot resolve. Without this the ledger is just a list of strings.
+        foreach ($ledger as $name) {
+            preg_match('/^--([a-z0-9]+)-/', $name, $owner);
+            $this->assertSame(
+                [],
+                pp_get_style_slots($owner[1] ?? ''),
+                "{$name}'s owner declares slots again — this entry may no longer be dead, and "
+                . 'a live slot needs the wiring contract this file retired, not a ledger row'
             );
         }
-        return $map;
-    }
 
-    /**
-     * BEM block of a class token, `pp-` prefix normalized:
-     * `.grid__item-body` -> grid, `.pp-section--inverted` -> section.
-     */
-    private static function blockOf(string $class): string
-    {
-        $c = ltrim($class, '.');
-        $c = preg_replace('/^pp-/', '', $c);
-        return preg_split('/__|--/', $c)[0];
-    }
-
-    /**
-     * Subject tokens of one comma-part of a selector: every class in the LAST
-     * compound (the element the rule styles), each suffixed with its pseudo-element
-     * if present, so `.grid__item::before` is a different box than `.grid__item`.
-     * Combinators are normalized to spaces first, so `a>b` and `a > b` agree.
-     */
-    /**
-     * THE PARSER UPGRADE'S OWN PROOF, replacing the fail-fast guard that used to stand in
-     * for it inside slotBypassOffenders().
-     *
-     * Asserted in BOTH directions, because a permissive split would pass the old guard's
-     * job while quietly attributing nothing:
-     *
-     *   1. a comma inside :is()/:where()/:not() does NOT end a selector-list part;
-     *   2. a descendant space inside one does NOT end a compound;
-     *   3. `:nth-child(2n+1)`'s `+` is arithmetic and does NOT become a combinator;
-     *   4. real top-level delimiters still split; and
-     *   5. `.p :is(.a, .b)` yields BOTH subjects — the case the old parser could not
-     *      express at all, so the upgrade is a correctness fix and not a relaxation.
-     *
-     * The last one is the detection proof: the bypass guard can only police a subject it
-     * can name, so a list-valued subject silently reducing to zero subjects would make
-     * the whole check vacuous on exactly the rules v2 introduces.
-     */
-    public function testTheSubjectParserSplitsAtParenDepthZero(): void
-    {
-        $split = static fn (string $s, string $d): array => (function (string $s, string $d) {
-            $m = new \ReflectionMethod(self::class, 'splitTopLevel');
-            $m->setAccessible(true);
-            return $m->invoke(null, $s, $d);
-        })($s, $d);
-
+        // DETECTION PROOF for the read matcher, the mirror of the declaration proof above.
         $this->assertSame(
-            ['.section__content :is(ul, ol)'],
-            $split('.section__content :is(ul, ol)', ','),
-            'a comma inside :is() must not end a selector-list part'
-        );
-        $this->assertSame(
-            ['.a:not(.b, .c)', '.d'],
-            $split('.a:not(.b, .c), .d', ','),
-            'a real top-level comma must still split'
-        );
-        $this->assertSame(
-            ['.section__content', ':is(ul, ol)'],
-            $split('.section__content :is(ul, ol)', ' '),
-            'a descendant space inside :is() must not end a compound'
-        );
-        $this->assertSame(
-            ['.x:nth-child(2n+1)'],
-            $split('.x:nth-child(2n+1)', '>+~ '),
-            "nth-child's `+` is arithmetic, not a combinator"
-        );
-
-        $tokens = new \ReflectionMethod(self::class, 'subjectTokens');
-        $tokens->setAccessible(true);
-        $this->assertSame(
-            ['.a', '.b'],
-            $tokens->invoke(null, '.p :is(.a, .b)'),
-            'a list-valued subject must yield BOTH subjects — zero would make the bypass guard vacuous here'
-        );
-        // KNOWN BOUND, pinned so it is a recorded over-approximation rather than a
-        // surprise: subjectTokens() scans every `.class` in the subject compound, so a
-        // `:not()` argument is claimed as a subject too. That errs toward claiming MORE
-        // subjects than the selector really has, which makes the bypass guard stricter
-        // and therefore fail-loud. It predates #1023 and the parser upgrade does not
-        // change it — only the SPLIT moved, not what counts as a class token.
-        $this->assertSame(
-            ['.y', '.z'],
-            $tokens->invoke(null, '.x > .y:not(.z)'),
-            'the subject is the last compound, and every class in it is claimed'
+            1,
+            preg_match($pattern, 'padding-top: var(--stats-padding-top, 1rem);'),
+            'the slot-read matcher no longer recognises a read'
         );
     }
 
-    /**
-     * THE ISSUE-305 PARSER UPGRADE that #1023's shared glyph block required.
-     *
-     * Every selector split in this file used `explode(',', ...)` for the selector list
-     * and `preg_split('/\s+/', ...)` for the compounds, and both are wrong the moment a
-     * functional pseudo-class carries a comma: `.section__content :is(ul, ol)` splits
-     * into `.section__content :is(ul` and ` ol)`, which mis-attributes every subject in
-     * the rule. A guard used to fail fast on any comma inside `:is()`/`:where()` with the
-     * note "must be upgraded first". v2 Sprint 2 is where that bill came due: the shared
-     * prose-list rule is written as `:is(ul, ol)` rather than as a comma list precisely so
-     * a scoping prefix cannot leave half the list unscoped, so the construct is now
-     * load-bearing and the parser is the thing that had to move.
-     *
-     * Splits on $delims only at PAREN DEPTH ZERO, so a comma (or a descendant space)
-     * inside `:is()`, `:where()`, `:not()` or `nth-child()` stays with its owner. The
-     * fix is correct rather than merely permissive: `.p :is(.a, .b)` now yields `.a` and
-     * `.b` as the two subjects it really has, which the old parser could not express at
-     * all. Empty parts are dropped so a trailing delimiter cannot produce a blank subject.
-     *
-     * @param  string $delims one or more single-character delimiters
-     * @return list<string>
-     */
-    private static function splitTopLevel(string $selector, string $delims): array
-    {
-        // MEMOIZED, and the reason is measured rather than defensive. The ENFORCE loop
-        // below re-splits every rule selector once per (triple, slot) pair, so a single
-        // invocation of testDeclaredSlotsNotBypassedByLiteralReDeclarations made 228,340
-        // calls scanning 7,340,733 characters — one PHP loop iteration per character.
-        // That took the suite's slowest test from 0.198s to 0.982s when this parser
-        // replaced explode(), which was 47% of the whole PHP suite's runtime increase.
-        // Selectors repeat heavily across that loop, so the hit rate is near-total and
-        // the memo lands the file FASTER than the explode() version it replaced:
-        // 1.205s -> 0.412s for the file, against a 0.501s baseline.
-        static $memo = [];
-        $ck = $delims . "\x00" . $selector;
-        if (isset($memo[$ck])) {
-            return $memo[$ck];
-        }
-
-        $parts = [];
-        $buf   = '';
-        $depth = 0;
-        $len   = strlen($selector);
-
-        for ($i = 0; $i < $len; $i++) {
-            $char = $selector[$i];
-            if ($char === '(') {
-                $depth++;
-            } elseif ($char === ')') {
-                $depth = max(0, $depth - 1);
-            }
-            if ($depth === 0 && strpos($delims, $char) !== false) {
-                $parts[] = $buf;
-                $buf     = '';
-                continue;
-            }
-            $buf .= $char;
-        }
-        $parts[] = $buf;
-
-        return $memo[$ck] = array_values(
-            array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== '')
-        );
-    }
-
-    /**
-     * Combinators to descendant spaces, WITHOUT reaching inside a functional
-     * pseudo-class — `:nth-child(2n+1)` carries a `+` that is arithmetic, not a
-     * combinator, and the old blanket preg_replace turned it into a compound boundary.
-     */
-    private static function flattenCombinators(string $selectorPart): string
-    {
-        return implode(' ', self::splitTopLevel($selectorPart, '>+~ '));
-    }
-
-    private static function subjectTokens(string $selectorPart): array
-    {
-        $part      = trim(self::flattenCombinators($selectorPart));
-        $compounds = self::splitTopLevel($part, ' ');
-        $last      = end($compounds);
-
-        $pseudo = '';
-        if (preg_match('/::([a-z-]+)/', $last, $pm)) {
-            $pseudo = '::' . $pm[1];
-        }
-
-        $tokens = [];
-        if (preg_match_all('/\.[A-Za-z0-9_-]+/', $last, $m)) {
-            foreach ($m[0] as $class) {
-                $tokens[] = $class . $pseudo;
-            }
-        }
-        return $tokens;
-    }
-
-    /**
-     * The issue 305 detector. DERIVE (subject, property, slot) triples from every
-     * var(--slot) consumption whose subject belongs to the slot's own component,
-     * then ENFORCE: every same-subject re-declaration of that property — or of a
-     * shorthand that RESETS it (RESETTING_SHORTHANDS) — must route through the
-     * slot, or through a TYPE-COMPATIBLE sibling slot of the same component
-     * (the .faq__item[open] color->accent state handoff; a length literal
-     * laundered through a color sibling does not qualify).
-     *
-     * Returns ['offenders' => "slot|subject|property" => [declaration strings],
-     *          'tripleCount' => int] — the count rides along so the caller can
-     * assert the derivation didn't silently collapse (vacuity floor).
-     *
-     * Known, deliberate limitations (each owned by another layer):
-     *   - class subjects only — a bare element rule (`main section { }`) or a
-     *     sibling modifier class on the same element escapes; check 3 documents
-     *     the same scope, and the rendered-output E2E pins own that class;
-     *   - components.css only — no other stylesheet styles component BEM
-     *     classes today;
-     *   - pseudo-CLASS states (:hover, :first-child) collapse onto their base
-     *     token BY DESIGN: a state literal on a slotted property is treated as
-     *     a bypass and belongs in the ledger with evidence (see the issue 309
-     *     hover/stack entries) — only ::pseudo-ELEMENTS are separate boxes;
-     *   - SAME-type sibling routing is accepted (a color literal routed through
-     *     a different color slot is indistinguishable from a legitimate state
-     *     handoff without semantics); the type gate only blocks cross-type
-     *     laundering.
-     */
-    private function slotBypassOffenders(string $css, array $slotsByComponent): array
-    {
-        $strippedCss = $this->stripComments($css);
-
-        // A COMMA inside :is()/:where() used to fail fast here with "the issue 305
-        // subject parser splits selector lists on commas and must be upgraded first".
-        // #1023 paid that bill — splitTopLevel() splits at paren depth zero only — so the
-        // construct is now parsed rather than refused, and the proof lives in
-        // testTheSubjectParserSplitsAtParenDepthZero() beside the helper's own contract.
-        // The guard is gone rather than relaxed: keeping an assertion that the CSS avoids
-        // a construct the parser now handles would forbid the correct spelling of the
-        // shared prose-list rule.
-
-        $slotToComponent = [];
-        foreach ($slotsByComponent as $component => $slots) {
-            foreach ($slots as $slot => $type) {
-                $slotToComponent[$slot] = $component;
-            }
-        }
-
-        // Innermost rules only, same parse as check 3: `[^{}]` stops at braces, so
-        // rules inside @media match individually while the wrapper does not.
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $strippedCss, $rules, PREG_SET_ORDER);
-
-        // DERIVE.
-        $triples = []; // "token|property" => slot
-        foreach ($rules as $rule) {
-            $selector = $rule[1];
-            if (!preg_match_all('/([a-z-]+)\s*:\s*([^;{}]*)/i', $rule[2], $decls, PREG_SET_ORDER)) {
-                continue;
-            }
-            foreach ($decls as $decl) {
-                $property = strtolower(trim($decl[1]));
-                foreach ($slotToComponent as $slot => $component) {
-                    if (!preg_match('/var\(\s*' . preg_quote($slot, '/') . '\b/', $decl[2])) {
-                        continue;
-                    }
-                    // Type gate on derivation, mirroring check 2's contract: a
-                    // type-incompatible appearance (a length slot inside a color
-                    // property's value) is not a real consumption and must not
-                    // claim the (subject, property) triple from the slot that
-                    // legitimately owns it.
-                    $compatibleTypes = self::PROPERTY_TYPES[$property] ?? null;
-                    $slotType        = $slotsByComponent[$component][$slot];
-                    if ($compatibleTypes !== null && !in_array($slotType, $compatibleTypes, true)) {
-                        continue;
-                    }
-                    foreach (self::splitTopLevel($selector, ',') as $part) {
-                        foreach (self::subjectTokens($part) as $token) {
-                            if (self::blockOf(preg_replace('/::.*$/', '', $token)) === $component) {
-                                // A SET of slots per (subject, property): a shorthand
-                                // like `border: var(--w) solid var(--c)` consumes TWO
-                                // slots on one property, and last-wins would silently
-                                // drop enforcement for one of them.
-                                $triples["{$token}|{$property}"][$slot] = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ENFORCE — each slot of each triple independently, so a shared-property
-        // pair (border width + color) cannot shadow one another.
-        $offenders = [];
-        $pairs     = [];
-        foreach ($triples as $key => $slotSet) {
-            foreach (array_keys($slotSet) as $slot) {
-                $pairs[] = [$key, $slot];
-            }
-        }
-        foreach ($pairs as [$key, $slot]) {
-            [$token, $property] = explode('|', $key);
-            $component    = $slotToComponent[$slot];
-            $siblingSlots = $slotsByComponent[$component];
-
-            // The property itself plus every shorthand that resets it.
-            $watchedProperties = array_merge(
-                [$property],
-                self::RESETTING_SHORTHANDS[$property] ?? []
-            );
-
-            foreach ($rules as $rule) {
-                $selector = $rule[1];
-                $isSubject = false;
-                foreach (self::splitTopLevel($selector, ',') as $part) {
-                    if (in_array($token, self::subjectTokens($part), true)) {
-                        $isSubject = true;
-                        break;
-                    }
-                }
-                if (!$isSubject) {
-                    continue;
-                }
-                foreach ($watchedProperties as $watched) {
-                    // Exclude hyphenated namesakes (`color` never matches `border-color`,
-                    // and `padding` never matches `padding-top` thanks to `\s*:`).
-                    if (!preg_match_all(
-                        '/(?<![-a-z])' . preg_quote($watched, '/') . '\s*:\s*([^;}]+)/i',
-                        $rule[2],
-                        $matches
-                    )) {
-                        continue;
-                    }
-                    foreach ($matches[1] as $value) {
-                        if (preg_match('/var\(\s*' . preg_quote($slot, '/') . '\b/', $value)) {
-                            continue;
-                        }
-                        // Sibling escape, type-gated: the value must route through a
-                        // same-component slot whose declared type is compatible with
-                        // the property (per PROPERTY_TYPES; unmapped properties stay
-                        // lenient, mirroring check 2).
-                        $compatibleTypes = self::PROPERTY_TYPES[$watched] ?? null;
-                        $routesThroughSibling = false;
-                        foreach ($siblingSlots as $sibling => $siblingType) {
-                            if ($sibling === $slot) {
-                                continue;
-                            }
-                            if ($compatibleTypes !== null && !in_array($siblingType, $compatibleTypes, true)) {
-                                continue;
-                            }
-                            if (preg_match('/var\(\s*' . preg_quote($sibling, '/') . '\b/', $value)) {
-                                $routesThroughSibling = true;
-                                break;
-                            }
-                        }
-                        if ($routesThroughSibling) {
-                            continue;
-                        }
-                        $offenders["{$slot}|{$token}|{$watched}"][] =
-                            trim($value) . '  [' . trim(preg_replace('/\s+/', ' ', $selector)) . ']';
-                    }
-                }
-            }
-        }
-
-        ksort($offenders);
-        return ['offenders' => $offenders, 'tripleCount' => count($triples)];
-    }
-
-    /** Returns the schema style_slots map for a component. */
-    private function slots(string $component): array
-    {
-        $schema = json_decode(
-            file_get_contents($this->themeRoot . "/components/{$component}/schema.json"),
-            true
-        );
-        $slots = $schema['styling']['style_slots'] ?? [];
-        $this->assertNotEmpty($slots, "{$component} must declare style_slots.");
-        return $slots;
-    }
-
-    /** Extracts a component's CSS block, delimited by `COMPONENT: <name>` headers. */
-    private function componentBlock(string $component): string
-    {
-        // Match the header line through to the next COMPONENT: header or EOF.
-        $pattern = '/COMPONENT:\s*' . preg_quote($component, '/') . '\b(.*?)'
-                 . '(?=\/\*\s*={5,}[^*]*?COMPONENT:|\z)/s';
-        $this->assertMatchesRegularExpression(
-            $pattern,
-            $this->css,
-            "No COMPONENT: {$component} block found in components.css."
-        );
-        preg_match($pattern, $this->css, $m);
-        return $m[1];
-    }
-
-    /** Removes CSS comments so commented mentions don't count as consumption. */
     private function stripComments(string $css): string
     {
         return preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
-    }
-
-    /** Returns the set of CSS property names whose value consumes var(--slot ...). */
-    private function propertiesConsuming(string $block, string $slot): array
-    {
-        if (!preg_match_all(
-            '/([a-z-]+)\s*:\s*[^;{}]*var\(\s*' . preg_quote($slot, '/') . '\b[^;{}]*/i',
-            $block,
-            $m
-        )) {
-            return [];
-        }
-        return array_map('strtolower', $m[1]);
-    }
-
-    // ── unwrapCascadeLayers(): the three shapes the descent version got wrong (#986) ──
-
-    /** A rule AFTER the wrapper closes must still be seen, and seen as top level. */
-    public function testARuleAfterTheLayerWrapperIsStillTopLevel(): void
-    {
-        $gaps = $this->immunityGaps(
-            '@layer pp-v1 { .x { color: red; } }' .
-            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}'
-        );
-        $this->assertSame([], $gaps, 'the baseline after a closed wrapper must be found');
-    }
-
-    /** An `@layer a, b;` STATEMENT must not swallow the rule that follows it. */
-    public function testALayerStatementDoesNotSwallowTheNextRule(): void
-    {
-        $gaps = $this->immunityGaps(
-            '@layer pp-reset, pp-zero, pp-v1;' .
-            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}'
-        );
-        $this->assertSame([], $gaps, 'a layer statement is not a block and must be stepped over');
-    }
-
-    /** A baseline inside a CONDITIONAL at-rule must still NOT count — the opposite case. */
-    public function testABaselineInsideAMediaBlockStillDoesNotCount(): void
-    {
-        $gaps = $this->immunityGaps(
-            '@layer pp-v1 { @media (min-width: 768px) {' .
-            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;}' .
-            '} }'
-        );
-        $this->assertNotSame([], $gaps, 'a breakpoint-scoped baseline leaves other widths exposed');
-    }
-
-    /** Offsets survive the unwrap, so the above/below ordering check still works. */
-    public function testTheOrderCheckStillSeesABaselineBelowTheComponentRules(): void
-    {
-        $gaps = $this->immunityGaps(
-            '@layer pp-v1 { .hero { color: red; }' .
-            '[data-pp-component],.grid__item,.section__panel-row{border-style:none;border-width:0;} }'
-        );
-        $this->assertNotSame(
-            [],
-            $gaps,
-            'a baseline below the first component rule must still be reported after unwrapping'
-        );
     }
 }

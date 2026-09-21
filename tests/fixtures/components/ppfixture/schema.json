@@ -197,6 +197,32 @@
           }
         ]
       }
+    },
+    "recipes": {
+      "dark-showcase": {
+        "description": "Dark band with a light heading — the two-slot shape the expansion tests drive.",
+        "slots": {
+          "--ppfixture-bg": "#1a1a2e",
+          "--ppfixture-heading-color": "#f0f0f0",
+          "--ppfixture-gap": "2.5rem",
+          "--ppfixture-radius": "1rem"
+        }
+      },
+      "dense-cards": {
+        "description": "Tight spacing for compact layouts.",
+        "slots": {
+          "--ppfixture-gap": "1rem",
+          "--ppfixture-padding-top": "1rem",
+          "--ppfixture-padding-bottom": "1rem"
+        }
+      },
+      "uniform-cards": {
+        "description": "A third recipe, so the roster this fixture reports has more than one member and a count assertion means something.",
+        "slots": {
+          "--ppfixture-radius": "0",
+          "--ppfixture-max-width": "60rem"
+        }
+      }
     }
   },
   "safe_to_edit": [

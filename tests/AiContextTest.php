@@ -105,45 +105,39 @@ class AiContextTest extends TestCase
         // Design tokens require base.css to exist
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('## Design Tokens', $prompt);
-    }
-
-    public function testSystemPromptStatesLiteralOnlySlotTypesRejectVar(): void
-    {
-        // #377 — the runtime chat prompt must state the var() negative for the
-        // literal-only slot types, not only for `position`. The chat AI was
-        // misled by the color analogy into setting a length slot to a var()
-        // reference and getting rejected; the prompt names which types accept
-        // var() and says every other type is literal-only.
-        //
-        // THE NEGATIVE IS NOW STATED AS A COMPLEMENT, NOT A LIST (#1087). The old pin
-        // enumerated `length, length-or-none, number, duration, position, ratio`, and four
-        // of those six had ZERO shipped slot carriers — the prompt was teaching a var()
-        // rule for types no slot could declare. An enumeration also had to be re-edited
-        // every time a carrier retired, which is the hand-maintained-roster drift this gate
-        // exists to end. A complement ("every other type") stays true as the carrier set
-        // moves, so what is pinned here is the SUBSTANCE: the accepting set is named, and
-        // the negative covers everything outside it.
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString(
-            'Only the `color`, `gradient`, `shadow`, and `font-family` types accept a `var()` reference',
-            $prompt
-        );
-        $this->assertStringContainsString(
-            'every other type is literal-only and rejects `var()` in EVERY form',
-            $prompt
-        );
-        // And the substance behind the sentence, so this cannot pass on phrasing alone: a
-        // length really does reject a bare token reference, in the engine.
-        $this->assertInstanceOf(
-            \WP_Error::class,
-            \_pp_validate_token_value('var(--space-lg)', 'length', null),
-            'the prompt claims a length rejects var(); the validator must agree'
-        );
-        $this->assertTrue(
-            \_pp_validate_token_value('var(--color-accent)', 'color', null),
-            'and that a colour ACCEPTS one, so the claim is a real distinction'
-        );
-    }
+    }    /**
+     * THE SEVEN STYLE-SLOT PROMPT TESTS RETIRED AT #1101, together with the prompt
+     * section they read.
+     *
+     * `pp_ai_system_prompt()` gated its whole v1 block on `pp_ai_live_slot_types()` at
+     * #1087, precisely so it would delete itself the day the last slot-bearing component
+     * was rebuilt. grid was that component, so roughly 8.6 KB of teaching — the
+     * `Style slots:` line per component, the `Recipes:` line, the per-type value rules,
+     * the literal-only/`var()` rules, the `theme` enum advertisement and the shared
+     * band-heading size slot — left an uncached prompt that is re-sent on every turn.
+     * Seven tests read that section and nothing else, so they go with it:
+     *   testSystemPromptContainsStyleSlotsForStyledComponents
+     *   testSystemPromptContainsGridHeadingMaxWidthSlot
+     *   testSystemPromptContainsRecipesForStyledComponents
+     *   testSystemPromptContainsStyleSlotValueRules
+     *   testSystemPromptStatesLiteralOnlySlotTypesRejectVar
+     *   testSystemPromptAdvertisesThemeWithNoLegacySuffix
+     *   testSystemPromptIncludesHeadingSizeSlotForNewlyStyledBands
+     *
+     * THE GATE ITSELF IS STILL PINNED, in three places, so this is not a hole:
+     * testTheLengthOrNoneSlotGrammarIsConditionalOnACarrier asserts a slot grammar with
+     * no carrier is absent AND that `pp_ai_slot_type_rules()` restores it the moment one
+     * appears; DocsCoverageTest::testTheRuntimePromptsV2RosterMatchesTheRegistry checks
+     * the v2 roster the section was replaced by; and the byte-budget pin bounds the whole
+     * prompt. A slot re-appearing on any component brings the section and its grammar
+     * back by construction — that is what `pp_ai_live_slot_types()` is for — but it would
+     * arrive UNPINNED, so restore these seven in the same commit if that ever happens.
+     *
+     * TWO SENTENCES WERE RESCUED OUT OF THE SECTION RATHER THAN DELETED WITH IT, and both
+     * were found by a test's own fail-closed arm rather than by reading: the 61-token
+     * design-token/font value grammar (the trap #1087 wrote down in advance) and the
+     * uncapped-measure route. Both are ungated now and both keep their own assertions.
+     */
 
     /**
      * #1005 — the runtime prompt's delimiter-limits claim is checked against the
@@ -254,6 +248,10 @@ class AiContextTest extends TestCase
             8 => 'Eight', 9 => 'Nine', 10 => 'Ten', 11 => 'Eleven', 12 => 'Twelve',
             13 => 'Thirteen', 14 => 'Fourteen', 15 => 'Fifteen', 16 => 'Sixteen',
             17 => 'Seventeen', 18 => 'Eighteen', 19 => 'Nineteen', 20 => 'Twenty',
+            21 => 'Twenty-one', 22 => 'Twenty-two', 23 => 'Twenty-three',
+            24 => 'Twenty-four', 25 => 'Twenty-five', 26 => 'Twenty-six',
+            27 => 'Twenty-seven', 28 => 'Twenty-eight', 29 => 'Twenty-nine',
+            30 => 'Thirty',
         ];
         $this->assertArrayHasKey($keys, $numbers, 'extend the number words if the roster grew past twenty');
         $this->assertArrayHasKey($components, $numbers, 'extend the number words if the component roster grew');
@@ -316,10 +314,19 @@ class AiContextTest extends TestCase
             $this->assertStringContainsString($in_doc, $doc, $why);
         }
 
-        // Neither surface may claim a v1 style slot is subject to the limits: it is the
-        // one sink where an unclosed mark really is inert, and saying otherwise would
-        // send an author renaming a font for no reason.
-        $this->assertStringContainsString('NOT a v1 style slot', $prompt);
+        // THE CARVE-OUT ITSELF RETIRED AT #1101, and the assertion INVERTED rather than
+        // being deleted. It used to read `assertStringContainsString('NOT a v1 style
+        // slot', $prompt)`, on the grounds that a slot's sink is an escaped `style`
+        // attribute where an unclosed mark really is inert — true, and true of nothing
+        // that ships: grid was the last component declaring slots, so neither surface has
+        // a v1 sink left to exempt. A carve-out naming a surface that does not exist is
+        // the roster-pretending-to-be-true shape this file catches everywhere else, and
+        // it costs an author real confusion — it implies a sink where the limits are
+        // relaxed, so an author hunting a refusal would go looking for one.
+        // Pinned as ABSENT on both surfaces, so its return is a decision rather than a
+        // paste, and so the deletion is not invisible.
+        $this->assertStringNotContainsString('NOT a v1 style slot', $prompt);
+        $this->assertStringNotContainsString('NOT a v1 style slot', $doc);
     }
 
     /**
@@ -372,7 +379,8 @@ class AiContextTest extends TestCase
 
         // Fail-closed: 16 today. A composition step that stopped emitting rosters would make
         // both loops above vacuous and still pass.
-        $this->assertSame(16, count($declared), 'the obligation corpus changed — update deliberately');
+        // 16 -> 29 at #1101: grid declares 18 roles carrying 13 obligations of its own.
+        $this->assertSame(29, count($declared), 'the obligation corpus changed — update deliberately');
     }
 
     /**
@@ -766,8 +774,16 @@ class AiContextTest extends TestCase
         );
 
         // The half that MUST survive: where the capability went.
+        //
+        // THE SENTENCE MOVED AT #1101 AND THIS ASSERTION IS WHY IT WAS RESCUED. It used to
+        // read 'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE' and it lived INSIDE the
+        // gated v1 paragraph — the one sentence in that block describing a v2 write. grid's
+        // rebuild closed the gate, the sentence went with it, and this test caught the loss.
+        // It is ungated now, in the UDC section where it belongs, and the "NOT A SLOT ONE"
+        // half of the wording went with the slot it contrasted against: there is no slot
+        // left anywhere to contrast with.
         $this->assertStringContainsString(
-            'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE',
+            'AN UNCAPPED MEASURE IS A ROLE WRITE',
             $prompt,
             'without this an agent reads the absence as a removed capability and falls back '
             . 'to the pre-#579 `100%` workaround'
@@ -1407,34 +1423,6 @@ class AiContextTest extends TestCase
         $this->assertEquals('Test Site', $ctx['site']['name']);
     }
 
-    // ── Style Slots & Recipes in System Prompt ──────────────────────────
-
-    public function testSystemPromptContainsStyleSlotsForStyledComponents(): void
-    {
-        $prompt = pp_ai_system_prompt();
-        // `--grid-bg` since #1023: section declares no slots, so the catalog must not
-        // advertise any for it. grid is the widest component still on the slot system.
-        $this->assertStringContainsString('--grid-bg', $prompt);
-        $this->assertStringContainsString('Style slots:', $prompt);
-        $this->assertStringNotContainsString('--section-bg', $prompt,
-            'and a v2 component must advertise no slots at all');
-    }
-
-    public function testSystemPromptContainsGridHeadingMaxWidthSlot(): void
-    {
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('--grid-heading-measure', $prompt);
-    }
-
-    public function testSystemPromptContainsRecipesForStyledComponents(): void
-    {
-        $prompt = pp_ai_system_prompt();
-        // `dark-showcase` since #1023: `accent-panel` was section's, and recipes are
-        // declared per component — only grid and cta still have any.
-        $this->assertStringContainsString('dark-showcase', $prompt);
-        $this->assertStringContainsString('Recipes:', $prompt);
-    }
-
     public function testSystemPromptOmitsStyleSlotsForComponentsWithNoSlots(): void
     {
         // faq gained style slots in #100, and table/logos/embed gained the shared
@@ -1461,57 +1449,6 @@ class AiContextTest extends TestCase
                     );
                 }
             }
-        }
-    }
-
-    public function testSystemPromptIncludesHeadingSizeSlotForNewlyStyledBands(): void
-    {
-        // #436 regression pin: logos/embed each carry the shared band-heading size slot,
-        // so the AI-facing prompt must surface it. table's row left at #1066 — it is a v2
-        // component now, so the prompt announces its ROLES instead of its slots, and the
-        // assertion below ("Style slots:" on the next line) is the one claim that cannot
-        // be true of it. The v2 half is covered by
-        // testTheRuntimePromptsV2RosterMatchesTheRegistry in DocsCoverageTest, which is
-        // registry-derived and therefore picked table up the moment it declared roles.
-        $prompt = pp_ai_system_prompt();
-        $lines = explode("\n", $prompt);
-        // embed's row left at #1066 with table's, for the same reason.
-        //
-        // AND THE ROSTER GREW BACK, because an earlier draft of this comment was WRONG.
-        // It claimed logos was "the last declarer of a `--*-heading-size` slot" and
-        // instructed a future rebuild to retire the test when logos went. grid and stats
-        // both declare one — verified in their schemas — so that instruction would have
-        // retired live coverage of two components, which is the #1038 shape pre-authorised
-        // in a comment. The SUBJECT here is "the runtime prompt surfaces a component's
-        // heading-size slot", not "#436's three components", so every current declarer
-        // belongs in the roster and it is derived from that claim rather than from the
-        // issue that introduced it.
-        // stats and logos left this roster at #1066 PR2, for the reason table and embed
-        // left earlier in the same issue: both are v2 components now, so the prompt
-        // announces their ROLES and the "Style slots:" assertion below is the one claim
-        // that cannot be true of them. GRID IS THE LAST DECLARER — and unlike the earlier
-        // draft this comment corrects, that is not an instruction to retire the test when
-        // grid goes: the SUBJECT is "the runtime prompt surfaces a component's heading-size
-        // slot", so when grid rebuilds the claim genuinely has no subject left and the
-        // test retires with the slot system rather than with any one component.
-        //
-        // The v2 half is covered by testTheRuntimePromptsV2RosterMatchesTheRegistry in
-        // DocsCoverageTest, which is registry-derived and picked stats and logos up the
-        // moment they declared roles.
-        $expected = [
-            'grid'  => '--grid-heading-size',
-        ];
-        foreach ($expected as $name => $slot) {
-            $found = false;
-            foreach ($lines as $i => $line) {
-                if (str_contains($line, "**{$name}**")) {
-                    $next = $lines[$i + 1] ?? '';
-                    $this->assertStringContainsString('Style slots:', $next);
-                    $this->assertStringContainsString($slot, $next);
-                    $found = true;
-                }
-            }
-            $this->assertTrue($found, "Expected {$name} in the system prompt.");
         }
     }
 
@@ -1613,14 +1550,12 @@ class AiContextTest extends TestCase
         ];
         $GLOBALS['_pp_test_store']['post_meta'][60]['_pp_composition'] = wp_json_encode([
             [
-                // `grid` since #1026 (`cta` before it), and GRID IS FORCED HERE — it is the one
-                // re-homed fixture in this sprint that could not follow the #1023 rule of
-                // landing on `stats`. The subject is a page context carrying style slots AND A
-                // RECIPE and typed editable props, and grid is the ONLY component in the theme
-                // that declares recipes at all (3 of them; cta's `dark-bold` / `accent-framed`
-                // retired with its slot map, and stats has never had any). A stats fixture
-                // could not exercise the recipe half, so moving it would silently narrow the
-                // test. Revisit when grid rebuilds (#1024); #1025 is the durable fix.
+                // THE FIXTURE IS AN AGED PAGE NOW (#1101), and that is the point of it rather
+                // than a leftover. It was grid-with-slots-and-a-recipe since #1026, kept on
+                // grid because grid was the only component declaring recipes at all. grid is
+                // v2 now, so this stored shape is exactly what a page written before the
+                // rebuild still holds: a `style` map naming slots nothing declares, and a
+                // `__recipe` naming a recipe nothing ships.
                 'component' => 'grid',
                 'props' => ['id' => 'pp-test123', 'title' => 'Welcome', 'items' => [['title' => 'Card', 'text' => 'B']]],
                 'style' => ['--grid-bg' => '#0d1117', '--grid-heading-color' => '#f0f0f0', '__recipe' => 'dark-bold'],
@@ -1631,8 +1566,18 @@ class AiContextTest extends TestCase
         $system = $messages[0]['content'];
 
         $this->assertStringContainsString('pp-test123', $system);
+        // THE TWO SLOT ASSERTIONS INVERTED AT #1101, and the inversion is a MEASURED
+        // BEHAVIOUR CHANGE rather than a test tidy-up, so it is stated rather than
+        // quietly dropped. The page context filters a stored `style` map through the
+        // component's DECLARED slots, and grid declares none — so a stale slot value on
+        // an aged page is now invisible in the context the model reads, even though it is
+        // still sitting in `_pp_composition` and still refused by name at write. The
+        // recipe name survives because it is carried separately from the slot filter.
+        // Filed as a follow-up: the model can be told a write was refused for a stale key
+        // it cannot see in its own page context. Pinned here so the asymmetry is a known
+        // fact with a test behind it rather than a surprise in a chat transcript.
         $this->assertStringContainsString('recipe: dark-bold', $system);
-        $this->assertStringContainsString('--grid-bg: #0d1117', $system);
+        $this->assertStringNotContainsString('--grid-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
         // A prop with a schema format shows its family so the AI patches valid values
@@ -1676,18 +1621,6 @@ class AiContextTest extends TestCase
         $system = $messages[0]['content'];
 
         $this->assertStringContainsString('Error Page', $system);
-    }
-
-    // ── Style Slot Value Rules in System Prompt ────────────────────────
-
-    public function testSystemPromptContainsStyleSlotValueRules(): void
-    {
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('Style slot value rules', $prompt);
-        $this->assertStringContainsString('none', $prompt);
-        $this->assertStringContainsString('unset', $prompt);
-        $this->assertStringContainsString('not accepted', $prompt);
-        $this->assertStringContainsString('100%', $prompt);
     }
 
     // ── Adjacent Same-Background Hint (#378) ───────────────────────────────
@@ -1987,32 +1920,6 @@ class AiContextTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('share background', $system);
-    }
-
-    // ── Definition-surface emission (issue #575) ──────────────────────────
-    //
-    // A field an agent never sees is not in the baseline — it is a comment in a
-    // JSON file. These pin that every declared definition-surface field reaches the
-    // runtime catalog. The one field that carried a wording trap (`aliases`) is retired
-    // outright (#606), so no catalog line advertises an accepted-but-unadvertised tier
-    // any more — what a prop advertises is what it accepts.
-
-    /**
-     * #605 — the `theme` catalog line is now exactly the three canonical values,
-     * with NO legacy suffix. This is the measurable inspect/maintain win the removal
-     * bought: the alias used to cost a permanent extra line in EVERY AI request's
-     * context, on all eight band components, and it put the trap word `dark` in
-     * front of the agent adjacent to `inverted`.
-     */
-    public function testSystemPromptAdvertisesThemeWithNoLegacySuffix(): void
-    {
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringContainsString('theme?: "default"|"muted"|"inverted"', $prompt);
-        $this->assertStringNotContainsString(
-            'theme?: "default"|"muted"|"inverted" (still accepts',
-            $prompt,
-            'the theme entry must carry no accepted-legacy suffix'
-        );
     }
 
     /**

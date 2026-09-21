@@ -298,13 +298,18 @@ class WriteRejectionLocatorTest extends TestCase
                 'Component 1 ("logos") prop "items" must be an array',
                 'invalid_prop_value',
             ],
-            // HOST MOVED TO grid AT #1066 PR2. logos retired `theme`, so a bogus value
+            // HOST MOVED TO grid AT #1066 PR2 (logos retired `theme`, so a bogus value
             // there is refused as a RETIRED prop — which locates the band correctly but
-            // proves nothing about ENUM rejection, the case this row exists for. grid is
-            // the last component that declares the enum at all.
+            // proves nothing about ENUM rejection, the case this row exists for). AT #1101
+            // THE PROP MOVED, NOT THE HOST: grid's v2 rebuild retired `theme` for the same
+            // reason logos did, and a `theme: "bogus"` band now fails as `retired_prop`.
+            // `layout` is grid's surviving strict enum — the tone bundle went to the `udc`
+            // map, the structural choice between cards and steps did not — so the row
+            // keeps its component and changes its prop. Strict enums are in no danger of
+            // running out: every v2 component still declares its structural ones.
             'strict enum' => [
-                ['component' => 'grid', 'props' => ['theme' => 'bogus', 'items' => [['title' => 'One', 'text' => 'a']]]],
-                'Component 1 ("grid") prop "theme" must be one of',
+                ['component' => 'grid', 'props' => ['layout' => 'bogus', 'items' => [['title' => 'One', 'text' => 'a']]]],
+                'Component 1 ("grid") prop "layout" must be one of',
                 'invalid_prop_value',
             ],
             'missing required prop' => [
@@ -327,11 +332,16 @@ class WriteRejectionLocatorTest extends TestCase
                 'Component 1 ("hero") has no style slot "--nope"',
                 'invalid_style_slot',
             ],
-            'per-item style slot' => [
-                ['component' => 'grid', 'props' => ['items' => [['title' => 'T', 'text' => 'x', 'style' => ['--nope' => '1']]]]],
-                'Component 1 ("grid") item 0 has no style slot "--nope"',
-                'invalid_style_slot',
-            ],
+            // THE 'per-item style slot' ROW RETIRED AT #1101. It drove
+            // `grid.items[].style`, the theme's LAST declared nested `style` field, which
+            // retired with grid's v2 rebuild — a card that needs its own design carries
+            // its own `udc` map now. The row cannot be re-homed: the slot-engine fixture
+            // `ppfixture` declares its nested fields under `item_fields`, a documentary
+            // key no engine path reads, so a nested `style` there would be ignored and the
+            // row would pass or fail for reasons unrelated to the per-item slot rule.
+            // testNoSchemaDeclaresANestedStyleFieldSoThePerItemSlotRowRetired() below
+            // asserts that emptiness, and fails the day the row can come back. The
+            // COMPONENT-level style-slot family above is untouched and still live.
             'link url' => [
                 ['component' => 'cta', 'props' => ['title' => 'T', 'button_text' => 'G', 'button_url' => 'javascript:alert(1)']],
                 'Component 1 ("cta") prop "button_url" is not a usable link URL',
@@ -350,6 +360,59 @@ class WriteRejectionLocatorTest extends TestCase
                 'template_owned_component',
             ],
         ];
+    }
+
+    /**
+     * THE RETIRED 'per-item style slot' ROW'S PIN (#1101).
+     *
+     * (1) WHAT THE ROW PROVED. A style map on a single `items[]` entry is validated by the
+     *     shared slot engine, and its rejection is re-stamped with the BAND offset while
+     *     its message names the CARD — so an agent repairing a per-item slot is sent to
+     *     the right band and the right card.
+     *
+     * (2) WHY THE SUBJECT IS GONE. `grid.items[].style` was the last declared nested
+     *     `style` field in the theme and retired with grid's v2 rebuild. The census below
+     *     walks the key the ENGINE reads (`props.<name>.items`, lib/admin.php:4444) rather
+     *     than a schema's documentary one, so it cannot be satisfied by a field the
+     *     validator would never see.
+     *
+     * (3) WHERE THE CLAIM WENT. The band-naming half is the subject of this entire file
+     *     and is still measured by every other row of the provider above; the COMPONENT-
+     *     level style-slot row in particular is the same restamp one level up. What has
+     *     no successor is the per-ITEM restamp specifically — its engine path
+     *     (lib/admin.php:4460) is now unreachable from any registered schema. Reported,
+     *     not repaired: deleting engine code is not this suite's business, and the slot
+     *     engine goes in this task's PR2 anyway.
+     *
+     * (4) THE PIN. This fails the moment a nested `style` field is declared again, which
+     *     is exactly when the provider row should come back.
+     */
+    public function testNoSchemaDeclaresANestedStyleFieldSoThePerItemSlotRowRetired(): void
+    {
+        $nested_style = [];
+        $item_props   = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $prop => $definition) {
+                if (!is_array($definition) || ($definition['type'] ?? null) !== 'array'
+                    || !isset($definition['items']) || !is_array($definition['items'])) {
+                    continue;
+                }
+                $item_props++;
+                if (isset($definition['items']['style'])) {
+                    $nested_style[] = "{$component}.{$prop}[].style";
+                }
+            }
+        }
+
+        // NOT VACUOUS: the walk has to find the item-bearing props it inspects, or a
+        // registry declaring no `items` at all would satisfy the emptiness for free.
+        $this->assertGreaterThan(0, $item_props, 'no prop declares nested items[] fields — this census proves nothing');
+        $this->assertSame(
+            [],
+            $nested_style,
+            'A schema declares a nested `style` field again — restore the per-item style-slot row of '
+            . 'ruleFamilies(); the per-item restamp has had no coverage since #1101.'
+        );
     }
 
     /**
@@ -923,11 +986,15 @@ class WriteRejectionLocatorTest extends TestCase
      */
     public function testTheRejectedSlotContextStillComposes(): void
     {
-        // `grid` since #1023: `invalid_style_slot` is the refusal for an UNDECLARED slot
-        // name on a component that HAS a slot set. A v2 component refuses earlier and
-        // differently with `no_style_slots`, which is a different code carrying a
-        // different context and is pinned separately.
-        $this->seedPage(200, [['component' => 'grid', 'props' => ['title' => 'T', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 (a `section` before #1023).
+        // `invalid_style_slot` is the refusal for an UNDECLARED slot name on a component
+        // that HAS a slot set; a v2 component refuses earlier and differently with
+        // `no_style_slots`, a different code carrying a different context, pinned
+        // separately. grid's v2 rebuild took the last shipped slot map, so `ppfixture` —
+        // the registered test-only slot host kept across rebuilds (#1025), which this
+        // suite already activates in setUp — is the only band that can still produce this
+        // rejection. It dies with the slot engine in this task's PR2.
+        $this->seedPage(200, [FixtureTheme::band(['title' => 'T'])]);
 
         $error = pp_validate_action('style_component', [
             'post_id'         => 200,

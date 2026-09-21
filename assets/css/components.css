@@ -152,8 +152,7 @@
 
    Placement is load-bearing: an attribute selector and a class selector both weigh
    (0,1,0), so this must stay ABOVE the component blocks — every component rule that
-   really wants a border ( .hero, .cta, .section, .grid__item, .grid--dark, … ) then
-   wins on source order. Do not move it below them. Nor inside an @media/@layer block:
+   really wants a border then wins on source order. Do not move it below them. Nor inside an @media/@layer block:
    a breakpoint-scoped baseline leaves every other breakpoint exposed.
 
    Known consequence: at (0,1,0) this also outranks a BARE ELEMENT rule a site owner or
@@ -211,20 +210,30 @@
    correctly the whole time, and only the two longhands this rule claims were gone. A
    schema check, an emitter check and a specificity argument all pass in that state.
 
-   Nothing else moved. `.grid` still carries inline slot custom properties and still
-   matches. `.grid__item` matches whenever a per-card style map gives it a style attribute,
-   which is the case #306 added it for; with no map it carries no attribute, so core cannot
-   match it either. `.section__panel-row` is DROPPED outright rather than left to be
-   filtered: section has been v2 since #1023, its rows never carry a style attribute, and a
-   selector that can no longer match anything is worse than absent — it is the roster
-   pretending to still be true.
+   `.grid__item` IS DROPPED AT #1101, on exactly the grounds `.section__panel-row` was
+   dropped on: grid is a v2 component now, it emits no style attribute on its root and
+   none on its cards, so this arm can no longer match anything — and a selector that can
+   no longer match anything is worse than absent, because it is the roster pretending to
+   still be true. With it goes the last reason this baseline named an element that is not
+   a component root, and the last `[style]` any composed band emits.
+
+   THE A1 LANDMINE IS CLOSED BY THE SAME FACT, and it is worth naming because #994 walked
+   into it for chrome and the grid rebuild was set up to walk into it again. `.grid__item`
+   named outright here weighs (0,1,0) in `pp-v1`, while the `card` role's border DEFAULT
+   emits into `pp-zero` strictly below it — so had this arm survived the rebuild it would
+   have deleted the card's 1px border outright, exactly as it deleted the header's and the
+   footer's. It does not survive, and the `:where([style])` narrowing #1026 introduced is
+   what makes the removal safe rather than merely tidy: a card with no style attribute was
+   never reachable by core's `html :where([style*="border-width"])` selector in the first
+   place, so nothing loses immunity. MEASURED in Chromium at 375/768/1280 on a rebuilt
+   band rather than argued on paper: `.grid__item` border-top-width/-style read 1px/solid,
+   and the card's radius, fill and shadow all resolve to the `card` role's defaults.
 
    The `:where([data-pp-chrome])` carve-out is kept rather than folded in. It is not
    redundant: it is narrower and it is load-bearing documentation of WHY chrome is exempt
    (#994's restored borders), and a future chrome template that did emit a style attribute
    should still be exempt on the ratified-contract grounds, not readmitted by accident. */
-[data-pp-component]:where([style]):not(:where([data-pp-chrome])),
-.grid__item:where([style]) {
+[data-pp-component]:where([style]):not(:where([data-pp-chrome])) {
   border-style: none;
   border-width: 0;
 }
@@ -1182,6 +1191,98 @@
   color: var(--pp-list-marker-color, currentColor);
 }
 
+/* ── Shared list-marker treatment (issue 339) ───────────────────────────────
+   Promotes the check-mark bullet — historically locked inside grid cards — to a
+   reusable marker any list-rendering surface can opt into. A marker is a GLYPH
+   plus a COLOUR, both authorable; nothing here encodes a use-case. `disc` is the
+   untouched default and adds NO class, so a list that does not opt in renders
+   byte-identically. check / dash / arrow are just marker values.
+
+   The base .pp-marker-list is INERT on its own (indent + empty positioned ::before,
+   no glyph); a glyph comes only from the paired --check/--dash/--arrow modifier.
+   section.php always emits the base and a modifier together, so a bare base never
+   ships. A future consumer must pair them too.
+
+   Colour flows in through --pp-list-marker-color (internal plumbing, never a schema
+   surface). NO COMPONENT MAPS ANYTHING ONTO IT ANY MORE, and #1101 is where that
+   became true of every one: section's two marker-colour slots retired with its slot
+   map (#1023) and grid's `--grid-item-bullet-color` retired with its own (#1101, the
+   last slot map in the theme). Ruling A3 defers pseudo-elements, so no role can
+   address the glyph at any value; the variable's own fallback below IS the value
+   every consumer renders. The var() is kept rather than inlined because it is the
+   ONE definition the three consumers share — collapsing it would put the same
+   literal in three places for a future ruling to find separately.
+
+   One definition, three consumers:
+   - grid cards        .grid__item-bullet         (always a check, unchanged)
+   - text-panel list   .pp-marker-list on the <ul> the renderer emits
+   - section.body list .section__content--marker-* on the container we control,
+                       scoped to its DIRECT-CHILD <ul> so nested/plugin lists keep
+                       their default disc.
+   THEY MOVED OUT OF GRID'S BLOCK AT #1101, and the move is required rather than
+   tidy. They sat at grid's historical bullet position, which put them inside the slice
+   `tests/js/css-lint.test.js` reads as that component's stylesheet — and grid is a v2
+   component now, so that slice may hold no colour and no glyph. (This comment spells the
+   banner's own text nowhere, deliberately: the boundary lint finds a component's block
+   by searching for the banner TEXT, so a comment naming it up here would be found FIRST
+   and every rule below would be judged as grid's while grid's real block went unread. It
+   was, for one commit, and the layout-exposure roster is what caught it.) Their selectors
+   were never grid's anyway: four of the five reach section's prose and panel markers. What they must NOT lose is their source position relative to the
+   issue-295 disc rules above, which they beat on source order at equal specificity;
+   sitting at the end of this shared block keeps that true. --------------------- */
+.pp-marker-list,
+.section__content--marker-check > ul,
+.section__content--marker-dash > ul,
+.section__content--marker-arrow > ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+/* `.grid__item-bullet` LEFT THIS RULE AT #1101 and kept only the glyph rules below.
+   The 1.5rem indent is the single measured value the `card-bullet` role exists to own
+   (see components/grid/schema.json), and it could not own it from here: this rule rides
+   `@layer pp-v1` while a role DEFAULT emits into `pp-zero`, so the literal would have
+   outranked the default and the role would have shipped declared and dead. The card
+   bullet's `position: relative` — which the absolutely-positioned glyph below needs —
+   is structural and sits in grid's own banner block instead (not named here in full, for
+   the slicer reason the block comment above gives). The other four selectors
+   are prose markers with no role at all, so the literal stays THEIR only home. */
+.pp-marker-list > li,
+.section__content--marker-check > ul > li,
+.section__content--marker-dash > ul > li,
+.section__content--marker-arrow > ul > li {
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.grid__item-bullet::before,
+.pp-marker-list > li::before,
+.section__content--marker-check > ul > li::before,
+.section__content--marker-dash > ul > li::before,
+.section__content--marker-arrow > ul > li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+  color: var(--pp-list-marker-color, var(--color-accent));
+}
+
+/* Glyph per marker value. */
+.grid__item-bullet::before,
+.pp-marker-list--check > li::before,
+.section__content--marker-check > ul > li::before {
+  content: "\2713"; /* check mark */
+}
+
+.pp-marker-list--dash > li::before,
+.section__content--marker-dash > ul > li::before {
+  content: "\2013"; /* en dash */
+}
+
+.pp-marker-list--arrow > li::before,
+.section__content--marker-arrow > ul > li::before {
+  content: "\2192"; /* rightwards arrow */
+}
+
 /* ==========================================================================
    COMPONENT: faq  —  A v2 COMPONENT
    Native details/summary accordion. No JS required.
@@ -1336,82 +1437,82 @@
    three values needed a route at all and why `item` records the consequence. */
 
 /* ==========================================================================
-   COMPONENT: grid
+   COMPONENT: grid  —  A v2 COMPONENT, AND THE LAST ONE TO ARRIVE
    Responsive card grid. 1-col → 2-col md → 3-col lg.
    Cards are for real content objects, not decoration.
    ========================================================================== */
 
-.grid {
-  padding-top: var(--grid-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
-  background: var(--grid-bg, transparent);
-}
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary (docs/v2/BUILD-SPEC-sprint0.md §2).
+   Layout scaffolding, wrapper geometry and accessibility affordances live here.
+   NO colour, type, size, spacing, border, shadow or aspect-ratio value may be added:
+   every one of those belongs to a role in components/grid/schema.json and is emitted by
+   the engine into a band-scoped block. tests/js/css-lint.test.js enforces it on exactly
+   this banner slice — and grid enrolled in that rule automatically, the moment its schema
+   declared `roles`, because the rule discovers its subjects from the schemas.
 
-.grid__header--center {
-  text-align: center;
-  margin-left: auto;
-  margin-right: auto;
-}
+   WITH THIS BLOCK THE SLOT SYSTEM HAS NO SHIPPED CONSUMER LEFT. grid was the last
+   component on it, so the 38 `--grid-*` custom properties that left here are the last
+   38 anywhere in the theme.
+
+   WHAT LEFT THIS BLOCK AT #1101, so the next reader does not go looking for it:
+   38 style slots; the `.grid--dark` / `.grid--inverted` theme variants and the
+   `--pp-grid-heading-theme-color` / `--pp-grid-subheading-theme-color` plumbing they fed;
+   `.grid__header--center` with the `title_align` prop; `.grid--uniform` and the whole
+   `:first-child` featured treatment with the `card_emphasis` prop (ruling D9 — measured,
+   all 11 of the owner's production bands already rendered uniform); `.grid--image-icon`
+   with the `image_treatment` prop; the two `.text-meta` / `.text-kicker` companion rules
+   with `items[].text_role`; and the band root's own rule, whose padding and background
+   are the `_band` role's defaults now — emitted into `pp-zero` so the shared
+   adjacent-band rhythm still wins the top edge, which is the arrangement #430/#431 need.
+   The premium-typography and final-cascade restatements of all of the above left their
+   own blocks in the same change; each site carries its own note.
+
+   THE PIECES THAT STAYED, each for a stated reason rather than by omission:
+   - The TRACK GEOMETRY moved INTO this block rather than staying in the final cascade:
+     the base 1→2 collapse, the steps 3-across, the `data-pp-count` auto-derivation and
+     the `data-pp-columns` override. Every one is `grid-template-columns` plus the
+     `max-width`/auto-margin pair that centres a short row, and all three are structural.
+     They keep their `main >` prefix and their relative order — the columns block must
+     stay BELOW the count block, because the two tie at (0,4,1) and source order is what
+     makes an explicit `columns` prop beat the count derivation. The GUTTER between the
+     tracks left with them: that is `list` -> `spacing.gap`, responsive by default so it
+     matches what the three breakpoints used to declare.
+   - `overflow: hidden` on the card is what clips a banner image to the card's authored
+     radius, and it is why the card link's focus ring is drawn INSET below.
+   - `transition: transform var(--transition)` and the `:hover` lift stay because the
+     motion group carries exactly two params by ruling A3 and a property LIST is not one
+     of them, and because `transform` has no role address at any value (#994, ruling H3).
+     An authored `card` -> `motion.transition-duration` overrides the timing and leaves
+     the list intact.
+   - `flex-shrink: 0` on the card bar. The bar is a REAL element in v2 (ruling D5) and a
+     flex item of the card column; without this a tall card would let a 2px bar round to
+     nothing. Its colour and height are the `card-bar` role's.
+   - The `::after` arrow on the card link and the desktop steps connector are
+     PSEUDO-ELEMENTS, which ruling A3 defers; no role can address them at any value.
+     TWO NARROWINGS FALL OUT OF THAT AND ARE STATED RATHER THAN DISCOVERED: the arrow's
+     `font-weight: 700` is gone, so the glyph now renders at the link's own weight (the
+     `card-link` role's 600); and the connector is `border-top: … currentColor` rather
+     than a `background` of `var(--color-border)`, because `background` is designable at
+     every value while a border EDGE is structural — the same classification faq's
+     chevron already rides. The connector therefore follows the card's ink instead of
+     pinning one token, which reads a shade darker on a default band and, unlike the
+     frozen token, stays visible on a re-inked card.
+   - `outline-offset: -3px` on the focused card link is an accessibility affordance and
+     the #1056 fix; its own comment below carries the measurement. */
 
 .grid__eyebrow {
   display: inline-block;
-  padding: 0.35rem 0.85rem;
-  margin-bottom: var(--space-sm);
-  border: var(--grid-eyebrow-border-width, 0) solid var(--grid-eyebrow-border-color, transparent);
-  border-radius: var(--grid-eyebrow-radius, 3px);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: var(--grid-eyebrow-text-transform, uppercase);
-  color: var(--grid-eyebrow-color, var(--color-text));
-  background: var(--grid-eyebrow-bg, var(--color-surface-accent));
 }
 
-.grid__heading {
-  color: var(--grid-heading-color, var(--pp-grid-heading-theme-color, var(--color-text)));
-  font-size: var(--grid-heading-size, var(--pp-band-heading-size));
-  max-width: var(--grid-heading-measure, var(--measure-heading));
-  /* Top-side header rhythm (heading -> subheading gap), mirror of the issue 336
-     subheading BOTTOM slot on the adjacent property (issue 343). The heading is
-     not the header's last child, so base.css's `p:last-child` reset never won
-     here — a plain slot on the heading suffices. Today's literal is the fallback. */
-  margin-bottom: var(--grid-heading-margin-bottom, var(--space-lg));
-}
-
-.grid__heading-accent {
-  color: var(--grid-heading-accent-color, var(--color-accent));
-}
-
-.grid__header--center .grid__heading {
-  max-width: var(--grid-heading-measure, var(--measure-heading));
-  margin-left: auto;
-  margin-right: auto;
-}
-
+/* base.css `p:last-child { margin-bottom: 0 }` reaches this element; the role default
+   owns its bottom rhythm and emits unlayered, so only the top reset is structural. */
 .grid__subheading {
-  color: var(--grid-subheading-color, var(--pp-grid-subheading-theme-color, var(--color-muted)));
   margin-top: 0;
-  max-width: 40rem;
-}
-/* base.css `p:last-child { margin-bottom: 0 }` (0,1,1) outranks a bare
-   `.grid__subheading` (0,1,0), and the subheading is always the header's last
-   child, so the component's declared bottom rhythm never reached the page (issue 336).
-   Own the spacing at header scope (0,2,0): it wins the cascade without weakening
-   the global prose reset, and does not depend on the subheading staying last. */
-.grid__header > .grid__subheading {
-  margin-bottom: var(--grid-subheading-margin-bottom, var(--space-lg));
-}
-
-
-.grid__header--center .grid__subheading {
-  margin-left: auto;
-  margin-right: auto;
 }
 
 .grid__list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--grid-gap, var(--space-lg));
   list-style: none;
 }
 
@@ -1419,22 +1520,114 @@
   .grid__list {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  /* A lone card must never sit in a two-column track (issue 297): the base 768px rule
+     above sets repeat(2, 1fr), stranding a single item in the left column with dead
+     space on the right. One full-width track spans the container so the card's left
+     edge aligns with the section rail, mirroring the count-2/count-3 "span the
+     container" treatment (issues 303/224). This sits at 768px, not 1024px like the
+     other count rules, because the stranding exists from the first two-column
+     breakpoint, and no count-1 override in the 1024px block re-declares it, so it
+     holds through desktop. */
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-/* Steps variant: 3-col at desktop (always 3 items) */
+/* Steps variant: 3-col at desktop (always 3 items). */
 @media (min-width: 1024px) {
   .grid--steps .grid__list {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 58rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  main > .grid--steps .grid__list[data-pp-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 56rem;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"] {
+    /* Three-across is the common marketing feature row. No max-width: the row
+       spans the container like grid--steps does, instead of being centered and
+       narrowed the way the 2- and 4-card rules are. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"] {
+    /* Two-across rows span the container like the 3-card rule, instead of being
+       capped at 52rem and centered. The centered cap left the pair on a narrower
+       rail than the intro copy above it (measured at desktop: pair left-edge 304px
+       vs section rail 176px), so "intro text + two feature cards" could never read
+       as one aligned section. Removing the max-width + auto margins aligns the pair
+       with the section rail, mirroring the count-3 treatment (issue 303, sibling of
+       issue 224). */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Explicit desktop column-count override (issue 379). Opt-in via the grid
+   `columns` prop (integer 1-4), emitted by grid.php as data-pp-columns on the
+   list. Forces that many equal-width tracks at >=768px, overriding the
+   item-count auto-derivation (the data-pp-count rules above). Unset emits no
+   attribute, so none of these selectors match and the auto-derived default is
+   byte-identical. Placed AFTER the 1024px count block so, at equal (0,4,1)
+   specificity, source order wins at every >=768px width (the count-N rules and
+   the base repeat(2) rule both lose to this). max-width/margins are reset so a
+   forced count spans the container uniformly regardless of item count (the
+   count-4 rule otherwise caps at 58rem centered). minmax(0, 1fr) keeps forced
+   narrow tracks from overflowing (orphan/overflow safety). Scoped to cards
+   (:not(.grid--steps)); the steps layout keeps its fixed process grain. The
+   <768px single-column collapse is untouched.
+   THE TRACK COUNT HAS A SECOND ADDRESS IN v2 and the two do not collide: `list` ->
+   `layout.columns` emits `grid-template-columns` UNLAYERED, so an authored per-
+   breakpoint count beats every rule here at any specificity, while the prop stays the
+   structural way to say "three across" without opening a design map. */
+@media (min-width: 768px) {
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="1"] {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
   }
 }
 
 .grid__item {
   display: flex;
   flex-direction: column;
-  background: var(--grid-item-bg, var(--color-surface));
-  border: var(--grid-item-border-width, 1px) solid var(--grid-item-border-color, var(--color-border));
-  border-radius: var(--grid-item-radius, var(--radius));
-  box-shadow: var(--grid-item-shadow, none);
+  /* The containing block for the desktop steps connector below. It was declared in the
+     final cascade in v1 and moved here with that rule, so the two cannot drift apart. */
+  position: relative;
+  /* What clips a banner image to the card's authored radius — and what makes the card
+     link's focus ring need a negative offset. */
   overflow: hidden;
   transition: transform var(--transition);
 }
@@ -1443,8 +1636,11 @@
   transform: translateY(-2px);
 }
 
+.grid__item-bar {
+  flex-shrink: 0;
+}
+
 .grid__item-image-wrap {
-  aspect-ratio: 16 / 9;
   overflow: hidden;
 }
 
@@ -1454,386 +1650,102 @@
   object-fit: cover;
 }
 
-/* Item image icon treatment (issue 380). Opt-in via the grid
-   `image_treatment: "icon"` prop, emitted by grid.php as the grid--image-icon
-   variant class on the section. Renders each card image at a small fixed icon
-   size instead of the default 16:9 cover banner above: no aspect-ratio crop,
-   sized by the --grid-item-icon-size slot (length, default 48px), and
-   object-fit: contain so the whole glyph/logo shows rather than being cropped
-   to fill. Unset (default 'banner') emits no class, so neither selector matches
-   and the banner rendering above is byte-identical. Applies at ALL breakpoints
-   (NOT nested in a min-width block), so the icon stays icon-sized on mobile too;
-   the <768px single-column collapse is untouched. Scoped under .grid--image-icon
-   (only ever on cards — grid.php never emits the class on steps, which render no
-   item images). --grid-item-icon-size embeds no WP-core border-trigger substring,
-   so the issue 332 immunity baseline is unaffected; the value routes through
-   var(--slot, 48px) so the slot-contract bypass guard does not flag the literal. */
-.grid--image-icon .grid__item-image-wrap {
-  aspect-ratio: auto;
-  width: var(--grid-item-icon-size, 48px);
-  height: var(--grid-item-icon-size, 48px);
-  overflow: visible;
-  /* Follow the card's --grid-item-text-align (issue 380, maintainer 7A). The
-     fixed-width icon box is a flex child of .grid__item (a flex column); per the
-     issue 338 flex trap, text-align on the body cannot move it, so a centered
-     card would otherwise render a left-pinned icon over centered text. It reuses
-     the SAME derived companion the Read-more link already follows (--pp-grid-link
-     -align, issue 361), emitted grid-level and per-card from the one authored
-     --grid-item-text-align slot (left/start/justify->flex-start, center->center,
-     right/end->flex-end) — no second slot, no second companion. Unset emits no
-     companion, so the flex-start fallback keeps every icon card left-aligned,
-     byte-identical. Only meaningful in icon mode (the banner wrap is full-width,
-     so align-self is a no-op there). */
-  align-self: var(--pp-grid-link-align, flex-start);
-}
-
-.grid--image-icon .grid__item-image {
-  object-fit: contain;
-}
-
 .grid__item-body {
-  padding: var(--grid-item-padding, var(--space-md));
   display: flex;
   flex-direction: column;
-  gap: var(--grid-item-gap, var(--space-sm));
   flex: 1;
-  /* Authorable TEXT alignment (issue 357). The body's text-bearing children
-     (title, text, bullets) are full-width flex items (align-items:stretch), so
-     text-align inherits into them and governs their INLINE content. The
-     .grid__item-link is a content-width flex item placed by align-self, so per
-     the issue 338 flex trap text-align cannot move its box; it follows the SAME
-     alignment through the derived --pp-grid-link-align companion instead (issue
-     361, on .grid__item-link below), so a centered card centers its link too.
-     Default left is byte-identical to today's rendering (LTR theme, no rtl.css);
-     an unset slot emits no inline custom property, so the fallback keeps every
-     existing card left-aligned. Consumed via the shared align-typed slot. */
-  text-align: var(--grid-item-text-align, left);
-}
-
-@media (min-width: 768px) {
-  .grid__item-body {
-    padding: var(--grid-item-padding, var(--space-lg));
-  }
-}
-
-/* When a card has no image, the body is the only child — add top padding for balance.
-   Routed through --grid-item-padding, but NOT for the reason issue 577 gave. The issue
-   listed this as a declaration that DEFEATS the slot; it does not — this rule is [0,2,0]
-   and `main > .grid .grid__item-body:first-child` (which has routed the slot at both
-   breakpoints since issue 302) is [0,3,1], and every composition renders inside <main>,
-   so this declaration wins nowhere in practice.
-   It is routed because the slot-contract guard requires it: once --grid-item-padding
-   drives padding-top on the .grid__item-body SUBJECT anywhere (the featured-card rule in
-   the final cascade), every padding-top on that subject must route the slot or it is a
-   dead-slot bypass by definition (StyleSlotContractTest, issue 305). Uniform routing on
-   a subject is the invariant, not "this rule is the cascade winner". Byte-identical. */
-.grid__item-body:first-child {
-  padding-top: var(--grid-item-padding, var(--space-lg));
-}
-
-.grid__item-title {
-  font-size: var(--grid-item-title-size, 1.25rem);
-  font-weight: 700;
-  color: var(--grid-item-title-color, var(--color-text));
 }
 
 .grid__item-text {
-  color: var(--grid-item-text-color, var(--color-muted));
-  font-size: 0.9375rem;
-  line-height: 1.6;
   flex: 1;
-}
-
-/* Issue 349 — an explicit per-instance --grid-item-text-color must win over a
-   text_role color preset at ALL breakpoints. text_role adds .text-meta / .text-kicker
-   (utilities.css), each a (0,1,0) `color` rule enqueued AFTER components.css, so it
-   defeats the (0,1,0) base rule on the source-order tie below the 768px premium
-   breakpoint — the slot was honored on desktop and dead on mobile. These (0,2,0)
-   companion rules out-specify the utility regardless of enqueue order (mirroring how
-   the desktop `main > .grid .grid__item-text` premium rule already does at (0,2,1)),
-   so the slot always wins when set. The fallback is the exact role token, so an UNSET
-   slot still renders the role colour — byte-identical to today at both breakpoints
-   (desktop stays governed by the premium rule, which is strictly higher at (0,2,1)).
-   Only meta/kicker set a colour; mono/label do not, so they need no companion rule. */
-.grid__item-text.text-meta {
-  color: var(--grid-item-text-color, var(--text-meta-color));
-}
-
-.grid__item-text.text-kicker {
-  color: var(--grid-item-text-color, var(--text-kicker-color));
 }
 
 .grid__item-bullets {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  color: var(--grid-item-text-color, var(--color-muted));
-  font-size: 0.9375rem;
-  line-height: 1.5;
   flex: 1;
-  /* Map grid's authorable bullet colour onto the shared marker plumbing var.
-     Unset resolves to --color-accent, byte-identical to the historical grid
-     treatment (issue 339). */
-  --pp-list-marker-color: var(--grid-item-bullet-color, var(--color-accent));
 }
 
-/* ── Shared list-marker treatment (issue 339) ───────────────────────────────
-   Promotes the check-mark bullet — historically locked inside grid cards — to a
-   reusable marker any list-rendering surface can opt into. A marker is a GLYPH
-   plus a COLOUR, both authorable; nothing here encodes a use-case. `disc` is the
-   untouched default and adds NO class, so a list that does not opt in renders
-   byte-identically. check / dash / arrow are just marker values.
-
-   The base .pp-marker-list is INERT on its own (indent + empty positioned ::before,
-   no glyph); a glyph comes only from the paired --check/--dash/--arrow modifier.
-   section.php always emits the base and a modifier together, so a bare base never
-   ships. A future consumer must pair them too.
-
-   Colour flows in through --pp-list-marker-color (internal plumbing, NOT a schema
-   style_slot): each consuming component maps its own authorable colour slot onto
-   it inside that component's own block (grid: --grid-item-bullet-color above).
-   A v2 COMPONENT MAPS NOTHING ONTO IT: section's two marker-colour slots retired with
-   its slot map (#1023), ruling A3 defers pseudo-elements so no role can address the
-   glyph, and the variable's own fallback below IS the value section renders.
-
-   One definition, three consumers:
-   - grid cards        .grid__item-bullet         (always a check, unchanged)
-   - text-panel list   .pp-marker-list on the <ul> the renderer emits
-   - section.body list .section__content--marker-* on the container we control,
-                       scoped to its DIRECT-CHILD <ul> so nested/plugin lists keep
-                       their default disc.
-   These rules sit at grid's historical bullet position — after the COMPONENT:
-   section block — so the section body/panel selectors below beat the issue-295
-   disc rules on source order at equal specificity. --------------------------- */
-.pp-marker-list,
-.section__content--marker-check > ul,
-.section__content--marker-dash > ul,
-.section__content--marker-arrow > ul {
-  list-style: none;
-  padding-left: 0;
-}
-
-.grid__item-bullet,
-.pp-marker-list > li,
-.section__content--marker-check > ul > li,
-.section__content--marker-dash > ul > li,
-.section__content--marker-arrow > ul > li {
+/* The containing block for the shared check-mark glyph, which is absolutely positioned
+   at `left: 0` in the SHARED GLYPH block above. The indent that makes room for it is the
+   `card-bullet` role's `spacing.padding-left`, not a literal here — see that block's
+   note on why the two halves had to be separated. */
+.grid__item-bullet {
   position: relative;
-  padding-left: 1.5rem;
-}
-
-.grid__item-bullet::before,
-.pp-marker-list > li::before,
-.section__content--marker-check > ul > li::before,
-.section__content--marker-dash > ul > li::before,
-.section__content--marker-arrow > ul > li::before {
-  position: absolute;
-  left: 0;
-  font-weight: 700;
-  color: var(--pp-list-marker-color, var(--color-accent));
-}
-
-/* Glyph per marker value. */
-.grid__item-bullet::before,
-.pp-marker-list--check > li::before,
-.section__content--marker-check > ul > li::before {
-  content: "\2713"; /* check mark */
-}
-
-.pp-marker-list--dash > li::before,
-.section__content--marker-dash > ul > li::before {
-  content: "\2013"; /* en dash */
-}
-
-.pp-marker-list--arrow > li::before,
-.section__content--marker-arrow > ul > li::before {
-  content: "\2192"; /* rightwards arrow */
 }
 
 .grid__item-link {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: var(--grid-item-link-color, var(--color-accent));
-  text-decoration: none;
-  /* Follows the card's --grid-item-text-align via the derived --pp-grid-link-align
-     companion (issue 361): grid.php maps left/start/justify->flex-start,
-     center->center, right/end->flex-end. UNSET emits no companion, so the
-     flex-start fallback is byte-identical to the historical left-pinned link. */
-  align-self: var(--pp-grid-link-align, flex-start);
+  display: inline-flex;
+  align-items: center;
+  /* The link is a content-width flex item of the card body, so it is placed by
+     align-self rather than by the body's text alignment (the issue 338 flex trap).
+     `sizing.align-self` on the `card-link` role is the authored route. */
+  align-self: flex-start;
   margin-top: auto;
 }
 
-.grid__item-link:hover {
-  /* Issue 581 (A-18) — the hover half of the card-link pair. This used to be a bare
-     literal, waived in the issue 309 dead-slot ledger because routing it through the
-     REST slot (--grid-item-link-color) would have made hover render identical to rest
-     whenever an author set the resting colour, destroying the hover feedback. Routing
-     it through its own POSITIONAL TWIN has neither problem: unset, the fallback is the
-     same var(--color-accent-hover) literal it always was (byte-identical), and set, the
-     author is deliberately choosing a hover colour rather than accidentally flattening
-     one. The waiver retires with this change. */
-  color: var(--grid-item-link-hover-color, var(--color-accent-hover));
-  text-decoration: underline;
+.grid__item-link::after {
+  content: "->";
+}
+
+/* THE FOCUS RING HAS TO BE INSET, AND #1056 IS WHY IT CROSSED THE REBUILD (ruling D3).
+   base.css gives every focusable element `outline: 2px solid var(--color-accent)` at
+   `outline-offset: 2px`, which paints OUTWARD from the border box and therefore needs
+   4px of clearance. `.grid__item` declares `overflow: hidden` above, so anything outside
+   the card's padding box is clipped.
+   In v1 this survived on an accident of arithmetic: the card body's padding was a
+   stylesheet literal comfortably wider than 4px, so the ring always had room. #1101 makes
+   that padding an ordinary authored value on the `card-body` role — so the defect was one
+   `{"card-body": {"spacing": {"padding": "0"}}}` away, which is exactly the "the exposure
+   crosses the rebuild rather than dying with it" the issue records.
+   Fixed with #1046's shape, already proven on faq's summary: a negative offset draws the
+   ring INSIDE the clip box, where nothing can clip it. Applied structurally — as an
+   accessibility affordance, by this block's own rule — so no authored padding can reopen
+   it. Its own measurement lives with the pin in tests/e2e/. */
+.grid__item-link:focus-visible {
+  outline-offset: -3px;
 }
 
 .grid__empty {
   grid-column: 1 / -1;
-  padding: var(--space-md) 0;
-}
-
-/* Steps variant: same card chrome as the default grid, plus a numbered badge.
-   This padding SHORTHAND is DELIBERATELY NOT routed through --grid-item-padding. Issue
-   577 listed it as a bypass on the premise that "a steps card has no .grid__item-body
-   wrapper carrying it"; grid.php renders .grid__item-body UNCONDITIONALLY (steps cards
-   included), and that body already routes the slot, so the slot was never dead here.
-   Routing this outer box through the SAME slot would inset a steps card by 2X for an
-   authored X (card + nested body) and desync the connector below, which derives its
-   offset from this literal. The card's outer padding wants its own name, not this one. */
-.grid--steps .grid__item {
-  position: relative;
-  padding: var(--space-lg) var(--space-md) var(--space-md);
 }
 
 .grid--steps .grid__step-number {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  margin-bottom: var(--space-md);
-  border-radius: 50%;
-  background: var(--grid-step-bg, var(--color-accent));
-  color: var(--grid-step-text-color, var(--color-bg));
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1;
 }
 
-@media (max-width: 767px) {
-  .grid--steps .grid__step-number {
-    width: 2.5rem;
-    height: 2.5rem;
-    font-size: 1.125rem;
-  }
-}
+/* Steps connector: a thin line between badges at desktop, replacing the old triangle
+   arrow (already invisible in practice, and flagged as noisy — #56).
 
-/* Steps connector: a thin line between badges at desktop, replacing the old
-   triangle arrow (already invisible in practice, and flagged as noisy — #56). */
+   IT PAINTS NOTHING, AND THAT IS RECORDED RATHER THAN DISCOVERED (#601, reopening
+   #670). It is positioned at `left: 100%` — outside the card's padding box — while
+   `.grid__item` above declares `overflow: hidden`, so the card clips it at every
+   viewport. The rebuild changes neither half: the clip is what crops a banner image to
+   the card's authored radius, so it is as load-bearing as it ever was.
+
+   PORTED RATHER THAN DELETED, deliberately. Deleting it here would turn a known-dead
+   rule carrying an issue number into a silently absent one, and #670 is where reviving
+   or removing it belongs. The `background` it used to paint became a `border-top` edge
+   because `background` is designable at every value while a border EDGE is structural —
+   the same classification faq's chevron rides.
+
+   ITS ARITHMETIC IS NOW CORRECT, which is a fact about the numbers and not a promise
+   about the page: `calc(var(--space-lg) + 1.375rem)` is the card body's 2rem padding
+   plus half a 44px badge, and the badge moved inside that body at #1101 (see grid.php).
+   Under v1 the same offset was approximating an outer padding that is gone. */
 @media (min-width: 1024px) {
   .grid--steps .grid__item:not(:last-child)::after {
     content: "";
     position: absolute;
     top: calc(var(--space-lg) + 1.375rem);
     left: 100%;
-    width: var(--grid-gap, var(--space-lg));
-    height: 1px;
-    background: var(--grid-item-border-color, var(--color-border));
+    width: var(--space-lg);
+    height: 0;
+    border-top: 1px solid currentColor;
   }
-}
-
-/* Grid theme variants.
-   NOTE (#442, #570 DG-4, #605): the `--dark` modifier class is a MISNOMER, and it is
-   kept DELIBERATELY — it paints the LIGHT `--color-surface` tinted band, not a dark
-   one. The genuinely dark band is `--inverted`.
-
-   Read this before "finishing the cleanup". The theme enum's tinted INPUT VALUE was
-   renamed to `muted` (#442) and the legacy `dark` input value was REMOVED outright
-   (#605) — `theme: "dark"` is now rejected at write. This CLASS NAME did not go with
-   it. Input aliasing and output naming are different things: `pp_theme_class()`
-   (lib/helpers.php) maps the canonical `muted` to this `--dark` class, and that
-   mapping is kept because renaming the class would change the emitted HTML of the
-   installed base and invalidate every rule below plus every `styling.variant_classes`
-   declaration, for no authoring gain. So: no value anyone can write is called `dark`,
-   and this class is still correct. Every band component's `--dark` variant follows
-   this pattern. */
-.grid--dark {
-  background: var(--grid-bg, var(--color-surface));
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-/* Theme text defaults. The desktop typography block re-declares `color` at higher
-   specificity than any theme variant can reach (`main > .grid .grid__heading` is
-   [0,2,1]; this rule is [0,2,0]), so a theme cannot win by selector. It supplies an
-   inheritable DEFAULT instead, which the element's own fallback chain resolves at
-   use-time regardless of which selector won: slot > theme > global token (issue 222).
-   Names are component-scoped on purpose: a shared token would inherit into a
-   non-inverted component nested in an inverted one and paint light-on-light.
-   Deliberately NOT applied to .grid__item-* — inverted cards keep a light
-   background below, so their text must stay dark. */
-.grid--inverted {
-  background: var(--grid-bg, var(--color-bg-inverted));
-  --pp-grid-heading-theme-color: var(--color-bg);
-  --pp-grid-subheading-theme-color: var(--color-bg);
-}
-
-.grid--inverted .grid__heading {
-  color: var(--grid-heading-color, var(--color-bg));
-}
-
-.grid--inverted .grid__item {
-  background: var(--grid-item-bg, var(--color-bg));
-}
-
-/* Card top bar + featured first-card treatment (issue 293). These composed-page
-   rules live here (not the final cascade, where they used to sit) so the issue 293
-   slots are consumed inside the COMPONENT: grid block per the slot-contract guard.
-   Cascade-equivalent: no other rule anywhere styles .grid__item::before, and the
-   :first-child rule outranks the final cascade's [0,3,1] base rules by specificity
-   in either order; the premium later winners (border-color, base box-shadow) still
-   win exactly as before. Unset output is byte-identical — every fallback below is
-   the literal that used to be hardcoded. */
-main > .grid:not(.grid--steps) .grid__item::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  /* The top bar routes through the issue 293 bar slots on EVERY card; the
-     featured :first-child rule below re-consumes them with louder defaults.
-     The slots are shared (not featured-only) because the slot-contract guard
-     collapses pseudo-classes onto the base subject, so a featured-only slot
-     would flag these base literals as unwaivable bypasses. Setting the slots
-     pins one bar on every card; --grid-item-bar-height: 0 removes it. */
-  height: var(--grid-item-bar-height, 2px);
-  background: var(--grid-item-bar-color, var(--color-border));
-}
-
-/* The whole featured first-card treatment below (this block, its ::before bar,
-   the larger title, the extra body padding-top, and the dark-theme lift) carries
-   a :not(.grid--uniform) guard. The grid `card_emphasis: uniform` prop emits
-   .grid--uniform, which drops every featured rule so the first card falls through
-   to the shared all-cards rules and renders identically to its siblings — a
-   symmetric/peer card row (issue 226). The DEFAULT (featured) emits no class, so
-   the guard never matches an existing page and output stays byte-identical. */
-main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
-  /* Featured-card accent border DEFAULT tier; a per-instance --grid-item-border-color
-     overrides it, mirroring --grid-item-bg below, so a declared style slot never
-     silently no-ops on the first card (issue 226). Note: the premium later-cascade
-     :first-child rule re-declares border-color with a --color-accent-strong
-     fallback and currently wins when the slot is unset; this declaration is the
-     base tier that takes over if that premium layer is ever removed. */
-  border-color: var(--grid-item-border-color, var(--color-border-accent));
-  /* Featured-card accent fill is the DEFAULT; a per-instance --grid-item-bg
-     overrides it so the first card stays uniform with the rest when an author
-     sets an explicit card color (e.g. uniform dark cards on a dark band). The
-     texture-stripe line color routes through the issue 293 slot; transparent
-     removes the stripe. */
-  background:
-    linear-gradient(90deg, var(--grid-featured-texture-color, rgba(37, 99, 235, 0.055)) 1px, transparent 1px) 0 0 / 2.75rem 100%,
-    var(--grid-item-bg, linear-gradient(180deg, var(--color-surface-accent) 0%, var(--color-surface) 100%));
-  /* Featured glow: the issue 293 featured-shadow slot wins first, then the shared
-     --grid-item-shadow exactly as before, then the glow literal. The mobile
-     featured rule in the final cascade re-declares this same chain. */
-  box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow,
-    inset 0 0 0 1px rgba(37, 99, 235, 0.055),
-    0 18px 42px rgba(37, 99, 235, 0.10)));
-}
-
-main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::before {
-  height: var(--grid-item-bar-height, 4px);
-  background: var(--grid-item-bar-color, linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 18%, transparent)));
 }
 
 /* ==========================================================================
@@ -2735,13 +2647,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      `main > .faq .faq__heading` at #1046: each component's heading weight and
      line-height are its `heading` role's typography defaults now, responsive so the
      desktop 1.12 and the phone 1.15 both survive.
-     THE FAQ SELECTOR WAS REMOVED FROM THIS LIST, NOT THE RULE. grid has not been
-     rebuilt and still needs both values from here; deleting the rule because faq left
-     would have silently restyled every grid heading at this breakpoint. */
-  main > .grid .grid__heading {
-    font-weight: 560;
-    line-height: 1.12;
-  }
+     THE FAQ SELECTOR WAS REMOVED FROM THIS LIST, NOT THE RULE — and at #1101 the RULE
+     went with grid's selector, because grid was the last subject it had. Its two values
+     are the `heading` role's `typography.weight` and `typography.line-height` defaults
+     now, responsive so the desktop 1.12 and the phone 1.15 both survive. */
 
   /* Per-instance heading-color slots must survive this desktop typography rule (#86).
      Color is split per selector so each component's slot wins instead of a shared
@@ -2755,8 +2664,9 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      .section__title / .grid__heading rules ([0,1,0]) and silently ignoring a
      declared --section-heading-size / --grid-heading-size. Route each through its
      size slot so a set slot still wins at this [0,2,1] specificity. (faq routed
-     through --faq-heading-size here until #1046; its size is the `heading` role's
-     `typography.size` now and its selector left this rule.) The fallback is now the shared
+     through --faq-heading-size here until #1046 and grid through --grid-heading-size
+     until #1101; each one's size is its `heading` role's `typography.size` now, and
+     each selector left this rule as it rebuilt.) The fallback is now the shared
      --pp-band-heading-size (issue 436) instead of a per-rule clamp(): the shared
      clamp is already fluid at every viewport, so this desktop rule and the base
      rule resolve to the same value when the slot is unset (~38.4px at 1280px,
@@ -2783,11 +2693,10 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      clamp ramps from ~32.5px at 768px up to 36px near 1071px. That ~3.5px tablet-band
      softening is the deliberate cost of unifying section/grid/faq onto one fluid scale
      (issue 436) and is called out in the CHANGELOG. */
-  main > .grid .grid__heading {
-    color: var(--grid-heading-color, var(--pp-grid-heading-theme-color, var(--color-text)));
-    font-size: var(--grid-heading-size, var(--pp-band-heading-size));
-    margin-bottom: var(--grid-heading-margin-bottom, 1.65rem);
-  }
+  /* grid's desktop heading rule was DELETED at #1101, the way faq's went at #1046:
+     its colour, size and bottom margin are the `heading` role's `typography.color`,
+     `typography.size` and `spacing.margin-bottom` defaults now, and the theme-colour
+     plumbing it chained through retired with the `theme` prop. */
 
 
 
@@ -2814,39 +2723,21 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      column at 40rem one level up. A port carries the rendered value, not the winning
      declaration. */
 
-  main > .grid .grid__item-title {
-    color: var(--grid-item-title-color, var(--color-text));
-    font-size: var(--grid-item-title-size, 1.13rem);
-    font-weight: 670;
-    line-height: 1.28;
-  }
-
-  main > .grid:not(.grid--steps) .grid__item-title {
-    font-size: var(--grid-item-title-size, 1.14rem);
-  }
-
-  main > .grid .grid__item-text {
-    color: var(--grid-item-text-color, var(--color-text-secondary));
-    font-size: 1.005rem;
-    font-weight: 430;
-    line-height: 1.68;
-  }
-
-  main > .grid .grid__item-body,
-  main > .grid .grid__item-body:first-child {
-    padding: var(--grid-item-padding, 2rem);
-  }
-
-  main > .grid--steps .grid__item-title {
-    max-width: 17rem;
-    font-size: var(--grid-item-title-size, 1.04rem);
-    font-weight: 680;
-  }
-
-  main > .grid--steps .grid__item-text {
-    font-size: 0.995rem;
-    line-height: 1.66;
-  }
+  /* grid's six desktop card rules were DELETED at #1101. The card title, the card text
+     and the card body's padding are the `card-title`, `card-text` and `card-body` roles'
+     defaults now, responsive, so the desktop 1.14rem/670/1.28 title, the
+     1.005rem/430/1.68 text and the 2rem body padding survive beside the phone tier's
+     1.06rem/660 and 1.55rem. The card text's `@color-text-secondary` survives beside the
+     phone `@color-muted` it overrode — that breakpoint SPLIT is why `card-text`'s colour
+     default is a map rather than a literal.
+     THE TWO `--steps` RULES ARE A STATED NARROWING, not a port. They asked for a smaller,
+     heavier, 17rem-capped title and a fractionally smaller text on the steps layout only.
+     A role's `defaults` carry a breakpoint dimension and a state dimension and NO variant
+     dimension, so "1.04rem, but only on steps" has no v2 address at any value — the same
+     conditionality gap that moved the step badge inside the card body, filed at #1102. A
+     steps card title therefore renders at the shared 1.14rem/670 and wraps against the
+     card rather than a 17rem measure; an author who wants the tighter measure writes
+     `card-title` -> `sizing.max-width` on that band. */
 
   /* faq's desktop question and answer rules were DELETED at #1046. Their values are the
      `question` and `answer` roles' defaults, responsive, so the 1rem/560/1.45 summary
@@ -2874,20 +2765,11 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
 
 @media (max-width: 767px) {
   /* `main > .section .section__title` left this list at #1023 and
-     `main > .faq .faq__heading` at #1046 — see the desktop twin above, including why
-     the faq SELECTOR left and the rule stayed. */
-  main > .grid .grid__heading {
-    font-weight: 560;
-    line-height: 1.15;
-  }
-
-  /* margin-bottom split per-selector so each component's heading-margin slot
-     reaches the title at this breakpoint too (issue 343); fallbacks preserve
-     today's 1.25rem. faq now routes the same way (issue 352); it was left a bare
-     literal in issue 343's scope and is completed here. */
-  main > .grid .grid__heading {
-    margin-bottom: var(--grid-heading-margin-bottom, 1.25rem);
-  }
+     `main > .faq .faq__heading` at #1046 — see the desktop twin above. grid's two phone
+     heading rules were DELETED at #1101 and the rules went with the selectors, because
+     grid was the last subject either one had: the 560 weight and 1.15 leading are the
+     `p` tier of the `heading` role's `typography` maps, and the 1.25rem is the `p` tier
+     of its `spacing.margin-bottom` map. */
 
 
 
@@ -2900,219 +2782,59 @@ main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child::befo
      line-height (1.65) survive alongside the desktop 1.065rem / 1.76 — v1 needed two
      rules in two media blocks to say that; the role says it once. */
 
-  /* grid took its mobile body size from --cta-body-size (issue 578): a CTA slot on a
-     grid card. It could neither set it (the write path rejects a foreign slot) nor have
-     it resolve (inline slot properties land on the owning root), so its unset result was
-     always the 1rem literal — severing it is byte-identical. The literal stays here;
-     grid declares no body-size slot to route instead. THE FAQ HALF LEFT THIS RULE AT
-     #1046: the answer's size is the `answer` role's `typography.size` now, and the
-     selector was removed from the list rather than the rule being deleted, because grid
-     still needs every value in it.
-     The split was FROM cta, which kept reading the slot it owned; at #1026 cta stopped
-     having slots at all, so what this rule is split from is now a role default rather than
-     a sibling rule. The literal here is unaffected either way — that is the whole point of
-     #578's severance, and it is why this rule needed no repricing when cta was rebuilt. */
-  main > .grid .grid__item-text {
-    font-size: 1rem;
-    font-weight: 430;
-    line-height: 1.65;
-  }
+  /* grid's phone card-text rule was DELETED at #1101, and with it the last trace of
+     #578: the size here used to be read from `--cta-body-size`, a CTA slot on a grid
+     card, which grid could neither set nor resolve. #578 severed it to a literal; #1101
+     retires the literal too. 1rem / 430 / 1.65 is the `p` tier of the `card-text` role's
+     maps. THE FAQ HALF LEFT THIS RULE AT #1046 and grid was the only subject left, so
+     this time the rule goes with the selector. */
 
   /* cta's phone body rule was DELETED at #1026 — see its desktop twin above for why the
      weight and the leading had to be ported rather than dropped with the rule. The `p`
      tier of the `body` role's maps carries 1rem / 430 / 1.65 / --color-muted. */
 
-  main > .grid .grid__item-title {
-    font-size: var(--grid-item-title-size, 1.06rem);
-    font-weight: 660;
-    line-height: 1.28;
-  }
-
-  main > .grid .grid__item-body,
-  main > .grid .grid__item-body:first-child {
-    padding: var(--grid-item-padding, 1.55rem);
-  }
+  /* grid's phone card-title and card-body rules were DELETED at #1101 with their
+     desktop twins: 1.06rem / 660 and 1.55rem are the `p` tiers of the `card-title` and
+     `card-body` maps. The `:first-child` half of the body selector went with
+     `card_emphasis` (ruling D9) rather than being ported — there is no featured card to
+     give extra breathing room to. */
 
   /* faq's phone question rule was DELETED at #1046: 0.98rem and 1.42 are the `p` tier
      of the `question` role's size and line-height maps, and the 560 weight is flat
      across every tier because this rule and its desktop twin always agreed on it. */
 }
 
-/* True final cascade: composed card-grid hierarchy. */
-main > .grid .grid__list {
-  gap: var(--grid-gap, 1rem);
-}
+/* THE "TRUE FINAL CASCADE: COMPOSED CARD-GRID HIERARCHY" BLOCK IS GONE (#1101),
+   and so are the four media blocks that finished it.
 
-main > .grid .grid__item {
-  position: relative;
-  /* Route the all-cards border through the slot so a per-instance
-     --grid-item-border-color is honored on cards 2..N, not just the featured
-     first card (issue 292 — regression of issue 226). Unset keeps the
-     neutral --color-border default. */
-  border-color: var(--grid-item-border-color, var(--color-border));
-  box-shadow: var(--grid-item-shadow, 0 12px 28px rgba(15, 23, 42, 0.045));
-}
+   It was grid's and grid's alone — rules that re-declared the card's gap, border,
+   shadow, fill and link at a specificity the component block could not reach, each one
+   routing a slot so the slot would not silently no-op down here. A v2 component needs
+   none of that: an authored band block is UNLAYERED while this stylesheet sits in
+   `@layer pp-v1`, so a role's value wins at any specificity without a restatement, which
+   is the whole reason the layer split exists.
 
-main > .grid:not(.grid--steps) .grid__item {
-  /* The decorative 1px rule stays; the fill layer routes through the
-     per-instance card-bg slot so a set --grid-item-bg (e.g. a dark-band card
-     color) is honored instead of being clobbered by this late cascade rule.
-     Unset keeps the original bg→surface gradient. */
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.028) 1px, transparent 1px) 0 0 / 3rem 100%,
-    var(--grid-item-bg, linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%));
-}
-
-/* The card top-bar and featured first-card rules moved into the COMPONENT: grid
-   block (issue 293); the cascade-equivalence argument lives with the rules there. */
-
-main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-title {
-  color: var(--grid-item-title-color, var(--color-text));
-}
-
-main > .grid .grid__item-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding-top: 0.2rem;
-}
-
-main > .grid .grid__item-link::after {
-  content: "->";
-  color: currentColor;
-  font-weight: 700;
-}
-
-@media (min-width: 768px) {
-  main > .grid:not(.grid--steps) .grid__list[data-pp-count="1"] {
-    /* A lone card must never sit in a two-column track (issue 297): the base
-       768px rule sets repeat(2, 1fr), stranding a single item in the left
-       column with dead space on the right. One full-width track spans the
-       container so the card's left edge aligns with the section rail, mirroring
-       the count-2/count-3 "span the container" treatment (issues 303/224). This
-       sits at 768px, not 1024px like the other count rules, because the
-       stranding exists from the first two-column breakpoint, and no count-1
-       override in the 1024px block re-declares it, so it holds through desktop. */
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (min-width: 1024px) {
-  main > .grid .grid__list {
-    gap: var(--grid-gap, 1.05rem);
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-count="4"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 58rem;
-    margin-right: auto;
-    margin-left: auto;
-  }
-
-  main > .grid--steps .grid__list[data-pp-count="4"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 56rem;
-    margin-right: auto;
-    margin-left: auto;
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-count="3"] {
-    /* Three-across is the common marketing feature row. No max-width: the row
-       spans the container like grid--steps does, instead of being centered and
-       narrowed the way the 2- and 4-card rules are. */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-count="2"] {
-    /* Two-across rows span the container like the 3-card rule, instead of being
-       capped at 52rem and centered. The centered cap left the pair on a narrower
-       rail than the intro copy above it (measured at desktop: pair left-edge 304px
-       vs section rail 176px), so "intro text + two feature cards" could never read
-       as one aligned section. Removing the max-width + auto margins aligns the pair
-       with the section rail, mirroring the count-3 treatment (issue 303, sibling of
-       issue 224). */
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-body {
-    /* Featured-card breathing room, routed through the slot (issue 577). At (0,6,1)
-       this is the last word on the featured card's body padding-top, so an authored
-       --grid-item-padding used to no-op on card 1 at >=1024. The literal stays as the
-       fallback, so unset output is byte-identical — which also means the 0.25rem
-       featured/non-featured residue survives UNSET (2.25rem here vs 2rem elsewhere);
-       authoring the slot is what collapses it. */
-    padding-top: var(--grid-item-padding, 2.25rem);
-  }
-
-  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child .grid__item-title {
-    font-size: var(--grid-item-title-size, 1.22rem);
-    line-height: 1.22;
-  }
-
-  main > .grid--dark:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
-    transform: translateY(-0.18rem);
-  }
-
-  main > .grid--dark:not(.grid--steps):not(.grid--uniform) .grid__item:first-child:hover {
-    transform: translateY(-0.34rem);
-  }
-}
-
-/* Explicit desktop column-count override (issue 379). Opt-in via the grid
-   `columns` prop (integer 1-4), emitted by grid.php as data-pp-columns on the
-   list. Forces that many equal-width tracks at >=768px, overriding the
-   item-count auto-derivation (the data-pp-count rules above). Unset emits no
-   attribute, so none of these selectors match and the auto-derived default is
-   byte-identical. Placed AFTER the 1024px count block so, at equal (0,4,1)
-   specificity, source order wins at every >=768px width (the count-N rules and
-   the base repeat(2) rule both lose to this). max-width/margins are reset so a
-   forced count spans the container uniformly regardless of item count (the
-   count-4 rule otherwise caps at 58rem centered). minmax(0, 1fr) keeps forced
-   narrow tracks from overflowing (orphan/overflow safety). Scoped to cards
-   (:not(.grid--steps)); the steps layout keeps its fixed process grain. The
-   <768px single-column collapse is untouched. No style slot is involved, so the
-   slot-contract bypass guard does not treat these literals as offenders. */
-@media (min-width: 768px) {
-  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="1"] {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: none;
-    margin-right: 0;
-    margin-left: 0;
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="2"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: none;
-    margin-right: 0;
-    margin-left: 0;
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="3"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    max-width: none;
-    margin-right: 0;
-    margin-left: 0;
-  }
-
-  main > .grid:not(.grid--steps) .grid__list[data-pp-columns="4"] {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    max-width: none;
-    margin-right: 0;
-    margin-left: 0;
-  }
-}
-
-@media (max-width: 767px) {
-  main > .grid .grid__list {
-    gap: var(--grid-gap, 0.85rem);
-  }
-
-  main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
-    /* Same featured-shadow chain as the component-block rule (issue 293), so the
-       slot does not silently no-op below 768px; only the glow literal differs. */
-    box-shadow: var(--grid-featured-shadow, var(--grid-item-shadow, 0 14px 32px rgba(37, 99, 235, 0.09)));
-  }
-}
+   WHERE EACH PIECE WENT, because most of them were values and not plumbing:
+   - the three `--grid-gap` restatements (1rem / 1.05rem / 0.85rem across the three
+     tiers) are the `list` role's responsive `spacing.gap` default;
+   - the card's border-colour and box-shadow are `card` -> `border.color` and
+     `shadow.box`, and the 1px decorative stripe layered over the card fill retired with
+     the fill — see the `card` role's own note on why the ported default is a flat
+     `@color-bg` rather than a gradient frozen against every retheme;
+   - the link's `display: inline-flex`, `align-items` and `::after` arrow are structural
+     and moved UP into the component block, beside the focus affordance they belong with.
+     The arrow's `color: currentColor` was a no-op (it inherits) and its `font-weight:
+     700` is a STATED NARROWING — a pseudo-element has no role address at any value, so
+     the glyph renders at the link's own weight (the `card-link` role's 600) now;
+   - the link's `gap: 0.45rem` and `padding-top: 0.2rem` are `card-link` -> `spacing`;
+   - every `:not(.grid--uniform) .grid__item:first-child` rule — the featured title
+     colour, the featured body padding-top, the featured phone shadow and the two
+     `.grid--dark` lift transforms — retired with `card_emphasis` under ruling D9,
+     measured against all 11 production bands first.
+   THE TRACK GEOMETRY MOVED RATHER THAN DIED: the `data-pp-count` derivation and the
+   `data-pp-columns` override are structural, so they sit in the COMPONENT: grid block
+   now, in the same relative order and with their `main >` prefix intact — which is what
+   keeps an explicit `columns` prop beating the count derivation on source order. */
 
 /* THE #545 NEUTRALISATION BLOCK IS RETIRED (#1026), and the guarantee it made is now made
    by construction instead of by a rule.
@@ -3591,9 +3313,14 @@ main .btn:focus-visible {
      the shared `@pp-band-padding` on both edges, the same value this tier carries, so the
      adjacent rhythm winning over the pp-zero default is the intended arrangement rather than
      a collision. */
-  main > [data-pp-component] + .grid {
-    padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* grid's per-component adjacent rule was DELETED at #1101, for the reason section's
+     went at #1023, cta's at #1026, faq's at #1046 and table's and embed's at #1066: it
+     existed only to keep a `--grid-padding-top` slot live at this specificity, and with
+     no slot left it resolved to exactly what the zero-specificity baseline above already
+     gives. grid needs no `:not()` exclusion either — its `_band` padding default is the
+     shared `@pp-band-padding` on both edges, the same value this tier carries, so the
+     adjacent rhythm winning the top edge is the intended arrangement rather than a
+     collision. */
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
@@ -3637,36 +3364,22 @@ main .btn:focus-visible {
    `@pp-band-padding`. The default emits into `pp-zero`, below this stylesheet, which is
    what keeps the adjacent-sibling rhythm above able to win the top edge. */
 
-.grid {
-  padding-top: var(--grid-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
-}
+/* `.grid`'s band padding rule was DELETED at #1101, the last of the four: its padding is
+   the `_band` role's `spacing.padding-top` / `padding-bottom` default now, resolving to
+   the same shared `@pp-band-padding`, and the default emits into `pp-zero` below this
+   stylesheet so the adjacent-sibling rhythm above still wins the top edge. */
 
 /* `.faq`'s band padding rule was DELETED at #1046, and its item-radius rule with it.
    The padding is the `_band` role's `spacing.padding-top` / `padding-bottom` default
    now, resolving to the same shared `@pp-band-padding`; the default emits into
    `pp-zero`, below this stylesheet, which is what keeps the adjacent-sibling rhythm
    above able to win the top edge.
-   THE ITEM RADIUS IS THE OTHER HALF OF #577 AND ITS GRID TWIN STAYS BELOW. That issue
-   split ONE selector that capped grid cards and faq items together from the grid slot;
-   faq's half is the `item` role's `border.radius` now, grid's half is still a slot and
-   still needs this rule. Splitting the pair again here is the same discipline: remove
-   the component that rebuilt, never the rule the other one depends on. */
-main > .grid .grid__item {
-  border-radius: var(--grid-item-radius, 4px);
-  /* Later-cascade winner for cards 2..N: route it through --grid-item-border-color
-     too (matching the earlier all-cards rule and the :first-child rule below)
-     or the slot stays ignored on every non-featured card (issue 292). */
-  border-color: var(--grid-item-border-color, var(--color-border));
-  box-shadow: var(--grid-item-shadow, 0 10px 24px rgba(15, 23, 42, 0.055));
-}
-
-main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child {
-  /* Later-cascade winner: this is the border-color that actually applies. Route it
-     through --grid-item-border-color too (matching the earlier rule) or the slot stays
-     ignored on the first card (issue 226). */
-  border-color: var(--grid-item-border-color, var(--color-accent-strong));
-}
+   THE ITEM RADIUS WAS THE OTHER HALF OF #577 AND ITS GRID TWIN IS GONE TOO (#1101).
+   That issue split ONE selector that capped grid cards and faq items together from the
+   grid slot; faq's half became the `item` role's `border.radius` at #1046 and grid's
+   half is the `card` role's now, so the pair is finally whole again — as two role
+   defaults rather than as one rule. The two `:first-child` border-colour restatements
+   that lived here went with `card_emphasis` under ruling D9. */
 
 main .btn {
   /* This premium-CTA block is the later-cascade winner for composed buttons
@@ -3712,9 +3425,7 @@ main .btn {
      the shared `@pp-band-padding` on both edges, the same value this tier carries, so the
      adjacent rhythm winning over the pp-zero default is the intended arrangement rather than
      a collision. */
-  main > [data-pp-component] + .grid {
-    padding-top: var(--grid-padding-top, var(--pp-band-padding-adjacent-top));
-  }
+  /* grid's mobile adjacent rule went with its desktop twin at #1101 — same reason. */
   main > [data-pp-component] + .stats {
     padding-top: var(--stats-padding-top, var(--pp-band-padding-adjacent-top));
   }
@@ -3741,10 +3452,8 @@ main .btn {
   /* section's mobile restatement went with its desktop twin (#1023) — the `_band`
      default already falls back to the shared `--pp-band-padding` at this breakpoint. */
 
-  .grid {
-    padding-top: var(--grid-padding-top, var(--pp-band-padding));
-    padding-bottom: var(--grid-padding-bottom, var(--pp-band-padding));
-  }
+  /* grid's mobile restatement went with its desktop twin (#1101) — the `_band` default
+     already falls back to the shared `--pp-band-padding` at this breakpoint. */
 
   /* faq's mobile restatement went with its desktop twin (#1046) — the `_band` default
      already falls back to the shared `--pp-band-padding` at this breakpoint. */

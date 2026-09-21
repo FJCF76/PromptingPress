@@ -179,13 +179,40 @@ class FriendlyErrorMessageBoundTest extends TestCase
 
     public function testTheWorstRealRejectionFitsInTheChatColumn(): void
     {
-        // THE WORST CASE HAS MOVED THREE TIMES. It was hero (49 slots) until #986, section
-        // (47) until #1023, cta (40) until #1026; `grid` is now both the widest shipped
-        // component (38 slots) and the one carrying the longest single slot description, so
-        // it is the worst case the shipped registry can produce. The comment names the
-        // component rather than a count, because the count is what keeps changing — and it
-        // keeps changing in the same direction, one rebuild at a time.
-        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--grid-bgs' => '#111111']);
+        // THE WORST CASE HAS MOVED FOUR TIMES, AND THE FOURTH MOVE CHANGES WHAT "REAL"
+        // MEANS HERE. It was hero (49 slots) until #986, section (47) until #1023, cta
+        // (40) until #1026, grid (38, and the longest single slot description in the
+        // theme) until #1101. grid's v2 rebuild took the LAST shipped slot map, so no
+        // shipped component can produce an `invalid_style_slot` rejection at all now — a
+        // v2 band refuses the whole style surface earlier and differently
+        // (`no_style_slots`), which is a different message with its own pins.
+        //
+        // The widest slot map in the registry is therefore `ppfixture`, the registered
+        // test-only slot host kept across rebuilds (#1025), which dies with the slot
+        // engine in this task's PR2. That is asserted below rather than assumed: this test
+        // only means anything if its subject really is the worst case available.
+        //
+        // ONE PREMISE GENUINELY WEAKENED, stated rather than quietly dropped: the old
+        // version could assert that ONE slot description alone (1203 characters, cta's
+        // `--cta-button-hover-border`) exceeded the entire message budget. The fixture's
+        // longest is 393. So the premise is restated on the quantity that still carries
+        // the claim — the descriptions TOGETHER are multiples of the budget, so a message
+        // that concatenated them could not possibly fit. The per-slot form of that claim
+        // is covered structurally, and better, by
+        // testTheMessageDoesNotGrowWithTheNumberOfDeclaredSlots below, which drives 120
+        // slots carrying ~1180-character descriptions through a purpose-built fixture.
+        $widest = 0;
+        foreach (pp_get_registered_components() as $name => $schema) {
+            $widest = max($widest, count($schema['styling']['style_slots'] ?? []));
+        }
+        $slots = pp_get_style_slots('ppfixture');
+        $this->assertSame(
+            $widest,
+            count($slots),
+            'ppfixture must be the widest slot map in the registry, or this is not the worst case'
+        );
+
+        $friendly = $this->reject('ppfixture', ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]], ['--ppfixture-bgs' => '#111111']);
 
         $this->assertLessThan(
             self::READABLE_CEILING,
@@ -193,18 +220,16 @@ class FriendlyErrorMessageBoundTest extends TestCase
             'The always-open message must stay readable at 375px.'
         );
 
-        // The specific thing that made it enormous: full slot descriptions. The longest
-        // one the registry declares is over a thousand characters by itself.
-        $descriptions = array_column(pp_get_style_slots('grid'), 'description');
+        // The specific thing that made it enormous: full slot descriptions.
+        $descriptions = array_column($slots, 'description');
         // Stated before the loop below: assertStringNotContainsString('', $x) always
         // fails, so an empty description would read as a bound regression rather than
         // as the fixture premise having changed.
-        $this->assertNotContains('', $descriptions, 'Fixture premise: every grid slot carries a description.');
-        $longest      = max(array_map('mb_strlen', $descriptions));
+        $this->assertNotContains('', $descriptions, 'Fixture premise: every declared slot carries a description.');
         $this->assertGreaterThan(
-            self::READABLE_CEILING,
-            $longest,
-            'Fixture premise: one cta description alone exceeds the whole message budget.'
+            self::READABLE_CEILING * 3,
+            array_sum(array_map('mb_strlen', $descriptions)),
+            'Fixture premise: the declared descriptions together are several times the whole message budget.'
         );
         foreach ($descriptions as $description) {
             $this->assertStringNotContainsString(
@@ -548,16 +573,46 @@ class FriendlyErrorMessageBoundTest extends TestCase
         // for byte — pinned as a whole string, which is the only way a reworded
         // near-copy fails the test.
         // The slot must exist on ANOTHER component and not on the target, or there is no
-        // cross-component hint to pin. It used to be `--section-bg` aimed at hero; hero went
-        // v2 at #986 and cta at #1026, and a v2 target rejects the whole style surface for a
-        // DIFFERENT reason (`no_style_slots`), which is not the sentence this test pins. So
-        // both sides have to be v1: the pair is grid (target) and a slot grid does not own.
-        $friendly = $this->reject('grid', ['title' => 'Hi', 'items' => [['title' => 'Card', 'text' => 'B']]], ['--ppfixture-number-color' => '#111111']);
+        // cross-component hint to pin — and BOTH sides have to declare slots, because a v2
+        // target rejects the whole style surface for a DIFFERENT reason (`no_style_slots`),
+        // which is not the sentence this test pins.
+        //
+        // RE-HOMED ONTO A TWO-COMPONENT FIXTURE THEME AT #1101, using the inline idiom
+        // testNamesThatCleanAwayNeverBecomeAnEmptyItemInAnExhaustiveList already uses in
+        // this file. The pair was hero+section, then grid (target) + a slot grid did not
+        // own; grid's v2 rebuild took the last SHIPPED slot map, and `ppfixture` is now the
+        // only slot-bearing component in the registry — a hint from ppfixture to ppfixture
+        // is not a cross-component hint, so one real component can no longer supply both
+        // sides. The sentence under test is a TEMPLATE, and it is pinned whole, byte for
+        // byte, exactly as before; only the two names substituted into it are fixtures.
+        $this->fixtureRoot = sys_get_temp_dir() . '/pp-661-xc-' . getmypid() . '-' . mt_rand();
+        foreach ([
+            'alphabox' => ['--alphabox-bg'    => 'Alphabox background'],
+            'betabox'  => ['--betabox-shade'  => 'Betabox shade'],
+        ] as $name => $slot) {
+            $dir = $this->fixtureRoot . '/components/' . $name;
+            $this->assertTrue(mkdir($dir, 0755, true));
+            $this->assertNotFalse(file_put_contents($dir . '/' . $name . '.php', "<?php // fixture\n"));
+            $this->assertNotFalse(file_put_contents($dir . '/schema.json', json_encode([
+                'description' => 'Fixture component for #661.',
+                'props'       => ['id' => ['type' => 'string', 'required' => false, 'default' => '', 'description' => 'Anchor id.']],
+                'styling'     => [
+                    'root_class'  => $name,
+                    'style_slots' => array_map(
+                        static fn (string $description): array => ['type' => 'color', 'default' => '#000', 'description' => $description],
+                        $slot
+                    ),
+                ],
+            ])));
+        }
+        $GLOBALS['_pp_test_template_dir'] = $this->fixtureRoot;
+
+        $friendly = $this->reject('alphabox', [], ['--betabox-shade' => '#111111']);
 
         $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'Fixture premise: this key hints.');
         $this->assertSame(
-            'I tried to change a setting on the grid component, but it isn\'t available there. '
-                . 'It does exist on the ppfixture component. You could ask me to change it there instead.',
+            'I tried to change a setting on the alphabox component, but it isn\'t available there. '
+                . 'It does exist on the betabox component. You could ask me to change it there instead.',
             $friendly['user_message']
         );
     }

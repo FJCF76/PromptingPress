@@ -8837,7 +8837,6 @@ function pp_default_homepage_composition(): array {
             'title_accent'  => 'speed and trust',
             'subheading'    => 'Speed gets the first draft moving. Trust keeps the next revision safe to review.',
             'layout'        => 'cards',
-            'card_emphasis' => 'uniform',
             'columns'       => 2,
             'items'         => [
                 ['title' => 'Lightweight by default', 'text' => 'Client sites should not carry a heavy visual-builder runtime just because AI helped write the page.', 'bullets' => ['Plain WordPress, PHP, and CSS', 'No builder lock-in', 'Fast front-end']],
@@ -8845,27 +8844,45 @@ function pp_default_homepage_composition(): array {
                 ['title' => 'Readable handoff', 'text' => 'Teams can explain what was built and where the content lives.', 'bullets' => ['A clear section map', 'Content in WordPress', 'No opaque AI artifact']],
                 ['title' => 'Safer revisions', 'text' => 'AI-assisted updates on live sites stay easy to trust.', 'bullets' => ['Preflight checks', 'Screenshots before apply', 'Rollback-aware actions']],
             ],
-        ], 'style' => [
-            '--grid-bg'                  => '#0A0A12',
-            '--grid-heading-color'       => '#F2EEE5',
-            '--grid-heading-accent-color' => '#FF5C2E',
-            '--grid-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--grid-heading-measure'   => '44rem',
-            '--grid-subheading-color'    => '#E8E2D4',
-            '--grid-eyebrow-color'       => '#FF5C2E',
-            '--grid-eyebrow-bg'          => '#14141F',
-            '--grid-eyebrow-border-color' => '#3A2A1E',
-            '--grid-eyebrow-border-width' => '1px',
-            '--grid-item-bg'             => '#F2EEE5',
-            '--grid-item-border-color'         => '#E8E2D4',
-            '--grid-item-border-width'   => '1px',
-            '--grid-item-radius'         => '4px',
-            '--grid-item-bar-color'      => '#FF5C2E',
-            '--grid-item-bar-height'     => '3px',
-            '--grid-item-shadow'         => '0 18px 38px rgba(0, 0, 0, 0.18)',
-            '--grid-item-title-color'    => '#0A0A12',
-            '--grid-item-text-color'     => '#3A3A44',
-            '--grid-item-bullet-color'        => '#FF5C2E',
+        // GRID IS A v2 COMPONENT SINCE #1101 — the last band in this seed to convert, and
+        // the last `style` map anywhere in the theme. Twenty slot names become nine role
+        // entries, and the `card_emphasis: uniform` prop above went with the conversion
+        // rather than being ported: the featured treatment it opted OUT of no longer
+        // exists (ruling D9), so a band that used to ask for peer cards now simply gets
+        // them. The rendered design is unchanged in every respect but the two noted below.
+        //
+        // TWO SLOTS HAVE NO ROLE, and both are stated rather than quietly dropped:
+        //   - `--grid-item-bullet-color` painted a `::before` check-mark glyph, and ruling
+        //     A3 defers pseudo-elements, so the marker takes the shared accent default.
+        //     This seed was setting it to `#FF5C2E`, so the bullets go from the starter's
+        //     orange to the theme accent on this one band.
+        //   - `--grid-heading-measure` is `heading` -> `sizing.max-width` below, which DOES
+        //     have a role — it is listed here only because the slot name does not look
+        //     like one.
+        // THE CARD BAR SURVIVED, and it is the reason the bar is a real <span> in v2: its
+        // two slots are ordinary `background.fill` and `sizing.height` on the `card-bar`
+        // role, so this seed's orange 3px rule carries across untouched.
+        ], 'udc' => [
+            '_band'          => ['background' => ['fill' => '#0A0A12']],
+            'heading'        => [
+                'typography' => ['color' => '#F2EEE5', 'size' => 'clamp(1.9rem, 3vw, 2.9rem)'],
+                'sizing'     => ['max-width' => '44rem'],
+            ],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'subheading'     => ['typography' => ['color' => '#E8E2D4']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#14141F'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#3A2A1E'],
+            ],
+            'card'           => [
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4', 'radius' => '4px'],
+                'shadow'     => ['box' => '0 18px 38px rgba(0, 0, 0, 0.18)'],
+            ],
+            'card-bar'       => ['background' => ['fill' => '#FF5C2E'], 'sizing' => ['height' => '3px']],
+            'card-title'     => ['typography' => ['color' => '#0A0A12']],
+            'card-text'      => ['typography' => ['color' => '#3A3A44']],
         ]],
 
         // 5 — Maintainability / proof band (warm cream), prose + workflow strip.

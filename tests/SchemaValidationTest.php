@@ -216,125 +216,56 @@ class SchemaValidationTest extends TestCase
                 "Component '{$schema['component']}' must not declare a `variant` prop (issue #69: use `layout` and/or `theme`)."
             );
         }
-    }
-
-    /**
-     * Structural components expose `layout`; tone-bearing components expose
-     * `theme`. Pins the canonical split so a future edit can't silently
-     * reintroduce the ambiguity.
-     */
-    public function testStructuralAndToneComponentsUseCanonicalKeys(): void
-    {
-        // testimonials, section and cta all keep `layout` (structural scaffolding) and have
-        // all LOST `theme`: their v2 rebuilds removed it because its entire effect was
-        // value-styling the structural-CSS boundary forbids. Recorded in
-        // SCHEMA_RENAME_MIGRATION_NOTES, whose entries this test's sets must agree with —
-        // a component in $expectTheme AND in the notes register would be a contradiction.
-        //
-        // THE SPLIT THIS TEST PINS IS ITSELF SHRINKING, and the shape is worth naming: `theme`
-        // is a v1 surface, so every rebuild moves one component out of $expectTheme and into
-        // the notes register. `layout` is not — it survives a rebuild wherever the geometry it
-        // selects has no home in the UDC taxonomy, which is why cta stays in $expectLayout
-        // while leaving $expectTheme.
-        $expectLayout = ['hero', 'section', 'grid', 'cta', 'testimonials'];
-        // embed left at #1066 with its `theme`, as faq did at #1046 and cta at #1026 —
-        // and stats and logos left in #1066's second half. GRID IS THE LAST DECLARER of
-        // `theme` in the theme, so the next rebuild empties this set entirely and this
-        // half of the test retires rather than narrowing to nothing.
-        $expectTheme  = ['grid'];
-
-        foreach ($expectTheme as $component) {
-            $this->assertArrayNotHasKey(
-                'theme',
-                self::SCHEMA_RENAME_MIGRATION_NOTES[$component] ?? [],
-                sprintf('"%s" is expected to declare `theme` AND recorded as having retired it', $component)
-            );
-        }
-        foreach (['testimonials', 'section', 'cta'] as $component) {
-            $this->assertArrayHasKey(
-                'theme',
-                self::SCHEMA_RENAME_MIGRATION_NOTES[$component] ?? [],
-                sprintf('"%s" is excluded from the theme census, so its retirement must be recorded', $component)
-            );
-        }
-
-        foreach ($expectLayout as $component) {
-            $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
-            $this->assertArrayHasKey('layout', $schema['props'], "Component '{$component}' should declare a `layout` prop.");
-        }
-        foreach ($expectTheme as $component) {
-            $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
-            $this->assertArrayHasKey('theme', $schema['props'], "Component '{$component}' should declare a `theme` prop.");
-        }
-    }
-
-    // ── Style slot schema validation ────────────────────────────────────
-
-    /**
-     * Tests that the v1 components still on the slot system have style_slots declared in
-     * schema.json, with their exact counts.
+    }    /**
+     * THE SIX STYLE-SLOT SCHEMA GUARDS RETIRED AT #1101, replaced by one claim.
      *
-     * The list SHRINKS one component per rebuild sprint and that is the point: hero left
-     * in #986 (13 roles, zero slots) and section in #1023 (19 roles, zero slots). Each
-     * departure is recorded in SLOT_RENAME_MIGRATION_NOTES slot by slot, so the count
-     * that leaves this list is never simply forgotten.
+     * They asserted, across every component declaring `styling.style_slots`: that the
+     * v1 components had a slot map at all; that each slot declared a `type`, a
+     * `description` and a truthful `default`; that slot NAMES were unique across
+     * components; that every component declared the "common visual" set
+     * (`--<c>-bg`, `--<c>-item-border-color`, …); that `pp_get_style_slots()` answered
+     * empty for a rebuilt component and non-empty for a slot-bearing one; and that every
+     * live slot was pinned in the rename baseline so a deletion could not be silent.
+     *
+     * grid was the last component declaring a slot map. Every one of those derivations
+     * now returns an empty set, and FOUR OF THE SIX CARRIED THEIR OWN FAIL-CLOSED FLOOR
+     * that fired on exactly that — "no slot-bearing component found — the sweep would
+     * pass vacuously; retire this test deliberately if the slot system is genuinely
+     * gone". This is that deliberate retirement, taken in the change that emptied them.
+     *
+     * WHAT REPLACES THEM IS ONE ASSERTION, AND IT IS THE STRONGER ONE: the slot surface
+     * is EMPTY. A rebuilt component re-growing a slot map fails here first, and the six
+     * guards above have to be restored in the same commit rather than the map shipping
+     * with no schema coverage at all. The rename baseline itself is NOT retired — it
+     * still records where all 38 of grid's slots went, and
+     * testLiveSchemasHaveNoUnnotedSlotRenameDriftFromBaseline still reads it.
+     *
+     * THE ROLE-GRAIN EQUIVALENTS ARE THE LIVE GUARDS NOW and grid joined every one of
+     * them in this same change: testEveryRoleDeclaresObligationsAndEveryPartnerExists,
+     * testEveryShippedRoleNameIsComposable, testTheNonDerivableObligationsArePinnedByName
+     * and the per-component *RoleDefaultsEmitTest suites.
      */
-    public function testStyleSlotsExistForV1Components(): void
+    public function testNoShippedComponentDeclaresStyleSlotsAnyMore(): void
     {
-        $expected = [
-            // Issue 581 (A-18) added --grid-item-link-hover-color. Its twin on the cta side,
-            // --cta-button2-shadow, left with cta's rebuild at #1026.
-            'grid'    => 38,
-        ];
-
-        // The departed components are accounted for rather than dropped: every slot each
-        // one used to declare carries a migration note.
-        //
-        // ALL NINE, NOT THE FIRST FOUR. This roster named hero/section/cta/faq while the
-        // docblock above said "the departed components" — so testimonials, table, embed and
-        // (from #1066) stats and logos had no count pinned against their migration-note
-        // block. Coverage was not actually lost, because
-        // testEveryLiveSchemaSlotIsPinnedInBaseline requires every pinned component's slots
-        // to have notes; what drifted was the redundant count, which is the same
-        // roster-behind-its-own-docblock defect this issue fixed three times elsewhere.
-        // 223 slots across nine components, and the arithmetic is the point: a rebuild that
-        // leaves this list alone is visible here.
-        foreach ([
-            'hero'         => 49,
-            'section'      => 47,
-            'cta'          => 40,
-            'testimonials' => 27,
-            'faq'          => 21,
-            'stats'        => 17,
-            'logos'        => 8,
-            'embed'        => 8,
-            'table'        => 6,
-        ] as $component => $retiredCount) {
-            $schema = json_decode(file_get_contents($this->themeRoot . "/components/{$component}/schema.json"), true);
-            $this->assertArrayNotHasKey(
-                'style_slots',
-                $schema['styling'] ?? [],
-                "{$component} is on the v2 engine and must declare no style slots"
-            );
-            $this->assertCount(
-                $retiredCount,
-                self::SLOT_RENAME_MIGRATION_NOTES[$component] ?? [],
-                "{$component}'s {$retiredCount} retired slots must each carry a migration note"
-            );
+        $carriers = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            if (!empty($schema['styling']['style_slots'])) {
+                $carriers[] = $component;
+            }
         }
+        $this->assertSame(
+            [],
+            $carriers,
+            'a component declares `styling.style_slots` again. The v1 slot surface retired '
+            . 'with grid at #1101; if this is deliberate, restore the six schema guards this '
+            . 'assertion replaced in the same commit.'
+        );
 
-        foreach ($expected as $component => $count) {
-            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
-            $schema     = json_decode(file_get_contents($schemaFile), true);
-
-            $this->assertArrayHasKey('styling', $schema, "{$component} schema must have a styling key.");
-            $this->assertArrayHasKey('style_slots', $schema['styling'], "{$component} must have style_slots.");
-            $this->assertCount(
-                $count,
-                $schema['styling']['style_slots'],
-                "{$component} must have exactly {$count} style slots."
-            );
-        }
+        // ANTI-VACUITY, BOTH HALVES. The walk must still SEE schemas, and the getter must
+        // still answer — an empty carrier list proves nothing if discovery is broken or
+        // pp_get_style_slots() has stopped being callable.
+        $this->assertGreaterThanOrEqual(10, count($this->allSchemas()), 'schema discovery found almost nothing');
+        $this->assertSame([], \pp_get_style_slots('grid'), 'the getter must answer empty for a rebuilt component');
     }
 
     /**
@@ -397,212 +328,12 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    /**
-     * Tests that every declared style slot has the required keys: type, default, description.
-     *
-     * THE ROSTER IS DERIVED, NOT LISTED, and #1046 is why. It used to read
-     * `['hero','section','grid','cta']` — a hand-picked four, three of which have since
-     * been rebuilt onto the UDC and now declare ZERO slots, so the sweep was quietly
-     * running against one real component while four others (stats 17, embed 8, logos 8,
-     * table 6) sat outside it entirely.
-     *
-     * That gap had teeth. #1046's review found that `testStatsSchemaDeclaresItsNamedStyleSlots`
-     * was deleted inside faq's slot-test retirement block even though STATS HAS NOT BEEN
-     * REBUILT, and nothing caught it: deleting the `default` key from `--stats-label-color`
-     * left the entire PHP suite green, because the only generic sweep that would have seen
-     * it was iterating a list stats was never on. Deriving the roster from the schemas
-     * closes that for every slot-bearing component at once and cannot go stale the next
-     * time a component leaves the slot system — the fix is the shape #1038 asked for
-     * (resolve by SURVIVING SUBJECT, not by the issue that introduced the test).
-     */
-    public function testStyleSlotStructure(): void
-    {
-        $components = [];
-        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
-            $schema = json_decode(file_get_contents($file), true);
-            if (($schema['styling']['style_slots'] ?? []) !== []) {
-                $components[] = basename(dirname($file));
-            }
-        }
-        sort($components);
-        // Fail-closed: if every component is eventually rebuilt this test must be RETIRED
-        // deliberately, not allowed to pass vacuously on an empty roster.
-        $this->assertNotEmpty(
-            $components,
-            'no slot-bearing component found — the sweep would pass vacuously; retire this '
-            . 'test deliberately if the slot system is genuinely gone'
-        );
-        $validTypes = ['color', 'length', 'length-or-none', 'number', 'shadow', 'gradient', 'position', 'ratio', 'align', 'text-transform', 'font-family', 'enum'];
-
-        foreach ($components as $component) {
-            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
-            $schema     = json_decode(file_get_contents($schemaFile), true);
-            $slots      = $schema['styling']['style_slots'] ?? [];
-
-            foreach ($slots as $slotName => $slotDef) {
-                $this->assertStringStartsWith(
-                    "--{$component}-",
-                    $slotName,
-                    "Slot {$slotName} must be namespaced to its component (--{$component}-*)."
-                );
-                $this->assertArrayHasKey('type', $slotDef, "Slot {$slotName} must declare a type.");
-                $this->assertContains($slotDef['type'], $validTypes, "Slot {$slotName} type must be one of: " . implode(', ', $validTypes) . '.');
-                $this->assertArrayHasKey('default', $slotDef, "Slot {$slotName} must declare a default value.");
-                $this->assertArrayHasKey('description', $slotDef, "Slot {$slotName} must have a description.");
-                $this->assertNotEmpty($slotDef['description'], "Slot {$slotName} description must not be empty.");
-                // An enum slot must declare a non-empty bounded value set, and its
-                // default must be a member of that set (issue 510).
-                if ($slotDef['type'] === 'enum') {
-                    $this->assertArrayHasKey('values', $slotDef, "Enum slot {$slotName} must declare a values array.");
-                    $this->assertNotEmpty($slotDef['values'], "Enum slot {$slotName} values must not be empty.");
-                    $this->assertContains($slotDef['default'], $slotDef['values'], "Enum slot {$slotName} default must be one of its values.");
-                }
-            }
-        }
-    }
-
-    /**
-     * RE-POINTED AT `stats` (#1023). It read hero originally, then section after #986 —
-     * and section is on the UDC now too, so asking IT this question tests the opposite of
-     * what the name promises (I40).
-     *
-     * `stats` rather than the largest remaining slot map (cta, 40 slots): a host that is
-     * itself queued for the next rebuild just moves this treadmill one sprint along, and
-     * cta is #1026's subject. stats is the FURTHEST DOWN the usage-ordered rebuild queue,
-     * so this pin should survive the rest of the v2 programme; it carries both slot
-     * families the test reads (band padding and band fill).
-     */
-    /**
-     * THE SUBJECT MOVED, SO THE ASSERTION INVERTED RATHER THAN BEING DELETED (#1038).
-     *
-     * This read `pp_get_style_slots('stats')` and asserted two of its seventeen slots came
-     * back. stats declares none since #1066 PR2, and the claim that matters now is the
-     * opposite one: the getter must answer EMPTY for a v2 component, because every caller
-     * downstream branches on that emptiness — `style_component` refuses with
-     * `no_style_slots` rather than `invalid_style_slot`, and the friendly-error builder
-     * offers roles instead of slot names.
-     *
-     * Deleting it would have left the getter's v2 answer unpinned on the component whose
-     * rebuild made it v2, which is exactly the shape #1038 recorded.
-     */
-    public function testGetStyleSlotsAnswersEmptyForARebuiltComponent(): void
-    {
-        foreach (['stats', 'logos'] as $component) {
-            $slots = pp_get_style_slots($component);
-            $this->assertIsArray($slots);
-            $this->assertSame(
-                [],
-                $slots,
-                "{$component} is on the design contract and must declare no style slots — " .
-                'a non-empty answer here sends every downstream caller down the v1 branch'
-            );
-        }
-
-        // NOT VACUOUS: a component still on slots must still answer with them, or this
-        // would pass just as well against a getter that always returned [].
-        $grid = pp_get_style_slots('grid');
-        $this->assertNotEmpty($grid, 'grid is still on slots — the getter must still answer');
-        $this->assertArrayHasKey('--grid-padding-top', $grid);
-    }
-
     /** A v2 component reports NO style slots — the other half of the same contract. */
     public function testGetStyleSlotsReturnsNothingForAV2Component(): void
     {
         $this->assertSame([], pp_get_style_slots('hero'));
         $this->assertSame([], pp_get_style_slots('testimonials'));
         $this->assertSame([], pp_get_style_slots('section'));
-    }
-
-    /**
-     * Tests that style slot names don't collide across components.
-     */
-    public function testStyleSlotNamesAreUniqueAcrossComponents(): void
-    {
-        $allSlots = [];
-        // Every component that still declares slots — derived, so a rebuild sprint
-        // shrinking the set cannot leave a v2 component named here (hero left in #986,
-        // section in #1023).
-        $components = array_keys(array_filter(
-            $this->allSchemas(),
-            static fn (array $schema): bool => ($schema['styling']['style_slots'] ?? []) !== []
-        ));
-        $this->assertNotSame([], $components, 'the slot surface emptied — this test is now vacuous');
-
-        foreach ($components as $component) {
-            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
-            $schema     = json_decode(file_get_contents($schemaFile), true);
-            $slots      = array_keys($schema['styling']['style_slots'] ?? []);
-
-            foreach ($slots as $slot) {
-                $this->assertArrayNotHasKey(
-                    $slot,
-                    $allSlots,
-                    "Style slot {$slot} is declared in multiple components."
-                );
-                $allSlots[$slot] = $component;
-            }
-        }
-    }
-
-    /**
-     * Decision 4 (eng review): every styleable component must declare the common
-     * visual-control slots — border-color, border-width, radius, shadow — in its
-     * own namespace. An explicit map (not a fragile suffix rule) preserves grid's
-     * historical card-namespaced name (--grid-item-border-color) while enforcing full,
-     * consistent coverage. Dropping one of these slots, or adding a styleable
-     * component without them, fails CI. Pairs with StyleSlotContractTest, which
-     * proves each declared slot is actually consumed in CSS.
-     */
-    public function testCommonVisualSlotConformance(): void
-    {
-        $expected = [
-            // hero's row is gone (#986), section's with it (#1023) and cta's at #1026: on a v2 component
-            // the four common visual slots are the `_band` role's `border.color` /
-            // `border.width` / `border.radius` / `shadow.box`. The map lists only the
-            // components still on the slot system, and the assertion below proves a
-            // departed one really declares the four roles' parameters instead.
-            'grid'    => ['--grid-item-border-color', '--grid-item-border-width', '--grid-item-radius', '--grid-item-shadow'],
-        ];
-        // concept index → required type: [border-color, border-width, radius, shadow].
-        $types = ['color', 'length', 'length', 'shadow'];
-
-        // THE OTHER HALF, so a component leaving the map above cannot quietly drop the
-        // four concepts: every v2 component's `_band` role must be able to express them.
-        $v2 = array_keys(array_filter(
-            $this->allSchemas(),
-            static fn (array $schema): bool => ($schema['styling']['style_slots'] ?? []) === []
-        ));
-        $this->assertNotSame([], $v2, 'no v2 component found — this half is vacuous');
-        $groups = pp_udc_groups();
-        foreach ($v2 as $component) {
-            $band = pp_udc_component_roles($component)['_band'] ?? null;
-            $this->assertNotNull($band, "{$component} is on the UDC and must declare a `_band` role");
-            foreach ([['border', 'color'], ['border', 'width'], ['border', 'radius'], ['shadow', 'box']] as [$group, $param]) {
-                $this->assertArrayHasKey(
-                    $param,
-                    $groups[$group]['params'] ?? [],
-                    "the engine must expose {$group}.{$param} for {$component}'s `_band` role"
-                );
-            }
-        }
-
-        foreach ($expected as $component => $slotNames) {
-            $schemaFile = $this->themeRoot . "/components/{$component}/schema.json";
-            $slots      = json_decode(file_get_contents($schemaFile), true)['styling']['style_slots'] ?? [];
-
-            foreach ($slotNames as $i => $slotName) {
-                $this->assertArrayHasKey(
-                    $slotName,
-                    $slots,
-                    "{$component} must declare the common visual slot {$slotName}."
-                );
-                $this->assertSame(
-                    $types[$i],
-                    $slots[$slotName]['type'] ?? null,
-                    "Slot {$slotName} must be type {$types[$i]}."
-                );
-            }
-        }
     }
 
     // ── Composition style validation ────────────────────────────────────
@@ -765,15 +496,6 @@ class SchemaValidationTest extends TestCase
         return [['component' => 'grid', 'props' => $props]];
     }
 
-    /**
-     * @dataProvider validImageTreatmentProvider
-     */
-    public function testGridImageTreatmentAcceptsDeclaredValuesAndUnset($treatment): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithImageTreatment($treatment));
-        $this->assertTrue($result, 'image_treatment=' . var_export($treatment, true) . ' must validate.');
-    }
-
     public static function validImageTreatmentProvider(): array
     {
         return [
@@ -783,18 +505,6 @@ class SchemaValidationTest extends TestCase
             'unset: null'   => [null],
             'unset: empty'  => [''],
         ];
-    }
-
-    /**
-     * @dataProvider invalidImageTreatmentProvider
-     */
-    public function testGridImageTreatmentRejectsValuesOutsideTheClosedSet($treatment): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithImageTreatment($treatment));
-        $this->assertInstanceOf(\WP_Error::class, $result, 'image_treatment=' . var_export($treatment, true) . ' must be rejected.');
-        $this->assertSame('invalid_prop_value', $result->get_error_code());
-        // The envelope names the offending prop so the caller/AI can correct it.
-        $this->assertStringContainsString('image_treatment', $result->get_error_message());
     }
 
     public static function invalidImageTreatmentProvider(): array
@@ -873,122 +583,6 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * The nested-enum INVENTORY, kept explicit so widening the rule's reach is a
-     * deliberate act rather than a silent consequence of adding a schema field.
-     *
-     * This replaces testNestedItemEnumsAreAKnownAcceptAndCoerceGap, which pinned the
-     * same inventory to prove the gap was recorded rather than forgotten. #600 closed
-     * the gap, so the assertion it carried (that the value still validates, and that
-     * `strict` on a nested enum is a no-op worth asserting against) is now false by
-     * design and was deleted rather than weakened. What survives is the count: if a
-     * second nested enum appears, this fails and whoever added it confirms the
-     * runtime rule and the authoring-path proofs reach it.
-     */
-    public function testTheNestedEnumInventoryIsExactlyTextRole(): void
-    {
-        $nested = [];
-        foreach (glob($this->themeRoot . '/components/*/schema.json') as $file) {
-            $component = basename(dirname($file));
-            $schema    = json_decode(file_get_contents($file), true);
-            foreach ($schema['props'] ?? [] as $propName => $propDef) {
-                foreach (($propDef['items'] ?? []) as $field => $fieldDef) {
-                    if (is_array($fieldDef) && ($fieldDef['type'] ?? null) === 'enum') {
-                        $nested[] = "{$component}.{$propName}[].{$field}";
-                    }
-                }
-            }
-        }
-        $this->assertSame(['grid.items[].text_role'], $nested, 'the nested-enum inventory changed');
-    }
-
-    /**
-     * The runtime half of #600 at the schema-declaration boundary: `strict` on a
-     * nested enum is REACHED now. This is the assertion the deleted gap-pin inverted
-     * — same component, same field, same value, opposite verdict.
-     */
-    public function testANestedEnumValueOutsideTheDeclaredSetIsRejected(): void
-    {
-        $result = pp_validate_composition([
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card', 'text' => 'x', 'text_role' => 'bogus-not-a-role'],
-            ]]],
-        ]);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_prop_value', $result->get_error_code());
-        $message = $result->get_error_message();
-        $this->assertStringContainsString('item 0 field "text_role"', $message, 'the locator must name the item and the field');
-        $this->assertStringContainsString('mono, meta, label, kicker', $message, 'the error names the advertised set');
-        $this->assertStringContainsString('bogus-not-a-role', $message, 'the rejected value is reflected back');
-    }
-
-    /**
-     * THE LOCATOR, pinned at a non-zero index in a non-zero band — which is the only
-     * shape that can tell the item index apart from the COMPONENT index. Every other
-     * case in this family puts the offending role at items[0] of component[0], where
-     * `item 0` is true for either reading, so the message would survive reporting the
-     * wrong number entirely. The locator is what tells an author which card to
-     * repair, and #600's accepted cost (a stale role blocks the whole page) rests on
-     * being able to find it.
-     */
-    public function testTheRejectionNamesTheOffendingItemAndBandRatherThanTheFirst(): void
-    {
-        $result = pp_validate_composition([
-            ['component' => 'section', 'props' => ['title' => 'First band', 'body' => 'B']],
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Fine',      'text_role' => 'mono'],
-                ['title' => 'Fine too',  'text_role' => 'meta'],
-                ['title' => 'Offending', 'text_role' => 'terminal'],
-            ]]],
-        ]);
-
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertStringContainsString(
-            'item 2 field "text_role"',
-            $result->get_error_message(),
-            'the message must name the offending ITEM index, not the first item or the band index'
-        );
-        $this->assertSame(1, $result->get_error_data()['index'] ?? null, 'the finding carries the offending BAND index');
-    }
-
-    /**
-     * ONE ERROR PER OFFENDING FIELD, and every band reached (#621 rewrote this from
-     * "one error per component"). The shape is chosen to pin the whole traversal:
-     * the first band has two cards with out-of-set roles AND a dead link_url whose
-     * rule lives in a LATER block of the same per-component loop, and there is a
-     * second band behind it. Four findings, in traversal order — the nested-field
-     * walk first (both cards), then the link_url block, then the next band.
-     *
-     * Before #621 this asserted TWO findings: the enum rule ended the whole component
-     * item, so card 1's role and card 0's dead link were invisible until card 0's role
-     * was repaired. The band-index assertions are what stop the fix from smearing one
-     * band's findings onto another.
-     */
-    public function testTheNestedEnumReportsEveryOffendingFieldAcrossBands(): void
-    {
-        $errors = pp_validate_composition_errors([
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Bad one', 'text_role' => 'terminal', 'link_url' => 'javascript:alert(1)'],
-                ['title' => 'Bad two', 'text_role' => 'console'],
-            ]]],
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Bad three', 'text_role' => 'shell'],
-            ]]],
-        ]);
-
-        $this->assertCount(4, $errors, 'every offending field is named, not just the first');
-        $messages = array_map(static fn ($e) => $e->get_error_message(), $errors);
-        $this->assertStringContainsString('terminal', $messages[0]);
-        $this->assertStringContainsString('console', $messages[1], 'the SECOND card of the same band is reached');
-        $this->assertStringContainsString('link_url', $messages[2], 'a later rule block on the same band still runs');
-        $this->assertStringContainsString('shell', $messages[3], 'the second band is still reached');
-        $this->assertSame(
-            [0, 0, 0, 1],
-            array_map(static fn ($e) => pp_composition_error_index($e), $errors),
-            'each error carries the band that owns it'
-        );
-    }
-
-    /**
      * THE PREDICATE ITSELF, arm by arm. Three of its guards are unreachable from the
      * shipped schemas — the CI tripwire above guarantees no shipped enum lacks
      * `strict`, and nothing ships a malformed `values` — so without a direct test
@@ -1023,21 +617,6 @@ class SchemaValidationTest extends TestCase
         ];
     }
 
-    /**
-     * Every declared role is accepted, one case per value — the rule must not reject
-     * the vocabulary it advertises.
-     *
-     * @dataProvider declaredTextRoleProvider
-     */
-    public function testEveryDeclaredNestedEnumValueIsAccepted(string $role): void
-    {
-        $this->assertTrue(pp_validate_composition([
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card', 'text' => 'x', 'text_role' => $role],
-            ]]],
-        ]), "the declared role \"{$role}\" must be accepted");
-    }
-
     public static function declaredTextRoleProvider(): array
     {
         return [
@@ -1048,21 +627,6 @@ class SchemaValidationTest extends TestCase
         ];
     }
 
-    /**
-     * The unset sentinel at the NESTED depth, matching the top-level rule exactly
-     * (testStrictEnumUnsetSentinelStillValidates below is its sibling). Over-rejecting
-     * here is not a local inconvenience: every action validates the WHOLE composition,
-     * so a rule that rejected a blank would block edits to unrelated bands.
-     *
-     * @dataProvider nestedEnumUnsetSentinelProvider
-     */
-    public function testTheNestedEnumUnsetSentinelStillValidates(array $item): void
-    {
-        $this->assertTrue(pp_validate_composition([
-            ['component' => 'grid', 'props' => ['items' => [$item]]],
-        ]), 'the unset sentinel must preserve the field default');
-    }
-
     public static function nestedEnumUnsetSentinelProvider(): array
     {
         return [
@@ -1070,24 +634,6 @@ class SchemaValidationTest extends TestCase
             'null'         => [['title' => 'Card', 'text' => 'x', 'text_role' => null]],
             'empty string' => [['title' => 'Card', 'text' => 'x', 'text_role' => '']],
         ];
-    }
-
-    /**
-     * The near-miss family, one case per shape — the reason a membership test is
-     * `===` against the advertised list and not a fuzzy match. Each of these used to
-     * be accepted at write and coerced away at render.
-     *
-     * @dataProvider nearMissTextRoleProvider
-     */
-    public function testNearMissNestedEnumValuesAreRejected($role): void
-    {
-        $result = pp_validate_composition([
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card', 'text_role' => $role],
-            ]]],
-        ]);
-        $this->assertInstanceOf(\WP_Error::class, $result, 'a near-miss role must not slip through');
-        $this->assertSame('invalid_prop_value', $result->get_error_code());
     }
 
     public static function nearMissTextRoleProvider(): array
@@ -1742,47 +1288,6 @@ class SchemaValidationTest extends TestCase
         ];
     }
 
-    public function testGridFeaturedRemnantSlotsAcceptNeutralizers(): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-item-bar-height'        => '0',
-            '--grid-featured-texture-color' => 'transparent',
-            '--grid-featured-shadow'        => 'none',
-        ]));
-        $this->assertTrue($result, 'The documented uniform-row neutralizers must validate.');
-    }
-
-    public function testGridFeaturedRemnantSlotsAcceptTypedValues(): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-item-bar-height'        => '4px',
-            '--grid-item-bar-color'         => 'linear-gradient(90deg, #ea3900, #b32b00)',
-            '--grid-featured-texture-color' => 'rgba(37, 99, 235, 0.028)',
-            '--grid-featured-shadow'        => '0 10px 24px rgba(15, 23, 42, 0.055)',
-        ]));
-        $this->assertTrue($result, 'Ordinary typed values for the issue 293 slots must validate.');
-    }
-
-    public function testGridCardBarColorAcceptsPlainColor(): void
-    {
-        // gradient-typed slots accept plain colors too (the --grid-item-bg precedent).
-        $result = pp_validate_composition($this->gridCompositionWithStyle([
-            '--grid-item-bar-color' => '#e6e8eb',
-        ]));
-        $this->assertTrue($result);
-    }
-
-    /**
-     * @dataProvider featuredRemnantCrossTypeProvider
-     */
-    public function testGridFeaturedRemnantSlotsRejectCrossTypeValues(string $slot, string $value): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithStyle([$slot => $value]));
-
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
-
     public static function featuredRemnantCrossTypeProvider(): array
     {
         return [
@@ -1791,29 +1296,6 @@ class SchemaValidationTest extends TestCase
             'keyword into shadow'       => ['--grid-featured-shadow', 'blue-glow'],
             'shadow into bar-color'     => ['--grid-item-bar-color', '0 10px 24px rgba(0, 0, 0, 0.1)'],
         ];
-    }
-
-    public function testGridDeclaresUniformCardsRecipe(): void
-    {
-        $schema  = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
-        $recipes = $schema['styling']['recipes'] ?? [];
-
-        $this->assertArrayHasKey('uniform-cards', $recipes, 'issue 293 acceptance: the uniform row must be a documented recipe.');
-        $slots = $recipes['uniform-cards']['slots'] ?? [];
-        $this->assertSame('0', $slots['--grid-item-bar-height'] ?? null);
-        $this->assertSame('transparent', $slots['--grid-featured-texture-color'] ?? null);
-        $this->assertArrayHasKey('--grid-item-shadow', $slots, 'Uniformity needs one shared shadow on all cards, not a missing featured glow.');
-
-        // Every recipe value must be valid for its slot's declared type — a recipe
-        // that expands into rejected values would fail at apply time.
-        $declared = $schema['styling']['style_slots'];
-        foreach ($slots as $name => $value) {
-            $this->assertArrayHasKey($name, $declared, "Recipe slot {$name} must be a declared style slot.");
-            $this->assertTrue(
-                _pp_validate_token_value((string) $value, $declared[$name]['type'] ?? null),
-                "uniform-cards recipe value for {$name} must validate against its declared type."
-            );
-        }
     }
 
     // ── Per-item grid card style overrides (issue 306) ──────────────────
@@ -1837,88 +1319,6 @@ class SchemaValidationTest extends TestCase
             $comp['style'] = $gridStyle;
         }
         return [$comp];
-    }
-
-    public function testGridItemStyleAcceptsKnownSlots(): void
-    {
-        // The two page-136 cases: a dark panel card and a green terminal card,
-        // both expressed purely through per-item slots.
-        $darkPanel = $this->gridCompositionWithItemStyle([
-            '--grid-item-bg'          => '#0f172a',
-            '--grid-item-border-color'      => '#0f172a',
-            '--grid-item-title-color' => '#f8fafc',
-            '--grid-item-text-color'  => '#cbd5e1',
-        ]);
-        $this->assertTrue(pp_validate_composition($darkPanel), 'A dark panel card must validate through the shared engine.');
-
-        $terminal = $this->gridCompositionWithItemStyle([
-            '--grid-item-bg'         => '#0b0f0a',
-            '--grid-item-text-color' => '#22c55e',
-        ]);
-        $this->assertTrue(pp_validate_composition($terminal), 'A green terminal card must validate through the shared engine.');
-    }
-
-    public function testGridItemStyleAcceptsTokenAndGradientValues(): void
-    {
-        // Item slots accept the full grammar their type allows, same as grid-level:
-        // registered var(--token) colors and gradients.
-        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-item-bg'          => 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
-            '--grid-item-title-color' => 'var(--color-text)',
-        ]));
-        $this->assertTrue($result);
-    }
-
-    public function testGridItemStyleRejectsUnknownSlot(): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-card-not-a-slot' => '#000000',
-        ]));
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('item 1', $result->get_error_message(), 'The error must name the offending card index.');
-    }
-
-    public function testGridItemStyleRejectsInvalidValue(): void
-    {
-        // A length value into a color slot — cross-type rejection at item level.
-        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-item-text-color' => '2rem',
-        ]));
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testGridItemStyleRejectsInjection(): void
-    {
-        // The injection guard ({ } ; < >) applies to item-level values too, since
-        // the value reaches an inline style attribute at render.
-        $result = pp_validate_composition($this->gridCompositionWithItemStyle([
-            '--grid-item-bg' => '#000; } body { display:none',
-        ]));
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testGridItemStyleAndGridLevelStyleCoexist(): void
-    {
-        // Grid-level style stays valid while an item overrides one slot.
-        $result = pp_validate_composition($this->gridCompositionWithItemStyle(
-            ['--grid-item-bg' => '#0f172a'],
-            ['--grid-item-bg' => 'var(--color-surface)', '--grid-gap' => '2rem']
-        ));
-        $this->assertTrue($result);
-    }
-
-    public function testGridSchemaDeclaresItemStyleField(): void
-    {
-        $schema = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
-        $this->assertArrayHasKey(
-            'style',
-            $schema['props']['items']['items'] ?? [],
-            'issue 306: the grid items sub-schema must declare a `style` field so the validator activates per-item styling.'
-        );
-        $this->assertSame('object', $schema['props']['items']['items']['style']['type'] ?? null);
     }
 
     // ── Card-scoped per-item slot enforcement (issue 323) ───────────────────
@@ -1997,100 +1397,6 @@ class SchemaValidationTest extends TestCase
         return [$comp];
     }
 
-    /**
-     * @dataProvider gridCardScopedSlotProvider
-     */
-    public function testGridItemStyleAcceptsEveryCardScopedSlot(string $slot, string $type): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
-            $slot => self::validValueForType($type),
-        ]));
-        $this->assertTrue(
-            $result,
-            sprintf('Card-scoped slot %s (type %s) must be accepted on a per-item style.', $slot, $type)
-        );
-    }
-
-    /**
-     * @dataProvider gridContainerScopedSlotProvider
-     */
-    public function testGridItemStyleRejectsEveryContainerScopedSlot(string $slot): void
-    {
-        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
-            $slot => '#123456',
-        ]));
-        $this->assertInstanceOf(
-            \WP_Error::class,
-            $result,
-            sprintf('Container/heading slot %s must be rejected on a per-item style.', $slot)
-        );
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('item 1', $result->get_error_message(), 'The error must name the offending card index.');
-        $this->assertStringContainsString('component-level', $result->get_error_message(), 'The error must point the operator at component-level style.');
-        // The suggested "Card-scoped slots" list must NOT advertise the rejected
-        // container slot as available.
-        $this->assertStringNotContainsString($slot . ',', $result->get_error_message());
-    }
-
-    public function testGridItemStyleAcceptsNewlyEnabledFeaturedAndStepSlots(): void
-    {
-        // #293's featured/bar slots and the steps badge color are card-scoped: they
-        // are consumed within the .grid__item subtree (bar/texture ::before pseudos,
-        // .grid__step-number child), so they must be usable per card (issue 323 AC).
-        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
-            '--grid-item-bar-color'         => '#123456',
-            '--grid-item-bar-height'        => '4px',
-            '--grid-featured-texture-color' => '#123456',
-            '--grid-featured-shadow'        => 'none',
-            '--grid-step-bg'             => '#123456',
-            '--grid-step-text-color'        => '#654321',
-        ]));
-        $this->assertTrue($result, 'The #293 featured/bar slots and the steps badge fill/text slots must be accepted per card.');
-    }
-
-    public function testGridLevelStyleStillAcceptsContainerScopedSlot(): void
-    {
-        // REGRESSION pin: the tighter scope applies to the per-item path ONLY. A
-        // container/heading slot on the grid-level `style` (item_index === null)
-        // stays valid — the section IS where those render.
-        $result = pp_validate_composition([[
-            'component' => 'grid',
-            'props'     => ['items' => [['title' => 'A']]],
-            'style'     => ['--grid-gap' => '2rem', '--grid-heading-color' => '#123456', '--grid-bg' => '#0f172a'],
-        ]]);
-        $this->assertTrue($result, 'Grid-level style must still accept container/heading slots.');
-    }
-
-    public function testGridItemStyleEnforcesScopeOnFirstCardIndexZero(): void
-    {
-        // Truthiness regression pin: index 0 (the featured first card) is a falsy
-        // int. The gate must use a strict !== null check, so a container slot on
-        // items[0] is still rejected and named "item 0" — not skipped.
-        $result = pp_validate_composition([[
-            'component' => 'grid',
-            'props'     => ['items' => [
-                ['title' => 'First', 'style' => ['--grid-gap' => '2rem']],
-                ['title' => 'Second'],
-            ]],
-        ]]);
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('item 0', $result->get_error_message());
-    }
-
-    public function testGridItemStyleStillRejectsUnknownSlotWithEligibleList(): void
-    {
-        // A truly unknown slot at item level still fails as invalid_style_slot, and
-        // the "Available slots" list is the card-scoped set (not all 28).
-        $result = pp_validate_composition($this->gridCompositionWithItemStyleMap([
-            '--grid-not-a-real-slot' => '#123456',
-        ]));
-        $this->assertInstanceOf(\WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString('--grid-item-bg', $result->get_error_message());
-        $this->assertStringNotContainsString('--grid-gap', $result->get_error_message());
-    }
-
     public function testPerItemValidationFallsBackToFullSetWhenNoSlotFlagged(): void
     {
         // Opt-in by presence (issue 323): a component whose style_slots carry NO
@@ -2112,58 +1418,51 @@ class SchemaValidationTest extends TestCase
         $err2 = _pp_validate_style_slot_map(['--x-nope' => '#123456'], $slots, 'x', 0);
         $this->assertInstanceOf(\WP_Error::class, $err2);
         $this->assertSame('invalid_style_slot', $err2->get_error_code());
-    }
-
-    public function testSchemaItemStyleDescriptionListsEveryCardScopedSlot(): void
+    }    /**
+     * THE TWO SLOT-NAME INVARIANTS RETIRED AT #1101, and both were flagged RISKY by
+     * PHPUnit in the same run that emptied them — the loop body never executed once, so
+     * neither performed an assertion. That is the fail-open shape this file hunts
+     * everywhere else, so they are retired rather than left green-and-blind.
+     *
+     * testSchemaItemStyleDescriptionListsEveryCardScopedSlot kept the human-facing
+     * `items[].style` prop description coupled to the `item_eligible` flag set, so the
+     * docs could not advertise a stale card-scoped slot (issue 323). There is no
+     * `items[].style` prop and no `item_eligible` flag: a card's design is its own `udc`
+     * map now, addressing the roles `item_roles` declares, and those are checked against
+     * the component's own role list by the engine rather than against a prose list.
+     *
+     * testStyleSlotNamesAreDisjointFromDesignTokenNames was the #230 invariant: a slot
+     * name equal to a token name would let pp_render_style_vars() emit the same-element
+     * self-reference `--x: var(--x)`, the one CSS shape guaranteed-invalid at
+     * computed-value time, with every validator passing. THE HAZARD IS UNREPRESENTABLE
+     * NOW, and not merely absent: a v2 role emits real CSS declarations into a
+     * band-scoped block rather than custom properties onto the element itself, so there
+     * is no same-element reference to construct. The `_tokens` map is the one place a
+     * band still declares a custom property, and its names are validated against the
+     * engine's own mint space by `_pp_udc_name_is_the_engines_own_mint()`.
+     *
+     * THE ASSERTION BELOW IS THE ONE CLAIM BOTH DEPENDED ON, and it is not vacuous: it
+     * fails the moment any component declares a slot map again, which is when both tests
+     * would need restoring.
+     */
+    public function testTheSlotNameSpaceIsEmptySoItsInvariantsCannotBeViolated(): void
     {
-        // Keep the human-facing prop guidance coupled to the item_eligible flag set:
-        // every card-scoped slot the validator accepts must be named in the
-        // items[].style description so the docs never advertise a stale set (issue 323).
-        $schema = json_decode(file_get_contents($this->themeRoot . '/components/grid/schema.json'), true);
-        $desc   = $schema['props']['items']['items']['style']['description'] ?? '';
-        foreach (array_keys(self::gridSlotScopes()['eligible']) as $slot) {
-            $this->assertStringContainsString(
-                $slot,
-                $desc,
-                sprintf('items[].style description must list card-scoped slot %s (keep docs in sync with item_eligible).', $slot)
-            );
+        $slotNames = [];
+        foreach (pp_get_registered_components() as $name => $def) {
+            foreach (array_keys($def['styling']['style_slots'] ?? []) as $slot) {
+                $slotNames[] = "{$name} {$slot}";
+            }
         }
-    }
-
-    public function testGridSchemaFlagsExactlyTheCardScopedSlots(): void
-    {
-        // The eligible set is the single source of truth. Pin it so a future slot
-        // addition is forced to declare its scope deliberately (issue 323).
-        $scopes = self::gridSlotScopes();
         $this->assertSame(
-            [
-                '--grid-item-bg', '--grid-item-border-color', '--grid-item-border-width',
-                '--grid-item-radius', '--grid-item-shadow', '--grid-item-bar-color',
-                '--grid-item-bar-height', '--grid-featured-texture-color',
-                '--grid-featured-shadow', '--grid-item-padding', '--grid-item-gap',
-                '--grid-item-text-align', '--grid-item-icon-size',
-                '--grid-item-title-size', '--grid-item-title-color', '--grid-item-text-color',
-                '--grid-item-bullet-color', '--grid-item-link-color',
-                '--grid-item-link-hover-color', '--grid-step-bg',
-                '--grid-step-text-color',
-            ],
-            array_keys($scopes['eligible']),
-            'The item_eligible card-scoped set drifted from issue 323.'
+            [],
+            $slotNames,
+            'a component declares style slots again — restore the #230 disjointness '
+            . 'invariant and the items[].style description coupling in the same commit.'
         );
-        $this->assertSame(
-            [
-                '--grid-padding-top', '--grid-padding-bottom', '--grid-bg',
-                '--grid-heading-color', '--grid-heading-accent-color', '--grid-eyebrow-color',
-                '--grid-eyebrow-bg', '--grid-eyebrow-radius',
-                '--grid-eyebrow-border-width', '--grid-eyebrow-border-color',
-                '--grid-eyebrow-text-transform',
-                '--grid-subheading-color',
-                '--grid-subheading-margin-bottom', '--grid-heading-margin-bottom',
-                '--grid-heading-size', '--grid-heading-measure', '--grid-gap',
-            ],
-            $scopes['ineligible'],
-            'The container/heading-scoped set drifted from issue 323.'
-        );
+        // Anti-vacuity on the OTHER side: the registry must still be answering, or an
+        // empty slot list would prove nothing at all.
+        $this->assertGreaterThanOrEqual(10, count(pp_get_registered_components()));
+        $this->assertNotEmpty(\pp_design_tokens(), 'the token registry must still answer');
     }
 
     // ── Template-owned chrome rejection (#223) ───────────────────────────
@@ -2604,20 +1903,6 @@ class SchemaValidationTest extends TestCase
         $this->assertStringContainsString('must be an array of strings', $errors[0]->get_error_message());
     }
 
-    public function testAnArrayValuedNestedEnumFieldIsReportedOnce(): void
-    {
-        // One value, one finding at depth too. `text_role` declares `type: "enum"`, so
-        // #614's scalar fence deliberately passes it through and #600's membership rule
-        // owns the field — the two nested rules cannot both speak for one value.
-        $errors = pp_validate_composition_errors([
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'x', 'text_role' => ['mono']]]]],
-        ]);
-
-        $this->assertCount(1, $errors);
-        $this->assertStringContainsString('must be one of', $errors[0]->get_error_message());
-        $this->assertStringContainsString('item 0 field "text_role"', $errors[0]->get_error_message());
-    }
-
     public function testEveryOffendingCardInOneBandIsNamed(): void
     {
         // Entry-level locations: three cards, two of them carrying a dead per-card style
@@ -2732,11 +2017,12 @@ class SchemaValidationTest extends TestCase
                 ['component' => 'logos', 'props' => ['items' => [['image_url' => ['/a.png'], 'image_alt' => 'A']]]],
                 'invalid_prop_value',
             ],
-            // #600 RULE 4 nested enum
-            'nested enum out of set' => [
-                ['component' => 'grid', 'props' => ['items' => [['title' => 'A', 'text_role' => 'nope']]]],
-                'invalid_prop_value',
-            ],
+            // #600 RULE 4's nested-enum row LEFT AT #1101 with `grid.items[].text_role`,
+            // the theme's only nested enum. The rule is still in the engine and still
+            // ordered where it was; what it lost is a shipped DECLARATION to fire on, so
+            // there is no composition this row could build that reaches it. A fixture of
+            // its own is a question PR2 owes with the rest of the v1 sweep (issue §4), not
+            // one to answer here by keeping a row that asserts against `unknown_prop`.
             // #579 A-27 nested bullets
             'non-string bullet in a nested string array' => [
                 ['component' => 'grid', 'props' => ['items' => [['title' => 'A', 'bullets' => [['deep']]]]]],
@@ -2903,12 +2189,16 @@ class SchemaValidationTest extends TestCase
     public static function fullyDeclaredItemsProvider(): array
     {
         return [
-            'grid — all eleven declared fields' => [[
+            // ELEVEN FIELDS BECAME NINE AT #1101: `text_role` and `style` retired with the
+            // v1 styling surface (a card's design is its own `udc` map now, and per-card
+            // typography is part of that map rather than a preset enum). The row is kept
+            // rather than dropped because its claim is about the WRITE PATH accepting a
+            // fully-populated entry, which is exactly as worth pinning at nine.
+            'grid — all nine declared fields' => [[
                 ['component' => 'grid', 'props' => ['items' => [[
-                    'number' => '1', 'title' => 'T', 'text' => 'x', 'text_role' => 'mono',
+                    'number' => '1', 'title' => 'T', 'text' => 'x',
                     'bullets' => ['a'], 'image_url' => '/a.png', 'image_alt' => 'A',
                     'image_id' => 3, 'link_url' => '/x', 'link_text' => 'go',
-                    'style' => ['--grid-item-bg' => '#fff'],
                 ]]]],
             ]],
             'logos — all four' => [[
@@ -3815,27 +3105,6 @@ class SchemaValidationTest extends TestCase
         }
     }
 
-    public function testStyleSlotNamesAreDisjointFromDesignTokenNames(): void
-    {
-        // Component-library invariant (#230): style slot names must never
-        // collide with a registered design-token name. Since #230 a color
-        // slot may hold var(--token) for any registered color token; if a
-        // slot NAME ever equalled a token name, pp_render_style_vars() could
-        // emit the same-element self-reference `--x: var(--x)` — the one CSS
-        // shape guaranteed-invalid at computed-value time — while every
-        // validator passes. Empty intersection makes that unrepresentable.
-        $tokens = \pp_design_tokens();
-        foreach (pp_get_registered_components() as $name => $def) {
-            foreach (array_keys($def['styling']['style_slots'] ?? []) as $slot) {
-                $this->assertArrayNotHasKey(
-                    $slot,
-                    $tokens,
-                    "Component '{$name}' style slot '{$slot}' collides with a registered design token."
-                );
-            }
-        }
-    }
-
     public function testComposableComponentsExcludeChromeButKeepContent(): void
     {
         $composable = pp_composable_components();
@@ -4337,6 +3606,71 @@ class SchemaValidationTest extends TestCase
      * happens to documents that already store the old name.
      */
     private const SCHEMA_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1101): grid's six styling props retired — THE LAST ONES ──
+        //
+        // grid was the last component carrying a `theme` prop, and the only one whose
+        // retirements reach INSIDE an `items[]` entry. Two of the six are item-level, and
+        // that is what made Addendum B necessary rather than optional: roles are BAND
+        // grain, so before it the v2 contract had no address for "this one card".
+        'grid' => [
+            'theme' => 'REMOVED in v2 (#1101). A bundle of band values, so the route names three '
+                . 'groups rather than only the fill, and all three were MEASURED in Chromium at '
+                . '375/768/1280 before the prop went: `default` painted NO background at all '
+                . '(transparent) with no border; `muted` painted `@color-surface` plus a 1px solid '
+                . '`@color-border` rule top and bottom (it emitted the legacy `grid--dark` class, '
+                . '#570 DG-4); `inverted` painted `@color-bg-inverted`, re-coloured the heading and '
+                . 'the subheading to `@color-bg`, and LEFT THE CARDS LIGHT — measured, card fill, '
+                . 'title, text, bullets and link were byte-identical on a `default` and an '
+                . '`inverted` band. So: the tone is `_band` -> `background.fill`, the `muted` '
+                . 'framing is its per-edge `border` values, and the `inverted` ink is its '
+                . '`typography.color`, which `heading` follows through `currentColor`. THE '
+                . 'SUBHEADING DOES NOT FOLLOW and needs its own write. `dark` was never an accepted '
+                . 'input value (removed at #605, clamped to `default`).',
+            'title_align' => 'REMOVED in v2 (#1101). The text alignment is the `header` role\'s '
+                . '`typography.align`, which the eyebrow pill follows because an inline-block is an '
+                . 'inline-level box. v1\'s `center` value ALSO added `margin-left`/`margin-right: '
+                . 'auto` to the header, the heading and the subheading, centring each capped BOX as '
+                . 'well as its text; that half is `spacing.margin-left`/`margin-right` = "auto" on '
+                . 'the two roles whose caps ever bind. Two writes instead of one prop, both '
+                . 'ordinary role parameters.',
+            'card_emphasis' => 'REMOVED in v2 (#1101), ruling D9, and RETIRED RATHER THAN PORTED — '
+                . 'the reason is the contract rather than convenience. v1\'s `featured` treatment '
+                . 'was `:first-child`, which is ORDINAL styling, and Addendum B exclusion 3 rules '
+                . 'that an item is addressed by its minted id so that reordering carries the '
+                . 'styling WITH the item. Keeping an ordinal treatment beside an id-addressed one '
+                . 'would leave two systems disagreeing about which card is special the moment a '
+                . 'list is reordered. MEASURED ON THE OWNER\'S LIVE SITE FIRST: all 11 production '
+                . 'grid bands render `grid--uniform`, i.e. the treatment was already switched off '
+                . 'everywhere it could have applied. One special card is that item\'s own `udc` '
+                . 'map now — `card`, `card-bar`, `card-title` and `card-body` on the entry.',
+            'image_treatment' => 'REMOVED in v2 (#1101). The card image box is the `card-media` '
+                . 'role\'s `sizing.aspect-ratio` plus `sizing.width`/`sizing.height`; v1\'s `icon` '
+                . 'value rendered a 48x48 un-cropped box instead of the 16:9 cover banner, which is '
+                . '`{"width": "48px", "height": "48px", "aspect-ratio": "auto"}`. STATED NARROWING: '
+                . '`object-fit` has no typed parameter in the Sizing group, so the `contain` half of '
+                . 'the icon treatment is reachable only through the raw-CSS valve, `card-media` -> '
+                . '`_css`. Measured live exposure before retiring it: ZERO bands and zero card '
+                . 'images across all 11 production grid bands.',
+            'items[].text_role' => 'REMOVED in v2 (#1101), and it is the theme\'s LAST nested enum. '
+                . 'The route is the `card-text` role\'s own `udc` map on that item (Addendum B), or '
+                . 'a custom preset (#1016). MEASURED, all four values, at desktop: `mono` and `meta` '
+                . 'rendered byte-identically to the default body text — the premium typography '
+                . 'tier\'s own `.grid__item-text` rule out-ranked both presets, so two of the four '
+                . 'had NO rendered effect at all above 767px and the schema\'s claim that meta and '
+                . 'kicker "also set a preset text color" was false at every viewport above that. '
+                . 'Only `label` (letter-spacing 0.01em) and `kicker` (0.08em + uppercase) changed '
+                . 'anything. Per-item typography is exactly what an item `udc` map expresses, so the '
+                . 'capability is WIDER after the retirement than before it.',
+            'items[].style' => 'REMOVED in v2 (#1101) and replaced by the entry\'s own `udc` map '
+                . '(Addendum B1) — the capability Addendum B exists for. v1 accepted 21 card-scoped '
+                . 'slot names here and rendered them as INLINE custom properties on that card\'s '
+                . '`.grid__item`; BUILD-SPEC §3.4 forbids inline style emission outright. The '
+                . 'replacement addresses the SAME roles the component declares, through the same '
+                . 'engine, the same grammar and the same refusal codes, and emits '
+                . '`[data-pp-band="…"] [data-pp-item="…"]` rules instead. THE MINTED ID IS THE '
+                . 'DIFFERENCE THAT MATTERS: a design written against `items[1]` moved when the list '
+                . 'was reordered; a design written against `it-<hex8>` travels with its card.',
+        ],
         // ── v2 Sprint 2 (#1066 PR2): stats' and logos' styling props retired ──
         //
         // These two are the LAST tone props in the theme: grid alone still declares one.
@@ -5112,6 +4446,59 @@ class SchemaValidationTest extends TestCase
      * make the problem quietly go away, which #603/#604 removed the machinery for.
      */
     private const SLOT_RENAME_MIGRATION_NOTES = [
+        // ── v2 Sprint 2 (#1101): grid's 38 style slots retired — THE LAST 38 IN THE THEME ──
+        //
+        // grid was the last component declaring `styling.style_slots`, so this block closes
+        // the migration record rather than extending it: after this there is no slot left
+        // anywhere to rename, and `style_component` refuses every component.
+        //
+        // FOUR OF THE 38 HAVE NO REPLACEMENT, and each says so in its own note with the
+        // measurement behind it rather than a bare "retired": the featured texture colour and
+        // the featured shadow went with `card_emphasis` under ruling D9, the icon size went
+        // with `image_treatment`, and the bullet colour has no address because ruling A3
+        // defers pseudo-elements. Live exposure on the owner's 11 production grid bands was
+        // measured for all four BEFORE the retirement, per ruling D2 — and that measurement
+        // is also what SAVED the two card-bar slots, which 10 of the 11 bands author.
+        'grid' => [
+            '--grid-padding-top' => 'REPLACED in v2 (#1101) by the `_band` role\'s `spacing.padding-top`.',
+            '--grid-padding-bottom' => 'REPLACED in v2 (#1101) by the `_band` role\'s `spacing.padding-bottom`.',
+            '--grid-bg' => 'REPLACED in v2 (#1101) by the `_band` role\'s `background.fill`. THE DEFAULT CHANGED FROM `transparent` TO A REAL VALUE ONLY WHERE v1 HAD ONE: measured at 375/768/1280, a `default` band painted no background at all, `muted` painted `@color-surface` with a 1px rule top and bottom, and `inverted` painted `@color-bg-inverted`. The role defaults to nothing on the fill, so an unstyled band is byte-identical; the two tinted tones are the `theme` prop\'s route, not this slot\'s.',
+            '--grid-heading-color' => 'REPLACED in v2 (#1101) by the `heading` role\'s `typography.color`. ITS DEFAULT IS `currentColor` AND THAT IS A MEASURED PORT: v1\'s rule chained slot -> theme var -> `@color-text`, and the theme var was the only thing that made a dark band\'s heading light. `currentColor` reproduces that from the `_band` role\'s own ink without a theme class in between.',
+            '--grid-heading-accent-color' => 'REPLACED in v2 (#1101) by the `heading-accent` role\'s `typography.color`. It PINS `@color-accent`, so it does not follow a band colour — on `@color-bg-inverted` that is a real contrast decision the author owns.',
+            '--grid-eyebrow-color' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `typography.color`.',
+            '--grid-eyebrow-bg' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `background.fill`.',
+            '--grid-eyebrow-radius' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `border.radius`.',
+            '--grid-eyebrow-border-width' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `border.width`.',
+            '--grid-eyebrow-border-color' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `border.color`.',
+            '--grid-eyebrow-text-transform' => 'REPLACED in v2 (#1101) by the `eyebrow` role\'s `typography.transform`.',
+            '--grid-subheading-color' => 'REPLACED in v2 (#1101) by the `subheading` role\'s `typography.color`. It PINS `@color-muted` rather than following the band, which is why `subheading` carries an `outranked_by_default` obligation against `_band`: a dark band leaves it at 3.1:1 or worse unless this is set too.',
+            '--grid-subheading-margin-bottom' => 'REPLACED in v2 (#1101) by the `subheading` role\'s `spacing.margin-bottom`. v1 had to declare this at HEADER scope (0,2,0) to beat base.css\'s `p:last-child { margin-bottom: 0 }`; a role default emits unlayered and needs no such trick.',
+            '--grid-heading-margin-bottom' => 'REPLACED in v2 (#1101) by the `heading` role\'s `spacing.margin-bottom`, responsive — the desktop 1.65rem and the phone 1.25rem both survive as one breakpoint map where v1 needed two rules in two media blocks.',
+            '--grid-heading-size' => 'REPLACED in v2 (#1101) by the `heading` role\'s `typography.size`, defaulting to the shared `@pp-band-heading-size` exactly as the slot\'s fallback did. It was the LAST member of the #436 band-heading roster.',
+            '--grid-heading-measure' => 'REPLACED in v2 (#1101) by the `heading` role\'s `sizing.max-width`, defaulting to `@measure-heading` — so one `update_design_token` write still reaches every band heading in the theme.',
+            '--grid-gap' => 'REPLACED in v2 (#1101) by the `list` role\'s `spacing.gap`, responsive: 1.05rem desktop, 1rem tablet, 0.85rem phone, the three literals v1 spread across three media blocks.',
+            '--grid-item-bg' => 'REPLACED in v2 (#1101) by the `card` role\'s `background.fill`. ONE MEASURED DEFAULT CHANGED RATHER THAN PORTED, and it is visible: v1\'s fill was `linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)` with a 1px decorative stripe layered over it. The value grammar accepts a gradient of LITERALS and a bare `@token`, but not a token INSIDE a gradient, so the two ways to port it were a token-following flat fill or a hex gradient frozen against every retheme. The flat `@color-bg` wins, matching what faq\'s `item` and testimonials\' `card` already default for the same visual job.',
+            '--grid-item-border-color' => 'REPLACED in v2 (#1101) by the `card` role\'s `border.color`. v1 needed THREE restatements of this slot at three specificities (the component block, the final cascade, the featured `:first-child` rule) so it would not be out-ranked; a role default emits unlayered and needs one.',
+            '--grid-item-border-width' => 'REPLACED in v2 (#1101) by the `card` role\'s `border.width`.',
+            '--grid-item-radius' => 'REPLACED in v2 (#1101) by the `card` role\'s `border.radius`. It was the grid half of the #577 selector that capped grid cards and faq items together; faq\'s half became a role default at #1046, so the pair is finally whole again as two defaults rather than one rule.',
+            '--grid-item-shadow' => 'REPLACED in v2 (#1101) by the `card` role\'s `shadow.box`.',
+            '--grid-item-bar-color' => 'REPLACED in v2 (#1101) by the `card-bar` role\'s `background.fill` — AND THE ROLE EXISTS BECAUSE OF THIS SLOT. v1 painted the bar as `.grid__item::before`, and ruling A3 defers pseudo-elements, so ported literally this would have retired with no route. Measured on the owner\'s live site first: 10 of his 11 production grid bands author this slot, all ten with the identical `linear-gradient(120deg,#7B5BFF 0%,#FF5C2E 50%,#3DDFC8 100%)`. A brand signature on 91% of bands is not an unused slot, so the bar became a real `<span>` with its own selector.',
+            '--grid-item-bar-height' => 'REPLACED in v2 (#1101) by the `card-bar` role\'s `sizing.height`. Same measurement as its colour twin: 10 of 11 production bands author it, all at `3px`. The role\'s own default is the 2px an ordinary card rendered.',
+            '--grid-featured-texture-color' => 'RETIRED in v2 (#1101) with NO replacement, and the reason is the grammar rather than the ruling: it coloured a SECOND background layer composited over the card fill, and `background.fill` accepts one layer. Measured live exposure before retiring it: ZERO of the 11 production grid bands authored it. Its parent treatment — the `card_emphasis: featured` first-card accent — retired under ruling D9 in the same change.',
+            '--grid-featured-shadow' => 'RETIRED in v2 (#1101) with the `card_emphasis` prop it belonged to (ruling D9). The featured treatment was ORDINAL (`:first-child`), which contradicts Addendum B exclusion 3 — a card is addressed by its minted id so that reordering carries its design with it. Measured first: all 11 production grid bands already rendered `grid--uniform`, i.e. the treatment was switched off everywhere it could have applied. One special card is an item `udc` map now, and `card` -> `shadow.box` on that item is this slot\'s honest successor.',
+            '--grid-item-padding' => 'REPLACED in v2 (#1101) by the `card-body` role\'s `spacing.padding`, responsive (2rem desktop and tablet, 1.55rem phone). NOTE WHICH ROLE OWNS IT: the padding is on the BODY, not on `card`, and the split is structural — a banner image is full-bleed to the card\'s edges, so the card box cannot carry the inset that everything below the image needs.',
+            '--grid-item-gap' => 'REPLACED in v2 (#1101) by the `card-body` role\'s `spacing.gap`.',
+            '--grid-item-text-align' => 'REPLACED in v2 (#1101) by the `card-body` role\'s `typography.align`. THE DERIVED COMPANION RETIRED WITH IT: v1 emitted a `--pp-grid-link-align` plumbing property from this slot so the card link, an `align-self`-placed flex item the #338 flex trap keeps out of reach of `text-align`, would follow the card\'s alignment. In v2 the link\'s placement is the `card-link` role\'s `sizing.align-self`, authored directly, so there is no derivation to keep in sync.',
+            '--grid-item-icon-size' => 'RETIRED in v2 (#1101) with the `image_treatment` prop it served. The box is the `card-media` role\'s `sizing.width` / `sizing.height` (and `sizing.aspect-ratio` set to `auto`) now. STATED NARROWING: the `icon` value\'s `object-fit: contain` has no typed parameter in the Sizing group, so the un-cropped half of the treatment is reachable only through the `_css` valve. Measured live exposure before retiring it: ZERO bands and zero card images across all 11 production grid bands.',
+            '--grid-item-title-size' => 'REPLACED in v2 (#1101) by the `card-title` role\'s `typography.size`, responsive (1.14rem desktop and tablet, 1.06rem phone). THE STEPS VARIANT\'S SMALLER 1.04rem DOES NOT SURVIVE: a role\'s defaults carry a breakpoint dimension and a state dimension and NO variant dimension, so "smaller, but only on steps" has no v2 address — the conditionality gap filed at #1102. A steps card title renders at the shared size now.',
+            '--grid-item-title-color' => 'REPLACED in v2 (#1101) by the `card-title` role\'s `typography.color`. It PINS `@color-text` and therefore does not follow a band or card colour — measured byte-identical on a v1 `default` and `inverted` band, because v1 kept cards light on a dark band. That is why the role carries an `outranked_by_default` obligation against `card`.',
+            '--grid-item-text-color' => 'REPLACED in v2 (#1101) by the `card-text` role\'s `typography.color`, AND ITS DEFAULT IS A BREAKPOINT MAP because v1\'s rendering was: `@color-muted` below 768px and `@color-text-secondary` from 768px up, the premium typography block overriding the base rule. v1 also used this one slot for the card BULLETS; in v2 those are the `card-bullets` role\'s own `typography.color`, which is a widening rather than a port — the two can differ now.',
+            '--grid-item-bullet-color' => 'RETIRED in v2 (#1101) with NO replacement. It coloured the check-mark glyph drawn by `.grid__item-bullet::before`, and ruling A3 defers pseudo-elements, so no role can address it at any value. The marker takes the shared `--pp-list-marker-color` fallback — `@color-accent` — which is exactly what the slot defaulted to, so an unstyled band is unchanged; a band that AUTHORED it (the starter homepage did, in orange) renders the accent instead. The deferral is #1028.',
+            '--grid-item-link-color' => 'REPLACED in v2 (#1101) by the `card-link` role\'s `typography.color`. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so the role carries an `outranked_by_default` obligation against `card` saying darkening a card means setting this in the same write.',
+            '--grid-item-link-hover-color' => 'REPLACED in v2 (#1101) by the `card-link` role\'s `typography` `:hover` map, alongside the underline v1 put back on hover. Both halves are role DEFAULTS now rather than one slot and one stylesheet literal, which is what lets an authored `decoration` win in the hover state too.',
+            '--grid-step-bg' => 'REPLACED in v2 (#1101) by the `step-number` role\'s `background.fill`.',
+            '--grid-step-text-color' => 'REPLACED in v2 (#1101) by the `step-number` role\'s `typography.color`. THE PAIR IS THE POINT, and the role\'s obligation record says so: the badge\'s fill and its numeral are one decision, and changing one without the other is how a light badge gets invisible numerals — which is the #473 defect this slot was added to fix.',
+        ],
         // ── v2 Sprint 2 (#1066): embed's 8 style slots retired ──
         //
         // TWO NOTES ARE NOT PLAIN MOVES. `--embed-heading-color`'s DEFAULT changed (a
@@ -5536,49 +4923,6 @@ class SchemaValidationTest extends TestCase
             self::SLOT_BASELINE_FINGERPRINT,
             self::baselineFingerprint(self::PINNED_SLOT_BASELINE),
             self::baselineEditRemedy('style slot', 'PINNED_SLOT_BASELINE', 'SLOT_BASELINE_FINGERPRINT', 'SLOT_RENAME_MIGRATION_NOTES')
-        );
-    }
-
-    public function testEveryLiveSchemaSlotIsPinnedInBaseline(): void
-    {
-        // The add-path: a newly added slot must be appended to PINNED_SLOT_BASELINE in
-        // the same commit. Without this, a slot added today and renamed next month would
-        // never have been in the baseline, so the remove-path guard above would have
-        // nothing to miss and the rename would ship undocumented after all.
-        //
-        // This path iterates the LIVE set, so it has the one weakness the remove-path
-        // does not: with nothing discovered there is nothing to check, and it would pass
-        // green. Pin the component set in both directions first — that turns a broken
-        // glob, a moved schema, or a component that stopped declaring slots into a hard
-        // failure instead of a silently unguarded surface.
-        $live = $this->liveSlots();
-        $this->assertNotEmpty($live, 'slot discovery found no components — the add-path guard would pass vacuously.');
-        // A component can now LEAVE the slot system entirely (testimonials did, in the
-        // v2 rebuild). The baseline stays append-only — its entry is never deleted —
-        // so the expected LIVE set is the baseline minus the components whose every
-        // pinned slot is accounted for in the migration-notes register. A component
-        // that merely dropped SOME slots is still expected live, and a component that
-        // vanished with no notes still fails, which is the guard's whole point.
-        $retired = [];
-        foreach (self::PINNED_SLOT_BASELINE as $component => $slots) {
-            $notes = self::SLOT_RENAME_MIGRATION_NOTES[$component] ?? [];
-            if ($notes !== [] && array_diff($slots, array_keys($notes)) === []) {
-                $retired[] = $component;
-            }
-        }
-        $this->assertSame(
-            array_values(array_diff(array_keys(self::PINNED_SLOT_BASELINE), $retired)),
-            array_keys($live),
-            'the discovered slot-bearing component set must match PINNED_SLOT_BASELINE exactly '
-            . '(minus components whose entire slot surface is recorded as retired in '
-            . 'SLOT_RENAME_MIGRATION_NOTES).'
-        );
-
-        $violations = self::detectUnpinnedAdditions(self::PINNED_SLOT_BASELINE, $live, 'style slot');
-        $this->assertSame(
-            [],
-            $violations,
-            "PINNED_SLOT_BASELINE (SchemaValidationTest) is stale:\n" . implode("\n", $violations)
         );
     }
 
@@ -6303,11 +5647,19 @@ class SchemaValidationTest extends TestCase
                 }
             }
         }
-        // Both floors sit just under the real counts (125 roles, 16 records). A walk that
-        // stops finding roles, or a population step that silently emptied every list, must
-        // fail here rather than pass on an empty set.
-        $this->assertSame(125, $checked, 'the role count changed — update this number deliberately');
-        $this->assertSame(16, $records, 'the obligation corpus changed — update this number deliberately');
+        // Both floors sit at the real counts (143 roles, 29 records). A walk that stops
+        // finding roles, or a population step that silently emptied every list, must fail
+        // here rather than pass on an empty set.
+        // 125 -> 143 AND 16 -> 29 AT #1101: grid's 18 roles and its 13 obligation records
+        // arrived together, and that ratio is the shape the taxonomy is supposed to have —
+        // a role that pins its own colour instead of following the band OWES the author a
+        // record saying so. grid has seven such roles (card-title, card-text, card-bullets,
+        // card-link and step-number against the CARD; subheading and empty against the
+        // BAND) plus six `reached_only_by_inheritance` records naming the partners a
+        // colour set on `_band` or `card` will NOT reach. Every v2 component is counted
+        // here now: this is the whole theme's role corpus, not a subset.
+        $this->assertSame(143, $checked, 'the role count changed — update this number deliberately');
+        $this->assertSame(29, $records, 'the obligation corpus changed — update this number deliberately');
     }
 
     /**
@@ -6388,7 +5740,9 @@ class SchemaValidationTest extends TestCase
                 $checked++;
             }
         }
-        $this->assertSame(125, $checked, 'the role count changed — update deliberately');
+        // 143 since #1101, when grid's 18 roles joined — see the count's own note in
+        // testEveryRoleDeclaresObligationsAndEveryPartnerExists above.
+        $this->assertSame(143, $checked, 'the role count changed — update deliberately');
     }
 
     /**
@@ -6419,10 +5773,15 @@ class SchemaValidationTest extends TestCase
             }
         }
 
+        // 6 -> 7 AT #1101: grid's `card` -> `card-link` record joined the set. It is the
+        // same shape as the six before it — a container role whose colour reaches an
+        // anchor inside it only by INHERITANCE, while the stylesheet gives every anchor
+        // its own DIRECT colour rule — so it takes the shared prose rather than a variant
+        // of it, which is exactly what the assertion below checks.
         $this->assertCount(
-            6,
+            7,
             $whys,
-            'the six composable rich-text container/link obligations are the shared-prose set'
+            'the composable rich-text container/link obligations are the shared-prose set'
         );
         $this->assertCount(
             1,
@@ -6437,10 +5796,21 @@ class SchemaValidationTest extends TestCase
             ))
         );
 
-        // And the grouping the prompt actually relies on: 5 groups for 13 records today.
+        // And the grouping the prompt actually relies on: 10 groups for 19 records today.
+        //
+        // 5 -> 10 AT #1101, AND THE JUMP IS THE POINT. grid added six
+        // `reached_only_by_inheritance` records and five of them are UNIQUE prose, because
+        // grid's cards are the one place in the theme where a band-level colour genuinely
+        // does not reach the text inside them: `_band` names `subheading` and `empty`,
+        // and `card` names `card-title`, `card-text` and `card-bullets` — each with its
+        // own reason, because each pins a DIFFERENT value for a different measured reason.
+        // Only the sixth, `card` -> `card-link`, takes the shared rich-text prose above,
+        // and it takes it byte-identically so the prompt still collapses that roster line.
+        // A grouping that collapsed further would mean the reasons had been flattened into
+        // one sentence that is true of none of them.
         $groups = \pp_udc_obligation_groups()['reached_only_by_inheritance'] ?? [];
         $this->assertCount(
-            5,
+            10,
             $groups,
             'the inherited-kind roster collapses to five groups; a changed count means prose '
             . 'diverged or converged and the prompt reshaped'
@@ -6478,6 +5848,24 @@ class SchemaValidationTest extends TestCase
             'nav.link -> link-current'        => 'outranked_by_default',
             'logos.image -> image-labeled'    => 'outranked_by_default',
             'footer.social -> social-link'    => 'reached_only_by_inheritance',
+            // GRID'S SEVEN ARRIVED AT #1101, the largest single addition this pin has
+            // taken, because grid's cards are the one place in the theme where a band
+            // colour genuinely does not reach the text. Measured before they were
+            // declared: `card-title`, `card-text`, `card-bullets` and `card-link` rendered
+            // byte-identically on a v1 `default` and `inverted` band, because v1
+            // deliberately kept cards light on a dark band — so each pins its own colour
+            // and each owes the author a record saying a `card` fill change will not
+            // re-ink it. `step-number` is the same shape with a pair rather than a single
+            // value (fill AND numeral). `subheading` and `empty` sit one level up: both
+            // pin `@color-muted` against the BAND, and `empty` renders on the band fill
+            // rather than inside a card, so re-inking the cards cannot reach it either.
+            'grid.card-title -> card'         => 'outranked_by_default',
+            'grid.card-text -> card'          => 'outranked_by_default',
+            'grid.card-bullets -> card'       => 'outranked_by_default',
+            'grid.card-link -> card'          => 'outranked_by_default',
+            'grid.step-number -> card'        => 'outranked_by_default',
+            'grid.subheading -> _band'        => 'outranked_by_default',
+            'grid.empty -> _band'             => 'outranked_by_default',
         ];
         foreach ($expected as $pair => $kind) {
             $this->assertArrayHasKey(
@@ -7231,11 +6619,17 @@ class SchemaValidationTest extends TestCase
         // `theme`, `button_variant` and `button2_variant` in #1026, 22 -> 19, and faq's
         // `theme` in #1046, 19 -> 18, and embed's `theme` in #1066, 18 -> 17. table is
         // rebuilt in that same issue and changes nothing here: it never declared an enum.
-        // stats' and logos' `theme` went in #1066's second half, 17 -> 15. GRID DECLARES
-        // THE LAST ONE.
+        // stats' and logos' `theme` went in #1066's second half, 17 -> 15. GRID DECLARED
+        // THE LAST FIVE and they went at #1101, 15 -> 10: its `theme` (three values), its
+        // `title_align` (two), its `card_emphasis` (two), its `image_treatment` (two) and
+        // the nested `items[].text_role` (four) — which was also the theme's ONLY nested
+        // enum, so `_pp_validate_nested_enum` has no shipped subject left at all.
+        // The ten that remain are STRUCTURAL enums: `layout` on hero, section, grid, cta
+        // and testimonials, and the shape props beside them. That is the end state the v2
+        // program was aiming at — structure stays a prop, tone becomes a role.
         // Every retirement is recorded in
         // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(15, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        $this->assertSame(10, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
     /**
@@ -7364,106 +6758,6 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
-     * #605 — the `theme` prop declares NO aliases on any of the eight band
-     * components, and advertises exactly the three canonical values. What an agent
-     * writes now matches what the catalog advertises, with no footnote and no
-     * accepted-but-unadvertised tier.
-     */
-    public function testNoShippedPropDeclaresAliasesAndThemeAdvertisesOnlyCanonicalValues(): void
-    {
-        $seen = 0;
-        foreach ($this->allSchemas() as $component => $schema) {
-            $theme = $schema['props']['theme'] ?? null;
-            if ($theme === null) {
-                continue;
-            }
-            $seen++;
-            $this->assertSame(['default', 'muted', 'inverted'], $theme['values'] ?? null,
-                "{$component}.theme must advertise only the canonical values");
-            $this->assertArrayNotHasKey('aliases', $theme,
-                "{$component}.theme must declare no aliases — `dark` was removed (#605)");
-            $this->assertNotContains('dark', $theme['values'],
-                "{$component}.theme must never advertise `dark`");
-            $this->assertStringNotContainsString('"dark"', $theme['description'] ?? '',
-                "{$component}.theme description must not advertise `dark` either");
-        }
-        // Six, not eight: testimonials dropped `theme` in #958 and section in #1023, both
-        // recorded in SCHEMA_RENAME_MIGRATION_NOTES. The count shrinks by one per rebuild
-        // sprint, so it is asserted against the notes register rather than restated —
-        // a component that loses `theme` without recording the retirement fails here.
-        $retired = array_keys(array_filter(
-            self::SCHEMA_RENAME_MIGRATION_NOTES,
-            static fn (array $notes): bool => isset($notes['theme'])
-        ));
-        $this->assertSame(
-            count($this->allSchemas()) - count($retired) - count(['nav', 'footer', 'table', 'hero']),
-            $seen,
-            'every component except the recorded retirements and the four that never had `theme`'
-        );
-        // ONE since #1066 PR2, when stats' and logos' `theme` joined the recorded
-        // retirements. GRID IS THE LAST THEME-BEARING COMPONENT IN THE THEME. The derived
-        // assertion above is the real guard — this literal exists so a rebuild has to come
-        // here and say which component moved, and the next one empties the set entirely.
-        $this->assertSame(1, $seen, 'grid is the last theme-bearing component and must be checked');
-    }
-
-    /**
-     * AUTHORING-PATH proof (Section 14.1) that `theme: "dark"` is REJECTED by the
-     * REAL write surface, not just absent from the schema files.
-     *
-     * History, one line: this pin was born under #575 asserting the opposite (the
-     * alias survives the write path). #605 removed the alias and inverted it.
-     *
-     * Three things are asserted, because rejecting is not the same as rendering:
-     *   1. create_page REJECTS the removed value, even beside a canonical sibling;
-     *   2. the error names the WHOLE accepted set — `default, muted, inverted` — with
-     *      no footnote, so the message teaches the real vocabulary on the spot;
-     *   3. a band that nonetheless HOLDS the value in storage renders the DEFAULT
-     *      band, not the tinted one. `dark` used to render a LIGHT band under the
-     *      `--dark` class; it now renders no modifier at all.
-     */
-    public function testThemeDarkIsRejectedByTheRealAuthoringSurface(): void
-    {
-        $GLOBALS['_pp_test_store'] = [
-            'post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100, 'custom_css' => '',
-        ];
-
-        // RE-HOMED AGAIN, section -> stats (#1023) -> grid (#1066 PR2), and for the same
-        // reason each time: a component without a `theme` prop refuses `theme: "dark"` as a
-        // RETIRED prop, which proves nothing about the removed VALUE this test is about.
-        // GRID IS THE LAST COMPONENT THAT CAN HOST THIS CLAIM — when it rebuilds, `theme`
-        // leaves the theme entirely and the claim retires with the prop rather than moving
-        // a fourth time.
-        $items       = [['title' => 'Card', 'text' => 'Body']];
-        $composition = [
-            ['component' => 'grid', 'props' => ['theme' => 'dark', 'items' => $items]],
-            ['component' => 'grid', 'props' => ['theme' => 'inverted', 'items' => $items]],
-        ];
-
-        $result = \pp_validate_action('create_page', ['title' => 'Legacy theme page', 'composition' => $composition]);
-        $this->assertInstanceOf(\WP_Error::class, $result, 'theme:"dark" must be rejected at the authoring surface');
-        $this->assertSame('invalid_prop_value', $result->get_error_code());
-        $this->assertStringContainsString('default, muted, inverted', $result->get_error_message(),
-            'the error must name the whole accepted set, with no legacy footnote');
-        $this->assertStringNotContainsString('legacy', $result->get_error_message());
-
-        // Storage route: bytes that predate the removal still render, as the default.
-        // On GRID, because that is where the removed VALUE still has a live prop to be
-        // removed FROM — on a rebuilt component the same bytes render no modifier for a
-        // different reason (the whole prop retired), which would make this pass without
-        // testing the #605 clamp at all.
-        ob_start();
-        \pp_get_component('grid', ['theme' => 'dark', 'items' => $items]);
-        $html = ob_get_clean();
-        $this->assertStringNotContainsString('grid--dark', $html, 'a stored `dark` no longer paints the tinted band');
-        $this->assertStringNotContainsString('grid--inverted', $html);
-        // The band still renders — it just renders as the DEFAULT band, with no theme
-        // modifier at all.
-        $this->assertStringContainsString('class="grid"', $html);
-        $this->assertStringContainsString('Card', $html);
-    }
-
-    /**
      * THE CONDITIONALITY LEDGER (issue #580) — every definition that declares a
      * condition, and the condition it declares. #575 landed the shapes and populated
      * NOTHING; #580 populates the census, so the guard that used to assert emptiness
@@ -7505,26 +6799,22 @@ class SchemaValidationTest extends TestCase
         'footer prop contact_label' => 'contact present',
         'footer prop secondary_location' => 'note +note(9ff6badb)',
         'footer prop secondary_label' => 'note +note(5e6648ec)',
-        'grid slot --grid-heading-color' => 'title present',
-        'grid slot --grid-heading-accent-color' => 'title present',
-        'grid slot --grid-eyebrow-color' => 'eyebrow present',
-        'grid slot --grid-eyebrow-bg' => 'eyebrow present',
-        'grid slot --grid-eyebrow-radius' => 'eyebrow present',
-        'grid slot --grid-eyebrow-border-width' => 'eyebrow present',
-        'grid slot --grid-eyebrow-border-color' => 'eyebrow present',
-        'grid slot --grid-eyebrow-text-transform' => 'eyebrow present',
-        'grid slot --grid-subheading-color' => 'subheading present',
-        'grid slot --grid-subheading-margin-bottom' => 'subheading present',
-        'grid slot --grid-heading-margin-bottom' => 'title present',
-        'grid slot --grid-heading-size' => 'title present',
-        'grid slot --grid-heading-measure' => 'title present',
-        'grid slot --grid-item-bar-color' => 'layout=cards +note(c3e1c5d4)',
-        'grid slot --grid-item-bar-height' => 'layout=cards +note(c3e1c5d4)',
-        'grid slot --grid-featured-texture-color' => 'layout=cards AND card_emphasis=featured +note(d35edaf4)',
-        'grid slot --grid-featured-shadow' => 'layout=cards AND card_emphasis=featured +note(d35edaf4)',
-        'grid slot --grid-item-icon-size' => 'layout=cards AND image_treatment=icon +note(046f6c6d)',
-        'grid slot --grid-step-bg' => 'layout=steps',
-        'grid slot --grid-step-text-color' => 'layout=steps',
+            // GRID'S TWENTY CONDITIONALITY ROWS LEFT AT #1101 — the whole census, and every
+            // remaining row in this ledger is a PROP row. grid was the only component
+            // declaring `applies_when` on a style SLOT, so this is the last of that shape.
+            // Its twenty clauses covered four conditions: `title present` / `subheading
+            // present` / `eyebrow present` (the header slots painted nothing when the
+            // element did not render), `layout=cards` / `layout=steps` (the bar and the
+            // step badge), and two compound ones on `card_emphasis` and `image_treatment`.
+            //
+            // NONE OF THEM PORTS, AND THAT IS A REAL GAP RATHER THAN A CLEAN MOVE: v2 roles
+            // have no conditionality concept at all. What replaces the FIRST three is
+            // structural and strictly better — a role's block is emitted only when its
+            // element renders, so an unrendered eyebrow has nothing to warn about — but the
+            // layout- and prop-conditioned ones have no equivalent, because a role's
+            // `defaults` carry a breakpoint dimension and a state dimension and NO VARIANT
+            // dimension. Filed as its own axis at #1102, with this ledger named as the
+            // place the twenty clauses used to be recorded.
         // DIGEST UPDATED AT #1066, DELIBERATELY: the prose changed and the clause list did
         // not, which is exactly the case this digest exists to surface. The note used to
         // tell an author to defeat the label-driven cap with `--logos-image-size`; that
@@ -7723,9 +7013,36 @@ class SchemaValidationTest extends TestCase
     {
         $schemas = $this->allSchemas();
 
-        // COMPOSED-PAGE CONTEXT — the `main >` scope on the featured card.
-        $featured = $schemas['grid']['styling']['style_slots']['--grid-featured-shadow'];
-        $this->assertStringContainsString('main > .grid', $featured['conditionality_note']);
+        // COMPOSED-PAGE CONTEXT — THE CLASS LOST ITS LAST DECLARING SURFACE AT #1101, and
+        // it is recorded here in the same shape this test already uses for the interaction
+        // class below, rather than quietly deleted.
+        //
+        // The example was grid's `--grid-featured-shadow`, whose note described the
+        // `main > .grid` scope that made the featured first card's glow apply only on a
+        // COMPOSED page. It went with the `card_emphasis` prop under ruling D9 — the
+        // ordinal `:first-child` treatment contradicts Addendum B's rule that a card is
+        // addressed by its minted id — and no v2 role can declare the class at all,
+        // because a role's `defaults` carry a breakpoint dimension and a state dimension
+        // and no PAGE-CONTEXT dimension.
+        //
+        // THE CLAUSE GRAMMAR STILL CANNOT EXPRESS IT, which is what this test is really
+        // about, so the retirement does not weaken the ruling's bound: a composed-page
+        // scope is a fact about where the band RENDERS, not about a prop's value, and the
+        // clause grammar reads props. Pinned as absent so a re-declaration is a decision.
+        $composedScope = [];
+        foreach ($schemas as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                if (is_array($def) && str_contains((string) ($def['conditionality_note'] ?? ''), 'main > ')) {
+                    $composedScope[] = "{$component} {$name}";
+                }
+            }
+        }
+        $this->assertSame(
+            [],
+            $composedScope,
+            'a composed-page-context note is declared again — add it back to this census as '
+            . 'its own class, with the surface that declares it'
+        );
 
         // INTERACTION STATE — THE CLASS LOST ITS LAST DECLARING SURFACE AT #1046, and
         // that is recorded here rather than quietly deleted, because the class is why
@@ -7923,78 +7240,6 @@ class SchemaValidationTest extends TestCase
                 . "{$component}.php can emit (derived from the template, not from a pinned list)."
             );
         }
-    }
-
-    /**
-     * REPLACES testSectionThemeClassesKeepThePpSectionPrefix() (#1023).
-     *
-     * The old test pinned section's `pp-section--dark` / `pp-section--inverted` classes by
-     * name, because section was the ONE place the two spellings diverged: its root class
-     * is `section` but pp_theme_class() was called with the `pp-section` prefix, so a
-     * "consistency cleanup" renaming them to `section--*` would have silently unstyled
-     * every muted and inverted section band.
-     *
-     * The v2 rebuild retired section's `theme` prop, so those two classes no longer exist
-     * and the by-name pin could only assert their absence — which is not what the test was
-     * protecting. What it was protecting is the DIVERGENCE HAZARD, and that is now pinned
-     * generically and derived from the templates: every component that calls
-     * pp_theme_class() must pass a prefix equal to its own declared root_class, so
-     * reintroducing the divergence anywhere fails here rather than only on section.
-     *
-     * Section's unprefixed root_class is asserted separately, because the structural CSS
-     * and the shared glyph block both select on `.section`.
-     */
-    public function testNoComponentPassesPpThemeClassAPrefixThatDiffersFromItsRootClass(): void
-    {
-        $checked = 0;
-        $callers = [];
-
-        foreach ($this->allSchemas() as $component => $schema) {
-            $template = $this->themeRoot . "/components/{$component}/{$component}.php";
-            if (!is_file($template)) {
-                continue;
-            }
-            if (!preg_match_all('/pp_theme_class\(\s*\$?\w+\s*,\s*\'([^\']+)\'/', file_get_contents($template), $m)) {
-                continue;
-            }
-            $callers[] = $component;
-            foreach ($m[1] as $prefix) {
-                $checked++;
-                $this->assertSame(
-                    $schema['styling']['root_class'] ?? null,
-                    $prefix,
-                    "{$component} passes pp_theme_class() the prefix \"{$prefix}\", which is not its root class — "
-                    . 'that divergence is what made section\'s pp-section--* classes a trap before #1023'
-                );
-            }
-        }
-
-        // embed.php stopped calling pp_theme_class() at #1066 because the prop that fed it
-        // retired, exactly as faq.php stopped at #1046. THE FLOOR IS RE-FOUNDED AT #1066 PR2, which is what the note here asked for rather than
-        // another decrement. stats and logos were the other two callers and both left, so
-        // a `>= 3` floor would have had to become `>= 1` — and a one-caller floor cannot
-        // tell "the sweep found grid" from "the sweep found anything at all", which is the
-        // single thing the floor existed to catch.
-        //
-        // So the claim is now an EXACT SET rather than a count. It fails if grid stops
-        // calling pp_theme_class (the sweep broke, or grid rebuilt and this test should
-        // retire with it) AND it fails if a new caller appears (a component re-growing a
-        // theme prop, which is a decision, not an accident).
-        $this->assertSame(
-            ['grid'],
-            array_values(array_unique($callers)),
-            'grid is the last pp_theme_class caller in the theme. A caller appearing here is ' .
-            'a component re-growing a `theme` prop; a caller disappearing means grid rebuilt, ' .
-            'at which point this test retires with the helper rather than narrowing further.'
-        );
-
-        $section = json_decode(file_get_contents($this->themeRoot . '/components/section/schema.json'), true);
-        $this->assertSame('section', $section['styling']['root_class'], 'the root class itself is unprefixed');
-        $this->assertSame(
-            [],
-            preg_grep('/^pp-section--/', $section['styling']['variant_classes']),
-            'the pp-section--* theme classes retired with the `theme` prop (#1023)'
-        );
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -8361,6 +7606,9 @@ class SchemaValidationTest extends TestCase
             'embed'        => ['content' => '<p>E</p>'],
             'stats'        => ['items' => [['number' => '10', 'label' => 'Ten']]],
             'logos'        => ['items' => [['image_url' => '/a.png', 'image_alt' => 'A']]],
+            // grid joined at #1101 — the last v2 component, and the last fixture this
+            // roster will ever need.
+            'grid'         => ['items' => [['title' => 'Card', 'text' => 'B']]],
         ];
 
         foreach ($v2 as $component) {
@@ -8384,17 +7632,27 @@ class SchemaValidationTest extends TestCase
             $this->assertStringContainsString('_band', $message, 'and it lists the roles to use');
         }
 
-        // A v1 component keeps the old spelling, because its slots are real. The example
-        // moved from cta to grid at #1026, when cta's rebuild left it with no slots to
-        // list — the same re-homing #1025 records for the slot-engine fixtures, and for
-        // the same reason: a v1 example has to live on a component that is still v1.
-        $v1 = pp_validate_composition_item([
+        // THE v1 HALF RETIRED AT #1101, and it is pinned as ABSENT rather than deleted.
+        //
+        // It asserted that a component still ON slots kept the old refusal spelling
+        // ("Available slots: --grid-…"), so the v2 message was an ADDITION rather than a
+        // replacement. The example had already been re-homed once — from cta to grid at
+        // #1026, when cta's rebuild left it with no slots to list — and grid was the last
+        // component it could live on. There is nowhere left to re-home it to, and that is
+        // the fact worth asserting: EVERY component now answers with the v2 spelling, so
+        // the "Available slots:" branch is unreachable from any shipped schema.
+        $legacy = pp_validate_composition_item([
             'component' => 'grid',
             'props'     => ['title' => 'T', 'items' => [['title' => 'Card', 'text' => 'B']]],
             'style'     => ['--nope' => 'red'],
         ]);
-        $this->assertInstanceOf(\WP_Error::class, $v1);
-        $this->assertStringContainsString('Available slots: --grid-', $v1->get_error_message());
+        $this->assertInstanceOf(\WP_Error::class, $legacy);
+        $this->assertStringNotContainsString(
+            'Available slots: --grid-',
+            $legacy->get_error_message(),
+            'no shipped component can reach the v1 refusal spelling any more'
+        );
+        $this->assertStringContainsString('v2 styling system', $legacy->get_error_message());
     }
 
 

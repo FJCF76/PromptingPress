@@ -77,3 +77,19 @@ now.
   does not ship.
 - It carries no `roles` block. It stands in for a **v1** component, because v1 is what the
   slot engine serves.
+
+## Recipes (added #1101)
+
+RECIPES MOVED HERE AT #1101, from grid. The recipe engine — style_component's `recipe` parameter, its expansion into slot values, the `invalid_recipe` refusal and the recipe roster `wp pp operate inspect` reports — is live production code, and grid was its LAST shipped declarer (3 recipes; cta's two retired with its slot map at #1026). Retiring the tests with grid would have left that engine with no end-to-end coverage at all, so the declarations move to the fixture that exists for exactly this, on the #1025 pattern. Three recipes rather than one, because the suites that read them count the roster. They die with this fixture in the v1 machinery sweep, when whether the recipe engine has any consumer left is a measurement rather than an assumption.
+
+They are declared in `schema.json` rather than described here only, because the engine
+reads declarations: a recipe documented in prose expands into nothing.
+
+**Why the roster is three and not one.** `ActionsTest::testInspectCompositionShowsAvailableRecipes`
+asserts a COUNT, because a roster that silently shrank to one would still look like
+coverage. Three is what grid shipped, so the count claim is unchanged by the move.
+
+**Why there is no `_note` key in the recipe map.** The engine treats every key under
+`styling.recipes` as a recipe name, so a `_note` key is reported as a fourth recipe and
+offered to an author who cannot apply it. That is the accepted-stored-ignored shape this
+codebase refuses everywhere else — caught here by the count assertion above, which read 4.

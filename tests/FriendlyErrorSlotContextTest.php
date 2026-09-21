@@ -179,27 +179,35 @@ class FriendlyErrorSlotContextTest extends TestCase
         // judged set is what the validator looped over: the recipe's slots plus the
         // undeclared name — never `__recipe` (a tracking key, not a CSS property),
         // never the null (a removal the validator passes over).
-        // `grid` since #1023: this case needs a component with RECIPES, and only grid and
-        // cta still declare any — section's two went with its slot map.
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, and this is the last such move.
+        // The case needs a component that declares RECIPES: it was `section` until #1023,
+        // `grid` and `cta` after that, then grid alone once cta rebuilt — and grid's slot
+        // map (and therefore its three recipes, since a recipe IS a bundle of style slots)
+        // went with its v2 rebuild. No shipped component declares a recipe any more.
+        // `ppfixture` is the registered test-only slot host kept across rebuilds (#1025);
+        // three recipes were added to it in this same change so this family survives, and
+        // it dies with the slot engine in this task's PR2.
         $post_id = $this->authorPage('Judged set', [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'One', 'text' => 'a']], 'title' => 'Hi']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
 
         [$error] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
             'recipe'          => 'dark-showcase',
             // The removal must name a slot the recipe does NOT contribute, or the two
-            // assertions below contradict each other. `dark-showcase` sets --grid-bg,
-            // --grid-heading-color, --grid-item-bg, --grid-gap and --grid-item-radius,
-            // so the removal is --grid-subheading-color.
-            'style'           => ['--grid-subheading-color' => null, '--grid-bgs' => '#1a1a2e']]);
+            // assertions below contradict each other. `dark-showcase` sets
+            // --ppfixture-bg, --ppfixture-heading-color, --ppfixture-gap and
+            // --ppfixture-radius, so the removal is --ppfixture-padding-top.
+            'style'           => ['--ppfixture-padding-top' => null, '--ppfixture-bgs' => '#1a1a2e']]);
 
         $candidates = $error->get_error_data()['candidate_slots'];
 
         $this->assertNotContains('__recipe', $candidates, 'The recipe tracking key is not a slot.');
-        $this->assertNotContains('--grid-subheading-color', $candidates, 'A null is a removal, not a value to judge.');
-        $this->assertContains('--grid-bgs', $candidates, 'The undeclared name the author wrote is judged.');
-        foreach (array_keys(pp_get_style_recipes('grid')['dark-showcase']['slots']) as $recipe_slot) {
+        $this->assertNotContains('--ppfixture-padding-top', $candidates, 'A null is a removal, not a value to judge.');
+        $this->assertContains('--ppfixture-bgs', $candidates, 'The undeclared name the author wrote is judged.');
+        $recipe_slots = array_keys(pp_get_style_recipes('ppfixture')['dark-showcase']['slots']);
+        $this->assertNotSame([], $recipe_slots, 'the recipe must contribute something, or the loop below is vacuous');
+        foreach ($recipe_slots as $recipe_slot) {
             $this->assertContains($recipe_slot, $candidates, 'Every slot the recipe contributed is judged.');
         }
     }
@@ -212,43 +220,63 @@ class FriendlyErrorSlotContextTest extends TestCase
         // that was rejected becomes a slot the component at that index DOES
         // declare. Answering from a second read would tell the author the setting
         // is available on a component that never saw their proposal.
+        //
+        // RE-HOMED ONTO THIS FILE'S OWN TWO-COMPONENT FIXTURE THEME AT #1101, and the
+        // move RESTORES the test rather than merely relocating it. The race needs TWO
+        // slot-bearing components — one that rejects the name and one that declares it —
+        // and the shipped registry has none at all since grid's v2 rebuild took the last
+        // slot map. Worse, the previous re-home had already hollowed this out: both the
+        // original band and the "retyped" replacement were `ppfixture`, so nothing was
+        // actually retyped and the swap could not change any answer. `useFixtureTheme()`
+        // is this file's established idiom for exactly this situation (see the driftbox /
+        // panelbox recipe-drift tests below, which have always needed it), and it goes
+        // through the canonical loader from a real on-disk theme root.
+        $this->useFixtureTheme([
+            'alphabox' => ['style_slots' => [
+                '--alphabox-bg' => ['type' => 'color', 'default' => '#fff', 'description' => 'Alphabox background'],
+            ]],
+            'betabox' => ['style_slots' => [
+                '--betabox-bg' => ['type' => 'color', 'default' => '#eee', 'description' => 'Betabox background'],
+            ]],
+        ]);
+
         $post_id = $this->authorPage('Retyped target', [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']]]);
+            ['component' => 'alphabox', 'props' => []]]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            // A slot that belongs to `cta`, not `section`: invalid here (so the preview
-            // rejects) and hintable (so the report can name where it does live).
-            'style'           => ['--grid-item-bg' => '#1a1a2e']];
+            // A slot that belongs to `betabox`, not `alphabox`: invalid here (so the
+            // preview rejects) and hintable (so the report can name where it does live).
+            'style'           => ['--betabox-bg' => '#1a1a2e']];
         $error = pp_preview_action('style_component', $params);
         $this->assertInstanceOf(WP_Error::class, $error);
+        $this->assertSame('invalid_style_slot', $error->get_error_code());
 
-        // A concurrent proposal replaces the band with a `section` — which declares
-        // the very slot the hero rejected.
+        // A concurrent proposal replaces the band with a `betabox` — which declares the
+        // very slot `alphabox` rejected. THIS is the race: a second read at report time
+        // would now find a component for which the proposal is perfectly valid.
         $swapped = pp_execute_action('update_composition', [
             'post_id'     => $post_id,
-            'composition' => [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Swapped']]]]);
+            'composition' => [['component' => 'betabox', 'props' => []]]]);
         $this->assertTrue($swapped['ok']);
-        $this->assertArrayHasKey('--ppfixture-bg', pp_get_style_slots('ppfixture'));
+        $this->assertArrayHasKey('--betabox-bg', pp_get_style_slots('betabox'), 'the new occupant really does declare it');
 
         $friendly = _pp_build_friendly_error($error, $params);
 
         $this->assertSame(
-            array_keys(pp_get_style_slots('ppfixture')),
+            ['--alphabox-bg'],
             $friendly['alternatives'],
             'The alternatives are the rejecting component\'s slots, not the current occupant\'s.'
         );
-        $this->assertStringContainsString('ppfixture', $friendly['user_message']);
+        $this->assertStringContainsString('alphabox', $friendly['user_message']);
         // The hint itself is the proof that the rejected name was still judged as
-        // unknown: judged against `section` it is a declared slot and would have
-        // produced no hint at all. Which component the scan names first is registry
-        // order (an exact match on `section`, a suffix match on any `--*-bg`), so
-        // the assertion is that the named component really declares what it claims.
+        // unknown: judged against the CURRENT occupant it is a declared slot and would
+        // have produced no hint at all.
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--grid-item-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
-        $hint = $hints['--grid-item-bg'];
-        $this->assertNotSame('ppfixture', $hint['component'], 'A hint points away from the component that rejected.');
+        $this->assertArrayHasKey('--betabox-bg', $hints, 'The rejected slot is real elsewhere, and the hint says where.');
+        $hint = $hints['--betabox-bg'];
+        $this->assertSame('betabox', $hint['component'], 'A hint points away from the component that rejected.');
         $this->assertArrayHasKey($hint['slot'], pp_get_style_slots($hint['component']));
     }
 
@@ -378,36 +406,49 @@ class FriendlyErrorSlotContextTest extends TestCase
     {
         // The hint mechanism itself, exercised through the path production takes:
         // the pre-#626 hint tests all hand-build the rejection, so they now cover
-        // the fallback branch only.
-        // The BAND is the `ppfixture` fixture since #1066 PR2 (it was a `stats` from
-        // #1023, and a `section` before that). The mechanism under test is the
-        // cross-component hint — "that slot lives on cta, not here" — and it only fires
-        // for a component that HAS slots to judge the name against. A v2 band refuses
-        // earlier and differently (`no_style_slots`), which is a different message and is
-        // covered by its own pins.
-        $post_id = $this->authorPage('Hint on the real path', [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
+        // the fallback branch only. The mechanism only fires for a component that HAS
+        // slots to judge the name against — a v2 band refuses earlier and differently
+        // (`no_style_slots`), which is a different message with its own pins.
+        //
+        // RE-HOMED ONTO THIS FILE'S OWN TWO-COMPONENT FIXTURE THEME AT #1101. The band
+        // was `section`, then `stats` (#1023), then `ppfixture` (#1066 PR2), and the
+        // DONOR — the component the hint points AT — was `cta` and then `grid`. grid's v2
+        // rebuild took the last shipped slot map, so there is no donor left in the
+        // registry: `ppfixture` is the only slot-bearing component, and a hint that
+        // pointed from ppfixture back to ppfixture is not a cross-component hint.
+        // Both halves therefore become fixtures, through the same `useFixtureTheme()` the
+        // recipe-drift tests below use. The rule the old comment encoded still governs the
+        // choice and is now guaranteed rather than argued: the slot must be declared by
+        // exactly ONE component, or this would pin the matcher's tie-break instead of the
+        // hint — here only `betabox` declares it, and only `alphabox` is on the page.
+        $this->useFixtureTheme([
+            'alphabox' => ['style_slots' => [
+                '--alphabox-bg' => ['type' => 'color', 'default' => '#fff', 'description' => 'Alphabox background'],
+            ]],
+            'betabox' => ['style_slots' => [
+                '--betabox-shade' => ['type' => 'color', 'default' => '#eee', 'description' => 'Betabox shade'],
+            ]],
         ]);
 
-        [, $friendly] = $this->rejectThenReport([
+        $post_id = $this->authorPage('Hint on the real path', [
+            ['component' => 'alphabox', 'props' => []],
+        ]);
+
+        [$error, $friendly] = $this->rejectThenReport([
             'post_id'         => $post_id,
             'component_index' => 0,
-            // `--grid-item-bar-color` rather than `--grid-item-bg`: the hint engine resolves
-            // by NAME, and UNTIL #1046 faq declared `--faq-item-bg`, which the matcher
-            // reached first. faq has no slots now, so that collision is gone and
-            // `--grid-item-bg` would be unambiguous — the fixture is kept as it is because
-            // the rule it encodes still holds: the slot has to be one only ONE component
-            // declares, or the test pins the matcher's tie-break instead of the hint.
-            // (The fixture moved off cta at #1026; see #1025 on why the slot-engine
-            // fixtures keep re-homing.)
-            'style'           => ['--grid-item-bar-color' => '#101010'],
+            'style'           => ['--betabox-shade' => '#101010'],
         ]);
 
+        // THE AUTHORITATIVE PATH, asserted rather than assumed — it is the whole reason
+        // this test exists beside the hand-built hint tests in ActionsTest.
+        $this->assertNotNull(pp_rejected_slot_context($error), 'the validator attached its own answer');
+
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--grid-item-bar-color', $hints);
-        $this->assertSame('grid', $hints['--grid-item-bar-color']['component']);
-        $this->assertSame('exact', $hints['--grid-item-bar-color']['match']);
-        $this->assertStringContainsString('ppfixture', $friendly['user_message']);
+        $this->assertArrayHasKey('--betabox-shade', $hints);
+        $this->assertSame('betabox', $hints['--betabox-shade']['component']);
+        $this->assertSame('exact', $hints['--betabox-shade']['match']);
+        $this->assertStringContainsString('alphabox', $friendly['user_message']);
     }
 
     // ── A recipe that drifts out of its component's declared slots ─────────
@@ -513,14 +554,23 @@ class FriendlyErrorSlotContextTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'Hi', 'body' => 'Body text']],
         ]);
 
+        // THE HINTED SLOT MOVED FROM `grid` TO `ppfixture` AT #1101: `--grid-item-bg`
+        // retired with grid's v2 rebuild, which took the last shipped slot map, and an
+        // undeclared name produces no hint at all — this would have gone on "passing" as
+        // a missing key. `ppfixture` is the registered test-only slot host (#1025) and is
+        // the only component left that can be pointed AT; it dies with the slot engine in
+        // this task's PR2. The band stays a `section` deliberately: the fallback has to
+        // answer for a component with no slots of its own, which is the shape a stale
+        // producer of this error code actually hands it.
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs". Available: --section-bg'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--grid-item-bg' => '#111']]
+            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#111']]
         );
 
         $this->assertSame(array_keys(pp_get_style_slots('section')), $friendly['alternatives']);
         $hints = (array) $friendly['cross_component_hints'];
-        $this->assertArrayHasKey('--grid-item-bg', $hints, 'The fallback still judges the keys it can see.');
+        $this->assertArrayHasKey('--ppfixture-bg', $hints, 'The fallback still judges the keys it can see.');
+        $this->assertSame('ppfixture', $hints['--ppfixture-bg']['component'], 'and names where the slot really lives');
     }
 
     public function testAContextlessRejectionStillReportsAnUnresolvableTarget(): void

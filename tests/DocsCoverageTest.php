@@ -131,109 +131,41 @@ class DocsCoverageTest extends TestCase
         $path = $this->themeRoot . '/' . $relative;
         $this->assertFileExists($path, "a docs guard reads {$relative}, which no longer exists");
         return (string) file_get_contents($path);
-    }
-
-    // ── Style-slot coverage ──────────────────────────────────────────────────
-
-    /**
-     * Every style slot a component declares must be named in that component's
-     * README. Six READMEs (testimonials, faq, logos, embed, table, stats) plus
-     * hero documented ZERO slots before #585, so a slot could ship with no
-     * authoring-surface mention at all. Derived from the schema, so a new slot
-     * fails this the moment it lands undocumented.
+    }    /**
+     * THE TWO SLOT-README GUARDS RETIRED AT #1101, AND THE CLAIM THEY MADE IS KEPT.
      *
-     * @dataProvider slotStyledComponentProvider
+     * They walked `slotStyledComponentProvider()` — every component declaring
+     * `styling.style_slots` — and asserted, in both directions, that its README named
+     * exactly the slots its schema declared: no declared slot missing from the prose, and
+     * no prose name the schema did not declare unless the same paragraph marked it absent.
+     *
+     * grid was the last member of that provider, so with its rebuild the provider returns
+     * an empty list and PHPUnit ERRORS on an empty data set rather than skipping — which
+     * is how this retirement announced itself rather than passing silently. There is
+     * nothing left for either direction to check: a component with no slots has no slot
+     * to omit from its README and no slot name to over-advertise.
+     *
+     * THE EMPTINESS IS ASSERTED BELOW rather than left implicit, because the provider is
+     * DERIVED: if a rebuilt component ever re-grows a slot map, this line fails first and
+     * the two guards above have to be restored deliberately instead of the map shipping
+     * with no README coverage at all. The ROLE-grain equivalents
+     * (`roleStyledComponentProvider`, `testEveryDeclaredRoleIsNamedInItsReadme` and
+     * `testTheLayoutRosterInEachReadmeMatchesItsSchema`) are the live guards now, and grid
+     * joined them in this same change.
      */
-    public function testEveryDeclaredStyleSlotIsNamedInItsReadme(string $component): void
+    public function testNoComponentDeclaresStyleSlotsAnyMore(): void
     {
-        $slots  = $this->slots($component);
-        $readme = $this->readme($component);
-        $this->assertNotEmpty(
-            $slots,
-            "{$component} is listed as composable but declares no style slots — "
-            . 'add it to self::CHROME if that is intentional.'
-        );
-
-        $missing = [];
-        foreach (array_keys($slots) as $slot) {
-            // Boundary-anchored: a bare substring match would let --hero-bg be
-            // satisfied by --hero-bg-position, so six slots across the theme
-            // (--hero-bg, --hero-accent, --section-bg, --cta-bg, --cta-accent,
-            // --stats-bg) could be deleted from a README with this still green.
-            if (!preg_match('/' . preg_quote($slot, '/') . '(?![a-z0-9-])/', $readme)) {
-                $missing[] = $slot;
-            }
-        }
-
         $this->assertSame(
             [],
-            $missing,
-            "components/{$component}/README.md does not name these declared style slots: "
-            . implode(', ', $missing)
-            . '. A slot an agent cannot find in the README is a slot it will not use.'
+            self::slotStyledComponents(),
+            'a component declares `styling.style_slots` again. The v1 slot surface was '
+            . 'retired with grid at #1101; if this is deliberate, restore the two README '
+            . 'coverage guards this assertion replaced in the same commit, or the slot '
+            . 'ships with no authoring-surface coverage at all.'
         );
-    }
-
-    /**
-     * The reverse direction: a README must not advertise as available a custom
-     * property the schema does not declare. That is the failure mode a rename
-     * leaves behind — the old name keeps living in prose and an agent writes it
-     * into style_component, where it is rejected.
-     *
-     * Naming an undeclared property is NOT banned outright, because several of the
-     * most useful disclosures do exactly that: "the remedy would be
-     * `--testimonials-avatar-size`", "`--table-bg` does not exist". Those tell an
-     * agent where the boundary is. The rule is that such a mention must be marked
-     * absent IN THE SAME PARAGRAPH — a neutral mention reads as an offer, and that is
-     * the failure this pins. Family shorthands (`--stats-number-*`, written with a
-     * trailing hyphen) are skipped: they are prose, not a slot name.
-     *
-     * Known limit, stated rather than papered over: a markdown TABLE is one paragraph,
-     * so an absence marker in one row excuses a neutral mention in another row of the
-     * same table. Per-row scope would be a real improvement, not a defect this already
-     * handles.
-     *
-     * @dataProvider slotStyledComponentProvider
-     */
-    public function testReadmeNamesNoSlotTheSchemaDoesNotDeclare(string $component): void
-    {
-        $declared = array_keys($this->slots($component));
-        // Deliberately does NOT include "stated default": that phrase is the section
-        // heading, so it would excuse every mention in the table beneath it.
-        $absence  = '/(do(es)? not exist|is no |are no |no slot|not shipped|not declared|'
-                  . 'is ever\s+shipped|would be|not authorable|not among them)/i';
-
-        // Paragraph scope, not line scope: markdown prose wraps, so a disclosure
-        // and the name it discloses routinely land on different lines.
-        $paragraphs = preg_split('/\n\s*\n/', $this->readme($component)) ?: [];
-
-        $unmarked = [];
-        foreach ($paragraphs as $paragraph) {
-            preg_match_all('/--' . preg_quote($component, '/') . '-[a-z0-9-]+/', $paragraph, $m);
-            foreach (array_unique($m[0]) as $name) {
-                if (in_array($name, $declared, true)) {
-                    continue;
-                }
-                // A family shorthand such as `--stats-number-*` keeps its trailing
-                // hyphen once the wildcard is dropped; that is prose, not a name.
-                if (str_ends_with($name, '-')) {
-                    continue;
-                }
-                if (preg_match($absence, $paragraph)) {
-                    continue;
-                }
-                $unmarked[] = $name;
-            }
-        }
-
-        $this->assertSame(
-            [],
-            array_values(array_unique($unmarked)),
-            "components/{$component}/README.md names custom properties the schema does "
-            . 'not declare, in a paragraph that never marks them absent: '
-            . implode(', ', array_unique($unmarked))
-            . '. Either declare them, mark them absent, or stop naming them.'
-        );
+        // Anti-vacuity: the derivation must still be able to SEE components, or an empty
+        // result would prove nothing about slots.
+        $this->assertNotEmpty(self::allComponents(), 'component discovery found nothing');
     }
 
     /**
@@ -396,7 +328,10 @@ class DocsCoverageTest extends TestCase
             7 => 'seven', 8 => 'eight', 9 => 'nine', 10 => 'ten', 11 => 'eleven',
             12 => 'twelve', 13 => 'thirteen', 14 => 'fourteen', 15 => 'fifteen',
             16 => 'sixteen', 17 => 'seventeen', 18 => 'eighteen', 19 => 'nineteen',
-            20 => 'twenty', 21 => 'twenty-one',
+            20 => 'twenty', 21 => 'twenty-one', 22 => 'twenty-two',
+            23 => 'twenty-three', 24 => 'twenty-four', 25 => 'twenty-five',
+            26 => 'twenty-six', 27 => 'twenty-seven', 28 => 'twenty-eight',
+            29 => 'twenty-nine', 30 => 'thirty',
         ];
         $total = count($keys);
         $this->assertArrayHasKey(
@@ -1105,8 +1040,18 @@ class DocsCoverageTest extends TestCase
         // FAIL-CLOSED ON THE OTHER SIDE: an empty result is only meaningful while the prompt
         // still makes the claim. If that sentence is ever rewritten, this test should be
         // revisited rather than left asserting an absence nobody depends on.
+        //
+        // THE ANCHOR MOVED AT #1101, AND THIS ARM IS WHY IT WAS NOTICED. It used to read
+        // 'was the last one and retired with stats at #1066' — a clause inside the
+        // sentence that told the model there was no focal-point route on a v1 component.
+        // grid's rebuild made that whole sentence false (there is no v1 component left to
+        // have no route ON), so it was rewritten, and this arm failed on the rewrite
+        // exactly as its own comment promised. The anchor is repointed to the half of the
+        // claim that survived and is still the thing this test protects: that a band
+        // background's focal point is a ROLE parameter everywhere, with no slot anywhere
+        // contradicting it.
         $this->assertStringContainsString(
-            'was the last one and retired with stats at #1066',
+            "The BAND background's focal point is `_band` `background.position` everywhere",
             pp_ai_system_prompt(),
             'the prompt no longer makes the claim this test exists to protect — reconcile them'
         );

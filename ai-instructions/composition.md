@@ -447,26 +447,24 @@ Renders numbered process cards. Use for How-It-Works or sequential flows. Each c
 }
 ```
 
-### grid.card_emphasis: "featured" | "uniform"
+### grid.card_emphasis — RETIRED (#1101)
 
-Controls whether the **first card** gets the emphasized "featured" treatment. Default `featured` (unchanged historical behavior) gives card 1 an accent top bar, a tinted fill, a larger title, extra body top-padding, and — on the `muted` theme — a slight lift, drawing the eye to a lead item.
+**The `card_emphasis` prop is retired**, and it was retired rather than ported. Writing it is refused with `retired_prop`.
 
-Set `card_emphasis: "uniform"` to render **every card identically**. Use it for a symmetric/peer card row where the cards are equal and the featured emphasis would mislead or misalign them: specification/comparison cards whose checklists must line up across the row (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors), or an equal-weight feature/plan row. Keep `featured` when one card is genuinely the lead. Cards-layout concept; ignored on `steps`. This is a grid prop (set with `create_page` / `update_component`), not a style slot, and it drops the *whole* featured treatment — more complete than the slot-level `uniform-cards` recipe, which cannot reach the first-card top-padding or the muted-band lift.
+v1's `featured` value gave the FIRST card an accent border, a tinted fill, a louder top bar and a glow; `uniform` opted out of all of it. That treatment was `:first-child` — **ordinal** styling — and Addendum B rules that a card is addressed by the id the engine mints for it, so that reordering the list carries a card's design WITH it. Keeping an ordinal treatment beside an id-addressed one would leave two systems disagreeing about which card is special the moment someone reorders.
+
+**Measured on the owner's production site before the prop went:** all 11 grid bands already rendered `grid--uniform` — the featured treatment was switched off everywhere it could have applied.
+
+To make ONE card special now, give that entry its own `udc` map:
 
 ```json
-{
-  "component": "grid",
-  "props": {
-    "title": "Especificaciones",
-    "card_emphasis": "uniform",
-    "items": [
-      { "title": "Método de análisis", "bullets": ["Estático", "Dinámico"] },
-      { "title": "Datos y privacidad", "bullets": ["Cifrado", "Sin reventa"] },
-      { "title": "Compatibilidad", "bullets": ["Web", "API"] }
-    ]
-  }
-}
+{"title": "Lightweight by default", "text": "…",
+ "udc": {"card": {"background": {"fill": "#14141F"}, "border": {"color": "#0A0A12"}},
+         "card-title": {"typography": {"color": "#F2EEE5"}},
+         "card-text": {"typography": {"color": "#E8E2D4"}}}}
 ```
+
+Remember the pairing: `card-title`, `card-text`, `card-bullets` and `card-link` all pin their own colours, so darkening a card's fill without re-inking them leaves dark text on a dark panel. The schema declares that as an obligation and the write envelope reports it.
 
 ### grid.columns: 1 | 2 | 3 | 4
 
@@ -492,62 +490,66 @@ Unset (omit the key) keeps the auto-by-count default — byte-identical. Values 
 }
 ```
 
-### grid.image_treatment: "banner" | "icon"
+### grid.image_treatment — RETIRED (#1101)
 
-By default (`banner`) each card's `image_url` renders as a full-width 16:9 cover banner above the card body. Set `image_treatment: "icon"` to render the image at a small fixed icon size instead — un-cropped (`object-fit: contain`), sized by the `--grid-item-icon-size` slot (default 48px), above the title. Use it for the common **icon + title + text** feature card, where a ~45px logo or glyph would otherwise be blown up into a cropped banner.
+**The `image_treatment` prop and the `--grid-item-icon-size` slot are both retired.** Writing either is refused — the prop with `retired_prop` naming its route, the slot with `no_style_slots`.
 
-Unset (omit the key) keeps `banner` — byte-identical. The value set is closed: anything other than `banner` or `icon` (e.g. `card`, `Icon`, `thumbnail`) is **rejected** with `invalid_prop_value`, never coerced. `image_treatment` is a `cards` concept and is ignored on the `steps` layout (which renders no item images). Structural prop — set with `create_page` / `update_component`, not `style_component`. To change the icon box size, set the `--grid-item-icon-size` style slot via `style_component` (grid-wide) or a per-card `items[].style`. The icon **follows the card's `--grid-item-text-align`** slot (like the text and the `Read more` link do): set `--grid-item-text-align: center` for a fully centered icon+title+text card, `right` to right-align the icon; unset/`left` keeps it left.
+Each card image renders as a full-width 16:9 cover banner, which is the `card-media` role's `sizing.aspect-ratio` default. For the **icon + title + text** feature card — where a ~45px logo would otherwise be blown up into a cropped banner — set the role's box directly in the band's `udc` map:
 
 ```json
-{
-  "component": "grid",
-  "props": {
-    "title": "Integrations",
-    "image_treatment": "icon",
-    "items": [
-      { "title": "Slack", "text": "Post updates to any channel.", "image_url": "..." },
-      { "title": "GitHub", "text": "Sync issues and PRs.", "image_url": "..." },
-      { "title": "Linear", "text": "Two-way task mirroring.", "image_url": "..." }
-    ]
-  }
-}
+{"udc": {"card-media": {"sizing": {"width": "48px", "height": "48px", "aspect-ratio": "auto"}}}}
 ```
+
+**One stated narrowing.** The old `icon` value also applied `object-fit: contain`, and `object-fit` has no typed parameter in the Sizing group, so the un-cropped fit is reachable only through the raw-CSS valve: `"card-media": {"_css": {"object-fit": "contain"}}`. Everything else about the treatment is an ordinary role parameter.
+
+Measured before the retirement, across all 11 grid bands on the owner's production site: **zero** used the icon treatment and zero card images were affected.
+
 
 ### grid items[].bullets
 
 Renders a checklist below the card's `text`, each line prefixed with a check mark — use for scannable feature/benefit lists instead of a dense paragraph. Plain text lines only, no HTML/markdown.
 
-### grid items[].text_role
+### grid items[].text_role — RETIRED (#1101)
 
-Optional typography role for a card's `text`: `mono` (code), `meta` (captions), `label`, or `kicker` (eyebrow styling). Adds a `.text-<role>` class; an absent value falls back to default body text. Set via `update_component` like any other item field.
+**The `text_role` item field is retired.** Writing it is refused, naming the route.
 
-The four roles are the whole accepted set: a value outside it is **rejected at write** with `invalid_prop_value` naming the item and the field, not accepted and coerced away at render (#600). The locator names the entry's stored `items` key: `item 0` for a list-shaped `items` (the normal case), `item key "0"` when `items` was stored as a JSON object, so a numeric object key is never read as a position (#652). Pick one of the four, or leave the field unset — key absent, `null`, or `""` all keep default body text. There is no free-form role, and a near miss (`"Mono"`, `"mono "`, `"terminal"`) is a rejection, not a fallback.
+Its four values were `mono` / `meta` / `label` / `kicker`. **Measured, all four, at desktop:** `mono` and `meta` rendered byte-identically to the default body text — the premium typography tier's own rule out-ranked both presets — so two of the four had no rendered effect at all above 767px. Only `label` (letter-spacing 0.01em) and `kicker` (0.08em plus uppercase) changed anything.
 
-`meta` and `kicker` also carry a preset text **color** (muted / accent), but the grid's own responsive text-color rules can take precedence when the slot is unset (for example, at the desktop breakpoint card text renders in the standard secondary color). To control card text color reliably, set `--grid-item-text-color` (grid-level or per-card `style`): it always wins over a role preset at **all breakpoints**. The role's other typography (size, weight, letter-spacing, transform) always applies regardless.
+Per-card typography is exactly what an item `udc` map expresses, so the capability is WIDER after the retirement than before it — any typography parameter, not four fixed bundles:
 
 ```json
-{ "component": "grid", "props": { "title": "Security", "items": [
-  { "title": "Perimeter security", "bullets": ["HTTP security headers", "SSL/TLS validity", "Clickjacking protection"] }
+{"text": "SINCE 2019",
+ "udc": {"card-text": {"typography": {"letter-spacing": "0.08em", "transform": "uppercase"}}}}
+```
+
+For a bundle you reuse across cards, save it once with `save_preset` (#1016) and reference it with `_preset`.
+
+### grid items[].udc — per-card design (Addendum B)
+
+**The `items[].style` field is retired (#1101).** It accepted 21 card-scoped slot names and rendered them as inline custom properties on that card; BUILD-SPEC §3.4 forbids inline style emission outright.
+
+Its replacement is the entry's own **`udc` map**, and it is the reason Addendum B exists: roles are BAND grain, so before it the v2 contract had no address for "this one card".
+
+```json
+{"component": "grid", "props": {"items": [
+  {"title": "Card A", "text": "…"},
+  {"title": "Card B", "text": "…",
+   "udc": {"card": {"background": {"fill": "#14141F"}},
+           "card-title": {"typography": {"color": "#F2EEE5"}},
+           "card-text": {"typography": {"color": "#E8E2D4"}},
+           "card-link": {"typography": {"color": "#F2EEE5"}}}},
+  {"title": "Card C", "text": "…"}
 ]}}
 ```
 
-### grid items[].style — per-card style overrides
+It is the same shape a band's map takes, validated by the same engine, refused with the same codes, and it addresses the SAME roles the component declares — `card`, `card-bar`, `card-media`, `card-body`, `card-title`, `card-text`, `card-bullets`, `card-bullet`, `card-link` and `step-number` (the component's `item_roles` declaration is the authority).
 
-Style ONE card differently from its siblings. A grid item may carry an optional `style` object that accepts only the **card-scoped grid style slots** — the ones consumed on the `.grid__item` and its contents — no arbitrary CSS. It is validated by the same shared engine: unknown slot names and invalid values are rejected exactly like grid-level slots. The card's slots override the grid-level values for that card only (cascade proximity), so the rest of the row is untouched.
+**Things to know before you write one:**
 
-Set it in the composition (`create_page` / `update_composition` / `update_component`), NOT via `style_component` — `style_component` targets a whole component instance, not one item. Use it for the standard "one distinct card in a row" patterns: a dark CTA panel beside light checklist cards, or a green-on-dark terminal/code card (pair with `text_role: "mono"`).
-
-The **card-scoped** slots accepted here: `--grid-item-bg`, `--grid-item-border-color`, `--grid-item-border-width`, `--grid-item-radius`, `--grid-item-shadow`, `--grid-item-bar-color`, `--grid-item-bar-height`, `--grid-featured-texture-color`, `--grid-featured-shadow`, `--grid-item-padding`, `--grid-item-gap`, `--grid-item-text-align`, `--grid-item-icon-size`, `--grid-item-title-size`, `--grid-item-title-color`, `--grid-item-text-color`, `--grid-item-bullet-color`, `--grid-item-link-color`, `--grid-item-link-hover-color`, `--grid-step-bg`, `--grid-step-text-color`. (`--grid-item-text-align` sets the card's alignment — a `text-align` keyword, e.g. `center` — and aligns the title/text/bullets AND the `Read more` link/button together, so a centered card is fully centered.) Container/heading slots (`--grid-bg`, `--grid-gap`, `--grid-heading-*`, `--grid-eyebrow-*`, `--grid-subheading-*`, `--grid-padding-*`) are read on the section/list/header, not the card, so a per-card override would render nothing — they are **rejected** here with `invalid_style_slot` naming the card. Put those on the grid-level `style` instead. Since #579 the **renderer** enforces the same narrowing, so a container-scoped slot that reached storage through a non-validating path (a raw database write, or a `restore_composition` of an old snapshot — which by rule never blocks) is dropped from the card's inline style instead of being emitted onto the `<li>`. (A section panel row's `style` used to work the same way; #1023 retired it, so a `panel_items` entry declares `label` and `value` and nothing else.)
-
-```json
-{ "component": "grid", "props": { "items": [
-  { "title": "Checklist", "bullets": ["Fast", "Honest"] },
-  { "title": "Get started", "text": "Empezá hoy",
-    "style": { "--grid-item-bg": "#0f172a", "--grid-item-title-color": "#f8fafc", "--grid-item-text-color": "#cbd5e1" } },
-  { "text": "$ deploy --now", "text_role": "mono",
-    "style": { "--grid-item-bg": "#0b0f0a", "--grid-item-text-color": "#22c55e" } }
-]}}
-```
+- **The id is minted on write**, only for entries that carry a map, shape `it-<hex8>`. You never author it. It is carried across a full `items` re-apply by index and component match, which is what makes the design travel with the card rather than with position 2.
+- **The band-level roles are not addressable per item.** `_band`, `header`, `eyebrow`, `heading`, `heading-accent`, `subheading`, `list` and `empty` exist once per band, so styling them "for one card" has no meaning.
+- **Seven things are REFUSED rather than ignored:** per-item chrome; `_band` inside an item map; ordinal or structural selectors (`nth-child`, `first`, `last`, `even`/`odd`); nesting beyond one level; defining a new preset inside an item (referencing one with `_preset` is fine); pseudo-elements; and `_css` at item grain.
+- **Darkening a card is several writes, not one** — see `card_emphasis` above for the pairing, and `components/grid/README.md` for the measured contrast numbers.
 
 ### title_accent (hero, section, grid, cta, faq, stats, testimonials)
 
@@ -670,7 +672,7 @@ Before writing, verify:
 1. Every `component` value exists as `components/{name}/{name}.php`
 2. Every required prop from `components/{name}/schema.json` has its KEY present. Presence is what the required rule tests, so `null` and `""` satisfy it and leave the prop on its default. Two separate rules catch what that does not: a band with a **content requirement** (`section`) still needs real content in one of its content props, where `null`, `false`, `""` and `[]` do not count; and a `false` on a text prop is a TYPE rejection (see 4), not an absence — a different error code with a different repair
 3. The JSON is a valid array (not an object, not null)
-4. Prop types match the schema (`string`, `boolean`, `array`, `enum`). A `string` prop means a **quoted JSON string** and nothing else — since #707 a bare `42`, `3.14`, `true` or `false` is rejected with `invalid_prop_value` naming the prop, at both depths, instead of being stored raw behind an `ok:true`. Quote it (`"number": "99%"`, `"image_url": "/wp-content/uploads/logo.png"`), or leave the key out; `null` and `""` still satisfy the type rule and keep the prop's default, though they do not satisfy a band's content requirement — an empty `section` is still rejected for having nothing to render. Watch the two places the mistake is natural: a stats or steps `number` field, which is text so it can hold `99%` or `01`, and a `*_url` prop you might try to clear with `false` — use `""` or omit it. Since #744 the container types read the same way at both depths: a prop or field declared as a list takes a **JSON array** and a per-item `style` takes a **JSON object**, so `"bullets": ["Fast", "Honest"]` and `"style": {"--grid-item-bg": "#111111"}` — a scalar in either is rejected with `invalid_prop_value` naming the prop, and one level down the item and the field. That one used to be silent one level down: `"bullets": "Fast, honest"` returned `ok:true`, stored the string as written, and the card rendered with no checklist at all. `null`, `""`, `[]` and `{}` are all still accepted and leave the field on its default (which means they render nothing — they are not a way to express a value you want). Since #738 a declared list must also be a **JSON array specifically**: a keyed object where a list belongs (`"items": {"first": {...}, "second": {...}}`) is rejected with `invalid_prop_value` — `must be a list, but this one is a JSON object (N entries)` — at both depths. Order is the array order; there are no position keys and nothing reads a key as an ordinal. That shape used to return `ok:true`, persist as written, and then 500 the public page, so the refusal is the write path declining to store something the renderer cannot walk. Since #883 the mirror holds too: a declared **object** must be a JSON object specifically, so a POPULATED list where a map belongs (`"style": ["#fff"]`) is rejected with `invalid_prop_value` — `must be an object, but this one is a JSON list (N entries)` — at both depths. Send slot names as keys (`"style": {"--grid-item-bg": "#111111"}`). `{}` and `[]` are indistinguishable once parsed and count as the empty container for both rules, so an empty value is still accepted; the flip side is that an object whose keys are exactly `0..n-1` parses as a list and is refused where an object is declared.
+4. Prop types match the schema (`string`, `boolean`, `array`, `enum`). A `string` prop means a **quoted JSON string** and nothing else — since #707 a bare `42`, `3.14`, `true` or `false` is rejected with `invalid_prop_value` naming the prop, at both depths, instead of being stored raw behind an `ok:true`. Quote it (`"number": "99%"`, `"image_url": "/wp-content/uploads/logo.png"`), or leave the key out; `null` and `""` still satisfy the type rule and keep the prop's default, though they do not satisfy a band's content requirement — an empty `section` is still rejected for having nothing to render. Watch the two places the mistake is natural: a stats or steps `number` field, which is text so it can hold `99%` or `01`, and a `*_url` prop you might try to clear with `false` — use `""` or omit it. Since #744 the container types read the same way at both depths: a prop or field declared as a list takes a **JSON array**, so `"bullets": ["Fast", "Honest"]` — a scalar there is rejected with `invalid_prop_value` naming the prop, and one level down the item and the field. (The per-item `style` OBJECT this rule also used to cover is retired: `grid.items[].style` went at #1101 and `section.panel_items[].style` at #1023, so no shipped schema declares an object-typed field today. A card's design is its `udc` map, which the design engine validates instead.) That one used to be silent one level down: `"bullets": "Fast, honest"` returned `ok:true`, stored the string as written, and the card rendered with no checklist at all. `null`, `""`, `[]` and `{}` are all still accepted and leave the field on its default (which means they render nothing — they are not a way to express a value you want). Since #738 a declared list must also be a **JSON array specifically**: a keyed object where a list belongs (`"items": {"first": {...}, "second": {...}}`) is rejected with `invalid_prop_value` — `must be a list, but this one is a JSON object (N entries)` — at both depths. Order is the array order; there are no position keys and nothing reads a key as an ordinal. That shape used to return `ok:true`, persist as written, and then 500 the public page, so the refusal is the write path declining to store something the renderer cannot walk. Since #883 the mirror holds too: a declared **object** must be a JSON object specifically, so a POPULATED list where a map belongs is rejected with `invalid_prop_value` — `must be an object, but this one is a JSON list (N entries)` — at both depths. Send real keys, never a bare list. NO SHIPPED SCHEMA DECLARES AN OBJECT FIELD TODAY (the two that did were the per-item style maps, retired at #1101 and #1023), so the rule is live and waiting rather than illustrated with something you can write. `{}` and `[]` are indistinguishable once parsed and count as the empty container for both rules, so an empty value is still accepted; the flip side is that an object whose keys are exactly `0..n-1` parses as a list and is refused where an object is declared.
 5. Every prop key is declared in the component's `schema.json` `props` — an undeclared key is rejected by the write path and does not persist. The CODE tells you which kind of mistake it was (#1007): a key the component declares in its `retired_props` block returns `retired_prop` and the message names the v2 surface that replaced it plus the `null` clear; anything else returns `unknown_prop`. Do not invent prop names; if a capability has no matching prop, it is not expressible.
 6. Every field INSIDE an `items[]` entry is declared in that prop's `items` field map — an undeclared field is rejected by the write path with `unknown_prop` as well (#643), naming the item and the fields the entry accepts. The two depths answer alike: `imageId` is refused where `image_id` is declared, rather than persisting behind `ok:true` and rendering nothing.
 

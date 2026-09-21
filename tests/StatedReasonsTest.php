@@ -90,23 +90,36 @@ class StatedReasonsTest extends TestCase
             'cta inner-gap disclosure'  => ['components/cta/schema.json', 'IT DOES NOT GOVERN THE SPACE BETWEEN THE TWO BUTTONS', 'cta'],
 
             // ── grid (rows 15-20 + C-6 connector) ───────────────────────────
+            //
+            // SIX ROWS LEFT AT #1101 AND TWO ARRIVED, and the retirement is recorded in
+            // full on testTheRetiredGridStatedDefaultsAreGoneOrAuthorable() below rather
+            // than here — including the assertion that keeps each one from coming back
+            // unexplained. The short version: FOUR of the six literals no longer ship at
+            // all (the featured lift, the stripe period, the step-title cap, the texture
+            // period slot), and TWO stopped being stated defaults without going anywhere
+            // (the 58rem and 56rem four-card caps), because a stated default is a value
+            // the theme fixes with NO authoring surface — and `list` -> `sizing.max-width`
+            // is an authoring surface.
             'grid hover lift'           => ['components/grid/README.md', 'translateY(-2px)', 'grid'],
-            'grid muted featured lift'  => ['components/grid/README.md', 'translateY(-0.18rem)', 'grid'],
-            'grid stripe period'        => ['components/grid/README.md', '2.75rem', 'grid'],
-            'grid four-card cap'        => ['components/grid/README.md', 'max-width: 58rem', 'grid'],
-            'grid steps four-card cap'  => ['components/grid/README.md', '56rem', 'grid'],
-            'grid step-title cap'       => ['components/grid/README.md', 'max-width: 17rem', 'grid'],
-            // #601: the row survives, its REASON was inverted. It used to disclose the
-            // connector as reachable through two slots; the connector is clipped by the
-            // card's own `overflow: hidden` and paints nowhere, so the row now records the
-            // dead rule instead. The old needle (`::after` between badges) is still present
-            // verbatim in the rewritten row, so this move was a CHOICE, not a necessity: the
-            // row joins the documented exception class above (the faq chevron, the cta
-            // inner-gap) whose reason has no literal of its own, and accepts that class's
-            // cost — a rewording breaks this pin. That is the point here. The reason is now
-            // a claim about rendering, and a claim is exactly what must not drift silently.
-            'grid steps connector'      => ['components/grid/README.md', 'renders nowhere, and no slot reaches it', 'grid'],
-            'grid texture period slot'  => ['components/grid/schema.json', 'repeat PERIOD', 'grid'],
+            // #601: the row survives and its REASON has been rewritten twice without
+            // changing. It first disclosed the connector as reachable through two slots;
+            // then, once `.grid__item { overflow: hidden }` was found to clip a rule
+            // positioned at `left: 100%`, as a rule that paints nothing. #1101 changed
+            // neither fact — `overflow: hidden` is exactly as load-bearing for the
+            // banner-image crop as it was — so the v2 README states it as its own section
+            // with both issue numbers: the record (#601) and where the revive-or-remove
+            // decision belongs (#670). The row keeps its membership of the documented
+            // exception class (the faq chevron, the cta inner-gap): its reason has no
+            // literal of its own, so a rewording breaks this pin. That is the point — the
+            // reason is a CLAIM ABOUT RENDERING, and a claim must not drift silently, least
+            // of all one that says a shipped rule is dead.
+            'grid steps connector'      => ['components/grid/README.md', 'paints nothing, and it is kept on purpose', 'grid'],
+            // The two narrowings the v2 rebuild STATED rather than let a reader discover,
+            // which is the same obligation the rows above carry and the reason they belong
+            // in this provider: a narrowing nobody wrote down is indistinguishable from a
+            // regression when the next person measures it.
+            'grid arrow weight'         => ['components/grid/README.md', 'font-weight: 700', 'grid'],
+            'grid inset focus ring'     => ['components/grid/README.md', 'outline-offset: -3px', 'grid'],
 
             // ── testimonials (rows 21-25) ───────────────────────────────────
             // Five rows, not six. A "stated default" is a value the theme fixes with no
@@ -177,20 +190,128 @@ class StatedReasonsTest extends TestCase
     }
 
     /**
+     * THE SIX GRID ROWS THAT LEFT THE PROVIDER AT #1101, AND WHY EACH LEFT.
+     *
+     * A stated default is a value the theme FIXES WITH NO AUTHORING SURFACE — that is the
+     * whole reason it has to carry a written reason, because an operator who meets it has
+     * no other way to find out why they cannot change it. Two different things can
+     * therefore end a row: the literal stops shipping, or it stops being unauthorable.
+     * Four grid rows went the first way and two went the second, and this test asserts
+     * which, so neither kind of retirement can be reversed in silence.
+     *
+     *   GONE FROM THE STYLESHEET ENTIRELY
+     *   `translateY(-0.18rem)` — the `.grid--dark :first-child` featured lift. It retired
+     *       with the `card_emphasis` prop under ruling D9: v1's featured treatment was
+     *       `:first-child`, i.e. ORDINAL styling, and Addendum B exclusion 3 rules that an
+     *       item is addressed by its minted id and nothing else so that reordering carries
+     *       the styling WITH the card. Measured on the owner's live site first: all 11
+     *       production grid bands render `grid--uniform`, so the treatment was already
+     *       switched off everywhere it could have applied.
+     *   `2.75rem` — the featured card's stripe period, a decoration of the same retired
+     *       treatment, and the `repeat PERIOD` schema row was that slot's own description.
+     *   `max-width: 17rem` — the steps step-title cap.
+     *
+     *   STILL SHIPPING, NO LONGER STATED DEFAULTS
+     *   `max-width: 58rem` / `56rem` — the centred 2x2 four-card caps. The literals are
+     *       still in grid's structural block and still render, but `list` declares the
+     *       `sizing` group, so an author caps the track row themselves through
+     *       `list` -> `sizing.max-width`; the same is true of the step-title measure
+     *       through `card-title`. A value with a role address is a DEFAULT, not a stated
+     *       default, and demanding a "why you cannot change this" paragraph for something
+     *       an author can change is how a docs guard teaches the wrong thing.
+     *
+     * Each half is pinned below: the vanished literals must stay out of grid's block, and
+     * the surviving ones must keep the role address that is the whole reason their row
+     * retired. Put either back the other way and this fails before the provider does.
+     */
+    public function testTheRetiredGridStatedDefaultsAreGoneOrAuthorable(): void
+    {
+        $css = $this->doc('assets/css/components.css');
+        $this->assertMatchesRegularExpression(
+            '/COMPONENT:\s*grid\b(.*?)(?=\/\*\s*={5,}\s*(?:COMPONENT|SHARED):|\z)/s',
+            $css,
+            'no COMPONENT: grid block — this scan has gone blind and every absence below is worthless'
+        );
+        preg_match('/COMPONENT:\s*grid\b(.*?)(?=\/\*\s*={5,}\s*(?:COMPONENT|SHARED):|\z)/s', $css, $m);
+        $block = preg_replace('/\/\*.*?\*\//s', '', $m[1]) ?? $m[1];
+
+        foreach ([
+            'translateY(-0.18rem)' => 'the `card_emphasis` featured lift (ruling D9 — ordinal styling)',
+            '2.75rem'              => "the featured card's stripe period",
+            '17rem'                => 'the steps step-title cap',
+        ] as $literal => $what) {
+            $this->assertStringNotContainsString(
+                $literal,
+                $block,
+                "grid's block declares {$literal} again — {$what} retired at #1101, and its "
+                . 'stated reason left the README with it. A literal back in the stylesheet '
+                . 'with no reason on any authoring surface is exactly what this suite exists '
+                . 'to catch: restore the reason and the provider row together.'
+            );
+        }
+
+        // The other half: the two caps that still ship stopped being STATED defaults
+        // because they acquired a role address. If that address goes away they are
+        // unauthorable fixed values again, and they owe the README a reason again.
+        $this->assertStringContainsString('58rem', $block, 'premise: the four-card cap still ships');
+        $this->assertStringContainsString('56rem', $block, 'premise: the steps four-card cap still ships');
+
+        $roles = json_decode($this->doc('components/grid/schema.json'), true)['roles'] ?? [];
+        foreach (['list' => 'the four-card track caps', 'card-title' => 'the step-title measure'] as $role => $what) {
+            $this->assertContains(
+                'sizing',
+                $roles[$role]['groups'] ?? [],
+                "grid's `{$role}` role no longer permits `sizing`, so {$what} is an "
+                . 'unauthorable fixed value again — which makes it a stated default again, '
+                . 'and it needs its reason restored to the README and its row to the provider.'
+            );
+        }
+
+        // And the schema row: `repeat PERIOD` lived on a style slot's `description`, so the
+        // surface that carried it is gone rather than merely rewritten. Pinned on the whole
+        // declaration, because a re-added slot map is the only way that reason could return.
+        $this->assertSame(
+            [],
+            json_decode($this->doc('components/grid/schema.json'), true)['styling']['style_slots'] ?? [],
+            'grid declares style slots again — a slot `description` is where the '
+            . '`repeat PERIOD` reason lived, and a new slot needs its own stated reason'
+        );
+    }
+
+    /**
      * A reason without a reopening condition is a closed door with no handle: it tells
      * an agent the value is deliberate but never what evidence would change it. Every
      * component README that carries a "Stated defaults" section must offer one.
+     *
+     * DERIVED SINCE #1101, not listed. The provider was ten hand-written component names,
+     * which is the #1045 class: it went stale the moment grid's rebuild removed that
+     * component's section, and a hand-copied roster cannot tell a deliberate removal from
+     * a tidy-up. The provider now walks every COMPOSABLE component README there is, and
+     * the test splits on what the README actually says — with the roster of ABSENTEES
+     * pinned separately below, so "no section" still has to be argued for once.
+     *
+     * CHROME IS EXCLUDED, DERIVED FROM pp_udc_chrome_names() RATHER THAN NAMED, and the
+     * exclusion is the original list's and not a new convenience: nav and footer are
+     * template-owned, are not composable, declare zero style slots by contract, and their
+     * two ratified literals (nav's `min-width: 12rem` dropdown floor, footer's `32ch`
+     * blurb measure) are already guarded as their own rows in statedReasonProvider. The
+     * "Stated defaults" SECTION contract was ratified for the band components.
      *
      * @dataProvider statedDefaultsSurfaceProvider
      */
     public function testStatedDefaultsSectionOffersAReopeningCondition(string $surface): void
     {
         $text = $this->doc($surface);
-        $this->assertStringContainsString(
-            'Stated defaults',
-            $text,
-            "{$surface} lost its \"Stated defaults\" section."
-        );
+        if (!str_contains($text, 'Stated defaults')) {
+            // Not a silent skip: the absentee roster is asserted, exactly and by name, in
+            // testOnlyTheComponentsWithNothingToStateLackAStatedDefaultsSection() below.
+            $this->assertContains(
+                basename(dirname($surface)),
+                self::componentsWithoutAStatedDefaultsSection(),
+                "{$surface} lost its \"Stated defaults\" section."
+            );
+            return;
+        }
         $this->assertMatchesRegularExpression(
             '/(What would reopen it|[Rr]eopening condition)/',
             $text,
@@ -200,12 +321,76 @@ class StatedReasonsTest extends TestCase
         );
     }
 
+    /**
+     * THE FAIL-CLOSED HALF OF THE DERIVATION. Without this, a README that quietly lost its
+     * section would take the early return above and the suite would report green — the
+     * vacuous-pass shape, reintroduced by the very change that made the provider honest.
+     *
+     * ONE, and it is an argument rather than an omission. `grid` is the #1101 rebuild:
+     * four of its six stated defaults no longer ship and two acquired role addresses,
+     * which is asserted in full in testTheRetiredGridStatedDefaultsAreGoneOrAuthorable()
+     * above — it has nothing left to state, and a section stating nothing is worse than
+     * none.
+     */
+    public function testOnlyTheComponentsWithNothingToStateLackAStatedDefaultsSection(): void
+    {
+        $missing = [];
+        $scanned = 0;
+        foreach (self::composableComponentReadmes() as $component => $relative) {
+            $scanned++;
+            if (!str_contains($this->doc($relative), 'Stated defaults')) {
+                $missing[] = $component;
+            }
+        }
+        sort($missing);
+
+        $this->assertGreaterThanOrEqual(
+            10,
+            $scanned,
+            'the README glob found fewer composable components than the theme ships — the '
+            . 'roster below would then be a fact about a broken scan'
+        );
+        $this->assertSame(
+            self::componentsWithoutAStatedDefaultsSection(),
+            $missing,
+            'the set of component READMEs with no "Stated defaults" section changed. That is '
+            . 'a documentation decision, not a refactor: say here why the component has '
+            . 'nothing left to state, or restore the section.'
+        );
+    }
+
+    /** @return list<string> */
+    private static function componentsWithoutAStatedDefaultsSection(): array
+    {
+        return ['grid'];
+    }
+
+    /**
+     * Every composable component's README, keyed by component name.
+     *
+     * @return array<string, string>  component => path relative to the theme root
+     */
+    private static function composableComponentReadmes(): array
+    {
+        // Derived, not named: the chrome roster is the engine's own, so a third chrome
+        // component would leave this exclusion correct without an edit here.
+        $chrome = pp_udc_chrome_names();
+
+        $out = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/README.md') as $file) {
+            $component = basename(dirname($file));
+            if (in_array($component, $chrome, true)) {
+                continue;
+            }
+            $out[$component] = "components/{$component}/README.md";
+        }
+        ksort($out);
+        return $out;
+    }
+
     public static function statedDefaultsSurfaceProvider(): array
     {
-        return array_map(
-            static fn ($c) => ["components/{$c}/README.md"],
-            ['hero', 'section', 'cta', 'grid', 'testimonials', 'faq', 'stats', 'table', 'logos', 'embed']
-        );
+        return array_map(static fn ($relative) => [$relative], self::composableComponentReadmes());
     }
 
     /**

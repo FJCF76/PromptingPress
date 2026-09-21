@@ -34,6 +34,7 @@
  */
 
 use PHPUnit\Framework\TestCase;
+use PromptingPress\Tests\Support\FixtureTheme;
 
 class PreviewErrorActionabilityTest extends TestCase
 {
@@ -43,6 +44,18 @@ class PreviewErrorActionabilityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // THE #1025 FIXTURE THEME, ADDED HERE AT #1101. Three tests in this file need a
+        // component that DECLARES STYLE SLOTS — an `invalid_style_slot` rejection is
+        // unreachable without one, and it is the payload this whole file is about. grid's
+        // v2 rebuild took the last shipped slot map, so `ppfixture` is the only component
+        // left that can produce that rejection. It is opt-in per suite and dies with the
+        // slot engine in this task's PR2.
+        //
+        // The local useFixtureComponent() below still repoints the root on top of this
+        // for the cases that need a component shaped a particular way (a zero-slot one,
+        // which the shipped chrome components cannot stand in for because the composition
+        // validator refuses to place them). tearDown unwinds in the reverse order.
+        FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [],
             'posts'     => [],
@@ -53,6 +66,7 @@ class PreviewErrorActionabilityTest extends TestCase
 
     protected function tearDown(): void
     {
+        FixtureTheme::deactivate();
         if ($this->fixtureRoot !== null) {
             unset($GLOBALS['_pp_test_template_dir']);
             $this->deleteTree($this->fixtureRoot);
@@ -128,19 +142,22 @@ class PreviewErrorActionabilityTest extends TestCase
 
     public function testANearMissSlotNameStillNamesTheSettingsTheComponentHas(): void
     {
-        // `--section-bgs` for `--section-bg`. The cross-component scan normalizes it to
+        // `--ppfixture-bgs` for `--ppfixture-bg`. The cross-component scan normalizes it to
         // `--*-bgs`, which no registered component declares, so it produces no hint —
         // the condition that used to be read as "impossible" all by itself.
         $post_id = $this->authorPage('Near miss', [
-            // `grid` since #1023: these cases are about the near-miss slot message NAMING
-            // the settings a component has, which needs a component that HAS slots.
-            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 (a `section` before #1023).
+            // The case is about the near-miss slot message NAMING the settings a component
+            // has, which needs a component that HAS slots — and grid's v2 rebuild took the
+            // last shipped slot map. A v2 band refuses earlier and differently
+            // (`no_style_slots`), which is the case two tests further down, not this one.
+            FixtureTheme::band(['title' => 'Hi']),
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-bgs' => '#111111'],
+            'style'           => ['--ppfixture-bgs' => '#111111'],
         ];
 
         $error = pp_preview_action('style_component', $params);
@@ -159,7 +176,7 @@ class PreviewErrorActionabilityTest extends TestCase
             'With no hint, `alternatives` is the only thing left naming a next action.'
         );
         $this->assertContains(
-            '--grid-bg',
+            '--ppfixture-bg',
             $friendly['alternatives'],
             'The slot the author meant is in the payload they were told was impossible.'
         );
@@ -170,19 +187,28 @@ class PreviewErrorActionabilityTest extends TestCase
         // The browser decides "names a next action" with Array.isArray(...).length,
         // so a map keyed by slot name would read as naming nothing and repaint the
         // step grey. array_keys() guarantees a list; this pins that it stays one.
+        //
+        // RE-HOMED FROM `hero` TO `ppfixture` AT #1101, AND IT HAD ALREADY GONE VACUOUS —
+        // this is the case the re-home rule exists for rather than a tidy-up. hero went v2
+        // at #986 and has declared no slots since, so `alternatives` came back EMPTY: an
+        // empty array is a list, and `assertSame([], [])` held for the one reason this test
+        // cannot accept — there was nothing to shape. It stayed green through three
+        // rebuilds. `ppfixture` declares sixteen slots, so the list really is a list of
+        // something, which is asserted below before the shape is.
         $post_id = $this->authorPage('Array shape', [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+            FixtureTheme::band(['title' => 'Hi']),
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--hero-bgs' => '#111111'],
+            'style'           => ['--ppfixture-bgs' => '#111111'],
         ];
 
         $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
 
         $this->assertIsArray($friendly['alternatives']);
+        $this->assertNotSame([], $friendly['alternatives'], 'an empty list is a list — the shape below must be measured on real entries');
         // pp_is_list(), not array_is_list(): the latter is PHP 8.1+ and the plugin floor
         // is 8.0 (style.css "Requires PHP"), which is exactly why lib/wp.php ships the shim.
         $this->assertTrue(
@@ -190,7 +216,7 @@ class PreviewErrorActionabilityTest extends TestCase
             'A JSON object here would be counted as zero alternatives by the chat.'
         );
         $this->assertSame(
-            array_keys(pp_get_style_slots('hero')),
+            array_keys(pp_get_style_slots('ppfixture')),
             $friendly['alternatives']
         );
     }
@@ -206,28 +232,30 @@ class PreviewErrorActionabilityTest extends TestCase
         // 11,309 characters on hero (the descriptions alone are 11,213 of it). The full
         // list still ships, in `alternatives`, behind the <details>.
         $post_id = $this->authorPage('Visible settings', [
-            // `grid` since #1023: these cases are about the near-miss slot message NAMING
-            // the settings a component has, which needs a component that HAS slots.
-            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, same reason as its sibling
+            // above: the case is about the message NAMING the settings a component has,
+            // which needs a component that HAS slots, and grid's v2 rebuild took the last
+            // shipped slot map.
+            FixtureTheme::band(['title' => 'Hi']),
         ]);
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-bgs' => '#111111'],
+            'style'           => ['--ppfixture-bgs' => '#111111'],
         ];
 
         $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
 
-        $declared = array_keys(pp_get_style_slots('grid'));
+        $declared = array_keys(pp_get_style_slots('ppfixture'));
         $this->assertGreaterThan(
             PP_FRIENDLY_SLOT_SAMPLE_MAX,
             count($declared),
-            'Fixture premise: hero declares more slots than the message samples.'
+            'Fixture premise: the band declares more slots than the message samples.'
         );
 
         // The count is the part that says "this component is configurable" — it is what
-        // keeps a sample from reading as the whole of what hero can do.
+        // keeps a sample from reading as the whole of what the component can do.
         $this->assertStringContainsString(
             'It has ' . count($declared) . ' style settings',
             $friendly['user_message']
@@ -240,7 +268,7 @@ class PreviewErrorActionabilityTest extends TestCase
         }
 
         // And it names what was tried, which the old message never did.
-        $this->assertStringContainsString('--grid-bgs', $friendly['user_message']);
+        $this->assertStringContainsString('--ppfixture-bgs', $friendly['user_message']);
     }
 
     // ── Why "names nothing" is not where a real rejection lands ───────────

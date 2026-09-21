@@ -845,7 +845,16 @@ class ActionsTest extends TestCase
         ));
         $this->assertNotEmpty($stale, 'the sibling band\'s error moves to the envelope, it does not vanish');
         $this->assertSame(0, $stale[0]['index'], 'and it names the band that actually holds the value');
-        $this->assertStringContainsString('default, muted, inverted', $stale[0]['message']);
+        // THE FINDING CHANGED CLASS AT #1101, and it changed for the better. It used to
+        // be an out-of-set VALUE on a live enum ("default, muted, inverted" was the
+        // advertised set, and the stored `dark` was not in it). grid's rebuild retired the
+        // whole PROP, so the same stored band now reports `retired_prop` instead — which
+        // is a strictly more useful answer, because it names the `_band` role that
+        // replaced it rather than three values that no longer exist either.
+        // The claim this test makes is unchanged: the sibling band's problem is REPORTED
+        // on the accepted envelope rather than silenced.
+        $this->assertStringContainsString('no longer has a prop "theme"', $stale[0]['message']);
+        $this->assertStringContainsString('`_band`', $stale[0]['message']);
     }
 
     // ── #1006: a prop that paints nothing is refused, not stored dead ───────
@@ -1299,8 +1308,16 @@ class ActionsTest extends TestCase
         // THE WAY OUT, which is now a way out that exists: repair the band in place. On a
         // page with retired keys on several bands each one is now clearable on its own,
         // where before every single-band clear was refused by the others (#1007).
+        //
+        // THE REPAIR CHANGED SHAPE AT #1101 and is now the stronger one. While `theme`
+        // was a live prop, the cure was to write an ACCEPTED VALUE over the removed one
+        // (`dark` -> `muted`). grid's rebuild retired the prop itself, so the cure is the
+        // one the `retired_prop` refusal names: send the key as `null`, which REMOVES it.
+        // That is the only way to remove a key the schema no longer declares, and it is
+        // what makes this case a genuine repair rather than a swap of one stale value for
+        // another that would itself retire.
         $repair = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 0, 'props' => ['theme' => 'muted'],
+            'post_id' => $id, 'component_index' => 0, 'props' => ['theme' => null],
         ]);
         $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
 
@@ -1310,69 +1327,49 @@ class ActionsTest extends TestCase
         ]);
         $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the band');
         $composition = pp_get_composition($id);
-        $this->assertSame('muted', $composition[0]['props']['theme']);
+        $this->assertArrayNotHasKey(
+            'theme',
+            $composition[0]['props'],
+            'the retired key is REMOVED by the repair, not overwritten with another value'
+        );
         $this->assertSame('Renamed', $composition[0]['props']['title']);
     }
 
-    // ── Nested items[] enums, through the REAL write surface (issue #600) ──
-    //
-    // Section 14.1 authoring-path proofs. pp_update_composition() and raw meta writes
-    // both bypass the action layer, so the authoring CONTRACT for the newly-strict
-    // nested enum is exercised here through pp_execute_action: an out-of-set role is
-    // rejected and persists nothing, a declared role is accepted and persists, and
-    // the whole-composition blast radius (and the way out of it) is pinned rather
-    // than described.
-
-    public function testUpdateComponentRejectsAnOutOfSetNestedTextRole(): void
-    {
-        // THE REPORTED DEFECT, inverted. Before #600 this returned ok:true, stored
-        // `terminal`, and rendered ordinary body text — the author was told the card
-        // was marked as code and it was not. The gate that already covered every
-        // TOP-LEVEL enum walked $schema['props'] only, so one level down the same
-        // `strict` declaration was a no-op.
-        $id = pp_create_page('Grid with a bogus card role', 'draft');
-        pp_update_composition($id, [['component' => 'grid', 'props' => [
-            'items' => [['title' => 'Deploy', 'text' => '$ deploy --now']],
-        ]]]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['items' => [
-                ['title' => 'Deploy', 'text' => '$ deploy --now', 'text_role' => 'terminal'],
-            ]],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a nested enum is strict since #600');
-        $this->assertSame('invalid_prop_value', $result['error_code']);
-        $this->assertStringContainsString('item 0 field "text_role"', $result['error']);
-        $this->assertStringContainsString('mono, meta, label, kicker', $result['error']);
-
-        // Nothing persisted: the whole action is refused, not partially applied.
-        $items = pp_get_composition($id)[0]['props']['items'];
-        $this->assertArrayNotHasKey('text_role', $items[0], 'the rejected role must not reach storage');
-        $this->assertSame('$ deploy --now', $items[0]['text'], 'the stored item is untouched');
-    }
-
-    public function testCreatePageAcceptsAndPersistsADeclaredNestedTextRole(): void
-    {
-        // The other half: the advertised vocabulary still authors cleanly through the
-        // action layer, on the surface the docs point an agent at.
-        $result = pp_execute_action('create_page', [
-            'title'       => 'Terminal card',
-            'composition' => [['component' => 'grid', 'props' => [
-                'items' => [
-                    ['title' => 'Ship it', 'text' => '$ deploy --now', 'text_role' => 'mono'],
-                    ['title' => 'Plain',   'text' => 'No role here'],
-                ],
-            ]]],
-        ]);
-
-        $this->assertTrue($result['ok'], 'a declared role must be accepted: ' . ($result['error'] ?? ''));
-        $items = pp_get_composition((int) $result['target']['post_id'])[0]['props']['items'];
-        $this->assertSame('mono', $items[0]['text_role']);
-        $this->assertArrayNotHasKey('text_role', $items[1], 'an omitted role stays omitted — the unset sentinel');
-    }
+    /**
+     * THE `theme` AND `items[].text_role` WRITE-PATH TESTS RETIRED AT #1101, with the two
+     * props they drove. Seven tests, and what each proved is recorded because none of it
+     * was wrong — it simply has no declaring surface left.
+     *
+     * THE THREE `theme` TESTS covered the #605 vocabulary freeze at the write path: that
+     * the removed input value `dark` is REJECTED rather than aliased, that an ordinary
+     * unadvertised value (`darkish`) is rejected identically — no alias tier, no
+     * accepted-but-unadvertised footnote — and that the refusal names the canonical set
+     * "default, muted, inverted". grid was the last component declaring the prop, so
+     * there is no enum left for a value to be outside of.
+     *
+     * THE FOUR `text_role` TESTS covered the #600 nested-enum rule end to end: a declared
+     * value accepted and PERSISTED through `create_page`, an out-of-set value refused by
+     * `update_component`, a stored out-of-set value repairable in place, and the
+     * item-scoped actions not blocked by one. `text_role` was the theme's ONLY nested
+     * enum, so `_pp_validate_nested_enum` has no shipped subject at all now — the same
+     * loss SchemaValidationTest records at the unit grain, and the same measurement PR2
+     * owes (issue #1101 §4).
+     *
+     * WHAT REPLACED THE CLAIMS, because the aged-page half did not evaporate:
+     *   - a stored `theme` on a band written before the rebuild is still refused, and now
+     *     with a BETTER answer: `retired_prop` naming the `_band` role that replaced it,
+     *     rather than `invalid_prop_value` naming three values that no longer exist. That
+     *     is pinned by testAnUntouchedBandHoldingTheRemovedThemeValueNoLongerBlocksAnEditBesideIt
+     *     and testTheStaleThemeValueStillRefusesAnEditToItsOwnBandAndIsRepairableThere,
+     *     both of which stayed and were repriced onto the new code rather than deleted.
+     *   - per-card typography is an item `udc` map now, pinned end to end through the real
+     *     authoring surface in tests/GridItemUdcTest.php.
+     *
+     * NOT RE-HOMED ONTO `ppfixture`, deliberately: its `theme` prop exists to exercise
+     * enum COERCION and the legacy `--dark` output name, not the #605 freeze, and its
+     * nested fields sit under an `item_fields` key no engine code reads. Re-homing would
+     * have moved seven tests into PR2's delete pile and proved nothing new.
+     */
 
     public function testAStoredOutOfSetNestedTextRoleBlocksAnEditToADifferentBand(): void
     {
@@ -1698,82 +1695,6 @@ class ActionsTest extends TestCase
         $this->assertContains('unknown_prop', array_column($preview['findings'], 'type'));
     }
 
-    public function testRepairingTheStoredNestedTextRoleUnblocksTheWholeComposition(): void
-    {
-        // THE WAY OUT, which is what keeps the cost above a ruling rather than a bug:
-        // the intended breakage must be escapable through the ordinary authoring
-        // surface, with no migration and no tool the docs do not already describe.
-        $id = pp_create_page('Repairable card role', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'grid',    'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
-            ['component' => 'section', 'props' => ['title' => 'Other band', 'body' => 'C']],
-        ]);
-
-        // Since #1007 the sibling edit is no longer blocked, so the precondition is on
-        // the STALE band itself: it still refuses its own edit until the role is in set.
-        $blocked = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Cards'],
-        ]);
-        $this->assertFalse($blocked['ok'], 'precondition: the stale band still validates itself');
-
-        // Repair the band that actually holds the out-of-set role. A prop shallow-merge
-        // replaces the items array wholesale, exactly as the docs tell an agent.
-        $repair = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['items' => [['title' => 'Legacy', 'text_role' => 'mono']]],
-        ]);
-        $this->assertTrue($repair['ok'], $repair['error'] ?? 'the offending band must be repairable in place');
-
-        $retry = pp_execute_action('update_component', [
-            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Cards'],
-        ]);
-        $this->assertTrue($retry['ok'], $retry['error'] ?? 'repairing the band unblocks the band');
-        $composition = pp_get_composition($id);
-        $this->assertSame('mono', $composition[0]['props']['items'][0]['text_role']);
-        $this->assertSame('Cards', $composition[0]['props']['title']);
-    }
-
-    public function testTheStoredNestedTextRoleDoesNotBlockTheItemScopedActions(): void
-    {
-        // The blast radius is UNEVEN, and the unevenness is the same one AI_CONTEXT.md
-        // already describes for retired prop NAMES: add_component validates only the
-        // item it adds and style_component validates no props at all, so both still
-        // succeed on the stale page and write the stale band back verbatim.
-        $id = pp_create_page('Legacy card role, item-scoped actions', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'Legacy', 'text_role' => 'terminal']]]],
-        ]);
-
-        $added = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'grid',
-            'props'     => ['items' => [['title' => 'Fresh', 'text_role' => 'kicker']]],
-        ]);
-        $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
-
-        // …but "only the item it adds" is still VALIDATED. The narrow blast radius is
-        // about which bands are checked, never about the rule being optional on the
-        // surface that writes them.
-        $rejected = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'grid',
-            'props'     => ['items' => [['title' => 'Also bogus', 'text_role' => 'terminal']]],
-        ]);
-        $this->assertFalse($rejected['ok'], 'add_component still enforces RULE 4 on the item it adds');
-        $this->assertSame('invalid_prop_value', $rejected['error_code']);
-        $this->assertCount(2, pp_get_composition($id), 'the rejected band must not be appended');
-
-        $styled = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--grid-bg' => '#101014'],
-        ]);
-        $this->assertTrue($styled['ok'], $styled['error'] ?? 'style_component validates no props at all');
-
-        $this->assertSame('terminal', pp_get_composition($id)[0]['props']['items'][0]['text_role']);
-    }
-
     public function testRestoreCompositionReportsTheNestedTextRoleButNeverBlocks(): void
     {
         // The #233 rider, which every new rejection in the shared validator inherits:
@@ -1795,46 +1716,6 @@ class ActionsTest extends TestCase
         $this->assertSame('terminal', $restored[0]['props']['items'][0]['text_role'], 'the snapshot is restored verbatim');
         $findings = json_encode($result['findings'] ?? []);
         $this->assertStringContainsString('text_role', $findings, 'the dead declaration is reported, not silently restored');
-    }
-
-    public function testUpdateComponentRejectsTheRemovedThemeValueWrittenDirectly(): void
-    {
-        // The removed value is rejected at WRITE, on the surface an agent actually uses.
-        // `grid` since #1023: the subject is the removed VALUE's refusal, and section no
-        // longer declares the prop to refuse a value for.
-        $id = pp_create_page('Direct removed-value write', 'draft');
-        pp_update_composition($id, [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['theme' => 'dark'],
-        ]);
-
-        $this->assertFalse($result['ok'], '`dark` must be rejected, not accepted as an alias');
-        $this->assertStringContainsString('default, muted, inverted', $result['error']);
-        $this->assertArrayNotHasKey('theme', pp_get_composition($id)[0]['props'], 'nothing persisted');
-    }
-
-    public function testUpdateComponentRejectsAnUndeclaredThemeValue(): void
-    {
-        // Since #605 there is no alias tier at all: `dark` and `darkish` are both
-        // simply unadvertised values, and both are rejected the same way.
-        $id = pp_create_page('Undeclared theme', 'draft');
-        pp_update_composition($id, [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']]]]]);
-
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['theme' => 'darkish'],
-        ]);
-
-        $this->assertFalse($result['ok']);
-        // The error names the canonical values — and since #605 that list IS the
-        // whole accepted set, with no accepted-but-unadvertised footnote behind it.
-        $this->assertStringContainsString('default, muted, inverted', $result['error']);
-        $this->assertStringNotContainsString('dark;', $result['error']);
-        $this->assertStringNotContainsString('legacy', $result['error']);
     }
 
     public function testUpdateComponentRejectsNonScalarStringProp(): void
@@ -4867,17 +4748,25 @@ class ActionsTest extends TestCase
         // is about `style_component` persisting a slot, not about any component, so it needs
         // a slot-bearing host — which is the whole point of `ppfixture` (#1025). grid keeps
         // the NON-ZERO case so "a real length persists, not just a zero" survives.
+        // grid's row left at #1101 with its slot map, and it took the NON-ZERO case with
+        // it — so the fixture carries both halves now: a real length AND a zero, driven
+        // as two separate writes so "a real length persists, not just a zero" survives
+        // grid's departure exactly as it survived table's.
         $cases = [
-            'grid'      => ['--grid-heading-margin-bottom'      => '1.5rem'],
-            'ppfixture' => ['--ppfixture-heading-margin-bottom' => '0']];
+            'ppfixture-length' => ['--ppfixture-heading-margin-bottom' => '1.5rem'],
+            'ppfixture-zero'   => ['--ppfixture-heading-margin-bottom' => '0']];
+        $hosts = [
+            'ppfixture-length' => 'ppfixture',
+            'ppfixture-zero'   => 'ppfixture'];
         $props = [
-            'grid'      => ['title' => 'Cards', 'items' => [['title' => 'Card', 'text' => 'B']]],
-            'ppfixture' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]]];
+            'ppfixture-length' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
+            'ppfixture-zero'   => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]]];
 
-        foreach ($cases as $component => $style) {
-            $post_id = pp_create_page("Heading rhythm {$component}");
+        foreach ($cases as $case => $style) {
+            $component = $hosts[$case];
+            $post_id = pp_create_page("Heading rhythm {$case}");
             pp_update_composition($post_id, [
-                ['component' => $component, 'props' => $props[$component]]]);
+                ['component' => $component, 'props' => $props[$case]]]);
 
             $result = pp_execute_action('style_component', [
                 'post_id'         => $post_id,
@@ -5163,7 +5052,6 @@ class ActionsTest extends TestCase
     }
 
 
-
     public function testStyleComponentExecuteMergesStyle(): void
     {
         $post_id = pp_create_page('Style test');
@@ -5236,38 +5124,47 @@ class ActionsTest extends TestCase
 
     public function testStyleComponentRejectsNonLengthKeyword(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, for the reason the measure-slot
+        // test above states: the claim is about the value GRAMMAR refusing a bare CSS
+        // keyword on a length-typed slot, and it needs a slot carrier rather than a
+        // particular component.
         $post_id = pp_create_page('Keyword rejection test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'A']]]],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'A']]]],
         ]);
 
         // CSS keywords like "none" are not valid length values.
         $result = pp_validate_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-size' => 'none'],
+            'style'           => ['--ppfixture-heading-size' => 'none'],
         ]);
         $this->assertInstanceOf(WP_Error::class, $result);
         $this->assertEquals('invalid_style_value', $result->get_error_code());
     }
 
-    public function testStyleComponentGridHeadingMaxWidthSlot(): void
+    public function testStyleComponentMeasureSlot(): void
     {
-        $post_id = pp_create_page('Grid max-width test');
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the last SHIPPED
+        // component with a measure slot; the claim here is about `style_component`
+        // persisting a `length`-typed slot through the real action, which needs any slot
+        // carrier, not that one. `ppfixture` is the only carrier left in the registry.
+        // A grid band's heading measure is the `heading` role's `sizing.max-width` now,
+        // pinned against the EMITTED declaration rather than a stored slot.
+        $post_id = pp_create_page('Measure slot test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'A']]]],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'A']]]],
         ]);
 
-        // The --grid-heading-measure slot should be accepted.
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-measure' => '60rem'],
+            'style'           => ['--ppfixture-max-width' => '60rem'],
         ]);
-        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
 
         $comp = pp_get_composition($post_id);
-        $this->assertSame('60rem', $comp[0]['style']['--grid-heading-measure']);
+        $this->assertSame('60rem', $comp[0]['style']['--ppfixture-max-width']);
     }
 
     public function testStyleComponentByComponentId(): void
@@ -5292,52 +5189,71 @@ class ActionsTest extends TestCase
 
     public function testRecipeExpansion(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring recipes (cta's two went at #1026, section's at #1023), so
+        // retiring these tests with it would have left the recipe engine —
+        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
+        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
+        // coverage at all. The three declarations moved to the fixture that exists for
+        // this (#1025), and they die with it in the v1 machinery sweep.
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'recipe'          => 'dark-showcase']);
-        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#1a1a2e', $style['--grid-bg']);
-        $this->assertSame('#f0f0f0', $style['--grid-heading-color']);
-        $this->assertSame('1rem', $style['--grid-item-radius']);
+        $this->assertSame('#1a1a2e', $style['--ppfixture-bg']);
+        $this->assertSame('#f0f0f0', $style['--ppfixture-heading-color']);
+        $this->assertSame('1rem', $style['--ppfixture-radius']);
         $this->assertSame('dark-showcase', $style['__recipe']);
     }
 
     public function testRecipePlusOverride(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring recipes (cta's two went at #1026, section's at #1023), so
+        // retiring these tests with it would have left the recipe engine —
+        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
+        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
+        // coverage at all. The three declarations moved to the fixture that exists for
+        // this (#1025), and they die with it in the v1 machinery sweep.
         $post_id = pp_create_page('Recipe override test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
             'recipe'          => 'dark-showcase',
-            'style'           => ['--grid-bg' => '#222222'], // override recipe's bg
+            'style'           => ['--ppfixture-bg' => '#222222'], // override recipe's bg
         ]);
-        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
 
         $comp = pp_get_composition($post_id);
         $style = $comp[0]['style'];
-        $this->assertSame('#222222', $style['--grid-bg']); // overridden
-        $this->assertSame('#f0f0f0', $style['--grid-heading-color']); // from recipe
+        $this->assertSame('#222222', $style['--ppfixture-bg']); // overridden
+        $this->assertSame('#f0f0f0', $style['--ppfixture-heading-color']); // from recipe
         $this->assertSame('dark-showcase', $style['__recipe']);
     }
 
     public function testInvalidRecipeRejected(): void
     {
-        // `grid` since #1023: recipes are declared per component and only grid and cta
-        // still have any, section's two having gone with its slot map.
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring recipes (cta's two went at #1026, section's at #1023), so
+        // retiring these tests with it would have left the recipe engine —
+        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
+        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
+        // coverage at all. The three declarations moved to the fixture that exists for
+        // this (#1025), and they die with it in the v1 machinery sweep.
         $post_id = pp_create_page('Recipe test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
         $result = pp_validate_action('style_component', [
@@ -5351,14 +5267,21 @@ class ActionsTest extends TestCase
 
     public function testInspectCompositionShowsAvailableRecipes(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring recipes (cta's two went at #1026, section's at #1023), so
+        // retiring these tests with it would have left the recipe engine —
+        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
+        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
+        // coverage at all. The three declarations moved to the fixture that exists for
+        // this (#1025), and they die with it in the v1 machinery sweep.
         $post_id = pp_create_page('Recipe inspect');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
         ]);
 
         $result = pp_inspect_composition($post_id);
         $this->assertArrayHasKey('available_recipes', $result[0]);
-        $this->assertCount(3, $result[0]['available_recipes']); // grid has 3 recipes
+        $this->assertCount(3, $result[0]['available_recipes']); // the fixture carries 3
         $this->assertSame('dark-showcase', $result[0]['available_recipes'][0]['name']);
     }
 
@@ -5593,12 +5516,19 @@ class ActionsTest extends TestCase
 
     public function testFriendlyErrorForInvalidRecipe(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring recipes (cta's two went at #1026, section's at #1023), so
+        // retiring these tests with it would have left the recipe engine —
+        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
+        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
+        // coverage at all. The three declarations moved to the fixture that exists for
+        // this (#1025), and they die with it in the v1 machinery sweep.
         $post_id = pp_create_page('Error test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "grid" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "ppfixture" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
@@ -5706,17 +5636,17 @@ class ActionsTest extends TestCase
 
     public function testFriendlyErrorForInvalidRecipeResolvesComponentIdNotIndexZero(): void
     {
-        // The recipe-bearing band is a `grid` since #1023. The point of the case is
-        // unchanged: the friendly error must resolve the band by its component_id and
-        // list THAT band's recipes, not fail as if index 0 (which has none) were the
-        // target.
+        // The recipe-bearing band is a `ppfixture` since #1101 (a `grid` since #1023).
+        // The point of the case is unchanged: the friendly error must resolve the band by
+        // its component_id and list THAT band's recipes, not fail as if index 0 (which
+        // has none) were the target.
         $post_id = pp_create_page('Id Recipe Error test');
         pp_update_composition($post_id, [
             ['component' => 'nav', 'props' => []],
-            ['component' => 'grid', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            ['component' => 'ppfixture', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
         ]);
 
-        $error  = new WP_Error('invalid_recipe', 'Component "grid" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
+        $error  = new WP_Error('invalid_recipe', 'Component "ppfixture" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
         $result = _pp_build_friendly_error($error, [
             'post_id'      => $post_id,
             'component_id' => 'pp-a1b2c3d4',
@@ -5754,17 +5684,22 @@ class ActionsTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'Hi']],
         ]);
 
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--grid-gap".');
+        // THE DONOR MOVED FROM `grid` TO `ppfixture` AT #1101, and this is the third and
+        // last such move: it was `cta` until #1026, `grid` until now, and grid was the
+        // last SHIPPED component with slots to point at. The fixture is the only slot
+        // carrier left, which is exactly why #1025 created it — and it retires together
+        // with this test's whole family in PR2, when the slot engine goes.
+        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--ppfixture-gap".');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-gap' => '2rem'],
+            'style'           => ['--ppfixture-gap' => '2rem'],
         ]);
 
         $hints = (array) $result['cross_component_hints'];
-        $this->assertArrayHasKey('--grid-gap', $hints);
-        $this->assertSame('grid', $hints['--grid-gap']['component']);
-        $this->assertSame('exact', $hints['--grid-gap']['match']);
+        $this->assertArrayHasKey('--ppfixture-gap', $hints);
+        $this->assertSame('ppfixture', $hints['--ppfixture-gap']['component']);
+        $this->assertSame('exact', $hints['--ppfixture-gap']['match']);
     }
 
     public function testCrossComponentSuffixMatch(): void
@@ -5781,11 +5716,13 @@ class ActionsTest extends TestCase
             'style'           => ['--section-gap' => '2rem'],
         ]);
 
+        // Same donor move as the exact-match test above: `ppfixture` is the only
+        // slot-bearing component left after grid's rebuild (#1101).
         $hints = (array) $result['cross_component_hints'];
         $this->assertArrayHasKey('--section-gap', $hints);
-        $this->assertSame('grid', $hints['--section-gap']['component']);
+        $this->assertSame('ppfixture', $hints['--section-gap']['component']);
         $this->assertSame('suffix', $hints['--section-gap']['match']);
-        $this->assertSame('--grid-gap', $hints['--section-gap']['slot']);
+        $this->assertSame('--ppfixture-gap', $hints['--section-gap']['slot']);
     }
 
     public function testCrossComponentNoMatch(): void
@@ -5877,10 +5814,11 @@ class ActionsTest extends TestCase
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-gap' => '2rem'],
+            // Same donor move as the two hint tests above (#1101).
+            'style'           => ['--ppfixture-gap' => '2rem'],
         ]);
 
-        $this->assertStringContainsString('grid', $result['user_message']);
+        $this->assertStringContainsString('ppfixture', $result['user_message']);
         $this->assertStringContainsString('change it there instead', $result['user_message']);
     }
 
@@ -5990,14 +5928,27 @@ class ActionsTest extends TestCase
         // The widest style map the theme itself ships, aimed at the wrong component.
         // This is the ordinary mistake cross-component hints exist to explain, so it
         // is precisely the case that must never come back partial.
-        $widest = [];
-        foreach (pp_default_homepage_composition() as $band) {
-            $style = $band['style'] ?? [];
-            if (count($style) > count($widest)) {
-                $widest = $style;
-            }
+        // THE STARTER CARRIES NO STYLE MAP AT ALL SINCE #1101 — its last one was the grid
+        // band's twenty slots, converted to a `udc` map with the rebuild. That is asserted
+        // first, because it is the fact that made this fixture change necessary and it is
+        // worth failing on if a `style` map ever comes back into the seed.
+        foreach (pp_default_homepage_composition() as $i => $band) {
+            $this->assertSame([], $band['style'] ?? [], "starter band {$i} must carry no v1 style map");
         }
-        $this->assertGreaterThanOrEqual(20, count($widest), 'The starter still carries a wide style map.');
+
+        // The width this test needs now comes from the only slot-bearing component left,
+        // and the CLAIM is unchanged: a map wide enough to trip the scan bound must still
+        // be reported COMPLETE rather than partially, because a partial answer sends an
+        // operator to fix one key and meet the next one on the following write.
+        $widest = [];
+        foreach (array_keys(pp_get_style_slots('ppfixture')) as $slot) {
+            $widest[$slot] = '1rem';
+        }
+        $this->assertGreaterThanOrEqual(
+            16,
+            count($widest),
+            'the fixture still carries a wide style map — without one this test proves nothing'
+        );
 
         $post_id = pp_create_page('Widest shipped map');
         pp_update_composition($post_id, [
@@ -6095,13 +6046,14 @@ class ActionsTest extends TestCase
         for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
             $style['--zz-unknown-' . $i] = '1rem';
         }
-        // Real slots on another component, positioned past the bound. `grid` since #1026
-        // (`cta` before it), not the fixture's own `section`: a slot the fixture component
-        // itself declares is valid, so it would never be a hint candidate in the first place
-        // and the bound would not be what excluded it. It also has to be a component that
-        // still HAS slots — `pp_get_style_slots('cta')` returns an empty list now, which
-        // would have made the tail empty and the bound untested.
-        $tail = array_slice(array_keys(pp_get_style_slots('grid')), 0, 5);
+        // Real slots on another component, positioned past the bound. `ppfixture` since
+        // #1101 (`grid` since #1026, `cta` before that), not the fixture page's own
+        // `section`: a slot the target component itself declares is valid, so it would
+        // never be a hint candidate in the first place and the bound would not be what
+        // excluded it. It also has to be a component that still HAS slots, and after
+        // grid's rebuild `ppfixture` is the only one in the whole registry — which is
+        // what its README means by "the last consumer of the slot engine".
+        $tail = array_slice(array_keys(pp_get_style_slots('ppfixture')), 0, 5);
         foreach ($tail as $slot) {
             $style[$slot] = '1rem';
         }
@@ -6253,15 +6205,18 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('CSS keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'Grid']],
+            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101: the friendly-error text is
+            // keyed on the slot's TYPE, not on which component owns it, and `ppfixture`
+            // is the only slot carrier left in the registry.
+            ['component' => 'ppfixture', 'props' => ['title' => 'Fixture', 'items' => []]],
         ]);
 
         // Simulate validator rejecting "none" for a length slot.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--grid-heading-measure": Value must be a number with a CSS unit...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-max-width": Value must be a number with a CSS unit...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-measure' => 'none'],
+            'style'           => ['--ppfixture-max-width' => 'none'],
         ]);
 
         $this->assertSame('invalid_style_value', $result['error_code']);
@@ -6277,14 +6232,15 @@ class ActionsTest extends TestCase
     {
         $post_id = pp_create_page('CSS keyword test');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'Grid']],
+            // Re-homed to `ppfixture` at #1101, same reason as its sibling above.
+            ['component' => 'ppfixture', 'props' => ['title' => 'Fixture', 'items' => []]],
         ]);
 
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--grid-padding-top": Value must be a number with a CSS unit...');
+        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-padding-top": Value must be a number with a CSS unit...');
         $result = _pp_build_friendly_error($error, [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--grid-padding-top' => 'unset'],
+            'style'           => ['--ppfixture-padding-top' => 'unset'],
         ]);
 
         // Must suggest 0 for padding removal.

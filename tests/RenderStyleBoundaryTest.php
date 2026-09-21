@@ -14,6 +14,14 @@
  *   - the grid per-item items[].style path (grid.php);
  *   - the footer color sink in components/footer/footer.php.
  *
+ * TWO OF THOSE THREE SINKS NOW HAVE NO SHIPPED CONSUMER, and that is asserted rather
+ * than assumed. Ruling A1 closed the chrome surface, and #1101 took the last component
+ * declaring `styling.style_slots` (grid) onto the Universal Design Contract, which also
+ * retired `items[].style`. The boundary's HELPER is untouched and still exercised
+ * directly below — it is the shared gate any future sink would call — while the two
+ * component-facing arms are repriced to pin the closure instead of the filtering. The
+ * long records live on the replacement methods.
+ *
  * Two invariants:
  *   - REJECT SET: a stored value that never passed write-time validation
  *     (url(...), expression(...), @import, backslash escapes, control chars) is
@@ -128,34 +136,89 @@ class RenderStyleBoundaryTest extends TestCase
 
     // ── Component sink: pp_render_style_vars() ───────────────────────────────
 
-    public function testRejectedValueDroppedSiblingSurvives(): void
+    /**
+     * THE COMPONENT INLINE-STYLE SINK HAS NO SHIPPED CONSUMER LEFT (#1101), and that is a
+     * stronger guarantee than the three grid arms this replaces.
+     *
+     * WHAT THEY PROVED. `testRejectedValueDroppedSiblingSurvives` fed a stored (never
+     * write-validated) `url(https://example.test/ping)` to `--grid-bg` beside a legitimate
+     * `var(--shadow-md)` on `--grid-item-shadow`, and pinned that the render boundary
+     * dropped exactly one of the two — the #330 defence-in-depth posture, where a value
+     * that reached storage through snapshot restore (never blocked, by the #233 rule) or an
+     * out-of-band DB write is filtered on its way to the browser rather than blocking a
+     * page. `testPassSetRendersUnchangedThroughSink` pinned the other half over four slot
+     * TYPES at once — colour, gradient, length and shadow — so the boundary could not be
+     * satisfied by dropping everything. `testGridComponentDropsStoredUrlInSlotStyle` and
+     * `testGridItemStyleDropsStoredUrlSiblingSurvives` drove the same two facts through the
+     * REAL component, at band grain and at `items[].style` grain, which is where the bug's
+     * actual shape lived.
+     *
+     * WHY THEY HAVE NO SUBJECT. grid was the last component in the theme declaring
+     * `styling.style_slots`, and #1101 rebuilt it on the Universal Design Contract. The
+     * sink's declared-slot filter (`pp_style_declaration_renders`) therefore drops EVERY
+     * key for EVERY shipped component, so the four arms above now assert that an empty
+     * string does not contain a url — true, and vacuous. The `items[].style` path is gone
+     * outright: grid's `retired_props` routes it to the entry's own `udc` map, which emits
+     * `[data-pp-band="…"] [data-pp-item="…"]` rules instead of an inline attribute.
+     *
+     * WHAT IS PINNED INSTEAD. Not "a bad value is dropped from the map" but "no map of any
+     * shape, on any shipped component, at band grain OR item grain, produces a single
+     * declaration". A regression here would not be one leaked declaration — it would be a
+     * whole component climbing back out of the cascade onto an inline attribute that
+     * outranks every stylesheet, which is the surface §3.4 forbids outright. The hostile
+     * values are kept as the fixtures, so if the sink ever emits again it emits THESE, and
+     * the failure names the exact defect the #330 boundary existed to catch.
+     *
+     * Layer 1 is untouched and still live above: `pp_render_style_value_allowed()` is a
+     * pure function, it is the shared gate the footer sink and any future sink call, and
+     * its reject/pass sets are exercised directly rather than through a component.
+     */
+    public function testNoShippedComponentCanPutAnInlineStyleMapThroughTheSink(): void
     {
-        // A stored (never write-validated) url() lands on one slot; a valid
-        // shadow lands on another. Only the url() is filtered.
-        $result = pp_render_style_vars(
-            ['--grid-bg' => 'url(https://example.test/ping)', '--grid-item-shadow' => 'var(--shadow-md)'],
-            'grid'
-        );
-        $this->assertStringNotContainsString('url(', $result);
-        $this->assertStringNotContainsString('--grid-bg', $result);
-        $this->assertStringContainsString('--grid-item-shadow: var(--shadow-md)', $result);
-    }
+        // One value per slot TYPE the pass set used to cover, plus the url() the reject set
+        // was built around — so this fails loudly whichever half of the boundary regresses.
+        $map = [
+            '--grid-bg'            => 'url(https://example.test/ping)',
+            '--grid-heading-color' => 'currentColor',
+            '--grid-padding-top'   => '8rem',
+            '--grid-item-shadow'   => 'var(--shadow-md)',
+        ];
 
-    public function testPassSetRendersUnchangedThroughSink(): void
-    {
-        $result = pp_render_style_vars(
-            [
-                '--grid-heading-color' => 'currentColor',
-                '--grid-bg'            => 'radial-gradient(circle at 20% 30%, #ffffff, #000000)',
-                '--grid-padding-top'   => '8rem',
-                '--grid-item-shadow'   => '0 4px 12px rgba(0,0,0,0.3)',
-            ],
-            'grid'
+        $checked = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
+            $this->assertIsArray($schema, "{$component}/schema.json is not valid JSON");
+            $this->assertSame(
+                [],
+                $schema['styling']['style_slots'] ?? [],
+                "{$component} declares style slots again — the sink has a consumer, and the "
+                . 'three #330 grid arms this test replaced should come back with it'
+            );
+
+            // The component name is substituted into the map so a component is never asked
+            // about a foreign prefix: the point is that its OWN slot-shaped names are dead
+            // too, not merely that grid's are.
+            $own = [];
+            foreach ($map as $slot => $value) {
+                $own[str_replace('--grid-', "--{$component}-", $slot)] = $value;
+            }
+
+            $this->assertSame('', pp_render_style_vars($own, $component),
+                "{$component} emitted an inline style declaration at band grain");
+            $this->assertSame('', pp_render_style_vars($own, $component, true),
+                "{$component} emitted an inline style declaration at item grain");
+            $checked[] = $component;
+        }
+
+        // ANTI-VACUITY: an empty roster would make every assertion above unreachable while
+        // reporting green — the exact shape this whole rewrite exists to refuse.
+        $this->assertGreaterThanOrEqual(
+            12,
+            count($checked),
+            'component discovery found fewer schemas than the theme ships — the glob broke, '
+            . 'and the emptiness asserted above is then a fact about the scan, not the sink'
         );
-        $this->assertStringContainsString('--grid-heading-color: currentColor', $result);
-        $this->assertStringContainsString('--grid-bg: radial-gradient(circle at 20% 30%, #ffffff, #000000)', $result);
-        $this->assertStringContainsString('--grid-padding-top: 8rem', $result);
-        $this->assertStringContainsString('--grid-item-shadow: 0 4px 12px rgba(0,0,0,0.3)', $result);
     }
 
     /**
@@ -176,36 +239,63 @@ class RenderStyleBoundaryTest extends TestCase
 
     // ── Render-through: real component output (the bug's actual shape) ───────
 
-    public function testGridComponentDropsStoredUrlInSlotStyle(): void
+    /**
+     * THE RENDER-THROUGH HALF, AT THE SAME RETIREMENT (#1101) — see the long record on
+     * `testNoShippedComponentCanPutAnInlineStyleMapThroughTheSink` above.
+     *
+     * These two arms drove the #330 boundary through the REAL component rather than
+     * through the sink helper, which is where the bug's actual shape lived: a stored
+     * `url()` seeded straight into `__pp_style` (bypassing the action-layer validator,
+     * exactly as a `restore_composition` or a raw meta write does) had to be absent from
+     * the rendered `style` attribute, at band grain and again at `items[].style` grain,
+     * with a valid per-card `var(--shadow-md)` sibling still painting.
+     *
+     * Both paths are gone. grid declares no slots, so `__pp_style` drops every key; and
+     * `items[].style` is named in grid's `retired_props`, routed to the entry's own `udc`
+     * map — which emits a band- and item-scoped RULE rather than an inline attribute, so
+     * per-card design participates in the cascade instead of outranking it.
+     *
+     * The seeds are kept verbatim and the assertion is widened to the strongest form the
+     * markup permits: not "this declaration is absent" but "there is no style attribute on
+     * any element at all". A leak of any shape — a key that starts resolving, a new inline
+     * sink, a re-added per-item map — fails here.
+     */
+    public function testTheGridComponentEmitsNoInlineStyleAttributeFromEitherRetiredPath(): void
     {
-        // Seed the value the way restore / out-of-band writes would: straight
-        // into __pp_style, bypassing the action-layer validator, then render the
-        // real component and assert the url() never reaches the style attribute.
-        $html = $this->render('grid', [
-            'title'      => 'Cards',
-            '__pp_style' => ['--grid-item-bg' => 'url(https://example.test/beacon.gif)'],
-            'items'      => [['title' => 'A']],
-        ]);
-        $this->assertStringNotContainsString('url(', $html);
-        $this->assertStringNotContainsString('--grid-item-bg', $html);
-    }
-
-    public function testGridItemStyleDropsStoredUrlSiblingSurvives(): void
-    {
-        // items[].style funnels through the same sink; a per-card url() is
-        // dropped while a valid per-card shadow on the same card still renders.
-        $html = $this->render('grid', [
-            'items' => [[
-                'title' => 'Card',
-                'style' => [
-                    '--grid-item-bg'     => 'url(https://example.test/x)',
+        foreach ([
+            'band-grain __pp_style' => [
+                'title'      => 'Cards',
+                '__pp_style' => [
+                    '--grid-item-bg'     => 'url(https://example.test/beacon.gif)',
                     '--grid-item-shadow' => 'var(--shadow-md)',
                 ],
-            ]],
-        ]);
-        $this->assertStringNotContainsString('url(', $html);
-        $this->assertStringNotContainsString('--grid-item-bg', $html);
-        $this->assertStringContainsString('--grid-item-shadow: var(--shadow-md)', $html);
+                'items'      => [['title' => 'A']],
+            ],
+            'item-grain items[].style' => [
+                'items' => [[
+                    'title' => 'Card',
+                    'style' => [
+                        '--grid-item-bg'     => 'url(https://example.test/x)',
+                        '--grid-item-shadow' => 'var(--shadow-md)',
+                    ],
+                ]],
+            ],
+        ] as $label => $props) {
+            $html = $this->render('grid', $props);
+
+            $this->assertNotSame('', trim($html), "premise: grid rendered nothing for the {$label} case");
+            $this->assertDoesNotMatchRegularExpression(
+                '/<[a-z][^>]*\sstyle=/i',
+                $html,
+                "grid emitted an inline style attribute from the {$label} path. §3.4 forbids "
+                . 'inline style emission outright: an inline attribute outranks every '
+                . 'stylesheet, which is precisely why per-band and per-card design had to '
+                . 'move to the `udc` map and its scoped rules'
+            );
+            $this->assertStringNotContainsString('url(', $html, "the {$label} case leaked a stored url()");
+            $this->assertStringNotContainsString('--grid-item-bg', $html);
+            $this->assertStringNotContainsString('--grid-item-shadow', $html);
+        }
     }
 
     // ── Footer color sink (components/footer/footer.php) ─────────────────────

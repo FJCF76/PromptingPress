@@ -181,8 +181,9 @@ opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
 `@color-accent-on-inverted` exists because the plain `@color-accent` drops to about
 3.2:1 on the default inverted background and fails AA.
 
-Note that `grid` carries no `udc` — it is the one component not on the design contract.
-Style it with `style_component` and its style slots instead — read them with `wp pp schema grid`.
+`grid` joined the design contract at #1101 and is styled exactly like every other band —
+and it is the only component that can also style ONE CARD, through an `items[]` entry's own
+`udc` map (BUILD-SPEC Addendum B). Read its roles with `wp pp schema grid`.
 
 ---
 

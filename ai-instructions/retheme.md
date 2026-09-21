@@ -182,8 +182,8 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** All NINE v2 components — `hero`, `section`,
-`testimonials`, `cta`, `faq`, `table`, `embed`, `stats` and `logos` — have no `theme` prop,
+is the shape of every future sprint.** All TEN v2 components — `hero`, `section`,
+`testimonials`, `cta`, `faq`, `table`, `embed`, `stats`, `logos` and `grid` — have no `theme` prop,
 no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
@@ -501,8 +501,8 @@ are theme-internal properties declared outside the token registry, so
 surface, and changing one is a band-at-a-time job. **How you do it depends on the tier,
 and the slot answer is now the rare case:**
 
-- **The nine v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
-  logos) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
+- **The ten v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
+  logos, grid) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
   `spacing.padding-top` / `padding-bottom`; heading size is the `heading` role's
   `typography.size`. Both accept a literal or a REGISTERED design token (`@space-2xl`
   verified accepted). They do **not** accept `@pp-band-padding` or

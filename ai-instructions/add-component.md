@@ -284,7 +284,7 @@ never stored anywhere else.
 | `item_eligible` | slot | the slot is item-scoped (a grid card, a section panel row) — enforced at **write and at render**, so a container-scoped slot never reaches the item element even from a non-validating write |
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
-| `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`). **Not a UDC role.** This is a marker ON a style slot, bounded by `pp_slot_roles()`; the UDC roles of Step 3b are a different surface with a different key (`roles`) and a different value set. Only `grid` has style slots, so only `grid` can carry this key. |
+| `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`). **Not a UDC role.** This is a marker ON a style slot, bounded by `pp_slot_roles()`; the UDC roles of Step 3b are a different surface with a different key (`roles`) and a different value set. NO component has style slots since #1101, so nothing carries this key on a shipped schema; it is documented here for a component being added against the v1 surface, which nothing should be. |
 
 `applies_when` is an **array of clauses, ANDed**. **Exactly four clause forms
 exist and the grammar does not grow:**
@@ -300,10 +300,15 @@ Do **not** add an `any_of` clause, a `context` clause, or any free-form
 structure. Three condition classes stay **prose**, in `conditionality_note`,
 precisely so the machine-readable grammar never has to grow to swallow them:
 
-- **Composed-page context** — `--grid-item-bar-*` / `--grid-featured-*` apply
-  only under a `main >` scope, which is not a prop, not a slot and not a value.
-  **This is the only one of the three with a shipped declaration today** — four grid
-  slots carry it, and they are the whole population.
+- **Composed-page context** — a value that applies only under a `main >` scope, which
+  is not a prop, not a slot and not a value. **It has NO shipped declaration since
+  #1101**: the four `--grid-item-bar-*` / `--grid-featured-*` slots that carried it were
+  the whole population, and they retired with grid's rebuild. The class is kept in this
+  list rather than deleted because the clause grammar still cannot express it — a
+  composed-page scope is a fact about where a band RENDERS, not about a prop's value —
+  so a future component meeting it needs to find the reasoning here rather than
+  rediscover it. A v2 role cannot express it either: role `defaults` carry a breakpoint
+  dimension and a state dimension and no page-context dimension.
 - **Disjunction** — a slot applying on dark bands only, i.e. `theme: inverted` **or**
   `background_image` present. *Historical:* the v2 rebuilds retired both props from
   every component that had them, and `grid` — the only component with style slots
@@ -445,7 +450,7 @@ declare, nothing to populate, nothing to resolve.
 
 | Surface | Resolves at | Consequence |
 |---|---|---|
-| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the nineteen v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`; faq's `theme`; embed's `theme`; stats' `theme` and `background_image`; logos' `theme` — and NOT `table`, which is v2 as of #1066 but never declared a styling prop, so it retired none) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
+| prop **key** names | nowhere | there is no prop-key alias surface (#604). A retired prop name is rejected at write and unread at render — one answer on both paths, at both depths: top-level props (#147) and nested `items[]` fields (#643). The CODE depends on whether the component declares the name in its `retired_props` block: the twenty-five v2-rebuild keys (hero's `button_variant`, `button2_variant`, `spacing`, `width`; section's `theme`, `title_align`, `background_image`, `panel_cta_variant`; cta's `theme`, `background_image`, `button_variant`, `button2_variant`; testimonials' `theme`, `title_align`; faq's `theme`; embed's `theme`; stats' `theme` and `background_image`; logos' `theme`; grid's `theme`, `title_align`, `card_emphasis`, `image_treatment`, `items[].text_role` and `items[].style` — and NOT `table`, which is v2 as of #1066 but never declared a styling prop, so it retired none) return `retired_prop` with a message naming the `udc` surface that replaced them and the `null` clear; every other undeclared key returns `unknown_prop`. |
 | style **slot** names | nowhere | there is no slot alias surface (#603). An undeclared slot name is rejected at write with `invalid_style_slot` and dropped at render. |
 | prop **values** | nowhere | there is no value-alias surface (#605 took the last entry, #606 took the field). An unadvertised value is rejected at write with `invalid_prop_value`, at both depths — top-level props (#579) and nested `items[]` enum fields (#600). |
 | the `variant` prop | nowhere | retired in #69. Rejected on every write path (#388) and, since #604, not decoded on any read path either. |

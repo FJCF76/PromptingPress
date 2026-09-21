@@ -138,59 +138,78 @@ class SchemaTruthfulnessTest extends TestCase
             . "1.875rem is a literal that has never appeared in components.css. Both are "
             . "false as effective-default descriptions. State the real default."
         );
-    }
-
-    /**
-     * The nine band components share ONE heading scale (#436), so every one of their
-     * heading-size slots must default to it. hero is deliberately exempt: its H1 carries
-     * its own larger clamp so it outranks the band headings below it, and the schema now
-     * says so rather than leaving an agent to infer it.
+    }    /**
+     * THE FOUR SLOT-DEFAULT AND TWIN GUARDS RETIRED AT #1101, and every claim they carried
+     * moved to a role default that is asserted against the EMITTED CSS rather than against
+     * a schema string. That is the stronger position, and it is worth naming why.
+     *
+     * WHAT THEY WERE. `testEveryBandHeadingSizeDefaultsToTheSharedScale` kept every band's
+     * heading-size SLOT defaulting to the one shared `--pp-band-heading-size` scale (#436).
+     * `testCorrectedDefaultsStayCorrected` held nine hand-audited grid slot defaults at the
+     * values #468 measured, so a `default:` string in a schema could not drift back into
+     * fiction. `testEveryCompletedTwinPairIsDeclaredAndCrossReferenced` and
+     * `testTheNewTwinsAreRoutedWithTheOriginalLiteralsAsFallbacks` pinned the POSITIONAL
+     * TWIN discipline (#564): a rest slot without its state counterpart is a flip bug, so
+     * `--grid-item-link-color` had to declare `--grid-item-link-hover-color`, each had to
+     * NAME the other, and the stylesheet had to route the hover with the original literal
+     * as its fallback. `testEveryNewStateTwinIsAuthorableThroughTheActionLayer` wrote the
+     * hover slot through the real `style_component` surface (Section 14.1) and read it
+     * back from storage AND from rendered markup.
+     *
+     * grid was the last member of all four rosters, so all four now walk an empty list.
+     *
+     * WHERE THE TWIN DISCIPLINE WENT, because it is the one that protected a real defect
+     * class rather than a number. A v2 role declares its rest value and its `:hover` value
+     * in ONE map — `card-link` -> `typography` carries `color`, `decoration` and a
+     * `":hover"` block holding both — so a rest value without a counterpart is not a slot
+     * somebody forgot to declare, it is a key somebody did not write inside a structure
+     * that shows both halves side by side. The flip bug #564 records is unrepresentable
+     * rather than merely guarded: there is no second declaration to fall out of sync with.
+     * The emitted pair is asserted in tests/GridRoleDefaultsEmitTest.php, on the CSS the
+     * browser receives.
+     *
+     * THE ASSERTIONS BELOW ARE THE LIVE FORM OF ALL FOUR, and none of them is vacuous:
+     * the shared heading scale is still reached (by reference rather than by fallback),
+     * the measured card-link pair is still declared with both halves, and the roster that
+     * emptied is asserted empty so a re-added slot has to argue with a test.
      */
-    public function testEveryBandHeadingSizeDefaultsToTheSharedScale(): void
+    public function testTheSlotDefaultAndTwinDisciplinesSurviveAsRoleDefaults(): void
     {
-        // testimonials is absent: its heading size is the `heading` role's
-        // `typography.size` default, which carries the shared scale's clamp() literal
-        // directly rather than routing --pp-band-heading-size through a slot.
-        // section is absent since #1023 for the mirror-image reason: its `heading` role
-        // DOES route the shared scale, as `@pp-band-heading-size`, so the token still
-        // governs it — through the engine rather than through a slot.
-        // faq left at #1046 and table at #1066: each heading size is the `heading` role's
-        // `typography.size`, referencing the same shared `@pp-band-heading-size` token
-        // this test exists to keep every band on. The v2 half of each claim is that
-        // component's RoleDefaultsEmitTest — for table,
-        // TableRoleDefaultsEmitTest::testTheHeadingFollowsTheBandAndRestatesNoGlobalType,
-        // which asserts the emitted `font-size:var(--pp-band-heading-size)` rather than
-        // the schema text.
-        // stats and logos left at #1066 PR2, for the same reason table did: each heading
-        // size is the `heading` role's `typography.size`, referencing the same shared
-        // `@pp-band-heading-size` token this test exists to keep every band on, and the v2
-        // half of each claim is that component's RoleDefaultsEmitTest. GRID IS THE LAST
-        // MEMBER — when it rebuilds, this slot-shaped roster empties and the claim lives
-        // entirely in MeasureSurfaceTest's v2 arm, which already sweeps every v2 band's
-        // heading for the shared token.
-        $bands = ['grid'];
-        foreach ($bands as $component) {
-            $slot = "--{$component}-heading-size";
-            $slots = $this->slots($component);
-            $this->assertArrayHasKey($slot, $slots, "{$component} must declare {$slot}");
-            $this->assertSame(
-                'var(--pp-band-heading-size)',
-                $slots[$slot]['default'],
-                "{$slot} must state the shared band-heading scale as its effective default."
-            );
-        }
+        $grid = $this->allSchemas()['grid'];
 
-        // HERO'S EXEMPTION MOVED WITH HERO (#986). It was the one band whose heading
-        // size deliberately did NOT default to the shared scale — an opener is bigger —
-        // and that is still true, but it is now expressed as the `title` role's
-        // `typography.size` default (a responsive clamp pair) rather than as a slot
-        // default carrying the word EXEMPT in its description. Asserted where it lives.
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/hero/schema.json'), true);
-        $size   = $schema['roles']['title']['defaults']['typography']['size'];
-        $this->assertIsArray($size, 'hero keeps a RESPONSIVE heading size, which is the exemption');
-        $this->assertStringContainsString('clamp(', $size['d']);
-        $this->assertStringNotContainsString('pp-band-heading-size', json_encode($size),
-            'hero is EXEMPT from the shared band scale by design; do not fold it in here.');
+        // #436: the shared band-heading scale is still what governs this band's heading —
+        // as an `@token` reference now, which the engine resolves, rather than as a slot
+        // fallback the stylesheet had to restate at three specificities.
+        $this->assertSame(
+            '@pp-band-heading-size',
+            $grid['roles']['heading']['defaults']['typography']['size'],
+            'the band heading must still reach the ONE shared scale'
+        );
+
+        // #564: the positional twin, as ONE map with both halves visible. The rest colour,
+        // the rest decoration, and the `:hover` block carrying BOTH counterparts — which
+        // is what makes a half-written pair a visible omission rather than a missing
+        // declaration somewhere else in the file.
+        $link = $grid['roles']['card-link']['defaults']['typography'];
+        $this->assertSame('@color-accent', $link['color']);
+        $this->assertSame('none', $link['decoration']);
+        $this->assertSame('@color-accent-hover', $link[':hover']['color'], 'the hover twin');
+        $this->assertSame('underline', $link[':hover']['decoration'], 'and its decoration half');
+
+        // THE ROSTERS ARE EMPTY, asserted rather than assumed: a `foreach` over an empty
+        // list is silent, and that silence is what these four tests would have become.
+        $slotCarriers = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            if (!empty($schema['styling']['style_slots'])) {
+                $slotCarriers[] = $component;
+            }
+        }
+        $this->assertSame(
+            [],
+            $slotCarriers,
+            'a component declares style slots again — restore the four guards this '
+            . 'assertion replaced in the same commit, or their defaults ship unaudited.'
+        );
     }
 
     /**
@@ -251,34 +270,6 @@ class SchemaTruthfulnessTest extends TestCase
         }
     }
 
-    /**
-     * VALUE pin for every default this issue corrected. The phrase-presence tests above
-     * would all still pass if someone reverted `1.65rem` back to `var(--space-lg)`, so
-     * without this the corrections are a one-time snapshot rather than a contract. Each
-     * pair below was read off the composed-page (`main > .`) rule in components.css at the
-     * >=768px desktop tier, which is the configuration the stated convention describes.
-     *
-     * This is NOT the mechanical `default == CSS-fallback` check declined at
-     * StyleSlotContractTest:26-31 — that one would compare EVERY slot against EVERY
-     * fallback, which is wrong by design because a slot is legitimately consumed with
-     * different fallbacks per theme variant. This is a hand-audited list of the specific
-     * values this gate established.
-     *
-     * @dataProvider correctedEffectiveDefaults
-     */
-    public function testCorrectedDefaultsStayCorrected(string $component, string $slot, string $expected): void
-    {
-        $slots = $this->slots($component);
-        $this->assertArrayHasKey($slot, $slots, "{$component} must declare {$slot}");
-        $this->assertSame(
-            $expected,
-            $slots[$slot]['default'],
-            "{$slot} was corrected to the effective default '{$expected}' by issue 581. If the "
-            . 'RENDERED default genuinely changed, update this pin in the same change; if not, '
-            . 'this is a regression back to a value that renders nowhere.'
-        );
-    }
-
     public static function correctedEffectiveDefaults(): array
     {
         return [
@@ -321,10 +312,20 @@ class SchemaTruthfulnessTest extends TestCase
      */
     public function testTheDefaultConventionIsStatedOnEveryAuthoringSurface(): void
     {
+        // THE RUNTIME-PROMPT ARM RETIRED AT #1101 AND IS PINNED AS ABSENT (#1101).
+        //
+        // The convention explains how to read a `default:` value the prompt PRINTS beside
+        // each style slot. grid was the last component declaring slots, so the prompt
+        // prints no `default:` anywhere now — the v2 role catalog advertises each role's
+        // permitted GROUPS and not its defaults, deliberately (a role's defaults are
+        // served on demand by `wp pp schema <component>`, because injecting 143 roles'
+        // worth would roughly double an uncached prompt re-sent every turn).
+        // A convention with no subject is not a rule an agent can apply; it is a
+        // paragraph it pays for on every turn. The two INSTRUCTION-FILE arms stay, and
+        // they are the ones that matter — those are what a human or an agent reads when
+        // ADDING a slot-bearing surface, which is exactly when the convention binds.
         $context = pp_ai_system_prompt();
-        $this->assertStringContainsString('EFFECTIVE default', $context);
-        $this->assertStringContainsString("the component's default configuration, at desktop", $context);
-        $this->assertStringContainsString('the `description` enumerates the alternatives', $context);
+        $this->assertStringNotContainsString('EFFECTIVE default', $context);
 
         $styleDoc = file_get_contents($this->themeRoot . '/ai-instructions/style-component.md');
         $this->assertStringContainsString('**effective** default', $styleDoc);
@@ -676,14 +677,24 @@ class SchemaTruthfulnessTest extends TestCase
         // stats' seventeen and logos' eight retired here, and the only two claims left in
         // the whole theme are grid's.
         //
-        // WHY NOT DELETE THE PIN: grid still ships them, and the defect this caught (a
+        // WHY NOT DELETE THE PIN: grid still ships one, and the defect this caught (a
         // schema promising a site-wide token that `update_design_token` refuses, shipped
         // through four review rounds at #1023) is exactly the kind that reappears in the
-        // last component nobody is watching. WHEN GRID REBUILDS this floor reaches zero and
-        // the test should RETIRE rather than be lowered again — at that point no schema
-        // makes the promise, because the v2 way to reference a token is an `@name` the
-        // ENGINE validates at write time, not prose a reader has to trust.
-        $this->assertGreaterThanOrEqual(2, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
+        // last component nobody is watching.
+        //
+        // THE PREDICTION ABOVE WAS RIGHT ABOUT THE OLD CLAIMS AND WRONG ABOUT THE COUNT.
+        // It said grid's rebuild would take this floor to zero and the test should then
+        // RETIRE. Grid's two v1 claims did go — both were slot `description` strings
+        // explaining which token a slot's default followed. But the rebuilt schema makes
+        // ONE claim of its own, in the `card` role's description, arguing why that role's
+        // ported default is a token-following flat fill rather than a hex gradient frozen
+        // against every retheme. That is a live promise about a site-wide surface, made in
+        // v2 prose, which is exactly the subject this scan exists for — so the pin has a
+        // subject and is not inert. Lowered to ONE rather than retired, deliberately, and
+        // with the prediction left above rather than edited away: the reasoning was sound
+        // and the thing it did not anticipate is that v2 role descriptions ARGUE about
+        // tokens where v1 slot descriptions merely named them.
+        $this->assertGreaterThanOrEqual(1, $claims, 'no schema string makes a design-token claim any more; this pin is inert');
 
         $this->assertSame(
             [],
@@ -951,38 +962,6 @@ class SchemaTruthfulnessTest extends TestCase
         }
     }
 
-    // ── A-18: the state twins ───────────────────────────────────────────────
-
-    /**
-     * Section 14.1 AUTHORING-PATH MANDATE. Both new slots are written through the REAL
-     * surface (pp_execute_action('style_component')), not a raw _pp_composition meta write:
-     * raw seeding bypasses pp_validate_composition entirely and would prove nothing about
-     * whether the slot is actually authorable. Each is read back from STORAGE and from the
-     * RENDERED markup, so a value accepted at write and dropped at the render boundary
-     * fails here too.
-     *
-     * @dataProvider newStateTwins
-     */
-    public function testEveryNewStateTwinIsAuthorableThroughTheActionLayer(
-        string $component,
-        array $props,
-        string $slot,
-        string $value
-    ): void {
-        $id = pp_create_page("Authoring {$slot}", 'draft');
-        pp_update_composition($id, [['component' => $component, 'props' => $props]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => [$slot => $value],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? "{$slot} must be authorable");
-        $this->assertSame($value, pp_get_composition($id)[0]['style'][$slot]);
-        $this->assertStringContainsString("{$slot}: {$value}", $this->renderStored($id));
-    }
-
     public static function newStateTwins(): array
     {
         return [
@@ -995,141 +974,6 @@ class SchemaTruthfulnessTest extends TestCase
             // cta's row left at #1026 with its slot map — see the retirement note below for
             // why the elevation pairing it exercised has no v2 counterpart to move to.
         ];
-    }
-
-    // NARROWED (#1026), not retired, and the distinction matters because the first draft of
-    // this change deleted all three. #581 completed a PER-BUTTON pairing — an elevation slot
-    // on the PRIMARY needed a counterpart on the SECOND button, or flattening one silently
-    // flattened both through inheritance — and cta's `--cta-button-shadow` /
-    // `--cta-button2-shadow` was the last surviving pair OF THAT KIND.
-    //
-    // What is gone is the cta half of each:
-    //   testEveryCompletedTwinPairIsDeclaredAndCrossReferenced — its $perButtonCounterparts
-    //   testTheNewTwinsAreRoutedWithTheOriginalLiteralsAsFallbacks — its isolation assertion
-    //   testEveryNewStateTwinIsAuthorableThroughTheActionLayer (the cta elevation row)
-    //
-    // WHAT STAYS, AND WHY DELETING IT WOULD HAVE BEEN A REGRESSION: the first test also
-    // pinned POSITIONAL twins — `grid`'s link rest/hover pair and `faq`'s question
-    // rest/open pair — which the original deliberately kept in a SEPARATE array from the
-    // cta pair, with a comment warning that conflating the two kinds is how a real hover
-    // slot ends up undeclared. Both components are still on the slot system, so the
-    // flip-bug class #564 records is still reachable on them. The second test's two grid
-    // routing assertions are live for the same reason. Both are restored below, cta-free.
-    //
-    // THE COUPLING THE PAIRING EXISTED TO BREAK IS GONE, which is why nothing replaces them.
-    // The two buttons shared a slot family only because slots were emitted as inline custom
-    // properties on the band root and inherited to both. They are separate ROLES now, each
-    // with its own `shadow.box`, so flattening one cannot reach the other and there is no
-    // twin to keep cross-referenced. The `button-secondary` role's `shadow.box: none`
-    // default — which #581's twin existed to make reachable — is asserted directly on the
-    // emitted CSS in tests/CtaRoleDefaultsEmitTest.php, where it is load-bearing for a
-    // different reason: it clears the premium bevel the bare `.btn` would otherwise inherit.
-
-    /**
-     * A rest slot without its twin is a future flip bug (#564 is the recorded precedent):
-     * an author sets the resting value and the state reverts to the product default under
-     * the pointer. Pin each surviving pair, and pin that each half NAMES the other — a twin
-     * nothing points at is a twin nobody finds.
-     */
-    public function testEveryCompletedTwinPairIsDeclaredAndCrossReferenced(): void
-    {
-        // POSITIONAL TWINS only now: the counterpart position in a STATE chain on ONE
-        // element (rest<->hover, rest<->open), which is the flip-bug class #564 records.
-        // The cta entry that used to sit beside these in a separate $perButtonCounterparts
-        // array was a different animal — same job, sibling ELEMENT, both at rest — and it
-        // left at #1026 with cta's slot map. Keeping the two kinds in separate arrays was
-        // the original's point, and it is why removing one did not remove the other.
-        $positionalTwins = [
-            'grid' => ['--grid-item-link-color', '--grid-item-link-hover-color'],
-            // section's pair left at #1023, and it is the clearest case for why the
-            // twin discipline exists: rest and hover are now ONE role (`body-link`), so
-            // its `typography.color` and its `:hover` typography.color sit in the same
-            // map and cannot be set apart by accident. docs/explanation-cascade-layers.md
-            // §1b is the reason they had to move together.
-            // faq's pair left the SLOT list at #1046 and is re-asserted below as roles.
-            // It did not stop being a positional twin — `question` still owns the closed
-            // row and `question-open` the expanded one, and they still have to name each
-            // other or an author sets one and watches it revert on the first click. The
-            // slot pair became a ROLE pair, so the assertion follows the subject instead
-            // of retiring with the slot names.
-        ];
-        foreach ($positionalTwins as $component => [$rest, $twin]) {
-            $slots = $this->slots($component);
-            $this->assertArrayHasKey($rest, $slots, "{$component} must declare {$rest}");
-            $this->assertArrayHasKey($twin, $slots, "{$component} must declare its twin {$twin}");
-            $this->assertStringContainsString(
-                $twin,
-                $slots[$rest]['description'],
-                "{$rest} must name {$twin} so an author setting one finds the other."
-            );
-            $this->assertStringContainsString(
-                $rest,
-                $slots[$twin]['description'],
-                "{$twin} must name {$rest} — the cross-reference works in both directions."
-            );
-        }
-
-        // THE SAME DISCIPLINE ON THE v2 SIDE (#1046). A role pair can drift apart exactly
-        // as a slot pair could, and faq's is the sharper case: `question-open`'s selector
-        // carries one more compound than `question`'s, so the open value does not merely
-        // sit beside the resting one — it OUTRANKS it. An author who recolours the
-        // resting row and stops gets the accent back on the first click.
-        $roleTwins = [
-            'faq' => ['question', 'question-open'],
-        ];
-        foreach ($roleTwins as $component => [$rest, $twin]) {
-            $roles = pp_udc_component_roles($component);
-            $this->assertArrayHasKey($rest, $roles, "{$component} must declare the {$rest} role");
-            $this->assertArrayHasKey($twin, $roles, "{$component} must declare its twin {$twin}");
-            // BACKTICK-DELIMITED, BECAUSE A BARE SUBSTRING MAKES HALF THIS CLAIM VACUOUS.
-            // `question` is a substring of `question-open`, so asserting that the OPEN
-            // role's description "contains question" is satisfied by its own name and by
-            // any sentence about a <summary> row. The slot-era version was genuinely
-            // bidirectional (`--faq-question-color` is not a substring of
-            // `--faq-question-open-color`); the rename to roles silently removed that, and
-            // a mutation proved it — stripping both real cross-references left this green.
-            // The schemas write role references backtick-quoted, so requiring the delimiter
-            // restores the claim.
-            $this->assertMatchesRegularExpression(
-                '/`' . preg_quote($twin, '/') . '`/',
-                (string) ($roles[$rest]['description'] ?? ''),
-                "{$component}.{$rest} must name `{$twin}` so an author setting one finds the other."
-            );
-            $this->assertMatchesRegularExpression(
-                '/`' . preg_quote($rest, '/') . '`(?!-)/',
-                (string) ($roles[$twin]['description'] ?? ''),
-                "{$component}.{$twin} must name `{$rest}` as its own token — a bare substring "
-                . 'is satisfied by the twin\'s own name and proves nothing.'
-            );
-        }
-    }
-
-    /**
-     * The CSS side of the surviving twin, pinned at the declaration rather than by regexing
-     * the whole sheet: the grid hover must route the slot with the ORIGINAL literal as its
-     * fallback (that literal is what keeps unset output identical and what retired the
-     * issue 309 waiver). The cta half of this test asserted that button2's elevation entered
-     * the premium chain through an isolation rule; that rule and its slots left at #1026,
-     * and the role each button now carries makes the coupling unreachable rather than
-     * re-pointed, so there is nothing left to assert there.
-     */
-    public function testTheNewTwinsAreRoutedWithTheOriginalLiteralsAsFallbacks(): void
-    {
-        $css = file_get_contents($this->themeRoot . '/assets/css/components.css');
-
-        $this->assertStringContainsString(
-            'color: var(--grid-item-link-hover-color, var(--color-accent-hover));',
-            $css,
-            'The card-link hover must route the twin with var(--color-accent-hover) as the '
-            . 'fallback — the exact literal it carried while waived, so unset is unchanged.'
-        );
-        $this->assertStringNotContainsString(
-            'color: var(--grid-item-link-color, var(--color-accent-hover));',
-            $css,
-            'Routing the HOVER through the REST slot is the mistake the issue 309 waiver '
-            . 'existed to prevent: hover would render identical to rest whenever an author '
-            . 'set the resting colour.'
-        );
     }
 
     /**
@@ -1447,42 +1291,49 @@ class SchemaTruthfulnessTest extends TestCase
             . '(#601). The dead rule belongs in the stated-defaults table below it, which is '
             . 'where the clip and #670 are recorded.'
         );
-    }
-
-    /**
-     * The card-scoped list in ai-instructions/composition.md is a THIRD copy of the
-     * item_eligible set (schema flag, schema items[].style description, this doc), and
-     * only the first two were coupled by a test. It had already drifted before this
-     * issue — --grid-item-icon-size was missing — and adding --grid-item-link-hover-color
-     * would have made it two behind. An agent reading composition.md would be told a slot
-     * it can legitimately set per card is not accepted there.
+    }    /**
+     * THE THIRD COPY OF THE CARD-SCOPED SLOT SET RETIRED AT #1101, with the set itself.
+     *
+     * `ai-instructions/composition.md` carried a list of the 21 `--grid-item-*` slots a
+     * per-card `style` map accepted — a THIRD copy of the `item_eligible` flag set (the
+     * schema flag, the `items[].style` prop description, and that doc). Only the first two
+     * were coupled by a test, and the doc had already drifted before that coupling existed:
+     * `--grid-item-icon-size` was missing, and adding `--grid-item-link-hover-color` would
+     * have put it two behind. An agent reading it was told a slot it could legitimately set
+     * per card was not accepted there.
+     *
+     * ALL THREE COPIES ARE GONE, which is the only reason this can retire rather than move:
+     * `items[].style` retired with grid's slot map, so there is no set to keep in sync and
+     * no third place for it to drift in. A card's design is its own `udc` map now, and the
+     * roles it may address are declared ONCE, in the component's `item_roles` block, which
+     * the ENGINE reads at write time — so the drift class this test existed for is closed by
+     * construction rather than by a coupling test. `SchemaValidationTest` checks that
+     * declaration against the component's real role list in both directions.
+     *
+     * The doc section is asserted below to have been REPLACED rather than merely deleted:
+     * an agent that reaches for the old surface must find the new one, not silence.
      */
-    public function testCompositionDocListsEveryCardScopedSlot(): void
+    public function testTheCompositionDocRoutesPerCardStylingToTheItemMap(): void
     {
-        $doc = file_get_contents($this->themeRoot . '/ai-instructions/composition.md');
-        $line = null;
-        foreach (explode("\n", $doc) as $candidate) {
-            if (str_contains($candidate, 'The **card-scoped** slots accepted here')) {
-                $line = $candidate;
-                break;
-            }
-        }
-        $this->assertNotNull($line, 'composition.md must keep its card-scoped slot list.');
+        $doc = (string) file_get_contents($this->themeRoot . '/ai-instructions/composition.md');
 
-        // Only the ACCEPTED half: the same sentence goes on to name the container-scoped
-        // slots that are REJECTED per card, and those must not count as coverage.
-        $accepted = strstr($line, 'Container/heading slots', true) ?: $line;
+        // The old surface is gone from the doc, in the exact shape it used to take.
+        $this->assertStringNotContainsString(
+            'The **card-scoped** slots accepted here',
+            $doc,
+            'the retired card-scoped slot list is back — it names 21 slots that are all '
+            . 'refused with `no_style_slots` now'
+        );
 
-        foreach ($this->slots('grid') as $slot => $def) {
-            if (empty($def['item_eligible'])) {
-                continue;
-            }
-            $this->assertStringContainsString(
-                "`{$slot}`",
-                $accepted,
-                "composition.md must list card-scoped slot {$slot} among the accepted set."
-            );
-        }
+        // And the replacement is there, by name, with the key an author actually writes.
+        $this->assertStringContainsString('items[].udc', $doc, 'the doc must name the v2 surface');
+        $this->assertStringContainsString('Addendum B', $doc, 'and the contract it comes from');
+
+        // ANTI-VACUITY: the doc must still be the file this test thinks it is. Without
+        // this, a renamed or emptied composition.md would satisfy both claims above by
+        // containing nothing at all.
+        $this->assertStringContainsString('### grid items[].udc', $doc);
+        $this->assertGreaterThan(20000, strlen($doc), 'composition.md is still the full guide');
     }
 
     // ── A-28: the inert emissions are gone, the live ones are not ───────────

@@ -171,7 +171,21 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // per-cell wp_kses_post() boundary (#730) is a different typed sink on a
         // different prop, it is untouched by this rebuild, and it stays pinned in
         // StoredLinkAndRichTextRenderGuardTest.
-        'grid',
+        //
+        // GRID LEFT AT #1101 AND EMPTIED THE ROSTER, which is the end state this file has
+        // been converging on for five rebuilds: no shipped component performs a
+        // `__pp_style` read, so BUILD-SPEC §3.4's "no inline style emission anywhere in v2
+        // components" is true theme-wide and the typed sink this file guards is
+        // unreachable from any composed page. Grid was the only component that ever
+        // carried BOTH #708 axes (the `items` container and the style map); the `items`
+        // half is untouched and still guarded in InvariantTest.
+        //
+        // KEPT AS AN EMPTY CONSTANT RATHER THAN DELETED WITH THE FILE, because the sweeps
+        // below are `foreach`es and an empty one is SILENT. The emptiness is asserted in
+        // testTheSweptComponentListMatchesTheSource, so a component that starts reading a
+        // stored style map again fails there first and has to restore the sweeps in the
+        // same commit. The hostile-`udc` equivalent — the v2 shape of this whole guard —
+        // is in UdcEngineTest, which grid joined in this same change.
     ];
 
     /**
@@ -397,7 +411,14 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
                 $component . ': the band still renders'
             );
         }
-        $this->assertStringContainsString('Card one', $html, 'the grid cards still render');
+        // THE CONTENT CLAIM MOVED TO THE CLOSING BAND AT #1101. It used to read
+        // `assertStringContainsString('Card one', …)` — grid's cards — because grid was
+        // the last member of STYLE_COMPONENTS and therefore the only band this corridor
+        // still built. The roster is EMPTY now, so the composition carries no styled band
+        // at all and the surviving-band assertion above is the whole content claim: that
+        // band is LAST in the fixture, so it renders only if nothing above it threw,
+        // which is what this corridor was always really testing.
+        $this->assertSame([], self::STYLE_COMPONENTS, 'the corridor sweeps nothing — see the constant');
         // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
         // stored style map), so it is no longer in the sweep and there is no section
         // body in this page to assert on.
@@ -441,6 +462,15 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      */
     public function testEveryComponentDegradesToTheSameMarkupANoStyleBandProduces(): void
     {
+        // THE SWEEP IS EMPTY SINCE #1101 and that is asserted first, because a `foreach`
+        // over an empty roster is silent and this is the STRONGEST test in the file — the
+        // only one proving byte-identity rather than substring absence. Losing it quietly
+        // would be the worst outcome of grid's departure, so the emptiness is a claim
+        // rather than a gap. Its v2 successor is
+        // UdcEngineTest::testAHostileStoredUdcMapNeverFatalsTheRender, which grid joined
+        // in this same change.
+        $this->assertSame([], self::STYLE_COMPONENTS, 'no component paints a stored style map');
+
         $shapes = ['--hero-bg: #1a1a2e', 42, true, 1.5, 0, '', false, null];
 
         foreach (self::STYLE_COMPONENTS as $component) {
@@ -519,36 +549,67 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         $html = $this->renderStored($id);
 
         $this->assertStringContainsString('Page survived', $html, 'the band after the malformed grid renders');
-    }
-
-    /**
-     * GRID'S SECOND TYPED BOUNDARY on the same read, pinned separately because deleting
-     * the first call would otherwise silently reopen it.
+    }    /**
+     * THE LAST TWO GRID-SPECIFIC STYLE-MAP TESTS RETIRED AT #1101, and both had already
+     * narrowed to grid because grid was the last component that could host them.
      *
-     * pp_grid_link_align_decl(array $style) is typed identically to
-     * pp_render_style_vars() and fatals identically on a non-array. On current main it is
-     * unreachable only because the pp_render_style_vars() call two lines above throws
-     * first — an ordering accident, not a guarantee. Both now read the one guarded local,
-     * so this asserts the boundary directly rather than trusting the ordering.
+     * `testGridsSecondTypedStyleBoundaryTakesTheGuardedValue` covered the #708 oddity this
+     * whole file exists around: grid read `__pp_style` ONCE and handed the same guarded
+     * local to TWO typed calls — `pp_render_style_vars(array $style, …)` and
+     * `pp_grid_link_align_decl(array $style)`. The second was unreachable only because the
+     * first threw first, which is an ordering accident rather than a guarantee, so the
+     * test proved the guarded local reached both. Neither read exists now: grid emits no
+     * inline style attribute at all, and the link-align companion retired with the
+     * `--grid-item-text-align` slot it derived from (the alignment is `card-body` ->
+     * `typography.align` plus `card-link` -> `sizing.align-self`, authored directly).
+     *
+     * `testAnArrayPpStyleInPropsCannotPaintMoreThanAValidStyleMap` covered the other half
+     * of the same read: an ARRAY-valued `__pp_style` sitting inside `props` passes the
+     * container guard, so the test proved it could not paint anything a VALID style map
+     * could not — the declared-slot filter and the #330 render boundary still applied to
+     * every declaration in it. With no slot declared and no style attribute emitted, an
+     * array there paints nothing at all rather than being filtered down to nothing.
+     *
+     * BOTH ABSENCES ARE PINNED RATHER THAN ASSUMED, below and in two other files, because
+     * "it cannot paint" is exactly the kind of claim that rots silently:
+     *   - InvariantTest asserts grid.php contains neither `__pp_style` nor the link-align
+     *     helper, so a reintroduced raw read fails there;
+     *   - UdcEngineTest asserts grid emits no `style=` attribute on any element;
+     *   - the roster constant in this file is empty and asserted empty in three tests.
      */
-    public function testGridsSecondTypedStyleBoundaryTakesTheGuardedValue(): void
+    public function testGridPaintsNothingFromAStoredStyleMapAtEitherGrain(): void
     {
-        // Direct call: a non-array would raise "Argument #1 ($style) must be of type
-        // array" here exactly as it does at the helper next door.
-        $this->assertSame('', pp_grid_link_align_decl([]), 'an empty map yields no alignment declaration');
-
-        // And through the render path, a well-formed per-grid alignment slot still paints,
-        // so the consolidation onto the guarded local did not disarm the feature.
-        $id = pp_create_page('Grid link align', 'draft');
+        $id = pp_create_page('Stored style on a v2 grid', 'draft');
+        // The thin writer, deliberately: these shapes are what a pre-rebuild page holds
+        // and what restore_composition replays, and no write gate will accept them now.
         pp_update_composition($id, [[
             'component' => 'grid',
-            'props'     => ['title' => 'Grid heading', 'items' => [['title' => 'Card one', 'text' => 'Body']]],
-            'style'     => ['--grid-item-text-align' => 'center'],
+            'props'     => [
+                'title'       => 'Cards',
+                '__pp_style'  => ['--grid-bg' => '#101014', '--grid-heading-color' => '#ffffff'],
+                'items'       => [[
+                    'title' => 'Card one',
+                    'text'  => 'Body',
+                    'style' => ['--grid-item-bg' => '#202028'],
+                ]],
+            ],
         ]]);
 
         $html = $this->renderStored($id);
-        $this->assertStringContainsString('--grid-item-text-align', $html, 'the authored slot still paints');
-        $this->assertStringContainsString('--pp-grid-link-align', $html, 'and still derives its link-alignment companion');
+
+        // The band and its content are whole — the stale keys cost nothing.
+        $this->assertStringContainsString('data-pp-component="grid"', $html);
+        $this->assertStringContainsString('Card one', $html, 'content is untouched by the stale map');
+
+        // And NOTHING from either grain reaches the page: no values, and no attribute to
+        // carry them. The attribute check is the one that matters — a substring check for
+        // the values alone would pass on an empty `style=""`, which is the residue the
+        // #708 family was written against.
+        $this->assertStringNotContainsString('#101014', $html, 'the band-level map paints nothing');
+        $this->assertStringNotContainsString('#202028', $html, 'the per-item map paints nothing');
+        $this->assertStringNotContainsString('--grid-', $html, 'no grid custom property is emitted');
+        $this->assertStringNotContainsString('style=', $html, 'and no style attribute is emitted at all');
+        $this->assertStringNotContainsString('Array', $html, 'degraded, never coerced');
     }
 
     /**
@@ -598,6 +659,21 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
      */
     public function testAWellFormedStyleMapStillPaintsOnEveryComponent(): void
     {
+        // THE POSITIVE CONTROL LOST ITS SUBJECT AT #1101, and PHPUnit flagged it RISKY —
+        // zero assertions — the moment the roster emptied, which is the fail-open shape
+        // this file hunts everywhere else. It is the control for every NEGATIVE assertion
+        // above: "a malformed map paints nothing" proves nothing unless a well-formed one
+        // still paints something. With no component reading a stored style map there is
+        // no positive case to show, so the control is the EMPTINESS itself — and it is
+        // asserted rather than left implicit, so a component that starts painting one
+        // again fails here before any of the negatives can pass for the wrong reason.
+        $this->assertSame(
+            [],
+            self::STYLE_COMPONENTS,
+            'a component paints a stored style map again — restore this positive control '
+            . 'in the same commit, or every negative assertion in this file passes vacuously'
+        );
+
         foreach (self::STYLE_COMPONENTS as $component) {
             $slot = '--' . $component . '-padding-top';
             $id   = pp_create_page('Styled ' . $component, 'draft');
@@ -733,7 +809,14 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         }
 
         // Everything that is not one of the three corrupt axes survived.
-        $this->assertStringContainsString('Card one', $html, 'the grid cards still render');
+        // THE CONTENT CLAIM MOVED TO THE CLOSING BAND AT #1101. It used to read
+        // `assertStringContainsString('Card one', …)` — grid's cards — because grid was
+        // the last member of STYLE_COMPONENTS and therefore the only band this corridor
+        // still built. The roster is EMPTY now, so the composition carries no styled band
+        // at all and the surviving-band assertion above is the whole content claim: that
+        // band is LAST in the fixture, so it renders only if nothing above it threw,
+        // which is what this corridor was always really testing.
+        $this->assertSame([], self::STYLE_COMPONENTS, 'the corridor sweeps nothing — see the constant');
         // The section band left STYLE_COMPONENTS at #1023 (a v2 component paints no
         // stored style map), so it is no longer in the sweep and there is no section
         // body in this page to assert on.
@@ -898,52 +981,6 @@ class StoredStyleAndItemsRenderGuardTest extends TestCase
         // Non-vacuity, pinned out loud: the loop above must actually have run. It reported
         // green on zero iterations for exactly one commit, which is how this guard got here.
         $this->assertNotSame([], $background_props, 'the merged-attribute control must have a subject');
-    }
-
-    /**
-     * An ARRAY-valued `__pp_style` stored inside props still renders — and cannot paint
-     * anything a validly-authored style map could not.
-     *
-     * This pins the claim components/grid/grid.php makes in prose. That shape is an
-     * undeclared prop the write path rejects, so it is the one place this change lets
-     * operator-uncontrolled data reach the style renderer as an array. It is safe because
-     * pp_render_style_vars() gates every declaration twice: the slot NAME must be one the
-     * component's own schema declares, and the VALUE must clear _pp_forbidden_css_construct
-     * plus the slot's declared grammar (#330). Asserting it here means a future relaxation
-     * of either gate fails a test instead of quietly painting attacker-shaped CSS.
-     */
-    /**
-     * RE-POINTED TWICE: hero -> section at #986, section -> grid at #1023. The
-     * adversarial map is unchanged in shape and intent — one valid declaration, a
-     * separator-carrying key, an undeclared slot, two injection attempts and another
-     * component's slot — but it has to be aimed at a component that still HAS a
-     * style-slot sink. A v2 component reads no `__pp_style` at all, so the same map
-     * paints nothing there for a reason that has nothing to do with the render boundary
-     * this test measures; that inertness is
-     * pinned separately by the sweep above.
-     */
-    public function testAnArrayPpStyleInPropsCannotPaintMoreThanAValidStyleMap(): void
-    {
-        $id = pp_create_page('Adversarial style map', 'draft');
-        pp_update_composition($id, [[
-            'component' => 'grid',
-            'props'     => array_merge(self::bandProps('grid'), ['__pp_style' => [
-                '--grid-bg'                 => '#123456',            // declared + valid: must paint
-                '--grid-bg; background'     => 'red',                // slot name carrying a separator
-                '--not-a-declared-slot'     => 'red',                // undeclared slot
-                '--grid-padding-top'        => 'red; background-image:url(//evil/x)',
-                '--grid-padding-bottom'     => 'url(//evil/x.png)',
-                '--cta-bg'                  => '#000000',            // another component's slot
-            ]]),
-        ]]);
-
-        $html = $this->renderStored($id);
-
-        $this->assertStringContainsString('--grid-bg: #123456', $html, 'the one declared, valid declaration paints');
-        $this->assertStringNotContainsString('evil', $html, 'no injected url survives the render boundary');
-        $this->assertStringNotContainsString('background-image:url(//', $html, 'no smuggled declaration is emitted');
-        $this->assertStringNotContainsString('--not-a-declared-slot', $html, 'an undeclared slot is dropped');
-        $this->assertStringNotContainsString('--cta-bg', $html, "another component's slot is dropped");
     }
 
     /**
