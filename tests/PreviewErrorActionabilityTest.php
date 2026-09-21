@@ -12,20 +12,26 @@
  * author was told the change wasn't possible while the slot they meant sat in
  * `alternatives` in the very same response.
  *
- * The classification lives in JS and is pinned there
- * (tests/js/pp-ai-chat-proposal.test.js). What is pinned HERE is the server half it
- * reads — the shape of the payloads the real write path actually produces, so the two
- * halves cannot drift into agreeing about a payload nobody sends:
+ * WHAT #1101 LEFT OF THAT. The style-slot engine was retired with its last consumer,
+ * so the near-miss branch this file was written around — a mistyped slot name on a
+ * component that declares slots — has no reachable input any more and its three tests
+ * went with it. What REMAINS is the half that got sharper rather than smaller: the two
+ * branches that return BEFORE any slot work, and which are now the only branches a real
+ * `style_component` call can reach.
  *
  *   pp_preview_action('style_component')                  [lib/actions.php]
- *     ├─ target unresolvable  → component_not_found   ─┐   never invalid_style_slot
- *     ├─ component declares 0 slots → no_style_slots  ─┤   never invalid_style_slot
- *     └─ slot not declared    → invalid_style_slot    ─┘   ALWAYS with a slot map,
- *                                                          because the two branches
- *                                                          above already returned
+ *     ├─ target unresolvable  → component_not_found   ─┐  the two REACHABLE outcomes;
+ *     └─ component declares 0 slots → no_style_slots  ─┘  no component declares a slot,
+ *                                                         so nothing gets past them
  *                                        │
  *   _pp_build_friendly_error()                            [lib/ai-chat.php]
- *     └─ alternatives = that slot map's names  → non-empty on every real rejection
+ *     └─ alternatives = []  → and the JS must NOT read that as "impossible"
+ *
+ * THE JS CLAIM IS UNCHANGED AND IS THE REASON THIS FILE SURVIVES. `pp-ai-step-impossible`
+ * must still be reserved for a payload with no next action, and `no_style_slots` is not
+ * one: its message names the component's roles and the two actions that carry a `udc`
+ * map, which is a very actionable answer delivered with an empty `alternatives` list.
+ * An empty list is exactly what #625 taught the JS not to read as a dead end.
  *
  * Pages are authored through the real surfaces (pp_create_page + the
  * update_composition ACTION), and the rejection is produced by the real preview
@@ -34,28 +40,20 @@
  */
 
 use PHPUnit\Framework\TestCase;
-use PromptingPress\Tests\Support\FixtureTheme;
 
 class PreviewErrorActionabilityTest extends TestCase
 {
-    /** @var string|null Fixture theme root, when a test swapped it in. */
-    private ?string $fixtureRoot = null;
-
     protected function setUp(): void
     {
         parent::setUp();
-        // THE #1025 FIXTURE THEME, ADDED HERE AT #1101. Three tests in this file need a
-        // component that DECLARES STYLE SLOTS — an `invalid_style_slot` rejection is
-        // unreachable without one, and it is the payload this whole file is about. grid's
-        // v2 rebuild took the last shipped slot map, so `ppfixture` is the only component
-        // left that can produce that rejection. It is opt-in per suite and dies with the
-        // slot engine in this task's PR2.
-        //
-        // The local useFixtureComponent() below still repoints the root on top of this
-        // for the cases that need a component shaped a particular way (a zero-slot one,
-        // which the shipped chrome components cannot stand in for because the composition
-        // validator refuses to place them). tearDown unwinds in the reverse order.
-        FixtureTheme::activate();
+        // NO FIXTURE THEME, AND THAT IS THE POINT (#1101). Both surviving tests run
+        // against the SHIPPED registry, because both outcomes are now reachable there:
+        // every composable component declares zero style slots, so `no_style_slots` is
+        // what an ordinary `hero` answers. Until #1101 this file needed two different
+        // fixture roots — `ppfixture` to produce a slot rejection at all, and a synthetic
+        // zero-slot component on top of it, because the only shipped components with no
+        // slots were nav and footer, which the composition validator refuses to place.
+        // The retirement removed the need for both.
         $GLOBALS['_pp_test_store'] = [
             'post_meta' => [],
             'posts'     => [],
@@ -64,15 +62,80 @@ class PreviewErrorActionabilityTest extends TestCase
         ];
     }
 
-    protected function tearDown(): void
+    /**
+     * THE TARGET-NOT-FOUND ARM OF _pp_build_friendly_error(), RE-HOMED AT #1101.
+     *
+     * It came from tests/FriendlyErrorSlotContextTest.php, which this PR deleted whole on
+     * the reasoning that every method there was about `pp_rejected_slot_context()`. This one
+     * never called it: it hand-builds the WP_Error and needs no slot-declaring component, so
+     * the "provably dead by its own guard" argument did not reach it. Deleting it left the
+     * arm mutable with the whole suite green — `if (false && _pp_component_target_not_found(…))`
+     * broke nothing. Caught by a review specialist that mutation-proved the gap.
+     *
+     * This file is the right home: it already owns the claim that a stale id is reported as
+     * `component_not_found` rather than as a styling problem, and this is the same claim one
+     * layer down, at the reporting surface rather than the action.
+     *
+     * WHY THE CODE IS `component_not_found` AND NOT WHAT THE PRODUCER STAMPED. The arm used
+     * to echo `invalid_style_slot` back. That was harmless while the code meant one thing.
+     * It stopped being harmless when #1101 narrowed the code to mean an AGED BAND, because
+     * the chat's status bar reads the code and would then tell an author whose id was stale
+     * to clear styling off a band that does not exist.
+     */
+    public function testAnUnresolvableIdIsReportedAsNotFoundRatherThanAsStyling(): void
     {
-        FixtureTheme::deactivate();
-        if ($this->fixtureRoot !== null) {
-            unset($GLOBALS['_pp_test_template_dir']);
-            $this->deleteTree($this->fixtureRoot);
-            $this->fixtureRoot = null;
-        }
-        parent::tearDown();
+        $post_id = $this->authorPage('No context, bad id', [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi', 'body' => 'Body text']],
+        ]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs".'),
+            ['post_id' => $post_id, 'component_id' => 'pp-nosuchid', 'style' => ['--section-bgs' => '#111']]
+        );
+
+        $this->assertStringContainsString('couldn\'t find that component', $friendly['user_message']);
+        $this->assertSame([], $friendly['alternatives']);
+        $this->assertSame(
+            'component_not_found',
+            $friendly['error_code'],
+            'the reported code must be what happened, not what the producer stamped — the chat '
+            . 'status bar reads it, and `invalid_style_slot` now means an aged band\'s stored map'
+        );
+        $this->assertStringNotContainsString(
+            'old system',
+            $friendly['user_message'],
+            'and it must not offer the aged-band repair for a band that was never found'
+        );
+    }
+
+    /**
+     * AN OUT-OF-RANGE INDEX IS A DIFFERENT DOOR TO THE SAME PROBLEM, and it does NOT reach
+     * the arm above — the target-not-found answer fires only for a bad `component_id`. So
+     * this rejection reaches the message composer with nothing resolved, and what it must
+     * not do is make a confident claim about a component that does not exist.
+     *
+     * Re-homed from tests/FriendlyErrorMessageBoundTest.php, also deleted whole, also
+     * unrecorded. The guard hole itself is pre-existing and still open; what is pinned here
+     * is that the message does not exploit it.
+     */
+    public function testAnOutOfRangeIndexIsNotToldAnythingConfidentAboutTheBand(): void
+    {
+        $post_id = $this->authorPage('Empty map', [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "ghost" has no style slot "--ghost-zzz".'),
+            ['post_id' => $post_id, 'component_index' => 7, 'style' => ['--ghost-zzz' => '#111']]
+        );
+
+        $this->assertSame([], $friendly['alternatives']);
+        $this->assertStringContainsString('couldn\'t tell which component', $friendly['user_message']);
+        // It must not quote the rejected slot name back as something a band refused, and it
+        // must not name a band, because no band was resolved.
+        $this->assertStringNotContainsString('"--ghost-zzz"', $friendly['user_message']);
+        $this->assertStringNotContainsString('"ghost" band', $friendly['user_message']);
+        $this->assertLessThan(600, mb_strlen($friendly['user_message']), 'and it stays readable in the chat column');
     }
 
     /**
@@ -93,203 +156,31 @@ class PreviewErrorActionabilityTest extends TestCase
         return $post_id;
     }
 
-    /**
-     * Writes a fixture theme root holding one component with the given style slots
-     * and points the template directory at it. Needed for the zero-slot case: every
-     * SHIPPED component that declares no style slots (nav, footer) is site chrome the
-     * composition validator refuses to place, so the no_style_slots branch cannot be
-     * reached through the authoring path with the shipped registry alone. Each
-     * component declares `id`, which pp_update_composition injects into every stored
-     * component (#147).
-     */
-    private function useFixtureComponent(string $name, array $style_slots): void
-    {
-        $this->fixtureRoot = sys_get_temp_dir() . '/pp-625-' . getmypid() . '-' . mt_rand();
-        $dir = $this->fixtureRoot . '/components/' . $name;
-
-        $this->assertTrue(mkdir($dir, 0755, true), "Fixture dir {$dir} must be created.");
-        $this->assertNotFalse(file_put_contents($dir . '/' . $name . '.php', "<?php // fixture component\n"));
-        $this->assertNotFalse(file_put_contents($dir . '/schema.json', json_encode([
-            'description' => 'Fixture component for #625.',
-            'props'       => [
-                'id' => ['type' => 'string', 'required' => false, 'default' => '', 'description' => 'Anchor id.'],
-            ],
-            'styling'     => [
-                'root_class'  => $name,
-                'style_slots' => $style_slots,
-            ],
-        ], JSON_PRETTY_PRINT)));
-
-        $GLOBALS['_pp_test_template_dir'] = $this->fixtureRoot;
-    }
-
-    private function deleteTree(string $dir): void
-    {
-        if (!is_dir($dir)) {
-            return;
-        }
-        foreach (scandir($dir) as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-            $path = $dir . '/' . $entry;
-            is_dir($path) ? $this->deleteTree($path) : unlink($path);
-        }
-        rmdir($dir);
-    }
-
-    // ── The near miss: the payload names the slot the author meant ────────
-
-    public function testANearMissSlotNameStillNamesTheSettingsTheComponentHas(): void
-    {
-        // `--ppfixture-bgs` for `--ppfixture-bg`. The cross-component scan normalizes it to
-        // `--*-bgs`, which no registered component declares, so it produces no hint —
-        // the condition that used to be read as "impossible" all by itself.
-        $post_id = $this->authorPage('Near miss', [
-            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 (a `section` before #1023).
-            // The case is about the near-miss slot message NAMING the settings a component
-            // has, which needs a component that HAS slots — and grid's v2 rebuild took the
-            // last shipped slot map. A v2 band refuses earlier and differently
-            // (`no_style_slots`), which is the case two tests further down, not this one.
-            FixtureTheme::band(['title' => 'Hi']),
-        ]);
-
-        $params = [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#111111'],
-        ];
-
-        $error = pp_preview_action('style_component', $params);
-        $this->assertInstanceOf(WP_Error::class, $error, 'A slot the component does not declare must be rejected.');
-        $this->assertSame('invalid_style_slot', $error->get_error_code());
-
-        $friendly = _pp_build_friendly_error($error, $params);
-
-        $this->assertSame(
-            [],
-            (array) $friendly['cross_component_hints'],
-            'A near miss has no cross-component hint — that is the whole point of #625.'
-        );
-        $this->assertNotEmpty(
-            $friendly['alternatives'],
-            'With no hint, `alternatives` is the only thing left naming a next action.'
-        );
-        $this->assertContains(
-            '--ppfixture-bg',
-            $friendly['alternatives'],
-            'The slot the author meant is in the payload they were told was impossible.'
-        );
-    }
-
-    public function testTheAlternativesListIsAJsonArraySoTheBrowserCanCountIt(): void
-    {
-        // The browser decides "names a next action" with Array.isArray(...).length,
-        // so a map keyed by slot name would read as naming nothing and repaint the
-        // step grey. array_keys() guarantees a list; this pins that it stays one.
-        //
-        // RE-HOMED FROM `hero` TO `ppfixture` AT #1101, AND IT HAD ALREADY GONE VACUOUS —
-        // this is the case the re-home rule exists for rather than a tidy-up. hero went v2
-        // at #986 and has declared no slots since, so `alternatives` came back EMPTY: an
-        // empty array is a list, and `assertSame([], [])` held for the one reason this test
-        // cannot accept — there was nothing to shape. It stayed green through three
-        // rebuilds. `ppfixture` declares sixteen slots, so the list really is a list of
-        // something, which is asserted below before the shape is.
-        $post_id = $this->authorPage('Array shape', [
-            FixtureTheme::band(['title' => 'Hi']),
-        ]);
-
-        $params = [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#111111'],
-        ];
-
-        $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
-
-        $this->assertIsArray($friendly['alternatives']);
-        $this->assertNotSame([], $friendly['alternatives'], 'an empty list is a list — the shape below must be measured on real entries');
-        // pp_is_list(), not array_is_list(): the latter is PHP 8.1+ and the plugin floor
-        // is 8.0 (style.css "Requires PHP"), which is exactly why lib/wp.php ships the shim.
-        $this->assertTrue(
-            pp_is_list($friendly['alternatives']),
-            'A JSON object here would be counted as zero alternatives by the chat.'
-        );
-        $this->assertSame(
-            array_keys(pp_get_style_slots('ppfixture')),
-            $friendly['alternatives']
-        );
-    }
-
-    public function testTheVisibleMessageItselfNamesTheSettingsTheStatusBarPointsAt(): void
-    {
-        // The status bar says "See the settings it does have above". That is only honest
-        // because the non-hint branch names settings in `user_message`, which renders as
-        // .pp-ai-preview-error-message with no disclosure to open.
-        //
-        // Since #661 what it names is a SAMPLE of the declared slot NAMES plus the total,
-        // not every slot's description — joining those made the whole message measure
-        // 11,309 characters on hero (the descriptions alone are 11,213 of it). The full
-        // list still ships, in `alternatives`, behind the <details>.
-        $post_id = $this->authorPage('Visible settings', [
-            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, same reason as its sibling
-            // above: the case is about the message NAMING the settings a component has,
-            // which needs a component that HAS slots, and grid's v2 rebuild took the last
-            // shipped slot map.
-            FixtureTheme::band(['title' => 'Hi']),
-        ]);
-
-        $params = [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#111111'],
-        ];
-
-        $friendly = _pp_build_friendly_error(pp_preview_action('style_component', $params), $params);
-
-        $declared = array_keys(pp_get_style_slots('ppfixture'));
-        $this->assertGreaterThan(
-            PP_FRIENDLY_SLOT_SAMPLE_MAX,
-            count($declared),
-            'Fixture premise: the band declares more slots than the message samples.'
-        );
-
-        // The count is the part that says "this component is configurable" — it is what
-        // keeps a sample from reading as the whole of what the component can do.
-        $this->assertStringContainsString(
-            'It has ' . count($declared) . ' style settings',
-            $friendly['user_message']
-        );
-
-        // The sample is the FIRST entries of `alternatives`, in the same order, so the
-        // disclosure opens onto the names the author has just read.
-        foreach (array_slice($declared, 0, PP_FRIENDLY_SLOT_SAMPLE_MAX) as $name) {
-            $this->assertStringContainsString($name, $friendly['user_message']);
-        }
-
-        // And it names what was tried, which the old message never did.
-        $this->assertStringContainsString('--ppfixture-bgs', $friendly['user_message']);
-    }
 
     // ── Why "names nothing" is not where a real rejection lands ───────────
 
     public function testAComponentWithNoStyleSlotsReportsNoStyleSlotsInstead(): void
     {
-        // The reason a real `invalid_style_slot` can never arrive with an empty
-        // `alternatives` list: the validator returns no_style_slots BEFORE it looks at
-        // any slot name (lib/actions.php), so the empty-map case has its own code —
-        // the one that genuinely means "this component supports no styling".
-        $this->useFixtureComponent('plainbox', []);
-        $this->assertSame([], pp_get_style_slots('plainbox'), 'Fixture premise: plainbox declares no style slots.');
-
+        // ON A SHIPPED COMPONENT SINCE #1101, and the swap is not cosmetic. This used to
+        // build a synthetic `plainbox` with an empty slot map, because no PLACEABLE
+        // shipped component had one — and a synthetic component declares no `roles`
+        // either, so _pp_no_style_slots_clause() answered it with the bare
+        // "Available slots: (none)" branch. That is the branch for a component with no
+        // styling surface at all, and it is NOT what any real author now meets.
+        //
+        // `hero` is a real v2 band, so this exercises the branch that actually ships: the
+        // one that names the component's own roles and the two actions that carry a `udc`
+        // map. Asserting that is the whole reason the empty `alternatives` list below is
+        // safe for the JS to receive.
         $post_id = $this->authorPage('No slots', [
-            ['component' => 'plainbox', 'props' => []],
+            ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi']],
         ]);
+        $this->assertSame([], pp_get_style_slots('hero'), 'premise: no shipped component declares a style slot');
 
         $params = [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'style'           => ['--plainbox-bg' => '#111111'],
+            'style'           => ['--hero-bg' => '#111111'],
         ];
 
         $error = pp_preview_action('style_component', $params);
@@ -299,6 +190,14 @@ class PreviewErrorActionabilityTest extends TestCase
         $friendly = _pp_build_friendly_error($error, $params);
         $this->assertSame('no_style_slots', $friendly['error_code']);
         $this->assertSame([], $friendly['alternatives']);
+
+        // THE ANTI-VACUITY HALF. An empty `alternatives` list is only acceptable because
+        // the message itself carries the next action; without this, the assertion above
+        // would be satisfied by a refusal that told the author nothing at all — which is
+        // precisely the "impossible" reading #625 exists to prevent.
+        $this->assertStringContainsString('`udc` map', $friendly['raw_error']);
+        $this->assertStringContainsString('update_composition', $friendly['raw_error']);
+        $this->assertStringContainsString('cta', $friendly['raw_error'], 'it names the component\'s own roles');
     }
 
     public function testAStaleComponentIdIsReportedAsComponentNotFoundNotAsAnInvalidSlot(): void
@@ -306,9 +205,14 @@ class PreviewErrorActionabilityTest extends TestCase
         // #625 reads the target-not-found branch of _pp_build_friendly_error()'s
         // invalid_style_slot case as a second instance of the mislabelling. It is not
         // reachable from the chat: the target is resolved before any slot work, and a
-        // stale id fails with its own code, which is painted pp-ai-step-failed — never
-        // the grey "impossible". That branch answers only unstamped, hand-built errors
-        // (pinned in tests/FriendlyErrorSlotContextTest.php).
+        // stale id fails with its own code — never the grey "impossible". That branch
+        // answers only unstamped, hand-built errors, and it is pinned by
+        // testAnUnresolvableIdIsReportedAsNotFoundRatherThanAsStyling above, re-homed into
+        // this file at #1101 when tests/FriendlyErrorSlotContextTest.php was deleted.
+        //
+        // Two details changed at #1101: that branch now returns `component_not_found`
+        // rather than echoing the code it was handed, and the chat paints it FIXABLE
+        // rather than `failed`, because correcting the id is a real next action.
         $post_id = $this->authorPage('Stale id', [
             ['component' => 'hero', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi']],
         ]);

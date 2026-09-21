@@ -70,19 +70,24 @@ class DocsCoverageTest extends TestCase
      * The components still on the v1 STYLE-SLOT system, which is what every slot
      * assertion below is about.
      *
-     * DERIVED from the schemas through the engine's own predicate, never listed
-     * here: a hardcoded roster would drift exactly the way the docs it guards
-     * did. A component is v2 when its schema declares `roles`, and a v2
-     * component has no slots to document — it has ROLES, covered by
-     * testEveryDeclaredRoleIsNamedInItsReadme() below. The two assertions
-     * together still cover every composable component's authoring surface; the
-     * roster each walks is what changed.
+     * DERIVED from the schemas, never listed here: a hardcoded roster would drift
+     * exactly the way the docs it guards did.
+     *
+     * IT READS THE SLOT KEY, AND IT DID NOT USED TO (#1101). The filter was
+     * `!pp_udc_is_v2_component($name)` — "declares no `roles`" — while the failure
+     * message beside it says "declares `styling.style_slots` again". Those are two
+     * different questions, and the gap between them is a real shape: a component
+     * declaring BOTH roles and a slot map would pass this guard while the message
+     * claimed it could not. Nothing has ever declared both, so this was a latent
+     * mismatch rather than a live defect — but the whole value of the assertion is
+     * that its message tells you what failed, and a message describing a check the
+     * code does not perform is the thing this file exists to catch in the DOCS.
      */
     private static function slotStyledComponents(): array
     {
         return array_values(array_filter(
             self::composableComponents(),
-            static fn (string $name): bool => !pp_udc_is_v2_component($name)
+            static fn (string $name): bool => pp_get_style_slots($name) !== []
         ));
     }
 
@@ -270,31 +275,6 @@ class DocsCoverageTest extends TestCase
         }
     }
 
-    /**
-     * style-component.md restates the per-component slot count in prose for the four
-     * narrow bands ("`table` (6 slots)"). That is a second copy of the census, and a
-     * second copy is a second thing that goes stale — the exact defect A-20 spent a
-     * gate cleaning up. Derived from the schemas, same as the AI_CONTEXT.md census.
-     */
-    public function testStyleComponentNarrowBandCountsMatchTheSchemas(): void
-    {
-        $doc = $this->doc('ai-instructions/style-component.md');
-        // Derived, not hardcoded: any component the doc gives a "(N slots)" headline to
-        // is checked, so a new narrow-band paragraph is covered the day it lands.
-        preg_match_all('/\*\*`([a-z]+)` \(\d+ slots?\)/', $doc, $m);
-        $named = array_values(array_unique($m[1]));
-        $this->assertNotEmpty($named, 'style-component.md no longer states any slot count.');
-        foreach ($named as $component) {
-            $n = count($this->slots($component));
-            $this->assertStringContainsString(
-                "**`{$component}` ({$n} slots)",
-                $doc,
-                "ai-instructions/style-component.md states a stale slot count for "
-                . "{$component}: the schema declares {$n}. Regenerate it rather than "
-                . 'hand-editing, or drop the number and point at AI_CONTEXT.md.'
-            );
-        }
-    }
 
     /**
      * add-component.md tells the model WHICH prop keys answer `retired_prop` rather than
@@ -988,10 +968,6 @@ class DocsCoverageTest extends TestCase
         return array_map(static fn ($c) => [$c], self::composableComponents());
     }
 
-    public static function slotStyledComponentProvider(): array
-    {
-        return array_map(static fn ($c) => [$c], self::slotStyledComponents());
-    }
 
     public static function roleStyledComponentProvider(): array
     {

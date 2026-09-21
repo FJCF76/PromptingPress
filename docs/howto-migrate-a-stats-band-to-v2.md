@@ -4,6 +4,12 @@
 **both** styling props are retired; every designable value is now a role in the band's `udc`
 map.
 
+> **⚠ CLEAR THE STORED STYLE MAP FIRST, IF THERE IS ONE.** A band still holding its v1
+> `style` map cannot be edited at all since #1101 — not restyled, *edited*: a props-only
+> change meets `invalid_style_slot` naming a key you never mentioned. That refusal blocks
+> every step below. It takes one command to clear:
+> **`docs/howto-clear-a-stored-v1-style-map.md`**. Do that, then come back here.
+
 **This is the largest slot map any component ever declared, and the migration is still mostly
 renames.** The parts that are not renames are Steps 4, 5 and 6, and they are where a band can
 silently get worse rather than merely different. Read those even if you skim the rest.
@@ -23,10 +29,11 @@ Read `docs/tutorial-style-a-band-on-the-design-contract.md` first if you have no
 
 ## Step 1: Find out what is actually broken
 
-Nothing is *broken*. A stored `--stats-*` slot is simply not read any more: the band renders
-as though it were never set, and no read surface says so (#1050). A band that stored
-`theme: "inverted"` renders **light**, and one that stored a `background_image` renders with
-**no image**.
+A stored `--stats-*` slot is not read at RENDER: the band paints as though it were never set,
+and no read surface says so (#1050). A band that stored `theme: "inverted"` renders **light**,
+and one that stored a `background_image` renders with **no image**. **The stored SLOT map is
+not ignored at WRITE, though** — since #1101 it refuses every edit to the band, a props-only
+one included. Clear it first; see the note at the top of this guide.
 
 ```
 wp pp check page 42

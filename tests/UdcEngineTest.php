@@ -1333,15 +1333,38 @@ final class UdcEngineTest extends TestCase
             'templates/front-page.php',
             'lib/admin.php', // the editor preview renderer
         ];
+        // THE `__pp_style` HALF WENT AT #1101, AND IT WENT VACUOUS BEFORE IT WENT.
+        //
+        // This used to assert `__pp_style` appeared in each loop too — "beside the style
+        // promotion it mirrors, so the two cannot drift apart". The style promotion was
+        // deleted in that issue (measured: `__pp_style` had zero READ sites, so all four
+        // loops wrote a key nothing consumed), and the assertion KEPT PASSING, because the
+        // deletion left a comment naming the key it removed. An assertion satisfied by the
+        // prose explaining its own subject's removal is the sharpest vacuity shape there is,
+        // and a review specialist's diff of executed assertions is what caught it.
+        //
+        // The band-identity claim stands on its own and is the load-bearing one: a band whose
+        // identity never reaches its template renders with no `data-pp-band`, so its CSS
+        // ships in the head and matches nothing.
         foreach ($loops as $file) {
             $source = file_get_contents(dirname(__DIR__) . '/' . $file);
-            $this->assertStringContainsString(
-                'pp_udc_promote_band_identity(',
-                $source,
-                "{$file} renders bands but never promotes the band identity — its v2 bands would ship CSS that matches nothing"
+
+            // A REAL CALL, not a mention. `assertStringContainsString` on a bare function
+            // name is satisfiable by a comment — which is exactly how the deleted half of
+            // this test survived its own subject. An assignment from the call cannot be.
+            $calls = 0;
+            foreach (explode("\n", $source) as $line) {
+                if (preg_match('/=\s*pp_udc_promote_band_identity\(/', $line)) {
+                    $calls++;
+                }
+            }
+            $this->assertGreaterThan(
+                0,
+                $calls,
+                "{$file} renders bands but never promotes the band identity — its v2 bands "
+                . 'would ship CSS that matches nothing. (Counted as an ASSIGNMENT from the '
+                . 'call, so a comment naming the function cannot satisfy this.)'
             );
-            // …and beside the style promotion it mirrors, so the two cannot drift apart.
-            $this->assertStringContainsString('__pp_style', $source);
         }
     }
 

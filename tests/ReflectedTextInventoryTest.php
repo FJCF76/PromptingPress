@@ -1612,7 +1612,10 @@ class ReflectedTextInventoryTest extends TestCase
 
         $this->assertSame([], (array) $friendly['cross_component_hints'], 'premise: the no-hint branch');
         $this->assertDefanged($friendly['user_message'], 'friendly error slot rejection');
-        $this->assertStringContainsString('the aa', $friendly['user_message'], 'and the component is still named');
+        // The SENTENCE changed at #1101 (this code means an aged band's stored style map
+        // now, not a mistyped slot); the CLAIM did not. The name still has to reach it,
+        // or "defanged" would be satisfied by a message that dropped the name entirely.
+        $this->assertStringContainsString('"aa', $friendly['user_message'], 'and the component is still named');
     }
 
     /** An ordinary stored name is byte-identical through the same wrap. */
@@ -1626,7 +1629,7 @@ class ReflectedTextInventoryTest extends TestCase
         );
 
         $this->assertSame([], (array) $friendly['cross_component_hints'], 'premise: the no-hint branch');
-        $this->assertStringContainsString('the hero component', $friendly['user_message']);
+        $this->assertStringContainsString('"hero" band', $friendly['user_message']);
     }
 
     /**

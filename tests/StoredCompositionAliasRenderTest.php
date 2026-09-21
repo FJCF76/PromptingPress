@@ -169,163 +169,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         );
     }
 
-    /**
-     * VALIDATORS ARE NOT WEAKENED (acceptance criterion 2). A NEW write naming a
-     * legacy slot was rejected before #603 — `_pp_validate_style_slot_map()` never
-     * consulted the alias map — and is rejected after it, by this same test. Removing
-     * the map cannot have widened the accepted slot set, because the map was never
-     * on the write path to begin with.
-     */
-    public function testANewWriteOfALegacySlotNameIsRejected(): void
-    {
-        $id = pp_create_page('Legacy slot write', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Canonical', 'items' => [['number' => '1', 'label' => 'Card']]]],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-text' => '#f0f0f0'],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a legacy slot name is not authorable');
-        $this->assertStringContainsString('--ppfixture-text', (string) ($result['error'] ?? ''));
-        $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
-    }
-
-    /**
-     * THE STATED BREAKAGE, pinned so it can never be quietly softened into a
-     * migration or a warning-only tolerance.
-     *
-     * The whole-composition validating actions (`update_component` and the other
-     * read-modify-write actions, which validate the ENTIRE array they write back)
-     * now see the stale declaration. Before #603 the read path canonicalized stored
-     * slot names first, so a legacy name on one band was invisible to that
-     * validation. Now a targeted edit to ANOTHER band fails with `invalid_style_slot`
-     * naming the dead slot. On the dev corpus that is ~105 declarations across 7 of
-     * 12 compositions.
-     *
-     * `style_component` is deliberately NOT the probe here: it validates only the
-     * incoming style patch against the targeted component's slots, so it never sees a
-     * sibling band's stored declaration. The breakage is real on the whole-array
-     * actions, and this pin says exactly which — an over-broad claim would rot.
-     *
-     * This is the intended outcome of the removal. The recovery path is authoring the
-     * canonical name, not a shim.
-     */
-    public function testAStoredLegacySlotNameIsReportedOnEveryAcceptedWrite(): void
-    {
-        $id = pp_create_page('Legacy slot blocks edits', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-text' => '#f0f0f0']],
-            ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-        ]);
-
-        // INVERTED BY #1007: update_component validates the band it targets, so a stale
-        // SIBLING no longer refuses this edit. Nothing is migrated or healed — the stale
-        // bytes stay stale and are still reported, now on the accepted envelope instead
-        // of in a refusal. The repair route below is unchanged and still the way out.
-        // An edit to the OTHER band, touching nothing about the cta.
-        $result = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? 'the untouched band is editable');
-        $reported = array_values(array_filter(
-            $result['findings'],
-            static fn (array $f): bool => ($f['type'] ?? '') === 'invalid_style_slot'
-        ));
-        $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
-        $this->assertStringContainsString(
-            '--ppfixture-text',
-            $reported[0]['message'],
-            'the disclosure names the dead slot on the band the operator never touched'
-        );
-
-        // THE ESCAPE HATCH, pinned so the intended breakage has a proven way out.
-        //
-        // style_component is NOT the way out. It succeeds — it validates only its own
-        // patch — but it MERGES into the stored map, so the dead key survives beside
-        // the new canonical one and the page stays unwritable. Pinned because
-        // "just re-style the band" is the obvious wrong fix to reach for.
-        $merge = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-heading-color' => '#f0f0f0'],
-        ]);
-        $this->assertTrue($merge['ok'], (string) ($merge['error'] ?? ''));
-        $this->assertArrayHasKey(
-            '--ppfixture-text',
-            pp_get_composition($id)[0]['style'],
-            'the merge did not evict the dead key'
-        );
-        // The dead key survives the merge, so it is STILL REPORTED on the next accepted
-        // write. Since #1007 it no longer refuses that write, but "just re-style the band"
-        // is still the wrong fix: it leaves a declaration that paints nothing, and the
-        // findings say so every time.
-        $stillReported = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-        $this->assertTrue($stillReported['ok'], (string) ($stillReported['error'] ?? ''));
-        $this->assertStringContainsString(
-            '--ppfixture-text',
-            implode(' ', array_column($stillReported['findings'], 'message')),
-            'the dead key is still diagnosed after the merge that failed to evict it'
-        );
-
-        $repaired = pp_execute_action('update_composition', [
-            'post_id'     => $id,
-            'composition' => [
-                ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-heading-color' => '#f0f0f0']],
-                ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
-            ],
-        ]);
-        $this->assertTrue($repaired['ok'], (string) ($repaired['error'] ?? ''));
-
-        // Recovered: the page reports nothing, and the value the author meant paints
-        // under the canonical name.
-        $after = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 1,
-            'props'           => ['title' => 'Renamed band'],
-        ]);
-        $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
-        $this->assertSame([], $after['findings'], 'the page is clean once the dead key is gone');
-        $this->assertStringContainsString('--ppfixture-heading-color: #f0f0f0', $this->renderStored($id));
-    }
-
-    /**
-     * A canonical declaration is untouched when a stale legacy twin sits beside it.
-     * Before #603 canonical-wins arbitrated between the two; now there is nothing to
-     * arbitrate — the canonical name paints because it is declared, and the legacy one
-     * is dropped because it is not.
-     */
-    public function testACanonicalDeclarationStillPaintsBesideAStaleLegacyTwin(): void
-    {
-        $id = pp_create_page('Both slot names', 'draft');
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 — the legacy-slot family's last
-        // available move. These tests need a component that DECLARES slots, so a
-        // stale name can be shown to be dropped while a canonical one still paints;
-        // grid was the last shipped one, and the fixture exists for exactly this
-        // (#1025). `--ppfixture-text` plays the retired legacy name and
-        // `--ppfixture-heading-color` the canonical twin — the same pairing
-        // `--grid-text` / `--grid-heading-color` carried.
-        pp_update_composition($id, [[
-            'component' => 'ppfixture',
-            'props'     => ['title' => 'Both', 'items' => [['number' => '1', 'label' => 'Card']]],
-            'style'     => ['--ppfixture-text' => '#111111', '--ppfixture-heading-color' => '#222222'],
-        ]]);
-
-        $html = $this->renderStored($id);
-
-        $this->assertStringContainsString('--ppfixture-heading-color: #222222', $html, 'the canonical value paints');
-        $this->assertStringNotContainsString('#111111', $html, 'the stale legacy value is simply gone');
-    }
 
     /**
      * PER-ITEM style maps lose the alias too. The schema-derived per-item resolution
@@ -380,8 +223,7 @@ class StoredCompositionAliasRenderTest extends TestCase
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
                 ['title' => 'One', 'text' => 'a', 'udc' => ['card' => ['background' => ['fill' => '#101014']]]]]],
              'udc' => ['heading' => ['sizing' => ['max-width' => '40rem']]]],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
-                '--ppfixture-label-color' => '#334455']]];
+        ];
 
         $id     = pp_create_page('Fresh canonical page', 'draft');
         $result = pp_execute_action('update_composition', [
@@ -406,7 +248,6 @@ class StoredCompositionAliasRenderTest extends TestCase
             (string) ($stored[1]['props']['items'][0]['id'] ?? ''),
             'an item carrying a udc map is minted an it-<hex8> handle on write'
         );
-        $this->assertSame($authored[2]['style'], $stored[2]['style'], 'section style map is byte-identical');
 
         // Render: every authored declaration reaches the page.
         $html = $this->renderStored($id);
@@ -424,11 +265,12 @@ class StoredCompositionAliasRenderTest extends TestCase
             . 'component-defaults tier), which is what makes them this band\'s design'
         );
         $this->assertStringNotContainsString('--faq-heading-color', $html);
-        // Scoped to each band's own <section>. THE POINT OF THE FIXTURE INVERTED AT #1101:
-        // it used to be that faq was v2 while grid and the fixture band were still v1, so
-        // one page carried both emission shapes. Now only the test FIXTURE component is on
-        // the v1 shape, and the interesting contrast is between the two v2 GRAINS — faq's
-        // band-scoped block and grid's band-AND-item-scoped blocks on the same page.
+        // Scoped to each band's own <section>. THE FIXTURE BAND LEFT AT #1101 PR2, with the
+        // slot engine: the page used to carry a third band on the v1 emission shape so the
+        // two shapes could be contrasted, and there is no v1 shape left to contrast with.
+        // What the fixture shows now is the contrast that survived and matters more — the
+        // two v2 GRAINS, faq's band-scoped block beside grid's band-AND-item-scoped blocks
+        // on the same page.
         preg_match('/<section[^>]*data-pp-component="faq"[^>]*>/', $html, $faqTag);
         $this->assertNotEmpty($faqTag, 'the faq band must render');
         $this->assertStringNotContainsString(
@@ -462,11 +304,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertNotEmpty($gridTag, 'the grid band must render');
         $this->assertStringNotContainsString('style=', $gridTag[0]);
         $this->assertStringNotContainsString('--grid-', $html, 'no grid custom property is emitted anywhere');
-
-        // The FIXTURE band is the only v1 shape left on the page, and it still paints its
-        // slot inline — which is what keeps the contrast in this test real rather than
-        // asserted about a surface that no longer exists.
-        $this->assertStringContainsString('--ppfixture-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
         $this->assertSame([], pp_validate_composition_errors($stored));
@@ -707,78 +544,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('color:#ff6600', $css);
     }
 
-    /**
-     * The write path REJECTS a name that is neither declared nor aliased — the rename
-     * must not have widened the accepted slot set. `--section-accent-hover` is the exact
-     * name the new slot replaces, and it gets no alias entry (it was never storable, so
-     * no document can carry it).
-     */
-    public function testTheReplacedUndeclaredNameIsStillRejectedAtWrite(): void
-    {
-        $id = pp_create_page('Rejected slot', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--section-accent-hover' => '#ff6600']]);
-
-        $this->assertFalse($result['ok'], 'an undeclared, unaliased slot name must still be rejected');
-        $this->assertStringContainsString('--section-accent-hover', (string) ($result['error'] ?? ''));
-    }
-
-    /**
-     * THE INVERSION OF #594'S BOUNDARY (converted, not deleted — the "still rejected at
-     * write" half is exactly what acceptance criterion 2 asks to keep proving).
-     *
-     * #594 made a stored legacy slot name EDITABLE: it painted under its canonical name,
-     * and the band carrying it could still be styled. #603 removes both halves of that.
-     * A band carrying a now-undeclared slot name paints nothing AND cannot be edited —
-     * `_pp_validate_style_slot_map()` rejects the whole composition with
-     * `invalid_style_slot` naming the slot the operator never typed.
-     *
-     * That was #594's stated defect, and it is now the intended state: under the
-     * governing ruling the fix is to author the canonical name, not to teach the
-     * validator to tolerate the stale one. The one thing that must NOT break is
-     * restore_composition, which reports rather than blocks (#233) — pinned below.
-     */
-    public function testABandCarryingALegacySlotNameCanNoLongerBeEditedAndTheWriteIsRejected(): void
-    {
-        $id = pp_create_page('Legacy slot write boundary', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
-             'style' => ['--section-text' => '#334455']]]);
-
-        // STORED: paints nothing, under either name.
-        $html = $this->renderStored($id);
-        $this->assertStringNotContainsString('#334455', $html, 'the stored legacy declaration is dead');
-        $this->assertStringNotContainsString('--ppfixture-label-color', $html, 'and nothing renames it');
-        $this->assertStringNotContainsString('--section-text', $html);
-
-        // The band can no longer be edited at all — the stale declaration is visible
-        // to the whole-array validation `update_component` runs. This is the
-        // inversion: #594 made this edit succeed, #603 makes it fail on purpose.
-        $blocked = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['title' => 'Renamed']]);
-        $this->assertFalse($blocked['ok'], 'the dead slot fails the write it sits on');
-        $this->assertSame('invalid_style_slot', $blocked['error_code'] ?? null);
-        $this->assertStringContainsString(
-            '--section-text',
-            (string) ($blocked['error'] ?? ''),
-            'the error names the dead slot, so the operator knows what to fix'
-        );
-
-        // NEW WRITE naming a legacy slot: still rejected, exactly as before #603.
-        $rejected = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--section-title-size' => '3rem']]);
-        $this->assertFalse($rejected['ok'], 'authoring a legacy slot name was never accepted and still is not');
-        $this->assertStringContainsString('--section-title-size', (string) ($rejected['error'] ?? ''));
-    }
 
     // ── restore_composition: reports, never blocks (#233) ────────────────────
 

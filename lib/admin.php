@@ -626,44 +626,6 @@ function pp_applies_when_clause_met($clause, array $props, array $prop_defs, arr
     return false;
 }
 
-/**
- * The subset of an `applies_when` array that an authored component does NOT satisfy.
- *
- * Clauses are ANDed, so a non-empty return means the declaration is INERT on this
- * component and every returned clause is part of the reason. Callers report ALL of them
- * rather than stopping at the first miss: on a centered hero with no `proof`, both
- * clauses of `--hero-surface-bg` miss, and "applies when layout = "split"" alone would
- * send the author to fix the layout and leave the slot just as dead.
- *
- * @param  array  $clauses    The definition's `applies_when` array.
- * @param  string $component  Component name, for schema defaults.
- * @param  array  $props      The component's authored props.
- * @param  array  $style_map  The component's authored style map, canonical slot names.
- * @return array              The unmet clauses, in declaration order; empty when it applies.
- */
-function pp_applies_when_unmet_clauses(array $clauses, string $component, array $props, array $style_map): array {
-    if ($clauses === [] || !pp_is_list($clauses)) {
-        return [];
-    }
-    // is_array, not `?? []`: pp_get_registered_components() stores whatever json_decode
-    // returned for the whole file with no per-key normalization, so a corrupt schema whose
-    // top-level `props` is a scalar would hand a non-array to a declared `array` parameter
-    // and FATAL — inside `wp pp check page`, `wp pp validate site`, `operate inspect` and
-    // the restore-findings path. Fail open on a registry shape we cannot read, exactly as
-    // the evaluator fails open on a clause it cannot read.
-    $registered = pp_get_registered_components();
-    $prop_defs  = is_array($registered[$component]['props'] ?? null)
-        ? $registered[$component]['props']
-        : [];
-
-    $unmet = [];
-    foreach ($clauses as $clause) {
-        if (!pp_applies_when_clause_met($clause, $props, $prop_defs, $style_map)) {
-            $unmet[] = $clause;
-        }
-    }
-    return $unmet;
-}
 
 /**
  * Validates ONE slot, prop or role DEFINITION OBJECT from a component `schema.json`.
@@ -1286,11 +1248,26 @@ function _pp_no_style_slots_clause(string $component_name): string {
         );
     }
 
+    // THE REPAIR SENTENCE IS EXACT, AND IT USED TO BE WRONG (#1101). It said "to clear a
+    // stored slot, send it as null" — singular. An author who followed that on a band
+    // carrying two stored slots was REFUSED, because this same validator walks the WHOLE
+    // merged map and the sibling slot is still undeclared; and the refusal named the
+    // sibling, so it read as a new problem rather than as "you have to send them all".
+    // Measured: props-only edit REFUSED, one-of-two cleared REFUSED, both cleared in one
+    // call ACCEPTED and the `style` key removed entirely. Say that.
     return sprintf(
         '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
         . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s), through '
-        . 'update_composition or create_page — those are the two actions that carry a whole band. To '
-        . 'clear a stored slot, send it as null through update_component\'s `style` param.',
+        . 'update_composition or create_page — those are the two actions that carry a whole band. If '
+        . 'this band was written before the rebuild it still carries a stored `style` map, and that '
+        . 'map refuses EVERY update_component edit to the band until it is gone — a props-only edit '
+        . 'included. THE SIMPLEST REPAIR IS update_composition: rewrite the band with no `style` key '
+        . 'at all and the whole map goes, with nothing to enumerate and nothing to miss. To do it '
+        . 'with update_component instead, send `style` with EVERY STORED KEY set to null and `props` '
+        . 'as `{}` if you are changing no props — every key, not every slot: a band styled by a v1 '
+        . 'RECIPE also stores a `__recipe` key, which is not a slot name, and a clear that omits it '
+        . 'unblocks the band but leaves that key stored. A partial clear of the slots is refused '
+        . 'outright, naming whichever one you left behind.',
         $component_name,
         implode(', ', $roles) ?: '(none declared)'
     );
@@ -5710,10 +5687,17 @@ add_action('wp_ajax_pp_preview_composition', function () {
         foreach ($composition as $item) {
             $name  = isset($item['component']) ? (string) $item['component'] : '';
             $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
-            $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
-            if ($style) {
-                $props['__pp_style'] = $style;
-            }
+            // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
+            // It lifted a band's stored v1 slot map into the props array so the component
+            // template could render it. MEASURED DEAD before deleting: `__pp_style` has zero
+            // READ sites in the tree — every component render file carries only a comment
+            // where the read used to be — so this wrote a key nothing consumed. Removing it
+            // from all four band loops changed no rendered byte and broke exactly one test,
+            // a SOURCE SCAN asserting the promotion existed.
+            //
+            // An aged band's stored `style` map is not lost by this: it is still in the
+            // composition, still refuses every edit to its band until cleared, and is still
+            // named in the refusal (_pp_validate_style_slot_map, lib/admin.php).
             $props = pp_udc_promote_band_identity($item, $props);
             if ($name !== '') {
                 pp_get_component($name, $props);

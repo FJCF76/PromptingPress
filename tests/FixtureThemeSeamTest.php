@@ -116,47 +116,6 @@ class FixtureThemeSeamTest extends TestCase
         unset($GLOBALS['_pp_test_template_dir']);
     }
 
-    /** The fixture has to carry the SHAPES the slot-engine suites exercise. */
-    public function testTheFixtureCarriesARepresentativeSlotSet(): void
-    {
-        FixtureTheme::activate();
-        try {
-            $slots = pp_get_style_slots(FixtureTheme::COMPONENT);
-
-            $this->assertGreaterThanOrEqual(
-                8,
-                count($slots),
-                'the fixture stands in for a slot-bearing v1 component; too few slots and the ' .
-                'suites it hosts stop exercising the shapes they used to'
-            );
-
-            // A CONDITIONAL slot, which is the shape the inert-slot advisory needs.
-            $conditional = array_filter($slots, static fn($s) => !empty($s['applies_when']));
-            $this->assertGreaterThanOrEqual(
-                3,
-                count($conditional),
-                'at least three slots must carry applies_when, or the conditional-slot and ' .
-                'inert_slot suites have no real condition to exercise'
-            );
-
-            // The two types with special rejection paths.
-            $types = array_column($slots, 'type');
-            $this->assertContains('gradient', $types, 'the gradient type has rejection messages the suites assert on');
-            $this->assertContains('length-or-none', $types, 'the only type with a keyword alternative');
-
-            // And it must be a REAL registry citizen: composable, with a required prop.
-            $schema = pp_get_registered_components()[FixtureTheme::COMPONENT];
-            $required = array_filter($schema['props'] ?? [], static fn($p) => !empty($p['required']));
-            $this->assertNotEmpty(
-                $required,
-                'every composable component declares a required prop (SchemaValidationTest ' .
-                'pins that invariant) — a fixture that broke it would fail the very suites ' .
-                'it is meant to host'
-            );
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
 
     /**
      * SOURCE TRIPWIRE: every suite that activates the fixture must also deactivate it.
@@ -200,7 +159,23 @@ class FixtureThemeSeamTest extends TestCase
             }
             $entry = ltrim(str_replace($dir, '', $path), '/');
             $src   = file_get_contents($path);
-            if (strpos($src, 'FixtureTheme::activate()') === false) {
+            // MEMBERSHIP IS A REAL CALL SITE, NOT A MENTION, and the difference is the
+            // whole guard (#1101 review). This was `strpos($src, 'FixtureTheme::activate()')`
+            // — which THIS FILE satisfies on its own failure-message prose, several lines
+            // of which quote the call. So after a rename of the opt-in, every real caller
+            // could drop out while this file stayed listed on its own text, and the floor
+            // below — which asks whether the scan found this file — passed.
+            //
+            // The suffix test is the one the per-method walk already uses: a statement
+            // ending in `FixtureTheme::activate();`. Prose quoting the call does not end
+            // that way, and a fully-qualified call still does.
+            $callSites = 0;
+            foreach (explode("\n", $src) as $srcLine) {
+                if (str_ends_with(trim(preg_replace('#//.*$#', '', $srcLine) ?? ''), 'FixtureTheme::activate();')) {
+                    $callSites++;
+                }
+            }
+            if ($callSites === 0) {
                 continue;
             }
             $activators[] = $entry;
@@ -321,28 +296,69 @@ class FixtureThemeSeamTest extends TestCase
 
         // Fail-closed: if the scan stops finding activators, the loop above passes on
         // nothing and this guard silently retires.
-        // THE FLOOR TRACKS THE REAL COUNT, at roughly the one-fifth headroom this PR's
-        // emit tests use. It was 5 against an actual 16 — so eleven suites could have
-        // stopped opting in, or the scan could have lost two thirds of its reach, with
-        // this guard still green. That is the same understated-floor defect the review
-        // found in the emit tests, in the file that fixed them.
+        //
+        // THIS FLOOR HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, and both are recorded
+        // because the second was introduced by the fix for the first.
+        //
+        // It began as a hand-maintained count (`>= 13`, tracking an actual 16). #1101
+        // retired the style-slot engine, five suites stopped opting into the fixture, and
+        // the count went RED FOR BEING CORRECT. A number that has to be re-measured every
+        // time the truth changes will eventually be re-measured wrongly, and the tempting
+        // move in that moment is to lower it.
+        //
+        // It was then replaced with a self-reference — the scan must find THIS file — which
+        // does not drift but was STRICTLY WEAKER on the failure its own message named. With
+        // membership decided by a whole-file `strpos`, this file qualified on its own
+        // failure-message prose, so a rename of the opt-in could take eight of nine real
+        // activators out of the scan and leave this green. The deleted count floor had
+        // caught exactly that. Proved by a review specialist, by renaming the opt-in and
+        // watching both the shipped form and the obvious fix stay green.
+        //
+        // SO IT IS BOTH, AND MEMBERSHIP IS NOW A REAL CALL SITE (see above). The
+        // self-reference cannot drift and now cannot be satisfied by prose; the small
+        // absolute floor catches a scan that has collapsed to this file alone. Two is not a
+        // measurement of anything and is not expected to move: this file plus at least one
+        // real consumer. If the fixture ever genuinely has no other consumer, the answer is
+        // its README's death condition — delete it — not a lower number here.
+        $this->assertContains(
+            basename(__FILE__),
+            $activators,
+            'the scan did not find THIS file, which activates the fixture inside a test '
+            . 'method a few lines below. Either the opt-in was renamed, this directory scan '
+            . 'broke, or the call-site test stopped matching — and in every one of those '
+            . 'cases the pairing guard above is running over an empty list and proving '
+            . 'nothing. Fix the scan; do not relax this.'
+        );
         $this->assertGreaterThanOrEqual(
-            13,
+            2,
             count($activators),
-            'the scan found almost no suites opting into the fixture — either the opt-in was ' .
-            'renamed or this directory scan broke, and either way the pairing is unguarded'
+            'the scan collapsed to this file alone, so the pairing guard is checking only '
+            . 'itself. If the fixture really has no other consumer left, that is its '
+            . 'README\'s death condition — delete the fixture — not a reason to lower this.'
         );
     }
 
-    /** It stands in for a v1 component, so it must NOT look like a v2 one. */
-    public function testTheFixtureIsAv1ComponentAndDeclaresNoRoles(): void
+    /**
+     * IT DECLARES NO ROLES, AND THE REASON CHANGED AT #1101 WITHOUT THE ASSERTION MOVING.
+     *
+     * It used to read "it stands in for a v1 component, so it must not look like a v2 one" —
+     * true while the fixture hosted the slot engine. The slot engine is retired and the
+     * fixture no longer stands in for anything; what it hosts now is a claim whose subject
+     * the shipped registry happens not to declare (see its README).
+     *
+     * So the claim is no longer "stay on the old system" but "carry no styling surface at
+     * all". A `roles` block would make this a UDC host, and every UDC claim has ten shipped
+     * components to run against — so a role here would be coverage invented for a component
+     * nobody uses, which is the one thing the fixture's README forbids.
+     */
+    public function testTheFixtureDeclaresNoRolesAndSoHostsNoStylingClaims(): void
     {
         FixtureTheme::activate();
         try {
             $this->assertFalse(
                 pp_udc_is_v2_component(FixtureTheme::COMPONENT),
-                'ppfixture hosts the SLOT engine, so it must stay on slots — a fixture with ' .
-                'roles would be testing the system that replaced the one under test'
+                'ppfixture must carry no styling surface: a `roles` block would make it a UDC ' .
+                'host, and every UDC claim has ten shipped components to run against instead'
             );
             $this->assertSame([], pp_udc_component_roles(FixtureTheme::COMPONENT));
         } finally {

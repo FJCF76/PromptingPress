@@ -5,6 +5,12 @@ and get it validating and rendering again on v2. The end result: every band writ
 `wp pp check page` reports nothing at error severity, and the design you had is expressed
 as `udc` role maps.
 
+> **⚠ CLEAR THE STORED STYLE MAP FIRST, IF THERE IS ONE.** A band still holding its v1
+> `style` map cannot be edited at all since #1101 — not restyled, *edited*: a props-only
+> change meets `invalid_style_slot` naming a key you never mentioned. That refusal blocks
+> every step below. It takes one command to clear:
+> **`docs/howto-clear-a-stored-v1-style-map.md`**. Do that, then come back here.
+
 There is **no automatic migration and there will not be one** — v2 is a fresh-build system
 by design. What there is instead: every retired name refuses with a message naming the
 surface that replaced it, so the page tells you what to write.

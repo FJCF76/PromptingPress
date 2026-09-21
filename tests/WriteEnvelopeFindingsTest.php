@@ -12,13 +12,25 @@
  * failure class for AI-led maintenance: it presents as success, so nothing prompts
  * recovery.
  *
+ * THE TRAP IS A UDC DISCLOSURE SINCE #1101, NOT A DEAD SLOT. The style-slot engine that
+ * produced `inert_slot` was retired with its last consumer, so the advisory species this
+ * file drives is now `udc_band_value_shadowed_by_role_default`: a band-level `color` the
+ * author sets, the engine stores, the envelope reports applied, and every text role's own
+ * default cancels. That is the SAME failure — accepted, stored, paints nothing — on the
+ * engine that is live, and it runs against a SHIPPED component (`grid`) rather than a
+ * fixture, so the trap no longer moves with anybody's rebuild. What is genuinely gone with
+ * `inert_slot` is the applies_when half of the claim (an advisory that names an UNMET
+ * CONDITION); nothing v2 has conditional declarations, so there is no condition left to
+ * name and nothing was re-homed for it.
+ *
  * THE CONTRACT (D1 clause 4, ratified 2026-08-16). Every accepted composition-mutating
  * write carries a `findings` key describing the composition it just stored:
  *
  *     write lands ──► pp_get_composition()      the STORED bytes, not the assembled array
  *                        │
  *                        ├─ pp_validate_composition_errors()  severity 'error'
- *                        └─ pp_validate_composition_smells()  severity 'warning' (inert_slot)
+ *                        ├─ pp_validate_composition_smells()  severity 'warning'
+ *                        └─ pp_udc_composition_findings()     severity 'warning'
  *                        │
  *                     _pp_bounded_findings()     ≤ 100 + one findings_truncated tail
  *                        │
@@ -50,10 +62,11 @@ final class WriteEnvelopeFindingsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
-        // is the slot engine; which component carries the slots is incidental, which is
-        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
-        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        // THE FIXTURE THEME IS STILL ACTIVATED, and the reason is now narrow: the pages
+        // below use `ppfixture` as a plain filler band. The band that carries the ADVISORY
+        // is `grid`, a shipped component (see trapPage) — so the subject of this file no
+        // longer belongs to a fixture and cannot be re-homed again by a rebuild, which is
+        // what #1025 was tracking across hero -> section -> stats -> ppfixture.
         FixtureTheme::activate();
         // Reset the in-memory store for test isolation (tests/bootstrap.php:57). Without
         // this the class is order-dependent: a class whose tearDown unsets the store leaves
@@ -78,44 +91,53 @@ final class WriteEnvelopeFindingsTest extends TestCase
     }
 
     /**
-     * The inert-slot trap band. Re-homed from section to stats at #1023: section is a v2
-     * component and declares no style slots, so it can no longer hold an inert one. stats
-     * is the host chosen for every re-homed slot fixture in this sprint — 17 slots, 14 of
-     * them conditional, and zero live bands on the owner's site, so it is furthest down
-     * the usage-ordered rebuild queue (#1025 records why this keeps happening).
-     *
-     * TWO FIXTURES CANNOT FOLLOW THAT RULE, named here so this claim stays true: the
-     * applies_when clause-SHAPE pair in AppliesWhenTest needs a component whose conditional
-     * slots span one- and two-clause lists, and the page-context fixture in AiContextTest
-     * needs a component that declares a RECIPE. Only grid satisfies either, so both stay
-     * there with the reason recorded at each site. Every other re-homed fixture is on stats.
-     *
-     * `background_image` is deliberately UNSET: that is what makes `--ppfixture-overlay-bg`
-     * inert, which is the whole subject of the trap.
+     * The advisory species this file drives, named once so every assertion below refers to
+     * the same thing and a future re-home is one edit rather than thirty.
      */
+    private const TRAP_FINDING = 'udc_band_value_shadowed_by_role_default';
+
+    /**
+     * THE TRAP BAND. A `grid` whose band-level ink every card role's own default cancels:
+     * accepted, stored, reported applied, painting nothing on the text that matters. It is
+     * the #1101 heir to the inert `--stats-overlay-bg` this file used to drive, and it runs
+     * against a SHIPPED component on the live engine, which is why it is the last move.
+     *
+     * The `udc` map is authored HERE, in the seed, rather than by the write under test,
+     * because only `update_composition` and `create_page` carry a `udc` parameter
+     * (ai-instructions/composition.md). Tests that need the write ITSELF to introduce the
+     * advisory use update_composition; every other test writes through a band-scoped
+     * action onto a page that already carries it, which is the same envelope claim.
+     *
+     * @param bool $inert false seeds the same band with the ink on the ROLES, where it
+     *                    paints — the negative control that keeps the advisory from
+     *                    reading as "grid bands always warn".
+     */
+    private function trapBand(bool $inert = true): array
+    {
+        $band = [
+            'component' => 'grid',
+            'props'     => ['id' => 'grid-1', 'title' => 'Ship faster', 'items' => [['title' => 'Uptime']]],
+        ];
+        $band['udc'] = $inert
+            ? ['_band' => ['typography' => ['color' => '#ff0000']]]
+            : ['card-title' => ['typography' => ['color' => '#ff0000']]];
+
+        return $band;
+    }
+
     private function trapPage(): int
     {
-        $id = pp_create_page('Inert overlay trap', 'draft');
-        pp_update_composition($id, [
-            [
-                'component' => 'ppfixture',
-                'props'     => [
-                    'id'    => 'stats-1',
-                    'title' => 'Ship faster',
-                    'items' => [['number' => '99%', 'label' => 'Uptime']],
-                ],
-            ],
-        ]);
+        $id = pp_create_page('Shadowed band ink trap', 'draft');
+        pp_update_composition($id, [$this->trapBand()]);
 
         return $id;
     }
 
-    /** A page whose bands are all clean under current rules. */
     /**
-     * A page whose bands are all clean under current rules. Band 0 is a `stats` since
-     * #1023 because callers style index 0 through the v1 slot surface; band 1 stays a
-     * `section` so the fixture still exercises a MIXED page, which is the ordinary shape
-     * mid-rebuild and the one most likely to surprise the report assembler.
+     * A page whose bands are all clean under current rules. Band 0 is the fixture and band
+     * 1 a shipped `section`, so the page is MIXED — a component that declares `roles` and
+     * one that declares none. That is the shape most likely to surprise the report
+     * assembler, which is why it is not tidied into one component.
      */
     private function cleanPage(string $title = 'Clean page'): int
     {
@@ -126,6 +148,29 @@ final class WriteEnvelopeFindingsTest extends TestCase
         ]);
 
         return $id;
+    }
+
+    /**
+     * THE ACCEPTED WRITE ONTO A PAGE THAT CANNOT BE EDITED BAND-BY-BAND.
+     *
+     * Several fixtures below are deliberately broken on every band, so `update_component`
+     * would be REFUSED and there would be no envelope to assert about. `add_component`
+     * judges only the item it adds (lib/actions.php, its `validate`), so a clean new band
+     * is accepted onto a page full of errors — and the envelope still reports the WHOLE
+     * stored composition, which is the property these tests need.
+     *
+     * It replaces `style_component`, which had the same validates-only-its-own-payload
+     * shape and was deleted with the style-slot engine at #1101. The bounder's own
+     * docblock already named add_component as the plain action-layer call that reaches a
+     * pathological report, so this is the documented route rather than a workaround.
+     */
+    private function acceptedWriteOn(int $post_id): array
+    {
+        return pp_execute_action('add_component', [
+            'post_id'   => $post_id,
+            'component' => 'ppfixture',
+            'props'     => ['id' => 'appended', 'title' => 'Appended', 'items' => [['number' => '1', 'label' => 'One']]],
+        ]);
     }
 
     private static function findingTypes(array $envelope): array
@@ -154,49 +199,61 @@ final class WriteEnvelopeFindingsTest extends TestCase
     // ── 1. THE ACCEPTANCE CRITERION ────────────────────────────────────────────
 
     /**
-     * The pp-eval trap, verbatim: same command, same envelope, `ok: true` PLUS a finding
-     * that names the inert slot. This single assertion is why the issue exists — if it
-     * ever regresses, an agent can once again report success on a write that paints
-     * nothing.
+     * The pp-eval trap, in its live form: same envelope, `ok: true` PLUS a finding that
+     * names the value that paints nothing and the roles that cancel it. This single
+     * assertion is why the issue exists — if it ever regresses, an agent can once again
+     * report success on a write that paints nothing.
      */
-    public function testTheInertSlotTrapReturnsOkTrueAndSaysTheSlotIsDead(): void
+    public function testTheTrapWriteReturnsOkTrueAndSaysTheValuePaintsNothing(): void
     {
-        $id = $this->trapPage();
+        $id = pp_create_page('Shadowed band ink trap', 'draft');
 
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [$this->trapBand()],
         ]);
 
         $this->assertTrue($result['ok'], 'the write is ACCEPTED — findings never block');
-        $this->assertContains('inert_slot', self::findingTypes($result));
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($result));
 
-        $inert = self::findingsOfType($result, 'inert_slot');
+        $inert = self::findingsOfType($result, self::TRAP_FINDING);
         $this->assertCount(1, $inert);
         $this->assertSame('warning', $inert[0]['severity']);
         $this->assertSame(0, $inert[0]['index'], 'the advisory names the band it belongs to');
-        $this->assertStringContainsString('--ppfixture-overlay-bg', $inert[0]['message']);
-        $this->assertStringContainsString('background_image is set', $inert[0]['message'], 'it names the unmet condition');
-        $this->assertStringContainsString('nothing on the page reads it', $inert[0]['message']);
+        $this->assertStringContainsString('"color"', $inert[0]['message']);
+        $this->assertStringContainsString('card-title', $inert[0]['message'], 'it names the roles that win');
+        $this->assertStringContainsString('does not reach', $inert[0]['message']);
+    }
+
+    /**
+     * THE NEGATIVE CONTROL. Without it the test above passes on an engine that warns about
+     * every `grid` band, which would be the same lie in the other direction: an advisory
+     * nobody can act on because it never varies.
+     */
+    public function testTheSameInkOnTheRolesThatPaintItIsNotReported(): void
+    {
+        $id = pp_create_page('Shadowed band ink control', 'draft');
+
+        $result = pp_execute_action('update_composition', [
+            'post_id'     => $id,
+            'composition' => [$this->trapBand(false)],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertNotContains(self::TRAP_FINDING, self::findingTypes($result));
     }
 
     /**
      * The value really was stored. Without this the test above would pass on a write that
-     * silently refused the slot, which is a different (and also wrong) behaviour.
+     * silently dropped the declaration, which is a different (and also wrong) behaviour.
      */
     public function testTheInertValueIsStillStoredExactlyAsAuthored(): void
     {
         $id = $this->trapPage();
-        pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]);
 
         $this->assertSame(
-            'rgba(0,0,0,.5)',
-            pp_get_composition($id)[0]['style']['--ppfixture-overlay-bg'],
+            '#ff0000',
+            pp_get_composition($id)[0]['udc']['_band']['typography']['color'],
             'report-only: the advisory describes the write, it does not undo it'
         );
     }
@@ -234,15 +291,18 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testUpdateComponentCarriesFindings(): void
     {
         $id = $this->trapPage();
-        // Re-assert the same inert slot through the OTHER action that can set style.
+        // A BAND-SCOPED write that touches only props still reports the whole stored
+        // composition, advisory included. update_component carries no `udc` parameter, so
+        // it cannot introduce the advisory — which is the point: the envelope describes
+        // what is STORED, not what this call changed.
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
             'props'           => ['title' => 'Renamed'],
-            'style'           => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']]);
+        ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
-        $this->assertContains('inert_slot', self::findingTypes($result));
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($result));
     }
 
     public function testRemoveComponentCarriesFindings(): void
@@ -280,16 +340,24 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $this->assertSame(0, $split[0]['index'], 'the hero moved to band 0 and the locator moved with it');
     }
 
-    public function testStyleComponentCarriesFindings(): void
+    /**
+     * A CLEAN COMPOSITION REPORTS AN EMPTY LIST, NOT A MISSING KEY.
+     *
+     * The other half of the acceptance criterion, and the one a consumer depends on: the
+     * chat and the CLI both branch on the key's CONTENTS, so a clean write that omitted
+     * the key entirely would read to them as a write that never reported.
+     *
+     * It drove `style_component` until #1101, chosen because that action wrote no props
+     * and so could not itself dirty the page it was asserting was clean. update_component
+     * with an unchanged prop value is the same shape on the surviving surface.
+     */
+    public function testACleanWriteCarriesAnEmptyFindingsList(): void
     {
-        // Covered by the acceptance test above; this pins the KEY's presence on a write
-        // whose composition is clean, so "clean" reads as an empty report rather than an
-        // absent one.
-        $id = $this->cleanPage('style_component clean');
-        $result = pp_execute_action('style_component', [
+        $id = $this->cleanPage('clean write');
+        $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#101014'],
+            'props'           => ['title' => 'One'],
         ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
@@ -300,15 +368,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testCreatePageCarriesFindingsForTheCompositionItSeeded(): void
     {
         $result = pp_execute_action('create_page', [
-            'title'       => 'Seeded with an inert slot',
-            'composition' => [
-                [
-                    'component' => 'ppfixture',
-                    'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
-                    'style'     => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']]]]);
+            'title'       => 'Seeded with a shadowed band ink',
+            'composition' => [$this->trapBand()],
+        ]);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
-        $this->assertContains('inert_slot', self::findingTypes($result));
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($result));
     }
 
     public function testCreatePageWithNoCompositionReportsAnEmptyList(): void
@@ -337,12 +402,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testCreatePageReportsThePageItCreatedNotAStrayPostIdParam(): void
     {
         $other = pp_create_page('Someone else\'s page', 'draft');
-        pp_update_composition($other, [[
-            'component' => 'ppfixture',
-            'props'     => ['id' => 'h', 'title' => 'T'],
-            'style'     => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']]]);
+        pp_update_composition($other, [$this->trapBand()]);
         $this->assertContains(
-            'inert_slot',
+            self::TRAP_FINDING,
             array_column(_pp_composition_findings(pp_get_composition($other)), 'type'),
             'precondition: the OTHER page has a finding that must not leak'
         );
@@ -371,21 +433,16 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testOperatePatchCarriesFindings(): void
     {
         $id = $this->trapPage();
-        pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]);
 
-        // The trap band is the `ppfixture` fixture since #1066 PR2 (a `stats` from #1023,
-        // a `section` before that), so the patch path addresses it by that name — the
-        // subject here is the ENVELOPE carrying findings, not which component the patch
-        // happens to name. That it kept being renamed is exactly why #1025 exists.
-        $result = pp_patch_composition($id, 'ppfixture.title', 'Patched');
+        // The trap band is `grid` since #1101, so the patch path addresses it by that
+        // name — the subject here is the ENVELOPE carrying findings, not which component
+        // the patch happens to name. That it kept being renamed (section -> stats ->
+        // ppfixture) is exactly why #1025 exists, and a shipped v2 host ends it.
+        $result = pp_patch_composition($id, 'grid.title', 'Patched');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['ok'], $result['error'] ?? '');
-        $this->assertContains('inert_slot', self::findingTypes($result));
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($result));
     }
 
     // ── 3. THE BOUNDARY: what does NOT get the key ──────────────────────────────
@@ -496,9 +553,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
     /**
      * An item-scoped action legitimately accepts a write onto a page whose OTHER bands
-     * current rules reject (style_component validates no props at all). Reporting only the
-     * advisories there would hide the louder problem, so error-severity findings ride
-     * along too.
+     * current rules reject (#1007: update_component validates the band it TARGETS).
+     * Reporting only the advisories there would hide the louder problem, so error-severity
+     * findings ride along too.
      */
     public function testAnItemScopedWriteReportsErrorsOnBandsItNeverTouched(): void
     {
@@ -507,12 +564,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
             ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 's1', 'title' => 'One']],
             ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 's2', 'title' => 'Two', 'retired_key' => 'x']]]);
 
-        $result = pp_execute_action('style_component', [
+        $result = pp_execute_action('update_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#101014']]);
+            'props'           => ['title' => 'Edited']]);
 
-        $this->assertTrue($result['ok'], 'style_component validates only its own slots');
+        $this->assertTrue($result['ok'], 'update_component validates the band it targets, not the page');
         $errors = self::findingsOfSeverity($result, 'error');
         $this->assertNotSame([], $errors, 'the untouched broken band is still reported');
         $this->assertSame(1, $errors[0]['index'], 'and it names the band that owns it, not the one written');
@@ -522,13 +579,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
     /**
      * A page whose every band carries four undeclared props, so the whole-page report
-     * comfortably exceeds the findings budget. The VOLUME is what these tests need.
-     *
-     * The LEAD band is a `stats` since #1023, because the tests style index 0 through the
-     * v1 slot surface and section is a v2 component now. The rest stay `section` bands:
-     * an undeclared prop is reported for a v2 component exactly as for a v1 one, so they
-     * still supply the volume — this fixture never needed slots for that, only for the
-     * band it styles.
+     * comfortably exceeds the findings budget. The VOLUME is what these tests need, and an
+     * undeclared prop is reported identically for a component that declares `roles` and
+     * one that declares none — so the mixed lead/section shape is kept deliberately.
      */
     private function pathologicalPage(int $bands = 40): int
     {
@@ -558,11 +611,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'precondition: this fixture must actually exceed the budget'
         );
 
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#101014'],
-        ]);
+        $result = $this->acceptedWriteOn($id);
 
         $this->assertTrue($result['ok'], 'a long report never blocks the write');
         $this->assertCount(PP_WRITE_FINDINGS_BUDGET + 1, $result['findings'], '100 findings plus one tail');
@@ -612,10 +661,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testTheTruncationFindingHasTheOrdinaryFindingShape(): void
     {
         $id = $this->pathologicalPage();
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
-        ]);
-        $tail = end($result['findings']);
+        $result = $this->acceptedWriteOn($id);
+        $tail   = end($result['findings']);
 
         $this->assertSame(
             ['type', 'severity', 'message', 'index', 'omitted_by_type', 'total'],
@@ -708,10 +755,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testTheTruncationTailNamesThePageWhenOneOwnsTheReport(): void
     {
         $id     = $this->pathologicalPage();
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
-        ]);
-        $tail = end($result['findings']);
+        $result = $this->acceptedWriteOn($id);
+        $tail   = end($result['findings']);
 
         $this->assertStringContainsString('wp pp check page --post_id=' . $id, $tail['message']);
         $this->assertStringNotContainsString('<id>', $tail['message']);
@@ -728,7 +773,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
      * The ratified budget is a FLAT per-report cap, not a per-severity quota, and
      * _pp_composition_findings() emits errors before warnings. So on a composition with
      * more than PP_WRITE_FINDINGS_BUDGET error-severity findings, the advisories truncate
-     * away — inert_slot included, the very advisory #687 exists to surface.
+     * away — the shadowed-ink disclosure included, the very advisory #687 exists to
+     * surface.
      *
      * This is a real limit of the ratified shape, reachable only on a composition that
      * already has 100+ rule violations (which no validated write path can author). It is
@@ -738,25 +784,22 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testAdvisoriesTruncateBehindAHundredErrorsAndTheTailSaysSo(): void
     {
         $id = pp_create_page('Errors drown the advisory', 'draft');
-        $composition = [[
-            'component' => 'ppfixture',
-            'props'     => ['id' => 'h', 'title' => 'T']]];
+        $composition = [$this->trapBand()];
         for ($i = 0; $i < 40; $i++) {
-            $composition[] = ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 
+            $composition[] = ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']],
                 'id' => "s$i", 'title' => "T$i", 'zzA' => 1, 'zzB' => 2, 'zzC' => 3, 'zzD' => 4]];
         }
         pp_update_composition($id, $composition);
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']]);
+        $result = $this->acceptedWriteOn($id);
 
         $this->assertTrue($result['ok']);
         $this->assertContains(
-            'inert_slot',
+            self::TRAP_FINDING,
             array_column(_pp_composition_findings(pp_get_composition($id)), 'type'),
-            'precondition: the engines DO see the inert slot'
+            'precondition: the engines DO see the shadowed ink'
         );
-        $this->assertNotContains('inert_slot', self::findingTypes($result),
+        $this->assertNotContains(self::TRAP_FINDING, self::findingTypes($result),
             'but it falls behind the flat cap on a page with 100+ errors');
         $this->assertContains('findings_truncated', self::findingTypes($result),
             'and the report says out loud that it is incomplete');
@@ -777,23 +820,17 @@ final class WriteEnvelopeFindingsTest extends TestCase
     // ── 5c. THE AVAILABILITY GATE (D1 Addendum #2) ──────────────────────────────
 
     /**
-     * A composition of a given stored size, carrying a real finding (the inert hero
-     * overlay) so the gate can be shown to suppress CONTENT, not an empty report.
+     * A composition of a given stored size, carrying a real finding (the shadowed band
+     * ink) so the gate can be shown to suppress CONTENT, not an empty report.
      *
-     * @param int $bands  Section bands of ~11 KB each, on top of the hero.
+     * @param int $bands  Section bands of ~11 KB each, on top of the trap band.
      */
     private function bulkyPage(int $bands): int
     {
-        // The lead band is a `stats`: these tests style index 0 through the v1 slot
-        // surface, and both hero (#986) and section (#1023) are v2 components carrying no
-        // `style` map. stats is the host every re-homed slot fixture in this sprint uses.
-        // The BULK below still comes from section bands — the bytes are what matters
-        // there, not the styling surface.
-        $composition = [[
-            'component' => 'ppfixture',
-            'props'     => ['id' => 'h', 'title' => 'T', 'items' => [['number' => '1', 'label' => 'One']]],
-            'style'     => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
-        ]];
+        // The lead band is the trap band, so the page has something real to say. The BULK
+        // below comes from section bands — the bytes are what matters there, not what
+        // any of them declares.
+        $composition = [$this->trapBand()];
         $body = str_repeat('lorem ipsum dolor sit amet ', 420);
         for ($i = 0; $i < $bands; $i++) {
             $composition[] = ['component' => 'section', 'props' => [
@@ -832,15 +869,15 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'precondition: this fixture must actually exceed the gate'
         );
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.6)'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         // The write is untouched by the gate: it landed, exactly as authored.
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $stored = pp_get_composition($id);
         $this->assertCount(101, $stored);
-        $this->assertSame('rgba(0,0,0,.6)', $stored[0]['style']['--ppfixture-overlay-bg']);
+        $this->assertSame('Edited', $stored[0]['props']['title']);
 
         // Exactly one entry, and it is the skip.
         $this->assertCount(1, $result['findings']);
@@ -857,11 +894,13 @@ final class WriteEnvelopeFindingsTest extends TestCase
     /** The skip states the real numbers and the exact next command. */
     public function testTheSkipFindingNamesTheSizeTheLimitAndTheCommandToRun(): void
     {
-        $id      = $this->bulkyPage(100);
-        $bytes   = self::storedBytes($id);
-        $result  = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.6)'],
+        $id     = $this->bulkyPage(100);
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
+        // AFTER the write, because that is when the gate measures: the report is built on
+        // the bytes the write left behind, not the ones it found.
+        $bytes   = self::storedBytes($id);
         $message = $result['findings'][0]['message'];
 
         $this->assertStringContainsString((string) $bytes, $message, 'the real stored size');
@@ -885,15 +924,15 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $id = $this->bulkyPage(100);
 
         $direct = _pp_composition_findings(pp_get_composition($id));
-        $this->assertContains('inert_slot', array_column($direct, 'type'),
+        $this->assertContains(self::TRAP_FINDING, array_column($direct, 'type'),
             'precondition: the engines DO have something to say about this page');
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.6)'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         $this->assertSame(['findings_skipped'], self::findingTypes($result));
-        $this->assertNotContains('inert_slot', self::findingTypes($result));
+        $this->assertNotContains(self::TRAP_FINDING, self::findingTypes($result));
         $this->assertLessThan(
             2048,
             strlen((string) json_encode($result)),
@@ -916,12 +955,12 @@ final class WriteEnvelopeFindingsTest extends TestCase
             'precondition: this fixture must sit under the gate'
         );
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.6)'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         $this->assertNotContains('findings_skipped', self::findingTypes($result));
-        $this->assertContains('inert_slot', self::findingTypes($result));
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($result));
         $this->assertSame(
             _pp_bounded_findings(_pp_composition_findings(pp_get_composition($id)), $id),
             $result['findings'],
@@ -955,9 +994,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->pathologicalPage();
         // Give the ring a prior state to restore, then restore it.
-        pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
-        ]);
+        $this->acceptedWriteOn($id);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
 
@@ -1019,8 +1056,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testTheEnvelopeReportIsTheSharedEngineReportVerbatim(): void
     {
         $id = $this->trapPage();
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         $this->assertSame(
@@ -1052,8 +1089,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $this->assertSame([], pp_get_composition($id), 'the reader refuses a non-list row');
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--section-bg' => '#101014'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         $this->assertFalse($result['ok'], 'the write is refused, so there is no accepted envelope to report on');
@@ -1075,22 +1112,27 @@ final class WriteEnvelopeFindingsTest extends TestCase
      */
     public function testEachBatchStepCarriesItsOwnFindings(): void
     {
-        $id = $this->trapPage();
+        // Seeded WITHOUT the advisory, so step 2 is the step that introduces it. The
+        // middle step is an update_composition because that is one of the only two verbs
+        // carrying a `udc` map (ai-instructions/composition.md) — the transition it marks
+        // is the subject, not which verb produced it.
+        $id = pp_create_page('Batch step reports', 'draft');
+        pp_update_composition($id, [$this->trapBand(false)]);
 
         $batch = pp_ai_execute_batch([
             ['type' => 'action', 'name' => 'update_component', 'params' => [
                 'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one']]],
-            ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']]],
+            ['type' => 'action', 'name' => 'update_composition', 'params' => [
+                'post_id' => $id, 'composition' => [$this->trapBand()]]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
                 'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step three']]]]);
 
         $this->assertTrue($batch['ok'], 'precondition: the batch lands');
-        $this->assertNotContains('inert_slot', self::findingTypes($batch['steps'][0]),
-            'the slot is not inert yet');
-        $this->assertContains('inert_slot', self::findingTypes($batch['steps'][1]),
-            'the step that made it inert is where the report first says so');
-        $this->assertContains('inert_slot', self::findingTypes($batch['steps'][2]),
+        $this->assertNotContains(self::TRAP_FINDING, self::findingTypes($batch['steps'][0]),
+            'the band ink still paints at step one');
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($batch['steps'][1]),
+            'the step that made it unreachable is where the report first says so');
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($batch['steps'][2]),
             'and it STAYS reported: each step describes the whole composition, not its own delta');
     }
 
@@ -1102,8 +1144,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testTheEnvelopeSurvivesTheCliJsonEncode(): void
     {
         $id = $this->trapPage();
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
+        $result = pp_execute_action('update_component', [
+            'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Edited'],
         ]);
 
         $decoded = json_decode(
@@ -1114,7 +1156,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $this->assertNotNull($decoded, 'the report must be JSON-encodable — it is the CLI transport');
         // By membership, not by position: the engines guarantee errors before warnings and
         // nothing finer, so pinning an offset here would fail on an unrelated new smell.
-        $this->assertContains('inert_slot', array_column($decoded['findings'], 'type'));
+        $this->assertContains(self::TRAP_FINDING, array_column($decoded['findings'], 'type'));
     }
 
     /**
@@ -1134,17 +1176,17 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $response = _pp_ai_execute_response([
             'type'   => 'action',
-            'name'   => 'style_component',
+            'name'   => 'update_component',
             'params' => [
                 'post_id'          => $id,
                 'component_index'  => 0,
-                'style'            => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
+                'props'            => ['title' => 'Edited'],
                 'expected_version' => $version,
             ],
         ]);
 
         $this->assertTrue($response['ok'], 'precondition: the chat write lands');
-        $this->assertContains('inert_slot', array_column($response['data']['findings'], 'type'));
+        $this->assertContains(self::TRAP_FINDING, array_column($response['data']['findings'], 'type'));
         $this->assertArrayHasKey('validation', $response['data'], 'the handler key is untouched');
     }
 
@@ -1159,8 +1201,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $id = $this->trapPage();
 
         $batch = pp_ai_execute_batch([
-            ['type' => 'action', 'name' => 'style_component', 'params' => [
-                'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)'],
+            ['type' => 'action', 'name' => 'update_component', 'params' => [
+                'post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Step one'],
             ]],
             ['type' => 'action', 'name' => 'update_component', 'params' => [
                 'post_id' => $id, 'component_index' => 0, 'props' => ['no_such_prop' => 'x'],
@@ -1169,9 +1211,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
 
         $this->assertFalse($batch['ok']);
         $this->assertTrue($batch['rolled_back'], 'precondition: step 2 fails and step 1 is reverted');
-        $this->assertContains('inert_slot', self::findingTypes($batch['steps'][0]),
+        $this->assertContains(self::TRAP_FINDING, self::findingTypes($batch['steps'][0]),
             'step 1 keeps the report it was handed');
-        $this->assertArrayNotHasKey('style', pp_get_composition($id)[0],
+        $this->assertSame('Ship faster', pp_get_composition($id)[0]['props']['title'],
             'while the composition it described has been rolled back out of existence');
     }
 
@@ -1200,9 +1242,9 @@ final class WriteEnvelopeFindingsTest extends TestCase
             $this->assertTrue($added['ok'], 'add_component validates only the item it adds, so a colliding id is accepted');
         }
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014']]);
-        $this->assertTrue($result['ok']);
+        // The LAST of those accepted adds is itself the accepted write under test: its
+        // envelope reports the whole page it just joined, collisions and all.
+        $result = $added;
 
         $dupes = self::findingsOfType($result, 'duplicate_component_id');
         $this->assertNotSame([], $dupes);
@@ -1222,8 +1264,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     /**
      * `index: null` from a REAL rule on an accepted write, not just from the synthetic
      * truncation tail. The docs promise int|null; a consumer that assumed an integer would
-     * break on the first duplicate-id page, which style_component accepts happily because
-     * it validates no props at all.
+     * break on the first duplicate-id page, which add_component accepts happily because it
+     * judges only the item it adds.
      */
     public function testAnAcceptedWriteCanReportACrossBandFindingWithNoLocator(): void
     {
@@ -1232,8 +1274,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
             ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'dupe', 'title' => 'One']],
             ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'dupe', 'title' => 'Two']]]);
 
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014']]);
+        $result = $this->acceptedWriteOn($id);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $dupes = self::findingsOfType($result, 'duplicate_component_id');

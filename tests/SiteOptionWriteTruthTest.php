@@ -380,6 +380,49 @@ class SiteOptionWriteTruthTest extends TestCase
             'a non-chrome key must not serialise on the chrome lock'
         );
     }
+    /**
+     * The writer must see the same row the compare just read.
+     *
+     * Reading the row authoritatively is only half the lock's job: update_option()
+     * does its own get_option() against the autoloaded cache, so without an
+     * invalidation inside the section the compare and the write look at two
+     * different views of one row — and a restore that was genuinely owed gets
+     * skipped and reported FAILED. Found by the security specialist.
+     *
+     * IT WAS DECLARED INSIDE A wpdb DOUBLE AND HAD NEVER RUN (found #1101, review).
+     * It sat below the end of this class, inside PP_SiteOptionWriteTruth_LockDeniedWpdb,
+     * so PHPUnit never collected it and `--filter` on its name answered
+     * "No tests executed!". A test method in a non-TestCase class is INVISIBLE rather
+     * than failing, which is why nothing noticed. Pre-existing and not this PR's debt;
+     * moved because a security finding with zero coverage is cheap to close and
+     * expensive to leave.
+     */
+public function testTheSiteUdcRollbackInvalidatesTheCachedRowInsideTheLock(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/lib/actions.php');
+        $this->assertIsString($source);
+
+        $start = strpos($source, '$restore_one = static function ($wpdb)');
+        $this->assertNotFalse($start, 'the locked restore closure must exist');
+        $end = strpos($source, '};', $start);
+        $body = substr($source, $start, $end - $start);
+
+        // SINGLE-QUOTED ON PURPOSE. This was a double-quoted string, so PHP interpolated
+        // `$key` — a variable this test never defines — and the needle it actually searched
+        // for was `wp_cache_delete(, 'options')`, which cannot match anything. It emitted an
+        // undefined-variable warning and failed. Nobody found out, because the method was
+        // declared inside a wpdb double and never collected (see the docblock).
+        $this->assertStringContainsString(
+            'wp_cache_delete($key, \'options\')',
+            $body,
+            'the cached row must be dropped inside the lock, before the write'
+        );
+        $this->assertLessThan(
+            strpos($body, '_pp_restore_write_if_changed'),
+            strpos($body, 'wp_cache_delete'),
+            'the invalidation must happen BEFORE the compare-and-write, not after'
+        );
+    }
 }
 
 /** Records every query so a test can assert the lock was taken, and grants it. */
@@ -430,34 +473,4 @@ class PP_SiteOptionWriteTruth_LockDeniedWpdb extends PP_SiteOptionWriteTruth_Rec
         return wpdb::get_var($query);
     }
 
-    /**
-     * The writer must see the same row the compare just read.
-     *
-     * Reading the row authoritatively is only half the lock's job: update_option()
-     * does its own get_option() against the autoloaded cache, so without an
-     * invalidation inside the section the compare and the write look at two
-     * different views of one row — and a restore that was genuinely owed gets
-     * skipped and reported FAILED. Found by the security specialist.
-     */
-    public function testTheSiteUdcRollbackInvalidatesTheCachedRowInsideTheLock(): void
-    {
-        $source = file_get_contents(dirname(__DIR__) . '/lib/actions.php');
-        $this->assertIsString($source);
-
-        $start = strpos($source, '$restore_one = static function ($wpdb)');
-        $this->assertNotFalse($start, 'the locked restore closure must exist');
-        $end = strpos($source, '};', $start);
-        $body = substr($source, $start, $end - $start);
-
-        $this->assertStringContainsString(
-            "wp_cache_delete($key, 'options')",
-            $body,
-            'the cached row must be dropped inside the lock, before the write'
-        );
-        $this->assertLessThan(
-            strpos($body, '_pp_restore_write_if_changed'),
-            strpos($body, 'wp_cache_delete'),
-            'the invalidation must happen BEFORE the compare-and-write, not after'
-        );
-    }
 }

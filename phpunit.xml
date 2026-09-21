@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  failOnRisky="true" added at #1101: a zero-assertion test is a FAILURE, not a note.
+  PHPUnit reports one as "risky" and exits 0, so a test whose every assertion sits inside a
+  loop over a now-empty set passes CI while proving nothing. That is the shape #1110
+  catalogues 48 of, and this is the tripwire that stops the 49th arriving silently. Free to
+  turn on: the suite has zero risky tests today. Deliberately NOT paired with
+  failOnWarning="true" — that is a separate call with live warnings behind it.
+-->
 <phpunit
     bootstrap="tests/bootstrap.php"
     colors="true"
     failOnWarning="false"
+    failOnRisky="true"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.0/phpunit.xsd"
 >

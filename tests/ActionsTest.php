@@ -471,63 +471,6 @@ class ActionsTest extends TestCase
         $this->assertContains('template_owned_component', $types);
     }
 
-    public function testRestoreReportsDanglingVarStyleValueWithoutBlocking(): void
-    {
-        // #230 rider on #233: the first validation rule to land after #233 must
-        // prove restore surfaces it through the SHARED engine — no restore-
-        // specific rule path — and never blocks on it.
-        $post_id = pp_create_page('Dangling var snapshot');
-        pp_update_composition($post_id, [
-            // `stats` since #1026 (it was `cta` from #1023 and `section` before that): the
-            // subject is a DANGLING var() reference surviving a restore without blocking
-            // (#233), which is the slot engine's behaviour on whichever component still has
-            // slots. stats is the host BY RULE, not by convenience — 17 slots, zero live
-            // bands on the owner's site, so it sits furthest down the usage-ordered rebuild
-            // queue and will not force a fourth re-home. An interim version of this fixture
-            // used `grid`, which is wrong: grid is next by usage and only gated on #1024's
-            // item-grain ruling. See #1025 for why this keeps happening and the durable fix.
-            ['component' => 'ppfixture', 'props' => ['title' => 'A', 'items' => [['number' => '10', 'label' => 'Ten']]], 'style' => ['--ppfixture-bg' => 'var(--nonexistent-token)']],
-        ]);
-        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B']]]);
-
-        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-
-        // The write succeeds and the snapshot is preserved verbatim.
-        $this->assertTrue($result['ok'], $result['error'] ?? 'restore failed');
-        $this->assertSame('var(--nonexistent-token)', pp_get_composition($post_id)[0]['style']['--ppfixture-bg']);
-
-        // ...and the dangling reference is reported as a blocking-class finding.
-        $errors = array_values(array_filter(
-            $result['findings'],
-            static function ($f) { return $f['severity'] === 'error'; }
-        ));
-        $this->assertContains('invalid_style_value', array_column($errors, 'type'));
-    }
-
-    public function testRestoreOfValidVarStyleValueReportsNoFindings(): void
-    {
-        // The mirror case: a snapshot using the newly ACCEPTED forms is clean.
-        // An INK slot, not a FILL slot: a fill slot declares `role: "fill"`, and since #579 a
-        // transparent fill raises a non-blocking `transparent_fill` advisory, which would
-        // make this findings assertion about the warn channel instead of about var()
-        // acceptance. The band is `grid` since #1026 (`cta` from #1023, `section` before) —
-        // the fixture follows whichever component still has slots; see #1025.
-        //
-        // The panel setup is load-bearing for the SAME reason since #580:
-        // `--section-panel-cta-*` declares applies_when layout = "text-panel" AND
-        // panel_cta_text AND panel_cta_url, so a section without them renders no panel
-        // CTA and the slot raises an `inert_slot` advisory — again the warn channel,
-        // not var() acceptance.
-        $post_id = pp_create_page('Valid var snapshot');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'A', 'items' => [['number' => '10', 'label' => 'Ten']]], 'style' => ['--ppfixture-label-color' => 'transparent', '--ppfixture-heading-accent-color' => 'var(--color-accent)']],
-        ]);
-        pp_update_composition($post_id, [['component' => 'section', 'props' => ['title' => 'B', 'body' => 'Body text']]]);
-
-        $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
-        $this->assertTrue($result['ok']);
-        $this->assertSame([], $result['findings']);
-    }
 
     // ── The restore report is exhaustive per item (#621) ────────────────────
     //
@@ -1259,29 +1202,6 @@ class ActionsTest extends TestCase
         $this->assertStringNotContainsString('retired', $result['error']);
     }
 
-    public function testTheStaleThemeValueDoesNotBlockTheItem_ScopedActions(): void
-    {
-        // The OTHER half of the uneven blast radius. Same stale page, the two actions
-        // that do not validate the whole composition still work.
-        $id = pp_create_page('Stale theme value, item-scoped actions', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Legacy band', 'theme' => 'dark']]]);
-
-        $added = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props'     => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Fresh band', 'theme' => 'muted']]);
-        $this->assertTrue($added['ok'], $added['error'] ?? 'add_component validates only the item it adds');
-
-        $styled = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#101014']]);
-        $this->assertTrue($styled['ok'], $styled['error'] ?? 'style_component validates no props at all');
-
-        // Both wrote the stale band back VERBATIM — never silently repaired.
-        $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
-    }
 
     public function testTheStaleThemeValueStillRefusesAnEditToItsOwnBandAndIsRepairableThere(): void
     {
@@ -3383,142 +3303,6 @@ class ActionsTest extends TestCase
     // (pp_validate_composition → _pp_validate_style_slot_map). No surface-specific
     // validator; the style-slot error codes below are the shared-engine codes.
 
-    public function testAddComponentWithStyleWritesStyleOntoNewItem(): void
-    {
-        $id = pp_create_page('Add Style Test', 'draft');
-        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
-            'style'     => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem']]);
-        $this->assertTrue($result['ok']);
-        $comp = pp_get_composition($id);
-        $this->assertCount(2, $comp);
-        $this->assertSame('#1a1a2e', $comp[1]['style']['--ppfixture-bg']);
-        $this->assertSame('8rem', $comp[1]['style']['--ppfixture-padding-top']);
-    }
-
-    public function testAddComponentRejectsInvalidStyleValue(): void
-    {
-        $id = pp_create_page('Add Bad Value', 'draft');
-        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
-
-        // Same rejection (and same shared-engine error code) as items[].style /
-        // style_component would give for a non-color value on a color slot.
-        $result = pp_validate_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
-            'style'     => ['--ppfixture-bg' => 'not-a-color']]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testAddComponentRejectsUnknownStyleSlot(): void
-    {
-        $id = pp_create_page('Add Bad Slot', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
-
-        $result = pp_validate_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Styled'],
-            'style'     => ['--hero-display' => 'none'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_slot', $result->get_error_code());
-    }
-
-    public function testAddComponentInvalidStyleDoesNotMutate(): void
-    {
-        $id = pp_create_page('Add No Mutate', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
-        $before = pp_get_composition($id);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'hero',
-            'props'     => ['title' => 'Styled'],
-            'style'     => ['--hero-bg' => 'not-a-color'],
-        ]);
-        $this->assertFalse($result['ok']);
-        $after = pp_get_composition($id);
-        $this->assertEquals($before, $after, 'A rejected style must not append or partially write.');
-        $this->assertCount(1, $after);
-    }
-
-    public function testAddComponentEmptyStyleOmitsStyleKey(): void
-    {
-        // An empty style map carries no visible styling intent, so it is omitted
-        // (matches update_component's `!empty` treatment). The stored item is
-        // byte-identical to an add_component with no style param at all.
-        $id = pp_create_page('Add Empty Style', 'draft');
-        pp_update_composition($id, [['component' => 'hero', 'props' => ['title' => 'First']]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'section',
-            'props'     => ['body' => 'No style'],
-            'style'     => [],
-        ]);
-        $this->assertTrue($result['ok']);
-        $comp = pp_get_composition($id);
-        $this->assertArrayNotHasKey('style', $comp[1]);
-    }
-
-    public function testAddComponentStyleWithPositionInsertsStyledItemAtIndex(): void
-    {
-        $id = pp_create_page('Add Style Pos', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']]]]]);
-
-        $result = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Inserted'],
-            'style'     => ['--ppfixture-bg' => '#123456'],
-            'position'  => 1]);
-        $this->assertTrue($result['ok']);
-        $comp = pp_get_composition($id);
-        $this->assertCount(3, $comp);
-        $this->assertSame('Inserted', $comp[1]['props']['title']);
-        $this->assertSame('#123456', $comp[1]['style']['--ppfixture-bg']);
-        $this->assertArrayNotHasKey('style', $comp[0]);
-        $this->assertArrayNotHasKey('style', $comp[2]);
-    }
-
-    public function testAddComponentDoesNotSilentlyDropStyle(): void
-    {
-        // #368 regression: add_component used to accept a `style` key, return
-        // ok:true, and silently drop it (the #147 trust class). Now a valid style
-        // is HONORED (persisted onto the new item) and an invalid style is
-        // REJECTED — never a silent ok:true with the styling gone.
-        $id = pp_create_page('Regression 368', 'draft');
-        pp_update_composition($id, [['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'First']]]);
-
-        // Valid style is honored, not dropped.
-        $ok = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Styled'],
-            'style'     => ['--ppfixture-bg' => '#0d1117']]);
-        $this->assertTrue($ok['ok']);
-        $comp = pp_get_composition($id);
-        $this->assertArrayHasKey('style', $comp[1], 'Valid style must be persisted, not silently dropped.');
-        $this->assertSame('#0d1117', $comp[1]['style']['--ppfixture-bg']);
-
-        // Invalid style is rejected, not silently accepted behind ok:true.
-        $bad = pp_execute_action('add_component', [
-            'post_id'   => $id,
-            'component' => 'ppfixture',
-            'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Bad'],
-            'style'     => ['--ppfixture-bg' => 'not-a-color']]);
-        $this->assertFalse($bad['ok'], 'Invalid style must be rejected, never silently accepted.');
-        $this->assertCount(2, pp_get_composition($id), 'A rejected add must not append.');
-    }
 
     // ── Action: remove_component ───────────────────────────────────────────
 
@@ -3701,8 +3485,21 @@ class ActionsTest extends TestCase
      */
     public function testSchemaImageUrlPropsDerivedFromSchemas(): void
     {
+        // AGAINST THE SHIPPED REGISTRY, NOT THIS CLASS'S (#1101). setUp() activates the
+        // fixture theme root for every method here, and the fixture declares a
+        // `format: image_url` prop of its own — so this assertion was reading a set of
+        // TWO and calling it "what the schemas derive". It is a claim about what the
+        // THEME media-validates, and a test-only component is not part of that answer.
+        //
+        // Measured when the leak was found: the fixture-polluted set was
+        // ['background_image', 'image_url']; the shipped set is ['image_url'] alone.
+        // `background_image` is not a prop on any shipped component — it left section at
+        // #1023, cta at #1026 and stats at #1066, and a v2 band background is an
+        // attachment id on the `_band` role instead.
+        FixtureTheme::deactivate();
+
         $this->assertSame(
-            ['background_image', 'image_url'],
+            ['image_url'],
             _pp_schema_image_url_props(),
             'Derived image-URL prop set drifted. If you added a new format:image_url '
             . 'prop NAME, update this baseline and confirm it must be media-validated.'
@@ -3740,6 +3537,13 @@ class ActionsTest extends TestCase
         $imageNameRe = '/_image$/';
         // Props that are URLs but NOT media images, or not URLs at all.
         $excludeNameRe = '/(_id|_alt|link_url|button_url|cta\d?_url|panel_cta_url)$/';
+
+        // AGAINST THE SHIPPED REGISTRY, NOT THIS CLASS'S (#1101) — same leak as
+        // testSchemaImageUrlPropsDerivedFromSchemas above, and here it was load-bearing:
+        // the anti-vacuity floor below read >= 6, which the shipped registry cannot
+        // satisfy. The fixture's `background_image` was making up the difference, so the
+        // guard-the-guard floor was being cleared by a component that does not ship.
+        FixtureTheme::deactivate();
 
         $checked = 0;
         foreach (pp_get_registered_components() as $component => $schema) {
@@ -3779,17 +3583,18 @@ class ActionsTest extends TestCase
                 }
             }
         }
-        // Guard the guard: if the enumeration ever finds nothing, the test would
-        // pass vacuously. There are 7 image-URL props today — section's
-        // `background_image` retired at #1023, because a band background is the `_band`
-        // role's `background.image`, an ATTACHMENT ID rather than a URL, so it is not an
-        // image-URL prop for this drift-catcher to check the format of.
-        // Six since #1026: cta's `background_image` retired with its three styling siblings,
-        // and a v2 band's background is `_band` -> `background.image`, an attachment ID the
-        // engine resolves rather than a URL prop this format guard could apply to. The floor
-        // moves down one per rebuild that retires an image-shaped PROP, which is what keeps
-        // this a drift-catcher rather than a count nobody maintains.
-        $this->assertGreaterThanOrEqual(6, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
+        // Guard the guard: if the enumeration ever finds nothing, the test would pass
+        // vacuously. FIVE image-URL props ship today, measured rather than carried
+        // forward: grid.items[].image_url, hero.image_url, logos.items[].image_url,
+        // section.image_url and testimonials.items[].image_url. Every one of them is
+        // named `image_url`; `background_image` is gone from the shipped registry
+        // entirely (section #1023, cta #1026, stats #1066), because a v2 band background
+        // is an ATTACHMENT ID on the `_band` role rather than a URL this format guard
+        // could apply to. The floor moves down one per rebuild that retires an
+        // image-shaped PROP, which is what keeps this a drift-catcher rather than a count
+        // nobody maintains — and it was reading 6 until #1101, a number only the fixture
+        // theme could reach.
+        $this->assertGreaterThanOrEqual(5, $checked, 'Image-prop enumeration found too few props — the drift-catcher is not actually running.');
     }
 
     /**
@@ -4625,95 +4430,6 @@ class ActionsTest extends TestCase
 
     // ── style_component action ───────────────────────────────────────────
 
-    public function testStyleComponentValidateAcceptsValidSlots(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
-        ]);
-        $this->assertTrue($result);
-    }
-
-    public function testStyleComponentRejectsUnknownSlot(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-display' => 'none'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_slot', $result->get_error_code());
-    }
-
-    public function testStyleComponentRejectsInvalidValue(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => 'not-a-color'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testStyleComponentAcceptsTransparentAndVarReference(): void
-    {
-        // #230: the issue's style-slot examples — a transparent surface background, and a
-        // slot that follows the brand accent via var().
-        // The band was a `section` until #1023 and a `cta` until #1026; it is a `stats` now.
-        // The re-homing is mechanical each time and the reason is not: this test is about
-        // the slot ENGINE's value grammar, not about any component, so its fixture has to be
-        // whichever component still has slots. #1025 records why that keeps happening and
-        // what the durable fix is; until then the rule is to land on a component NOT due for
-        // rebuild — which is STATS, the host #1023 chose for exactly this reason (17 slots,
-        // zero live bands on the owner's site, so furthest down the usage-ordered queue).
-        // An interim version of this fixture read `grid`, citing that same rule and then
-        // breaking it: grid is next by usage and only gated on #1024's item-grain ruling, so
-        // landing here would have guaranteed a fourth re-home one sprint later.
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]]],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => 'transparent', '--ppfixture-heading-accent-color' => 'var(--color-accent)'],
-        ]);
-        $this->assertTrue($result);
-    }
-
-    public function testStyleComponentRejectsVarReferenceToUnknownToken(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '10', 'label' => 'Ten']]]],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => 'var(--nonexistent-token)'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
 
     // ── #584 authoring path: the twelve new slots and the two new item props ──
     //
@@ -4724,83 +4440,6 @@ class ActionsTest extends TestCase
     // plus one reject branch each, because "accepted" is only meaningful against a
     // demonstrated rejection.
 
-    public function testStyleComponentPersistsTheHeadingRhythmSlots(): void
-    {
-        // The six components that could not execute band fusing. Zero is the value the
-        // procedure actually asks for, so zero is the value authored here.
-        // cta's row left at #1026 and table's at #1066: each heading rhythm is the
-        // `heading` role's `spacing.margin-bottom` now, authored in the band's `udc` map
-        // rather than through `style_component` — the action refuses a v2 component
-        // outright. THE CLAIM THIS TEST MAKES IS UNCHANGED FOR THE THREE THAT REMAIN, and
-        // it is a claim about `style_component` persisting a slot, not about any
-        // particular component, so narrowing keeps its full value. table's replacement is
-        // TableRoleDefaultsEmitTest, which asserts the EMITTED `margin-bottom` rather than
-        // a stored slot. Note table carried the only NON-ZERO value here; `1.5rem` moves
-        // to grid so the "a real length persists, not just a zero" half survives its
-        // departure.
-        // stats' and logos' rows left at #1066 PR2 with their slots, exactly as cta's went
-        // at #1026 and table's earlier in #1066: each heading rhythm is the `heading` role's
-        // `spacing.margin-bottom` now, authored in the band's `udc` map, and `style_component`
-        // refuses a v2 component outright. Their replacements assert the EMITTED declaration
-        // (StatsRoleDefaultsEmitTest, LogosRoleDefaultsEmitTest) rather than a stored slot.
-        //
-        // THE FIXTURE TAKES THE SEAT RATHER THAN THE ROSTER SHRINKING TO ONE. The claim here
-        // is about `style_component` persisting a slot, not about any component, so it needs
-        // a slot-bearing host — which is the whole point of `ppfixture` (#1025). grid keeps
-        // the NON-ZERO case so "a real length persists, not just a zero" survives.
-        // grid's row left at #1101 with its slot map, and it took the NON-ZERO case with
-        // it — so the fixture carries both halves now: a real length AND a zero, driven
-        // as two separate writes so "a real length persists, not just a zero" survives
-        // grid's departure exactly as it survived table's.
-        $cases = [
-            'ppfixture-length' => ['--ppfixture-heading-margin-bottom' => '1.5rem'],
-            'ppfixture-zero'   => ['--ppfixture-heading-margin-bottom' => '0']];
-        $hosts = [
-            'ppfixture-length' => 'ppfixture',
-            'ppfixture-zero'   => 'ppfixture'];
-        $props = [
-            'ppfixture-length' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]],
-            'ppfixture-zero'   => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'x']]]];
-
-        foreach ($cases as $case => $style) {
-            $component = $hosts[$case];
-            $post_id = pp_create_page("Heading rhythm {$case}");
-            pp_update_composition($post_id, [
-                ['component' => $component, 'props' => $props[$case]]]);
-
-            $result = pp_execute_action('style_component', [
-                'post_id'         => $post_id,
-                'component_index' => 0,
-                'style'           => $style]);
-            $this->assertTrue($result['ok'], "style_component must accept {$component}'s heading-rhythm slot.");
-
-            $comp = pp_get_composition($post_id);
-            foreach ($style as $slot => $value) {
-                $this->assertSame($value, $comp[0]['style'][$slot], "{$slot} must persist.");
-            }
-        }
-    }
-
-    public function testStyleComponentRejectsANonLengthHeadingRhythmValue(): void
-    {
-        // Host moved to the fixture at #1066 PR2: logos is a v2 component now, so
-        // `style_component` refuses it with `no_style_slots` before ever reaching the
-        // VALUE check this test is about.
-        $post_id = pp_create_page('Heading rhythm reject');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => [
-                'title' => 'Clients',
-                'items' => [['number' => '10', 'label' => 'Ten']],
-            ]],
-        ]);
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-heading-margin-bottom' => 'medium-ish'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
 
     // RETIRED (#1026): the four button-slot authoring-path tests, together, because no
     // component declares a button style slot any more. They proved that `style_component`
@@ -4862,69 +4501,6 @@ class ActionsTest extends TestCase
         $this->assertStringContainsString('background:#115e59', $css);
     }
 
-    public function testStyleComponentRejectsTheUnadoptedBandAccentTier(): void
-    {
-        // The narrowing this issue committed to in writing: the panel CTA reaches its third
-        // tier through a ring slot, NOT through a --ppfixture-button-accent band-accent tier.
-        $post_id = pp_create_page('Band accent tier reject');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']]]]]);
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-button-accent' => '#0f766e']]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-    }
-
-    public function testStyleComponentPersistsTheFixtureSizingSlots(): void
-    {
-        // THE HOST IS THE FIXTURE SINCE #1066 PR2. This was logos' two sizing slots
-        // (`--logos-image-size`, `--logos-gap`); both retired with logos' rebuild, where the
-        // caps are the `image` / `image-labeled` roles and the strip rhythm is `list` ->
-        // spacing.gap. The claim here was never about logos: it is that `style_component`
-        // PERSISTS a length slot through the merge, and it needs a slot-bearing host to make
-        // that claim at all (#1025).
-        $post_id = pp_create_page('Fixture sizing slots');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => [
-                'title' => 'Clients',
-                'items' => [['number' => '10', 'label' => 'Ten']],
-            ]],
-        ]);
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-image-size' => '4rem', '--ppfixture-gap' => '1rem'],
-        ]);
-        $this->assertTrue($result['ok']);
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('4rem', $comp[0]['style']['--ppfixture-image-size']);
-        $this->assertSame('1rem', $comp[0]['style']['--ppfixture-gap']);
-    }
-
-    public function testStyleComponentRejectsATokenReferenceOnALengthSizingSlot(): void
-    {
-        // The fixture's sizing slots are `length`-typed, which is literal-only: var() is
-        // rejected in every form. Pinned because "route the token" is the natural first
-        // instinct and the failure is otherwise only discovered at write time on a live
-        // site. Hosted on the fixture since #1066 PR2 — it was logos' two sizing slots, and
-        // logos is on the design contract now.
-        $post_id = pp_create_page('Fixture sizing reject');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => [
-                'title' => 'Clients',
-                'items' => [['number' => '10', 'label' => 'Ten']],
-            ]],
-        ]);
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-gap' => 'var(--space-md)'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertSame('invalid_style_value', $result->get_error_code());
-    }
 
     public function testUpdateComponentAcceptsItemImageIdOnGridAndTestimonials(): void
     {
@@ -5052,238 +4628,8 @@ class ActionsTest extends TestCase
     }
 
 
-    public function testStyleComponentExecuteMergesStyle(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        // Set initial style.
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--ppfixture-bg']);
-        $this->assertSame('8rem', $comp[0]['style']['--ppfixture-padding-top']);
-
-        // Patch: change one, add one, leave the other.
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#0d1117', '--ppfixture-heading-color' => '#f0f0f0'],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#0d1117', $comp[0]['style']['--ppfixture-bg']);
-        $this->assertSame('#f0f0f0', $comp[0]['style']['--ppfixture-heading-color']);
-        $this->assertSame('8rem', $comp[0]['style']['--ppfixture-padding-top']); // preserved
-    }
-
-    public function testStyleComponentNullRemovesSlot(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem']],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => null],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertArrayNotHasKey('--ppfixture-bg', $comp[0]['style']);
-        $this->assertSame('8rem', $comp[0]['style']['--ppfixture-padding-top']);
-    }
-
-    public function testStyleComponentNullPassesValidation(): void
-    {
-        $post_id = pp_create_page('Null validation test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello'],
-             'style' => ['--ppfixture-bg' => '#1a1a2e']],
-        ]);
-
-        // null should pass validation (not be treated as an invalid value).
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => null],
-        ]);
-        $this->assertTrue($result);
-    }
-
-    public function testStyleComponentRejectsNonLengthKeyword(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, for the reason the measure-slot
-        // test above states: the claim is about the value GRAMMAR refusing a bare CSS
-        // keyword on a length-typed slot, and it needs a slot carrier rather than a
-        // particular component.
-        $post_id = pp_create_page('Keyword rejection test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'A']]]],
-        ]);
-
-        // CSS keywords like "none" are not valid length values.
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-heading-size' => 'none'],
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_style_value', $result->get_error_code());
-    }
-
-    public function testStyleComponentMeasureSlot(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the last SHIPPED
-        // component with a measure slot; the claim here is about `style_component`
-        // persisting a `length`-typed slot through the real action, which needs any slot
-        // carrier, not that one. `ppfixture` is the only carrier left in the registry.
-        // A grid band's heading measure is the `heading` role's `sizing.max-width` now,
-        // pinned against the EMITTED declaration rather than a stored slot.
-        $post_id = pp_create_page('Measure slot test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'A']]]],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-max-width' => '60rem'],
-        ]);
-        $this->assertTrue($result['ok'], $result['error'] ?? '');
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('60rem', $comp[0]['style']['--ppfixture-max-width']);
-    }
-
-    public function testStyleComponentByComponentId(): void
-    {
-        $post_id = pp_create_page('Style test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-aabb1122',
-            'style'        => ['--ppfixture-bg' => '#1a1a2e'],
-        ]);
-        $this->assertTrue($result['ok']);
-
-        $comp = pp_get_composition($post_id);
-        $this->assertSame('#1a1a2e', $comp[0]['style']['--ppfixture-bg']);
-    }
-
     // ── Recipe support ───────────────────────────────────────────────────
 
-    public function testRecipeExpansion(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
-        // component declaring recipes (cta's two went at #1026, section's at #1023), so
-        // retiring these tests with it would have left the recipe engine —
-        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
-        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
-        // coverage at all. The three declarations moved to the fixture that exists for
-        // this (#1025), and they die with it in the v1 machinery sweep.
-        $post_id = pp_create_page('Recipe test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'recipe'          => 'dark-showcase']);
-        $this->assertTrue($result['ok'], $result['error'] ?? '');
-
-        $comp = pp_get_composition($post_id);
-        $style = $comp[0]['style'];
-        $this->assertSame('#1a1a2e', $style['--ppfixture-bg']);
-        $this->assertSame('#f0f0f0', $style['--ppfixture-heading-color']);
-        $this->assertSame('1rem', $style['--ppfixture-radius']);
-        $this->assertSame('dark-showcase', $style['__recipe']);
-    }
-
-    public function testRecipePlusOverride(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
-        // component declaring recipes (cta's two went at #1026, section's at #1023), so
-        // retiring these tests with it would have left the recipe engine —
-        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
-        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
-        // coverage at all. The three declarations moved to the fixture that exists for
-        // this (#1025), and they die with it in the v1 machinery sweep.
-        $post_id = pp_create_page('Recipe override test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'recipe'          => 'dark-showcase',
-            'style'           => ['--ppfixture-bg' => '#222222'], // override recipe's bg
-        ]);
-        $this->assertTrue($result['ok'], $result['error'] ?? '');
-
-        $comp = pp_get_composition($post_id);
-        $style = $comp[0]['style'];
-        $this->assertSame('#222222', $style['--ppfixture-bg']); // overridden
-        $this->assertSame('#f0f0f0', $style['--ppfixture-heading-color']); // from recipe
-        $this->assertSame('dark-showcase', $style['__recipe']);
-    }
-
-    public function testInvalidRecipeRejected(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
-        // component declaring recipes (cta's two went at #1026, section's at #1023), so
-        // retiring these tests with it would have left the recipe engine —
-        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
-        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
-        // coverage at all. The three declarations moved to the fixture that exists for
-        // this (#1025), and they die with it in the v1 machinery sweep.
-        $post_id = pp_create_page('Recipe test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hello', 'items' => [['number' => '1', 'label' => 'One']]]],
-        ]);
-
-        $result = pp_validate_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'recipe'          => 'nonexistent-recipe',
-        ]);
-        $this->assertInstanceOf(WP_Error::class, $result);
-        $this->assertEquals('invalid_recipe', $result->get_error_code());
-    }
-
-    public function testInspectCompositionShowsAvailableRecipes(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
-        // component declaring recipes (cta's two went at #1026, section's at #1023), so
-        // retiring these tests with it would have left the recipe engine —
-        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
-        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
-        // coverage at all. The three declarations moved to the fixture that exists for
-        // this (#1025), and they die with it in the v1 machinery sweep.
-        $post_id = pp_create_page('Recipe inspect');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-aabb1122', 'title' => 'Hello']],
-        ]);
-
-        $result = pp_inspect_composition($post_id);
-        $this->assertArrayHasKey('available_recipes', $result[0]);
-        $this->assertCount(3, $result[0]['available_recipes']); // the fixture carries 3
-        $this->assertSame('dark-showcase', $result[0]['available_recipes'][0]['name']);
-    }
 
     // ── Misspelled Style Slots Are Rejected, Never Repaired (#607) ────────
     //
@@ -5301,88 +4647,6 @@ class ActionsTest extends TestCase
     //                                       ├─ raw_error     names the REJECTED slot
     //                                       └─ alternatives  names the DECLARED slots
 
-    public function testUndeclaredStyleSlotIsRejectedNamingTheSlotTheAuthorWrote(): void
-    {
-        $post_id = pp_create_page('Reject test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        // --ppfixture-bgs is one edit from --ppfixture-bg: exactly the case the removed
-        // repair used to substitute silently. It is now simply invalid.
-        $result = pp_preview_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#1a1a2e'],
-        ]);
-
-        $this->assertInstanceOf(WP_Error::class, $result, 'A misspelled slot must not preview.');
-        $this->assertSame('invalid_style_slot', $result->get_error_code());
-        $this->assertStringContainsString(
-            '--ppfixture-bgs',
-            $result->get_error_message(),
-            'The validator names the slot the author actually wrote.'
-        );
-    }
-
-    public function testFriendlyErrorForMisspelledSlotNamesRejectedSlotAndKeepsAlternatives(): void
-    {
-        // The chat preview handler's whole style_component error branch after
-        // #607: the validator's verdict, structured for the UI. raw_error is the
-        // teaching surface (it carries the rejected name); alternatives is
-        // unchanged by the removal.
-        $post_id = pp_create_page('Reject test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $params = [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#1a1a2e'],
-        ];
-        $error  = pp_preview_action('style_component', $params);
-        $this->assertInstanceOf(WP_Error::class, $error);
-
-        $friendly = _pp_build_friendly_error($error, $params);
-
-        $this->assertSame('invalid_style_slot', $friendly['error_code']);
-        $this->assertStringContainsString(
-            '--ppfixture-bgs',
-            $friendly['raw_error'],
-            'The rejected slot name must reach the author verbatim.'
-        );
-        $this->assertSame(
-            array_keys(pp_get_style_slots('ppfixture')),
-            $friendly['alternatives'],
-            'The alternatives list is the declared slot set, unchanged by #607.'
-        );
-        $this->assertContains('--ppfixture-bg', $friendly['alternatives']);
-    }
-
-    public function testDeclaredStyleSlotStillPreviews(): void
-    {
-        // AC#4: the happy path is untouched by the removal. The no-'repaired'
-        // assertion here documents the preview array's shape; it is NOT the
-        // regression guard for #607, because pp_preview_action never set that key
-        // on any path — only the deleted AJAX retry branch did. The guard for the
-        // removal itself lives in
-        // testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict.
-        $post_id = pp_create_page('Happy path test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $preview = pp_preview_action('style_component', [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => '#1a1a2e'],
-        ]);
-
-        $this->assertNotInstanceOf(WP_Error::class, $preview, 'A declared slot must still preview.');
-        $this->assertIsArray($preview);
-        $this->assertArrayNotHasKey('repaired', $preview);
-    }
 
     public function testPreviewStyleComponentBranchOnlyReportsTheValidatorVerdict(): void
     {
@@ -5453,44 +4717,6 @@ class ActionsTest extends TestCase
 
     // ── Friendly Error Builder ───────────────────────────────────────────
 
-    public function testFriendlyErrorForInvalidSlotNoRawValidatorText(): void
-    {
-        $post_id = pp_create_page('Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "ppfixture" has no style slot "--ppfixture-display". Available: --ppfixture-bg, ...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-        ]);
-
-        $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringNotContainsString('Component "ppfixture" has no style slot', $result['user_message']);
-        $this->assertStringContainsString('ppfixture', $result['user_message']);
-        $this->assertNotEmpty($result['alternatives']);
-        $this->assertContains('--ppfixture-bg', $result['alternatives']);
-    }
-
-    public function testFriendlyErrorForInvalidValueShowsFormatHint(): void
-    {
-        $post_id = pp_create_page('Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-bg": Value must be a valid CSS color...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-        ]);
-
-        $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('--ppfixture-bg', $result['user_message']);
-        $this->assertStringContainsString('hex', $result['user_message']);
-        $this->assertStringNotContainsString('Value must be a valid CSS color', $result['user_message']);
-    }
 
     public function testFriendlyErrorForNoStyleSlots(): void
     {
@@ -5514,313 +4740,9 @@ class ActionsTest extends TestCase
         $this->assertStringNotContainsString('it will be applied', $result['user_message']);
     }
 
-    public function testFriendlyErrorForInvalidRecipe(): void
-    {
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
-        // component declaring recipes (cta's two went at #1026, section's at #1023), so
-        // retiring these tests with it would have left the recipe engine —
-        // `style_component`'s `recipe` parameter, its expansion, the `invalid_recipe`
-        // refusal and the roster `wp pp operate inspect` reports — with no end-to-end
-        // coverage at all. The three declarations moved to the fixture that exists for
-        // this (#1025), and they die with it in the v1 machinery sweep.
-        $post_id = pp_create_page('Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
-        ]);
-
-        $error  = new WP_Error('invalid_recipe', 'Component "ppfixture" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-        ]);
-
-        $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertStringContainsString('recipe', $result['user_message']);
-        $this->assertNotEmpty($result['alternatives']);
-    }
-
-    public function testFriendlyErrorForInvalidSlotResolvesComponentIdNotIndexZero(): void
-    {
-        // #123 regression: exact failure scenario from the issue —
-        // [0]=nav, [1]=hero (id pp-a1b2c3d4). An id-targeted invalid_style_slot
-        // error must list the HERO component's slots, not nav's (which has none).
-        $post_id = pp_create_page('Id Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'nav', 'props' => []],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "ppfixture" has no style slot "--ppfixture-bgg". Available: --ppfixture-bg, ...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-a1b2c3d4',
-            'style'        => ['--ppfixture-bgg' => '#1a1a2e'],
-        ]);
-
-        $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringContainsString('ppfixture', $result['user_message']);
-        $this->assertNotEmpty($result['alternatives'], 'Should list hero slots, not fail as if nav (index 0) had none.');
-        $this->assertContains('--ppfixture-bg', $result['alternatives']);
-    }
-
-    public function testFriendlyErrorPrefersComponentIdOverStaleComponentIndex(): void
-    {
-        // Proves precedence, not just presence (the sibling test above covers
-        // presence). #607 re-pinned this case here: it used to live only in the
-        // deleted style-repair block, so removing that block would otherwise have
-        // dropped the #123 guarantee that a stale/mismatched component_index —
-        // echoed back from a prior turn — never wins over an explicit component_id.
-        $post_id = pp_create_page('Precedence test');
-        pp_update_composition($post_id, [
-            ['component' => 'nav', 'props' => []],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "ppfixture" has no style slot "--ppfixture-bgs". Available: --ppfixture-bg, ...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_id'    => 'pp-a1b2c3d4',
-            'component_index' => 0, // stale: points at nav, id points at hero
-            'style'           => ['--ppfixture-bgs' => '#1a1a2e'],
-        ]);
-
-        $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertContains(
-            '--ppfixture-bg',
-            $result['alternatives'],
-            'component_id must win over a conflicting component_index.'
-        );
-    }
-
-    public function testFriendlyErrorForUnresolvableComponentIdReportsNotFoundNotEmpty(): void
-    {
-        // A typo'd component_id must be reported as "couldn't find the
-        // component" — not as "(none)", which is indistinguishable from a
-        // real component that genuinely has zero configurable slots and
-        // would send the calling agent down the wrong repair path.
-        $post_id = pp_create_page('Bad Id Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "hero" has no style slot "--hero-bgg".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-doesnotexist',
-            'style'        => ['--hero-bgg' => '#1a1a2e'],
-        ]);
-
-        $this->assertSame('invalid_style_slot', $result['error_code']);
-        $this->assertStringContainsString('couldn\'t find', $result['user_message']);
-        $this->assertStringNotContainsString('(none)', $result['user_message']);
-        $this->assertEmpty($result['alternatives']);
-    }
-
-    public function testFriendlyErrorForInvalidRecipeUnresolvableComponentIdReportsNotFound(): void
-    {
-        $post_id = pp_create_page('Bad Id Recipe Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_recipe', 'Component "hero" has no recipe "dark-blue".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-doesnotexist',
-        ]);
-
-        $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertStringContainsString('couldn\'t find', $result['user_message']);
-        $this->assertStringNotContainsString('(none)', $result['user_message']);
-    }
-
-    public function testFriendlyErrorForInvalidRecipeResolvesComponentIdNotIndexZero(): void
-    {
-        // The recipe-bearing band is a `ppfixture` since #1101 (a `grid` since #1023).
-        // The point of the case is unchanged: the friendly error must resolve the band by
-        // its component_id and list THAT band's recipes, not fail as if index 0 (which
-        // has none) were the target.
-        $post_id = pp_create_page('Id Recipe Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'nav', 'props' => []],
-            ['component' => 'ppfixture', 'props' => ['id' => 'pp-a1b2c3d4', 'title' => 'Hi', 'items' => [['number' => '1', 'label' => 'One']]]],
-        ]);
-
-        $error  = new WP_Error('invalid_recipe', 'Component "ppfixture" has no recipe "dark-blue". Available: dark-spacious, compact, bold-headline');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-a1b2c3d4',
-        ]);
-
-        $this->assertSame('invalid_recipe', $result['error_code']);
-        $this->assertNotEmpty($result['alternatives'], 'Should list grid recipes, not fail as if nav (index 0) had none.');
-    }
-
-    public function testFriendlyErrorResolvesComponentIdForInvalidStyleValue(): void
-    {
-        $post_id = pp_create_page('Id Value Error test');
-        pp_update_composition($post_id, [
-            ['component' => 'nav', 'props' => []],
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'pp-a1b2c3d4', 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-bg": Value must be a valid CSS color...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'      => $post_id,
-            'component_id' => 'pp-a1b2c3d4',
-        ]);
-
-        $this->assertSame('invalid_style_value', $result['error_code']);
-        $this->assertStringContainsString('ppfixture', $result['user_message']);
-        $this->assertStringContainsString('hex', $result['user_message']);
-    }
 
     // ── Cross-Component Hints ───────────────────────────────────────────
 
-    public function testCrossComponentExactMatch(): void
-    {
-        $post_id = pp_create_page('Cross-comp test');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        // THE DONOR MOVED FROM `grid` TO `ppfixture` AT #1101, and this is the third and
-        // last such move: it was `cta` until #1026, `grid` until now, and grid was the
-        // last SHIPPED component with slots to point at. The fixture is the only slot
-        // carrier left, which is exactly why #1025 created it — and it retires together
-        // with this test's whole family in PR2, when the slot engine goes.
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--ppfixture-gap".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-gap' => '2rem'],
-        ]);
-
-        $hints = (array) $result['cross_component_hints'];
-        $this->assertArrayHasKey('--ppfixture-gap', $hints);
-        $this->assertSame('ppfixture', $hints['--ppfixture-gap']['component']);
-        $this->assertSame('exact', $hints['--ppfixture-gap']['match']);
-    }
-
-    public function testCrossComponentSuffixMatch(): void
-    {
-        $post_id = pp_create_page('Cross-comp suffix test');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-gap".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--section-gap' => '2rem'],
-        ]);
-
-        // Same donor move as the exact-match test above: `ppfixture` is the only
-        // slot-bearing component left after grid's rebuild (#1101).
-        $hints = (array) $result['cross_component_hints'];
-        $this->assertArrayHasKey('--section-gap', $hints);
-        $this->assertSame('ppfixture', $hints['--section-gap']['component']);
-        $this->assertSame('suffix', $hints['--section-gap']['match']);
-        $this->assertSame('--ppfixture-gap', $hints['--section-gap']['slot']);
-    }
-
-    public function testCrossComponentNoMatch(): void
-    {
-        $post_id = pp_create_page('Cross-comp no match');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-zindex".');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--section-zindex' => '10'],
-        ]);
-
-        $hints = (array) $result['cross_component_hints'];
-        $this->assertEmpty($hints);
-    }
-
-    public function testCrossComponentMultipleInvalidSlotsPartialMatch(): void
-    {
-        $post_id = pp_create_page('Cross-comp partial');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Multiple invalid slots');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--grid-gap' => '2rem', '--section-zindex' => '10'],
-        ]);
-
-        $hints = (array) $result['cross_component_hints'];
-        $this->assertArrayHasKey('--grid-gap', $hints);
-        $this->assertArrayNotHasKey('--section-zindex', $hints);
-    }
-
-    public function testUserMessageWithNoHintNamesSlotsAndCounts(): void
-    {
-        $post_id = pp_create_page('Cross-comp desc test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        // No cross-hint, and no stamped context either — the fallback path, answering
-        // from the composition as it reads now. Until #661 this listed the DESCRIPTION
-        // of all 47 declared slots; it now names a bounded sample of the slot NAMES
-        // plus the total, which is what a mistyped name actually needs.
-        $error  = new WP_Error('invalid_style_slot', 'Invalid slot');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-zindex' => '10'],
-        ]);
-
-        // No stamped context, so the rejection is second-hand and the message must NOT
-        // quote a single rejected name — the fallback set is not recipe-expanded, so it
-        // cannot know the name it would be quoting is the one that was refused.
-        $this->assertStringNotContainsString('I tried to set "', $result['user_message']);
-        $this->assertStringContainsString('ppfixture', $result['user_message']);
-
-        // Computed, not hard-coded: a future section slot would otherwise break this
-        // test for a reason unrelated to what it pins.
-        $declared = pp_get_style_slots('ppfixture');
-        $this->assertStringContainsString('It has ' . count($declared) . ' style settings', $result['user_message']);
-        $this->assertGreaterThan(PP_FRIENDLY_SLOT_SAMPLE_MAX, count($declared), 'Premise: section declares more than the message samples.');
-        $this->assertStringContainsString('--ppfixture-bg', $result['user_message']);
-
-        // Bounded: the descriptions this used to concatenate are not in it.
-        $descriptions = array_column($declared, 'description');
-        // An empty description would make assertStringNotContainsString('', ...) fail
-        // with no hint that the FIXTURE is what changed, so state the premise first.
-        $this->assertNotContains('', $descriptions, 'Premise: every declared slot carries a description.');
-        foreach ($descriptions as $description) {
-            $this->assertStringNotContainsString($description, $result['user_message']);
-        }
-    }
-
-    public function testCrossComponentUserMessageWithHintText(): void
-    {
-        $post_id = pp_create_page('Cross-comp hint msg');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_slot', 'Invalid slot');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            // Same donor move as the two hint tests above (#1101).
-            'style'           => ['--ppfixture-gap' => '2rem'],
-        ]);
-
-        $this->assertStringContainsString('ppfixture', $result['user_message']);
-        $this->assertStringContainsString('change it there instead', $result['user_message']);
-    }
 
     public function testCrossComponentHintsFieldIsAlwaysObject(): void
     {
@@ -5895,73 +4817,6 @@ class ActionsTest extends TestCase
         $this->assertSame([], $trimmed, 'No component\'s real rejection message may be shortened.');
     }
 
-    public function testOrdinaryRejectionRoundTripsUnchanged(): void
-    {
-        $post_id = pp_create_page('Bounds baseline');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $params = [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bgs' => '#1a1a2e'],
-        ];
-        $error    = pp_preview_action('style_component', $params);
-        $friendly = _pp_build_friendly_error($error, $params);
-
-        $this->assertSame(
-            $error->get_error_message(),
-            $friendly['raw_error'],
-            'A single mistyped slot is the common case and must pass through untouched.'
-        );
-        $this->assertStringContainsString('--ppfixture-bgs', $friendly['raw_error']);
-        $this->assertArrayNotHasKey(
-            'unknown_slots_unscanned',
-            $friendly,
-            'The response shape on an ordinary rejection is unchanged.'
-        );
-    }
-
-    public function testWidestShippedStyleMapIsReportedComplete(): void
-    {
-        // The widest style map the theme itself ships, aimed at the wrong component.
-        // This is the ordinary mistake cross-component hints exist to explain, so it
-        // is precisely the case that must never come back partial.
-        // THE STARTER CARRIES NO STYLE MAP AT ALL SINCE #1101 — its last one was the grid
-        // band's twenty slots, converted to a `udc` map with the rebuild. That is asserted
-        // first, because it is the fact that made this fixture change necessary and it is
-        // worth failing on if a `style` map ever comes back into the seed.
-        foreach (pp_default_homepage_composition() as $i => $band) {
-            $this->assertSame([], $band['style'] ?? [], "starter band {$i} must carry no v1 style map");
-        }
-
-        // The width this test needs now comes from the only slot-bearing component left,
-        // and the CLAIM is unchanged: a map wide enough to trip the scan bound must still
-        // be reported COMPLETE rather than partially, because a partial answer sends an
-        // operator to fix one key and meet the next one on the following write.
-        $widest = [];
-        foreach (array_keys(pp_get_style_slots('ppfixture')) as $slot) {
-            $widest[$slot] = '1rem';
-        }
-        $this->assertGreaterThanOrEqual(
-            16,
-            count($widest),
-            'the fixture still carries a wide style map — without one this test proves nothing'
-        );
-
-        $post_id = pp_create_page('Widest shipped map');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => $widest]
-        );
-
-        $this->assertArrayNotHasKey('unknown_slots_unscanned', $result);
-    }
 
     public function testWidestComponentsFullSlotSetIsReportedComplete(): void
     {
@@ -6004,89 +4859,6 @@ class ActionsTest extends TestCase
         );
     }
 
-    public function testUnknownSlotKeysBeyondTheBoundAreCounted(): void
-    {
-        $post_id = pp_create_page('Bound applied');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        // Names no component declares, so the count is exact rather than dependent
-        // on which of them happen to match somewhere.
-        $style = [];
-        for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX + 6; $i++) {
-            $style['--zz-unknown-' . $i] = '1rem';
-        }
-
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
-        );
-
-        $this->assertSame(6, $result['unknown_slots_unscanned']);
-        $this->assertLessThanOrEqual(
-            PP_CROSS_COMPONENT_HINT_MAX,
-            count((array) $result['cross_component_hints'])
-        );
-    }
-
-    public function testKeysBeyondTheBoundAreNotExaminedForHints(): void
-    {
-        // The cost of bounding the scan, pinned so it is a recorded trade-off rather
-        // than a surprise: the cap cuts the key list before any matching runs, so a
-        // key that WOULD have produced a hint is dropped when it sits past the bound.
-        // Deciding otherwise would mean scanning every key to find out, which is the
-        // work the cap exists to avoid.
-        $post_id = pp_create_page('Beyond the bound');
-        pp_update_composition($post_id, [
-            ['component' => 'section', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $style = [];
-        for ($i = 0; $i < PP_CROSS_COMPONENT_HINT_MAX; $i++) {
-            $style['--zz-unknown-' . $i] = '1rem';
-        }
-        // Real slots on another component, positioned past the bound. `ppfixture` since
-        // #1101 (`grid` since #1026, `cta` before that), not the fixture page's own
-        // `section`: a slot the target component itself declares is valid, so it would
-        // never be a hint candidate in the first place and the bound would not be what
-        // excluded it. It also has to be a component that still HAS slots, and after
-        // grid's rebuild `ppfixture` is the only one in the whole registry — which is
-        // what its README means by "the last consumer of the slot engine".
-        $tail = array_slice(array_keys(pp_get_style_slots('ppfixture')), 0, 5);
-        foreach ($tail as $slot) {
-            $style[$slot] = '1rem';
-        }
-
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component "section" has no style slot.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => $style]
-        );
-
-        $this->assertSame(count($tail), $result['unknown_slots_unscanned']);
-        $this->assertEmpty(
-            (array) $result['cross_component_hints'],
-            'Keys past the bound are not examined, so their hints are not found.'
-        );
-    }
-
-    public function testNameLongerThanTheErrorBudgetDegradesWithoutReflectingIt(): void
-    {
-        // The two bounds interact: raw_error is cut to its own budget first, which
-        // takes the closing quote off a name longer than that budget, so the slot
-        // name can no longer be extracted for user_message. The message degrades to
-        // its generic form. That is the safe direction — the alternative is echoing
-        // a multi-kilobyte name back — so pin it rather than leave it incidental.
-        $long   = '--hero-' . str_repeat('x', PP_REFLECTED_ERROR_MAX);
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
-            []
-        );
-
-        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
-        $this->assertStringContainsString('the style slot', $result['user_message']);
-        $this->assertLessThanOrEqual(PP_REFLECTED_ERROR_MAX, mb_strlen($result['raw_error']));
-    }
 
     public function testReflectedTextDropsTheWiderInvisibleCharacterSet(): void
     {
@@ -6102,42 +4874,6 @@ class ActionsTest extends TestCase
         }
     }
 
-    public function testReflectedNameLengthIsBounded(): void
-    {
-        // user_message quotes back the name the validator rejected, which the
-        // validator took from the caller. This is the surface where the name budget
-        // does real work: the value bound (below) leaves room for a name this long,
-        // and nothing else shortens it.
-        $post_id = pp_create_page('Long name');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $long   = '--hero-' . str_repeat('x', 2000);
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_value', sprintf('Style slot "%s": not a length.', $long)),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => [$long => '2rem']]
-        );
-
-        $this->assertStringNotContainsString(str_repeat('x', 300), $result['user_message']);
-        $this->assertLessThan(600, mb_strlen($result['user_message']));
-    }
-
-    public function testDeclaredSlotNameSurvivesInTheMessage(): void
-    {
-        // The other half of the bound above: a real name is quoted back in full.
-        $post_id = pp_create_page('Real name');
-        pp_update_composition($post_id, [
-            ['component' => 'hero', 'props' => ['title' => 'Hi']],
-        ]);
-
-        $result = _pp_build_friendly_error(
-            new WP_Error('invalid_style_value', 'Style slot "--hero-bg": not a colour.'),
-            ['post_id' => $post_id, 'component_index' => 0, 'style' => ['--hero-bg' => 'nope']]
-        );
-
-        $this->assertStringContainsString('"--hero-bg"', $result['user_message']);
-    }
 
     public function testReflectedErrorLengthIsBounded(): void
     {
@@ -6201,137 +4937,9 @@ class ActionsTest extends TestCase
 
     // ── CSS Keyword Rejection + Alternative Suggestions ─────────────────
 
-    public function testFriendlyErrorForCssKeywordNoneOnMaxWidthSlot(): void
-    {
-        $post_id = pp_create_page('CSS keyword test');
-        pp_update_composition($post_id, [
-            // RE-HOMED FROM `grid` TO `ppfixture` AT #1101: the friendly-error text is
-            // keyed on the slot's TYPE, not on which component owns it, and `ppfixture`
-            // is the only slot carrier left in the registry.
-            ['component' => 'ppfixture', 'props' => ['title' => 'Fixture', 'items' => []]],
-        ]);
-
-        // Simulate validator rejecting "none" for a length slot.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-max-width": Value must be a number with a CSS unit...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-max-width' => 'none'],
-        ]);
-
-        $this->assertSame('invalid_style_value', $result['error_code']);
-        // Must mention "none" is not supported.
-        $this->assertStringContainsString('none', $result['user_message']);
-        // Must suggest 100% (not just "use a number with a unit").
-        $this->assertStringContainsString('100%', $result['user_message']);
-        // Must NOT contain raw validator text.
-        $this->assertStringNotContainsString('Value must be a number', $result['user_message']);
-    }
-
-    public function testFriendlyErrorForCssKeywordUnsetOnPaddingSlot(): void
-    {
-        $post_id = pp_create_page('CSS keyword test');
-        pp_update_composition($post_id, [
-            // Re-homed to `ppfixture` at #1101, same reason as its sibling above.
-            ['component' => 'ppfixture', 'props' => ['title' => 'Fixture', 'items' => []]],
-        ]);
-
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-padding-top": Value must be a number with a CSS unit...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-padding-top' => 'unset'],
-        ]);
-
-        // Must suggest 0 for padding removal.
-        $this->assertStringContainsString('"0"', $result['user_message']);
-        $this->assertStringContainsString('unset', $result['user_message']);
-    }
-
-    public function testFriendlyErrorForCssKeywordInitialOnColorSlot(): void
-    {
-        $post_id = pp_create_page('CSS keyword test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-bg": Value must be a valid CSS color...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => 'initial'],
-        ]);
-
-        $this->assertStringContainsString('initial', $result['user_message']);
-        $this->assertStringContainsString('transparent', $result['user_message']);
-    }
-
-    public function testFriendlyErrorNonKeywordValueStillShowsFormatHint(): void
-    {
-        $post_id = pp_create_page('Non-keyword test');
-        pp_update_composition($post_id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Hi']],
-        ]);
-
-        // "red" is not a CSS keyword like none/unset — it's just an invalid color format.
-        $error  = new WP_Error('invalid_style_value', 'Style slot "--ppfixture-bg": Value must be a valid CSS color...');
-        $result = _pp_build_friendly_error($error, [
-            'post_id'         => $post_id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-bg' => 'red'],
-        ]);
-
-        // Non-keyword values should still get the format hint, not the keyword path.
-        $this->assertStringContainsString('hex', $result['user_message']);
-        $this->assertStringNotContainsString('CSS keywords', $result['user_message']);
-    }
 
     // ── Alternative Suggestion Helper ───────────────────────────────────
 
-    public function testSuggestAlternativeForMaxWidthLength(): void
-    {
-        $suggestion = _pp_suggest_alternative_value('length', 'Heading maximum width', '40rem');
-        $this->assertStringContainsString('100%', $suggestion);
-    }
-
-    public function testSuggestAlternativeForPaddingLength(): void
-    {
-        $suggestion = _pp_suggest_alternative_value('length', 'Top padding of the band. Defaults to the shared symmetric band rhythm (fluid ~68-80px desktop, ~54px mobile); set an explicit length to override.', 'var(--pp-band-padding)');
-        $this->assertStringContainsString('"0"', $suggestion);
-    }
-
-    public function testSuggestAlternativeForRadiusLength(): void
-    {
-        $suggestion = _pp_suggest_alternative_value('length', 'Card border radius', 'var(--radius)');
-        $this->assertStringContainsString('"0"', $suggestion);
-    }
-
-    public function testSuggestAlternativeForLengthOrNone(): void
-    {
-        // #579 — the band-geometry width cap can express "remove the cap" directly,
-        // so the chat suggestion must name the keyword and NOT the pre-#579 `100%`
-        // workaround, which existed only because the type could not say `none`.
-        $suggestion = _pp_suggest_alternative_value(
-            'length-or-none',
-            'Maximum width of the stats band.',
-            'none'
-        );
-        $this->assertStringContainsString('"none"', $suggestion);
-        $this->assertStringNotContainsString('100%" to use all available', $suggestion);
-    }
-
-    public function testSuggestAlternativeForColor(): void
-    {
-        $suggestion = _pp_suggest_alternative_value('color', 'Background color', 'transparent');
-        $this->assertStringContainsString('transparent', $suggestion);
-    }
-
-    public function testSuggestAlternativeForGenericLength(): void
-    {
-        $suggestion = _pp_suggest_alternative_value('length', 'Some generic slot', '1rem');
-        $this->assertNotNull($suggestion);
-        $this->assertStringContainsString('100%', $suggestion);
-    }
 
     // ── pp_ai_execute_batch() atomicity tests (issue 137) ───────────────────
 

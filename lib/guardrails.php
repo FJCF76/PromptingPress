@@ -239,7 +239,7 @@ function pp_classify_surface(string $path): array {
         if (preg_match($pattern, $path)) {
             return [
                 'classification' => 'extension',
-                'guidance'       => 'Extension file. Editable but may be overwritten by theme updates. Prefer database-backed surfaces (style_component, update_design_token) when possible.',
+                'guidance'       => 'Extension file. Editable but may be overwritten by theme updates. Prefer database-backed surfaces when possible: a band\'s own appearance is its `udc` map, carried by update_composition or create_page; the site palette is update_design_token apply.',
             ];
         }
     }
@@ -260,7 +260,7 @@ function pp_classify_surface(string $path): array {
 function _pp_surface_guidance(string $path): string {
     // Route toward specific approved surfaces based on what the file controls.
     if (str_starts_with($path, 'lib/')) {
-        return "Blocked: {$path} is a core theme file. To change spacing/colors, use style_component action on the target component instance. To change the color palette, use update_design_token apply.";
+        return "Blocked: {$path} is a core theme file. To change one band's spacing or colours, set them on that band's `udc` map and write it with update_composition or create_page. To change the site palette, use update_design_token apply.";
     }
     if ($path === 'functions.php') {
         return "Blocked: functions.php is a core theme file. To add fonts, use enqueue_font apply. To change tokens, use update_design_token apply.";
@@ -896,181 +896,23 @@ function pp_validate_composition_smells(array $composition): array {
         // either: the advisory reads the literal stored slot name, because that is
         // the only name the schema, the validator and the renderer all recognize.
         //
-        // The SAME pass also carries the `inert_slot` advisory (issue #580). Both read a
-        // DECLARED field off the same slot definition, and both are non-blocking — so
-        // they share one walk of the style map rather than two loops that could drift.
-        $style_map = is_array($item['style'] ?? null) ? $item['style'] : [];
-        if ($style_map !== []) {
-            $slot_defs  = pp_get_style_slots($component);
-            $fill_slots = [];
-            foreach ($slot_defs as $slot_name => $slot_def) {
-                if (is_array($slot_def) && ($slot_def['role'] ?? null) === 'fill') {
-                    $fill_slots[$slot_name] = true;
-                }
-            }
-            // The EFFECTIVE style map: the declarations that will actually paint. The
-            // advisory has to agree with the renderer about this or it reports on
-            // declarations the page never sees, so it applies the renderer's rule through
-            // the SAME pp_style_declaration_renders() predicate rather than a second copy
-            // of "will this paint?":
-            //
-            //   A DECLARATION THAT CANNOT PAINT IS NOT A DECLARATION. An empty value, an
-            //   undeclared slot name, or a value the #330 render boundary rejects is
-            //   dropped by the renderer — warning that it "has no effect as configured"
-            //   would be true for the wrong reason, and would put a stale no-op entry on
-            //   a channel that halts `wp pp validate site`.
-            //
-            // The conditional canonical-wins rule that stood here went with the slot-alias
-            // surface (#603): with one name per slot there is no twin to lose to, and an
-            // undeclared pre-#576 name simply fails the predicate like any other.
-            //
-            // $painted_style is also what the sibling-slot clause form
-            // (`{"slot":"--x","present":true}`) reads, so that form asks about the same
-            // painted state the author sees.
-            $painted_style = [];
-            foreach ($style_map as $raw_name => $raw_value) {
-                if (!is_string($raw_name)) {
-                    continue;
-                }
-                // Non-scalar values are skipped BEFORE the predicate, not inside it: a
-                // history-ring snapshot or a raw meta write can carry an array here, and
-                // pp_style_declaration_renders() casts to string — which emits an "Array to
-                // string conversion" warning into a path documented never to block. Same
-                // guard, same reason, as the slot loop below.
-                if (!is_scalar($raw_value)) {
-                    continue;
-                }
-                if (!pp_style_declaration_renders($raw_name, $raw_value, $slot_defs)) {
-                    continue;
-                }
-                $painted_style[$raw_name] = $raw_value;
-            }
-            // The slots that actually declare a condition, resolved once per item. Most
-            // slots declare none, and this keeps the per-slot loop below from asking the
-            // component registry about every authored slot on every page of a site scan.
-            $conditional_slots = [];
-            foreach ($slot_defs as $slot_name => $slot_def) {
-                if (is_array($slot_def)
-                    && is_array($slot_def['applies_when'] ?? null)
-                    && $slot_def['applies_when'] !== []) {
-                    $conditional_slots[$slot_name] = $slot_def['applies_when'];
-                }
-            }
-            foreach ($style_map as $slot_name => $slot_value) {
-                if (!is_string($slot_name) || !is_scalar($slot_value)) {
-                    continue;
-                }
-                // Inert slot (issue #580, A-8b/A-17). A declared slot whose `applies_when`
-                // is unmet renders NOTHING — the reported-success-without-effect failure
-                // class. Advisory only, exactly like transparent_fill above: the value is
-                // well-formed and would work on a sibling component, it just does nothing
-                // in THIS configuration, and the fix is an authoring decision (change the
-                // prop, or drop the slot) that no validator may make for the author.
-                //
-                // Derived from the SAME `applies_when` the AI catalog advertises (ruling
-                // 8, one source of truth). The condition text is rendered by the catalog's
-                // own formatter so the before-the-write advice and the after-the-write
-                // warning can never phrase a condition differently.
-                //
-                // The function_exists pair covers BOTH modules the advisory borrows — the
-                // evaluator from lib/admin.php and the formatter from lib/ai-context.php —
-                // so a partial include degrades to silence instead of a fatal, and instead
-                // of half a defense. functions.php loads all three; the guard is for a
-                // caller that includes lib/guardrails.php on its own.
-                //
-                // KNOWN BOUND, stated so nobody reads more into it: this closes the
-                // conditions the four-form grammar can express. The three classes that
-                // stay prose in `conditionality_note` — disjunction, `main >` composed-page
-                // scope, interaction state — are unevaluable by construction and stay
-                // silent here. They reach the author through the catalog, not this channel.
-                //
-                // ONE warning per PAINTED declaration: $painted_style holds exactly the
-                // declarations the renderer will emit, so a stored name that cannot paint
-                // (undeclared, empty, or rejected by the #330 boundary) is skipped here
-                // rather than warned about under a condition it never reaches.
-                if (isset($conditional_slots[$slot_name])
-                    && array_key_exists($slot_name, $painted_style)
-                    && function_exists('pp_applies_when_unmet_clauses')
-                    && function_exists('pp_ai_format_applies_when_clause')) {
-                    $unmet = pp_applies_when_unmet_clauses(
-                        $conditional_slots[$slot_name],
-                        $component,
-                        $props,
-                        $painted_style
-                    );
-                    $phrases = [];
-                    foreach ($unmet as $clause) {
-                        $rendered = pp_ai_format_applies_when_clause($clause);
-                        if ($rendered !== '') {
-                            $phrases[] = $rendered;
-                        }
-                    }
-                    if ($phrases) {
-                        // ONE warning per slot, listing EVERY unmet clause. Stopping at the
-                        // first miss would tell an author on a centered hero to switch to
-                        // `split` and leave --hero-surface-bg just as dead, because the
-                        // missing `proof` never got named.
-                        $warning = [
-                            'type'    => 'inert_slot',
-                            'message' => sprintf(
-                                'Style slot "%s" on this "%s" component has no effect as configured: it applies when %s. Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it.',
-                                $slot_name,
-                                $component,
-                                implode(' AND ', $phrases)
-                            ),
-                            'index'   => $i,
-                        ];
-                        if (!empty($props['id'] ?? '')) {
-                            $warning['id'] = $props['id'];
-                        }
-                        $warnings[] = $warning;
-                        // An inert slot renders NOTHING, so no other advisory about its
-                        // VALUE can be true. Without this, a cta with no `button2_text` and
-                        // a fill-marked slot set to `transparent` also collected the transparent_fill
-                        // warning, which tells the author to switch to the `outline` variant
-                        // for a button that is not on the page at all — two entries on the
-                        // halting channel, one of them unactionable.
-                        continue;
-                    }
-                }
-
-                if (!isset($fill_slots[$slot_name])) {
-                    continue;
-                }
-                $normalized = strtolower(trim((string) $slot_value));
-                if ($normalized !== 'transparent' && $normalized !== 'currentcolor') {
-                    continue;
-                }
-                // RESTING vs HOVER get different advice, because the same value means
-                // two different things. On a resting fill it is the invisible-button
-                // defect. On a HOVER fill it only flattens the pointer state — and
-                // pointing an author who is already on the `outline` variant at the
-                // `outline` variant is advice that cannot be acted on. The hover
-                // wording says what actually happens instead.
-                $is_hover = strpos($slot_name, '-hover-') !== false;
-                $warning  = [
-                    'type'    => 'transparent_fill',
-                    'message' => $is_hover
-                        ? sprintf(
-                            'Style slot "%s" on this "%s" component is set to "%s", so the button gets no fill on hover — the hover state will look identical to the resting state unless another hover slot (border or label colour) carries the change. That is correct for a deliberately flat "outline" or "ghost" button; set a visible colour here if the button is meant to respond to the pointer.',
-                            $slot_name,
-                            $component,
-                            (string) $slot_value
-                        )
-                        : sprintf(
-                            'Style slot "%s" on this "%s" component is set to "%s", which removes the button\'s fill entirely — the button stays clickable but has no visible surface. For a see-through button use the "outline" button variant, which keeps a visible border and readable label.',
-                            $slot_name,
-                            $component,
-                            (string) $slot_value
-                        ),
-                    'index'   => $i,
-                ];
-                if (!empty($props['id'] ?? '')) {
-                    $warning['id'] = $props['id'];
-                }
-                $warnings[] = $warning;
-            }
-        }
+        // THE `inert_slot` AND `transparent_fill` ADVISORIES WERE HERE, AND BOTH RETIRED
+        // AT #1101 WITH THE STYLE-SLOT ENGINE. Stated rather than silently dropped,
+        // because this was the pass an author's stale `style` map used to reach.
+        //
+        // Both read a DECLARED field off a slot definition — `applies_when` for the inert
+        // advisory, `role: "fill"` for the transparent one — and no component declares a
+        // style slot any more, so pp_get_style_slots() answers `[]` for every component
+        // and neither could fire on any input. Not narrowed: unreachable.
+        //
+        // WHAT REPLACED THE CLAIM, because the failure class did not go away with the
+        // mechanism. `inert_slot` existed for the accepted-stored-ignored shape — a value
+        // the engine keeps, reports applied, and never paints. The UDC engine reports that
+        // shape itself, on the surface that has it:
+        // `udc_band_value_shadowed_by_role_default` and its siblings in
+        // pp_udc_composition_findings() (lib/udc.php). And a stale slot map on an aged
+        // band is no longer an advisory at all — it is a REFUSAL, named at write by
+        // _pp_validate_style_slot_map(), which is a louder answer than the advisory was.
 
         // Empty structured-content section (schema-valid, no useful output)
         if (_pp_component_is_empty($component, $props)) {

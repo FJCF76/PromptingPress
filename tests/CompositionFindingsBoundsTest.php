@@ -61,9 +61,12 @@ final class CompositionFindingsBoundsTest extends TestCase
     {
         parent::setUp();
         // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
-        // is the slot engine; which component carries the slots is incidental, which is
-        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
-        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        // is the findings BOUNDER; which component supplies the volume is incidental,
+        // which is why this whole set was re-homed hero -> section -> stats over three
+        // rebuilds. It targets `ppfixture` now and stops moving: the bands here carry
+        // undeclared PROPS, a finding species every component produces, so no future
+        // rebuild can take this suite's subject away. The slot vehicle it used to write
+        // through went with the style-slot engine at #1101 (see restoreAfterOneWrite).
         FixtureTheme::activate();
         // Reset the in-memory store for test isolation (tests/bootstrap.php). Without this
         // the class is order-dependent: a class whose tearDown unsets the store leaves
@@ -100,12 +103,11 @@ final class CompositionFindingsBoundsTest extends TestCase
      * Volume: forty-odd bands each carrying four undeclared props, so the whole-page
      * report comfortably exceeds the findings budget.
      *
-     * The LEAD band is a `stats` since #1023, because every test here writes to index 0
-     * through the v1 slot surface and section is a v2 component now. The rest stay
-     * `section` bands: an undeclared prop is reported for a v2 component exactly as for a
-     * v1 one, so they still supply the volume. Do not "consistently" convert the whole
-     * page — the mixed shape is the ordinary one mid-rebuild and the one most likely to
-     * surprise the report assembler.
+     * The LEAD band is the fixture and the rest are `section` bands. That mix is kept
+     * deliberately, not left over: an undeclared prop is reported identically for a
+     * component that declares `roles` and for one that declares none, and a page whose
+     * bands disagree about that is the one most likely to surprise the report assembler.
+     * Do not "consistently" convert the whole page.
      */
     private function pathologicalPage(int $bands = 40): int
     {
@@ -150,17 +152,49 @@ final class CompositionFindingsBoundsTest extends TestCase
     /**
      * Pushes a history entry so `steps_back => 1` has a target, then restores it.
      *
-     * style_component is the cheapest composition-mutating write that does not touch the
-     * props the fixtures above rely on, so the snapshot the restore brings back is the
-     * fixture's own stored bytes.
+     * THE WRITE HAS TO BE ONE A PATHOLOGICAL PAGE ACCEPTS. That is the constraint, and it
+     * is why this is `add_component` and not `update_component`: the fixtures above carry
+     * undeclared props on every band, and update_component validates the whole band it
+     * targets, so it would be REFUSED and push no history entry at all. add_component
+     * judges only the item it adds (lib/actions.php, its `validate`), so a clean new band
+     * is accepted onto a page that is otherwise full of errors — and the envelope it
+     * returns still reports the whole page, which is the property every test here needs.
+     *
+     * It replaces `style_component`, which had the same validates-only-its-own-payload
+     * shape and was deleted with the style-slot engine at #1101. The bounder's own
+     * docblock (lib/actions.php) already named add_component as the plain action-layer
+     * call that reaches a pathological report, so this is the documented route, not a
+     * substitute invented here.
+     *
+     * The appended band is clean, so it contributes no findings of its own and the
+     * snapshot the restore brings back is the fixture's own stored bytes.
      */
     private function restoreAfterOneWrite(int $post_id): array
     {
-        pp_execute_action('style_component', [
-            'post_id' => $post_id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
+        pp_execute_action('add_component', [
+            'post_id'   => $post_id,
+            'component' => 'ppfixture',
+            'props'     => ['id' => 'appended', 'title' => 'Appended', 'items' => [['number' => '1', 'label' => 'One']]],
         ]);
 
         return pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
+    }
+
+    /**
+     * The accepted write every test here uses to get an envelope off a page it cannot
+     * otherwise edit. See restoreAfterOneWrite() for why it is add_component.
+     *
+     * @param string $id_suffix keeps the appended band's `props.id` unique per call, so a
+     *                          test that writes twice does not manufacture a
+     *                          duplicate_component_id finding it never asked for.
+     */
+    private function acceptedWriteOn(int $post_id, string $id_suffix = 'a'): array
+    {
+        return pp_execute_action('add_component', [
+            'post_id'   => $post_id,
+            'component' => 'ppfixture',
+            'props'     => ['id' => 'appended-' . $id_suffix, 'title' => 'Appended', 'items' => [['number' => '1', 'label' => 'One']]],
+        ]);
     }
 
     private static function tailOf(array $findings): ?array
@@ -309,9 +343,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     public function testRestorePreviewBoundsItsReportTheSameWayExecuteDoes(): void
     {
         $id = $this->pathologicalPage();
-        pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
-        ]);
+        $this->acceptedWriteOn($id);
 
         $preview = pp_preview_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
         $execute = pp_execute_action('restore_composition', ['post_id' => $id, 'steps_back' => 1]);
@@ -620,9 +652,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     public function testTheAcceptedWriteEnvelopeStillCarriesItsOwnGatedReport(): void
     {
         $id     = $this->pathologicalPage();
-        $result = pp_execute_action('style_component', [
-            'post_id' => $id, 'component_index' => 0, 'style' => ['--ppfixture-bg' => '#101014'],
-        ]);
+        $result = $this->acceptedWriteOn($id);
 
         $this->assertTrue($result['ok']);
         $this->assertSame(
@@ -689,22 +719,37 @@ final class CompositionFindingsBoundsTest extends TestCase
      *
      * The card's own test cannot catch that: it hands the renderer a fixture in whatever
      * order it likes. The dependency is on THIS function, so the pin belongs here.
+     *
+     * THE ADVISORY USED TO BE A DEAD STYLE SLOT; it is a UDC disclosure since #1101,
+     * because the `inert_slot` species died with the style-slot engine. The replacement
+     * is deliberately BOTH remaining advisory engines rather than one: this composition
+     * produces a `consecutive_text_sections` smell AND a
+     * `udc_band_value_shadowed_by_role_default` disclosure, so the assertion now pins the
+     * order across all three joins in _pp_composition_findings() instead of two. Do not
+     * simplify it back to one advisory — the engine the simplification drops is the one
+     * whose join would move unnoticed.
      */
     public function testEveryErrorPrecedesEveryAdvisorySoFirstPerBandIsWorstPerBand(): void
     {
-        // One band carrying both kinds: an undeclared prop (error) and a dead style slot
-        // whose value is stored but never read (advisory).
+        // Bands carrying every kind: an undeclared prop (error), three consecutive
+        // text-only sections (smell), and a band-level ink that every card role's default
+        // cancels — accepted, stored, painting nothing (UDC disclosure, I35).
         $id = pp_create_page('Both kinds', 'draft');
         pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'id' => 'h1', 'title' => 'T', 'zzUndeclared' => 1],
-             'style' => ['--ppfixture-overlay-bg' => 'rgba(0,0,0,.5)']],
+            ['component' => 'grid', 'props' => ['items' => [['title' => 'One']], 'id' => 'g1', 'title' => 'T', 'zzUndeclared' => 1],
+             'udc'      => ['_band' => ['typography' => ['color' => '#ff0000']]]],
+            ['component' => 'section', 'props' => ['id' => 's1', 'title' => 'One', 'body' => 'B']],
+            ['component' => 'section', 'props' => ['id' => 's2', 'title' => 'Two', 'body' => 'B']],
+            ['component' => 'section', 'props' => ['id' => 's3', 'title' => 'Three', 'body' => 'B']],
         ]);
 
         $findings = _pp_composition_findings(pp_get_composition($id));
 
+        $types      = array_column($findings, 'type');
         $severities = array_column($findings, 'severity');
         $this->assertContains('error', $severities, 'precondition: the fixture produces an error');
-        $this->assertContains('warning', $severities, 'precondition: the fixture produces an advisory');
+        $this->assertContains('consecutive_text_sections', $types, 'precondition: the smell engine speaks');
+        $this->assertContains('udc_band_value_shadowed_by_role_default', $types, 'precondition: the UDC engine speaks');
 
         $first_warning = array_search('warning', $severities, true);
         $last_error    = array_keys($severities, 'error', true);

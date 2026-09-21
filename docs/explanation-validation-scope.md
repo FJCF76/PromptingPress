@@ -34,8 +34,8 @@ testimonials were migrated in the same sprint, so a real site has both. A way ou
 cannot be taken is not a way out.
 
 The narrowing was also overdue on its own terms. `add_component` has always validated
-only the item it adds. So have `style_component`, `remove_component` and
-`reorder_components`. The accepted-write envelope already carries the whole page's
+only the item it adds. So have `remove_component` and `reorder_components` — and so did
+`style_component`, which since #1101 validates nothing at all because it always refuses. The accepted-write envelope already carries the whole page's
 errors precisely BECAUSE those actions accept writes onto pages whose other bands are
 stale. `update_component` was the outlier, not the guardian.
 
@@ -161,12 +161,18 @@ naming components, so a new component's block is covered the moment it is added:
 - a `refuse_props_when` clause that the shared grammar rejects fails, as does an empty
   `when`, a prop the component does not declare, or a missing `message`.
 
-**Style slots need no such registry and must not grow one.** All 223 retired slots
-(hero 49, section 47, cta 40, testimonials 27, faq 21, stats 17, logos 8, embed 8, table 6 —
-the count is the arithmetic, so a rebuild that leaves it alone is visible here) belong
-to components `pp_udc_is_v2_component()` already identifies, and every one is replaced
-by the same thing — the band's `udc` map — so that route is derived at runtime and
-cannot drift. Only props need naming, because their replacements differ per prop.
+**Style slots need no such registry and must not grow one.** All 261 retired slots
+(hero 49, section 47, cta 40, grid 38, testimonials 27, faq 21, stats 17, logos 8, embed 8,
+table 6 — the count is the arithmetic, so a rebuild that leaves it alone is visible here,
+and grid's rebuild at #1101 is the one that took it from 223 to 261) belong to components
+`pp_udc_is_v2_component()` already identifies, and every one is replaced by the same thing
+— the band's `udc` map — so that route is derived at runtime and cannot drift. Only props
+need naming, because their replacements differ per prop.
+
+**The registry argument is now settled rather than merely sound**, and it is worth saying
+because it was a real fork at the time: there is no slot engine left to look a name up in.
+#1101 deleted it. A retired-slot registry would have been a map from dead names to one
+answer everybody already gets from the refusal itself.
 
 ## Trade-offs
 

@@ -895,7 +895,14 @@ test.describe('AI Chat — preview-error card typography and overflow (#662, #66
    */
   const CASES = [
     {
-      label: 'fixable (a mistyped slot name — the common landing state since #625)',
+      // #1101: the PAYLOAD below is no longer producible by the server — no component
+      // declares a slot, so nothing can carry `alternatives` or a cross-component hint.
+      // It is kept as-is because what this case pins is the CARD'S TYPOGRAPHY at each
+      // class, and this payload still reaches `fixable`, which is the only property the
+      // case depends on. The common landing state for that class is now an AGED BAND
+      // (a stored style map from before a rebuild), whose payload carries neither field
+      // and is pinned in tests/js/pp-ai-chat-proposal.test.js.
+      label: 'fixable (a payload with somewhere to go — see the #1101 note above)',
       stepClass: 'pp-ai-step-fixable',
       isRed: false,
       payload: {

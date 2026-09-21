@@ -740,111 +740,6 @@ class AiContextTest extends TestCase
         );
     }
 
-    /**
-     * THE `length-or-none` SLOT GRAMMAR IS NOT TAUGHT WHILE NOTHING CARRIES IT (#1087).
-     *
-     * This replaces the #579/#578 pin, and the reversal is deliberate and ruled. That pin
-     * required the prompt to keep teaching the type BECAUSE its carrier set had emptied —
-     * the argument being that an agent reading a roster it is not on concludes the
-     * capability is gone. The argument was right about the RISK and wrong about the remedy:
-     * it spent prompt budget every turn on a slot grammar no slot could declare, and it is
-     * one of six such types the v1 block was still teaching.
-     *
-     * The risk is answered directly instead, by the assertion below that the v2 route is
-     * stated. "Remove this cap" is still a real instruction; it is a `udc` write now.
-     *
-     * AND THE CAPABILITY RETURNS BY ITSELF. The third assertion is the one that makes the
-     * deletion safe rather than merely cheap: the grammar is not gone from the code, it is
-     * conditional on a carrier, so the day a slot declares the type the sentence comes back
-     * without anyone remembering it existed.
-     */
-    public function testTheLengthOrNoneSlotGrammarIsConditionalOnACarrier(): void
-    {
-        $this->assertNotContains(
-            'length-or-none',
-            \pp_ai_live_slot_types(),
-            'no shipped slot carries this type — if one does now, this test is the wrong shape'
-        );
-
-        $prompt = pp_ai_system_prompt();
-        $this->assertStringNotContainsString(
-            'A `length-or-none`-typed slot accepts everything',
-            $prompt,
-            'a slot grammar with no carrier must not be taught'
-        );
-
-        // The half that MUST survive: where the capability went.
-        //
-        // THE SENTENCE MOVED AT #1101 AND THIS ASSERTION IS WHY IT WAS RESCUED. It used to
-        // read 'AN UNCAPPED MEASURE IS A v2 WRITE, NOT A SLOT ONE' and it lived INSIDE the
-        // gated v1 paragraph — the one sentence in that block describing a v2 write. grid's
-        // rebuild closed the gate, the sentence went with it, and this test caught the loss.
-        // It is ungated now, in the UDC section where it belongs, and the "NOT A SLOT ONE"
-        // half of the wording went with the slot it contrasted against: there is no slot
-        // left anywhere to contrast with.
-        $this->assertStringContainsString(
-            'AN UNCAPPED MEASURE IS A ROLE WRITE',
-            $prompt,
-            'without this an agent reads the absence as a removed capability and falls back '
-            . 'to the pre-#579 `100%` workaround'
-        );
-        $this->assertStringContainsString(
-            'the role\'s `sizing.max-width` set to `none`',
-            $prompt,
-            'the v2 route must be named, not merely implied'
-        );
-
-        // Self-restoring: give the composer a carrier and the grammar comes back.
-        $restored = \pp_ai_slot_type_rules(['length-or-none']);
-        $this->assertStringContainsString('A `length-or-none`-typed slot accepts everything', $restored);
-        $this->assertStringContainsString('PLUS the keyword `none`', $restored);
-        $this->assertSame('', \pp_ai_slot_type_rules([]), 'and stays absent with no carriers');
-    }
-
-    /**
-     * EVERY conditional branch restores its own grammar (#1087).
-     *
-     * pp_ai_slot_type_rules() has three branches and the test above exercised one. The other
-     * two — `position` and `ratio` — had ZERO coverage, because no shipped slot carries
-     * either type, so neither branch ever runs against the real registry. The pre-landing
-     * testing specialist mutation-verified it: corrupting both trigger keys to nonsense left
-     * the whole suite green.
-     *
-     * That matters because self-restoration IS the claim. The grammar was deleted from the
-     * prompt on the promise that it returns the day a carrier reappears; a promise verified
-     * for one branch of three is a promise for one branch of three.
-     *
-     * @dataProvider slotTypeRuleBranchProvider
-     */
-    public function testEverySlotTypeRuleBranchIsRestoredByItsCarrier(string $type, string $marker): void
-    {
-        $this->assertStringContainsString(
-            $marker,
-            \pp_ai_slot_type_rules([$type]),
-            "the {$type} rule must come back the day a slot declares the type"
-        );
-        $this->assertStringNotContainsString(
-            $marker,
-            \pp_ai_slot_type_rules([]),
-            "and stay absent while nothing carries {$type}"
-        );
-        // And it must not be emitted by an unrelated carrier.
-        $others = array_values(array_diff(['position', 'ratio', 'length-or-none'], [$type]));
-        $this->assertStringNotContainsString(
-            $marker,
-            \pp_ai_slot_type_rules($others),
-            "the {$type} rule must key off its own type, not any carrier at all"
-        );
-    }
-
-    public static function slotTypeRuleBranchProvider(): array
-    {
-        return [
-            'position'       => ['position', 'A `position`-typed slot'],
-            'ratio'          => ['ratio', 'A `ratio`-typed slot'],
-            'length-or-none' => ['length-or-none', 'A `length-or-none`-typed slot'],
-        ];
-    }
 
     /**
      * The retired slot NAMES survive the grammar's deletion (#1087).
@@ -1425,13 +1320,20 @@ class AiContextTest extends TestCase
 
     public function testSystemPromptOmitsStyleSlotsForComponentsWithNoSlots(): void
     {
-        // faq gained style slots in #100, and table/logos/embed gained the shared
-        // band-heading size slot in #436, so no band/content component in the
-        // catalog is "unstyled" anymore (embed used to be the example here). This
-        // guard is now dynamic: any component whose schema declares zero style
-        // slots must still omit the "Style slots:" line in the prompt. It passes
-        // vacuously today (every listed component has >= 1 slot) but re-arms the
-        // moment a slotless component is added.
+        // VACUOUS, AND SINCE #1101 FOR THE OPPOSITE REASON — worth stating precisely,
+        // because the two look identical from a green run.
+        //
+        // It was vacuous because EVERY listed component declared at least one slot, so the
+        // `continue` never fired and the guard walked a roster it could not fail on. The
+        // note said it would "re-arm the moment a slotless component is added". Every
+        // component is slotless now, and it did not re-arm: #1101 deleted the emitter, so
+        // the "Style slots:" line this guard looks for cannot be produced by any input.
+        // It went from a guard with no negative case to a guard with no positive one.
+        //
+        // Catalogued in #1110 with the other 47. Left in place rather than fixed here
+        // because #1110 owns the decision per method (restore the discrimination, add a
+        // floor, or delete with a reason) and doing it piecemeal inside a deletion PR is
+        // how a vacuity sweep becomes unreviewable.
         $prompt = pp_ai_system_prompt();
         $this->assertNotEmpty($prompt);
         $lines = explode("\n", $prompt);
@@ -1772,56 +1674,6 @@ class AiContextTest extends TestCase
         $this->assertStringNotContainsString('share background', $system);
     }
 
-    /**
-     * REPRICED AT #1066, AND THE ANSWER FLIPPED — deliberately, with a precedent.
-     *
-     * This asserted that a `background_image` SUPPRESSED the flat-colour fusing hint:
-     * the visible band was the image, so "these two share #092082" would have been a
-     * lie. Every component has now retired that prop (section #1023, cta #1026, stats
-     * #1066) and nothing migrates stored props, so this fixture is exactly the aged
-     * page it always described — and on that page the prop is UNREAD AT RENDER. The
-     * band paints its `--*-bg` slot and nothing else. Suppressing the hint would now
-     * hide a statement that is true.
-     *
-     * THE RULE IS THE ONE #605 ALREADY SET, three steps down in the same resolver: a
-     * `theme` value stored before the vocabulary freeze falls through to the default
-     * bucket because pp_theme_class() coerces it to the default band, and the resolver
-     * and the renderer move in lockstep. A stored `background_image` is the same
-     * situation and takes the same answer.
-     *
-     * The test is KEPT rather than deleted because the subject — what an aged page's
-     * dead styling prop does to the adjacency hint — is exactly what needs pinning
-     * while such pages exist. Deleting it would have left the flip unrecorded.
-     */
-    public function testAdjacencyAnnotatedDespiteAStoredRetiredBackgroundImage(): void
-    {
-        $system = $this->pageContextFor(706, [
-            ['component' => 'section', 'props' => ['title' => 'A', 'background_image' => 'https://ex.test/a.jpg'], 'style' => ['--section-bg' => '#092082']],
-            ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => '#092082']],
-        ]);
-
-        $this->assertStringContainsString('share background #092082', $system);
-
-        // DISCRIMINATING, not merely positive: pin the resolver directly, so a pass
-        // cannot come from some other pair or some other wording. A stored
-        // `background_image` must resolve exactly as an absent one does.
-        $withImage = _pp_resolve_component_bg([
-            'component' => 'section',
-            'props'     => ['background_image' => 'https://ex.test/a.jpg'],
-            'style'     => ['--section-bg' => '#092082'],
-        ]);
-        $withoutImage = _pp_resolve_component_bg([
-            'component' => 'section',
-            'props'     => [],
-            'style'     => ['--section-bg' => '#092082'],
-        ]);
-        $this->assertSame(
-            $withoutImage,
-            $withImage,
-            'a retired prop that paints nothing must not change what the resolver sees'
-        );
-        $this->assertSame('bg:#092082', $withImage['id']);
-    }
 
     public function testAdjacencyTransparentOverrideTreatedAsDefault(): void
     {
@@ -1867,21 +1719,6 @@ class AiContextTest extends TestCase
         $this->assertStringContainsString('linear-gradient(90deg, #AA0000, #00BB00)', $system);
     }
 
-    public function testAdjacencyOverrideBeatsThemeBucket(): void
-    {
-        // Both bands carry theme:inverted AND a matching literal override -> the
-        // override wins, so the annotation reports the literal, not the theme label.
-        $system = $this->pageContextFor(710, [
-            ['component' => 'section', 'props' => ['title' => 'A', 'theme' => 'inverted'], 'style' => ['--section-bg' => '#123456']],
-            ['component' => 'cta', 'props' => ['title' => 'B', 'theme' => 'inverted'], 'style' => ['--cta-bg' => '#123456']],
-        ]);
-
-        $this->assertStringContainsString(
-            '[0] section and [1] cta share background #123456 (adjacent — facing paddings/margins control the visible seam)',
-            $system
-        );
-        $this->assertStringNotContainsString('inverted theme', $this->onlyAdjacencyLines($system));
-    }
 
     public function testAdjacencyLongOverrideValueIsTruncated(): void
     {
@@ -2060,20 +1897,6 @@ class AiContextTest extends TestCase
         $this->assertNull($seen, 'a malformed clause must render nothing, silently');
     }
 
-    /**
-     * Slot definitions carry the suffix too — one emitter, both surfaces, so a field
-     * can never reach the prop catalog and silently miss the slot catalog.
-     */
-    public function testSlotCatalogCarriesTheDefinitionSuffix(): void
-    {
-        $slot = pp_ai_definition_suffix([
-            'type' => 'color',
-            'role' => 'fill',
-            'applies_when' => [['prop' => 'layout', 'equals' => 'cover']],
-        ]);
-        $this->assertStringContainsString('role: fill', $slot);
-        $this->assertStringContainsString('applies when layout = "cover"', $slot);
-    }
 
     // ── Unreadable stored composition (#750) ──────────────────────────────
     //

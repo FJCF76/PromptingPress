@@ -180,6 +180,86 @@ declarations rather than typed out by hand. Sixteen ship today: six inside rich-
 areas, where a colour on the container never reaches the links in it; seven in the header and
 footer; and three where one part's built-in styling overrides a value you set on another.
 
+### The v1 styling system is gone (#1101)
+
+**`style_component`, style slots and recipes are retired.** `grid` was the last component
+carrying them and its rebuild was the last half of #1101; this is the sweep that removes the
+machinery behind it. Roughly 4,300 lines of production code and test code go, and what
+replaced each capability is named at every site rather than left to be re-derived.
+
+### What changes for you
+
+**`style_component` still exists, and it always refuses.** That is deliberate. Every prompt,
+playbook and doc a model may have learned from named this action, so the call will be made —
+and made against this action it answers with the component's own roles and the two actions
+that carry a `udc` map. Made against a deleted action it would answer "unknown action", which
+tells you nothing about where the capability went.
+
+**A page written before its component was rebuilt still carries its old `style` map, and that
+map now blocks every edit to its band — a title change included.** This is the part worth
+reading twice, because nothing migrates those bytes for you and the symptom does not look like
+its cause: an ordinary `update_component` on that band is refused with `invalid_style_slot`,
+naming a slot you are not trying to set.
+
+**The simplest repair is `update_composition`:** rewrite the band with no `style` key at all
+and the whole map goes, with nothing to enumerate and nothing to miss. That is the route to
+reach for when sweeping a page.
+
+**To do it with `update_component` instead, send EVERY STORED KEY as `null`** — every key, not
+every slot — plus `props` as `{}` if you are changing no props. A band styled by a v1 *recipe*
+also stores a `__recipe` key, which is not a slot name; a clear that omits it unblocks the band
+but leaves that key in your composition. A partial clear of the *slots* is refused outright,
+naming whichever one you left behind, which reads like a second unrelated problem.
+
+The refusal message has been wrong about this twice and now states the measured rule. It first
+said "to clear a stored slot, send it as null" — singular, and following it literally on a band
+with two slots did not work. Corrected to "every stored slot name", it still walked an author
+past `__recipe`, because that key is not a slot.
+
+**The `inert_slot` advisory is gone, and its job did not go with it.** It reported the
+accepted-stored-ignored failure: a value the engine keeps, reports applied, and never paints.
+The design contract reports that itself now, on the surface that has it —
+`udc_band_value_shadowed_by_role_default` names the band value and every role whose own default
+cancels it. `transparent_fill` is gone too; it read a field off a style slot and had been
+unable to fire on anything since #1026.
+
+**About 9 KB of dead slot teaching is deleted from the source** — the per-component slot and
+recipe catalog, the slot-value grammar, and a three-step pre-flight that taught a model to
+prepare carefully for a call that cannot succeed. Measured honestly: the assistant's prompt
+does **not** shrink by that, because those blocks were already gated shut when `grid` was
+rebuilt and had stopped being emitted. The emitted prompt in fact grows about 1.1 KB, because
+the corrected guidance that replaces the wrong guidance is longer than it was.
+
+### Fixed
+
+- **A blocked file edit pointed you at a dead end.** `wp pp apply` told an agent whose edit was
+  blocked to "use style_component action on the target component instance" — an action that now
+  refuses every component. It names the band's `udc` map and `update_composition` now.
+- **The recipe refusal was documented wrong.** `ai-instructions/style-component.md` said asking
+  for a recipe by name is refused with `invalid_recipe`. Measured: it is refused with
+  `no_style_slots`, because the slot check runs first and the recipe lookup is never reached.
+- **A media-validation guard was counting a test fixture.** Two drift-catchers asserted the set
+  of media-validated props is `['background_image', 'image_url']`; against the shipped registry
+  it is `['image_url']` alone. One of them carried an anti-vacuity floor the shipped registry
+  cannot clear, so the floor was being satisfied by a component that does not ship.
+- **Two anti-vacuity guards were silently disarmed and are rearmed.** One floored the number of
+  slot claims it found in the docs, gated on a roster that `grid`'s rebuild emptied — so it
+  stopped executing and could scan zero sentences and pass. It floors documentation READ now,
+  which has no expiry date. The other asserted how many test suites opt into a fixture and went
+  red for being correct when five stopped; it is self-referential now and cannot drift.
+
+### Known issues
+
+- A stale `style` map is visible to the write path but filtered out of the page context the
+  assistant reads, so it can be told to clear a key it cannot see (#1105).
+- The adjacency hint still resolves a band's background through two retired surfaces and can
+  describe a band by something nothing paints (#1070).
+- ~50 claims whose subject is live but whose only vehicle was the slot engine are relocated
+  rather than re-written, tracked in #1109, which completes #1101.
+- 48 test methods that pass while asserting nothing are catalogued in #1110; about a third of
+  them predate this work.
+
+
 ### What changes for you
 
 **A dark header or footer no longer needs you to guess which parts to re-colour.** The assistant

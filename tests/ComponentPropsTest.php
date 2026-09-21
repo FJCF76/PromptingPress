@@ -378,138 +378,6 @@ class ComponentPropsTest extends TestCase
 
     // ── pp_render_style_vars() ───────────────────────────────────────────
 
-    public function testRenderStyleVarsBasic(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $result = pp_render_style_vars(
-                ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-padding-top' => '8rem'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-bg: #1a1a2e', $result);
-            $this->assertStringContainsString('--ppfixture-padding-top: 8rem', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsEmpty(): void
-    {
-        $result = pp_render_style_vars([], 'hero');
-        $this->assertSame('', $result);
-    }
-
-    public function testRenderStyleVarsSkipsUnknownSlot(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $result = pp_render_style_vars(
-                ['--ppfixture-bg' => '#1a1a2e', '--ppfixture-display' => 'none'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-bg', $result);
-            $this->assertStringNotContainsString('--ppfixture-display', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsEmitsKeywordAndVarReferenceUnchanged(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            // #230: an accepted value must SURVIVE to CSS output — esc_attr touches
-            // none of ( ) - so the reference reaches the browser intact.
-            $result = pp_render_style_vars(
-                ['--ppfixture-bg' => 'transparent', '--ppfixture-label-color' => 'var(--color-accent)'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-bg: transparent', $result);
-            $this->assertStringContainsString('--ppfixture-label-color: var(--color-accent)', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsSkipsRecipeKey(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $result = pp_render_style_vars(
-                ['__recipe' => 'dark-spacious', '--ppfixture-bg' => '#1a1a2e'],
-                'ppfixture'
-            );
-            $this->assertStringNotContainsString('__recipe', $result);
-            $this->assertStringContainsString('--ppfixture-bg', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsRejectsInjection(): void
-    {
-        $result = pp_render_style_vars(
-            ['--hero-bg' => '#fff; background-image: url(evil)'],
-            'hero'
-        );
-        // Semicolon in value triggers injection guard — slot is skipped.
-        $this->assertSame('', $result);
-    }
-
-    public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
-    {
-        // PER-TEST OPT-IN (#1025): the gradient type needs a slot-bearing host, and stats
-        // stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $result = pp_render_style_vars(
-                ['--ppfixture-bg' => 'linear-gradient(to bottom, #f0f4ff, #ffffff)'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-bg: linear-gradient(to bottom, #f0f4ff, #ffffff)', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsGradientOverlayScrimSurvivesUnmangled(): void
-    {
-        // PER-TEST OPT-IN (#1025): the gradient type needs a slot-bearing host, and stats
-        // stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            // The primary practical motivation for gradient support: a
-            // transparent-to-dark scrim over a background image for legibility.
-            $result = pp_render_style_vars(
-                ['--ppfixture-overlay-bg' => 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-overlay-bg: linear-gradient(to bottom, transparent, rgba(0,0,0,0.7))', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testRenderStyleVarsUnknownComponent(): void
-    {
-        $result = pp_render_style_vars(
-            ['--fake-bg' => '#000'],
-            'nonexistent'
-        );
-        $this->assertSame('', $result);
-    }
 
     // ── CTA button_variant (prop, set via update_component) ──────────────
 
@@ -1665,56 +1533,6 @@ class ComponentPropsTest extends TestCase
     }
 
 
-    public function testStatsRendersAllFourSlots(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $overrides = [
-                '--ppfixture-bg' => 'radial-gradient(#fff, #000)',
-                '--ppfixture-heading-color' => '#111111',
-                '--ppfixture-number-color' => '#ea3900',
-                '--ppfixture-label-color' => '#666666',
-            ];
-            $html = $this->render('ppfixture', array_merge($this->statsProps(), ['__pp_style' => $overrides]));
-            foreach ($overrides as $slot => $value) {
-                $this->assertStringContainsString("{$slot}: {$value}", $html, "{$slot} did not render.");
-            }
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testStatsStyleSlotMergesWithBackgroundImage(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            // stats.php's __pp_style rendering must coexist with the pre-existing
-            // background_image inline-style mechanism (same pattern as hero/section).
-            $html = $this->render('ppfixture', array_merge($this->statsProps(), [
-                '__pp_style' => ['--ppfixture-number-color' => '#ea3900'],
-                'background_image' => 'https://example.com/bg.jpg',
-            ]));
-            $this->assertStringContainsString('--ppfixture-number-color: #ea3900', $html);
-            $this->assertStringContainsString('background-image:url(', $html);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    public function testStatsRejectsInjectionInStyleSlot(): void
-    {
-        $html = $this->render('stats', array_merge($this->statsProps(), [
-            '__pp_style' => ['--stats-heading-color' => '#fff; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
-    }
-
     // ── End-to-end: exact production regression from #36 ────────────────────
 
     public function testHeroSplitVariantRendersDataUriSvgImageSrc(): void
@@ -1798,109 +1616,7 @@ class ComponentPropsTest extends TestCase
      * declaration into the rendered style attribute. Section carries the surviving
      * position-typed slot, so the red proof moves there rather than being deleted.
      */
-    /**
-     * RE-HOMED ONTO THE FIXTURE (#1066 PR2) BECAUSE IT HAD GONE VACUOUS — and it is an
-     * INJECTION test, which is the worst kind to lose quietly.
-     *
-     * It rendered `section` with `--section-bg-position`. section became a v2 component at
-     * #1023 and emits no `style` attribute at all, so the lone
-     * `assertStringNotContainsString('url(evil)', $html)` was asserting the absence of a
-     * payload in a string that could never contain anything: it passed on an empty subject,
-     * for three rebuilds. Its docblock still claimed "section carries the surviving
-     * position-typed slot", which stopped being true at #1023.
-     *
-     * The #1025 fixture is exactly the right home: the claim is about the ENGINE's render
-     * boundary, not about any component, and `ppfixture` declares `--ppfixture-bg-position`
-     * so the claim stops moving house at every rebuild.
-     *
-     * AND THE REBUILD FOUND OUT WHICH GATE ACTUALLY REFUSES THE PAYLOAD, which the old test
-     * never established. It is NOT the `position` grammar. `pp_render_style_value_allowed()`
-     * (lib/wp.php) runs two layers, and the payload dies at LAYER 1 —
-     * `_pp_forbidden_css_construct()`, the shared reject set, which is type-INDEPENDENT.
-     * Measured: making `_pp_validate_position()` (Layer 2) return true for everything does
-     * NOT reopen the injection. That ordering is the thing worth pinning, and Layer 1's own
-     * comment says why it is a separate call — "a slot with no declared type never reaches
-     * Layer 2 and this is its sole line of defense". So a future widening of any value
-     * grammar cannot let a second declaration through, and this test proves that rather
-     * than assuming it.
-     *
-     * THREE ASSERTIONS, because the negative one alone is what went vacuous: the slot is
-     * live (control), the payload is absent, and the whole declaration is DROPPED rather
-     * than escaped — "escaped somehow" and "refused outright" are different contracts and
-     * only one of them ships.
-     */
-    public function testPositionSlotRejectsInjectionInStyleSlot(): void
-    {
-        // PER-TEST OPT-IN (#1025), same reason as testRenderStyleVarsGradientSurvivesUnmangled
-        // below: this class also holds registry rosters that must see only shipped components.
-        FixtureTheme::activate();
-        try {
-            // THE CONTROL FIRST: a valid value on this slot IS emitted. Without it the
-            // negative assertions below pass on any empty string — a renamed slot, a missing
-            // fixture, a dead code path — which is precisely how this test went vacuous.
-            $clean = pp_render_style_vars(['--ppfixture-bg-position' => 'top left'], 'ppfixture');
-            $this->assertStringContainsString(
-                '--ppfixture-bg-position: top left',
-                $clean,
-                'the fixture must declare a live `position`-typed slot, or this test has no subject'
-            );
 
-            $dirty = pp_render_style_vars(
-                ['--ppfixture-bg-position' => 'top; background:url(evil)'],
-                'ppfixture'
-            );
-            $this->assertStringNotContainsString(
-                'url(evil)',
-                $dirty,
-                'a slot value must not carry a second declaration into the style attribute'
-            );
-            $this->assertStringNotContainsString(
-                '--ppfixture-bg-position',
-                $dirty,
-                'the boundary DROPS the whole declaration rather than escaping it; a version '
-                . 'that starts passing the value through escaped is a contract change to review'
-            );
-
-            // THE LAYER, ASSERTED DIRECTLY. This is what makes the refusal robust against a
-            // grammar widening: the reject set answers before any type is consulted, so it
-            // holds even for a slot whose type is unknown to the engine.
-            $this->assertNotNull(
-                _pp_forbidden_css_construct('top; background:url(evil)'),
-                'Layer 1 must own this refusal; if it stops matching, every type-less slot '
-                . 'loses its only line of defense (see pp_render_style_value_allowed)'
-            );
-            $this->assertFalse(
-                pp_render_style_value_allowed('top; background:url(evil)', null),
-                'with NO declared type the value must still be refused — Layer 1 alone'
-            );
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    /**
-     * RE-BASED from testRenderStyleVarsGradientSurvivesUnmangledForHero (#986).
-     *
-     * pp_render_style_vars() still serves every v1 component; hero was only the
-     * fixture. The #99/#330 invariant — a validated gradient round-trips unmangled
-     * through the render boundary — is re-proved on section.
-     */
-    public function testRenderStyleVarsGradientSurvivesUnmangled(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $result = pp_render_style_vars(
-                ['--ppfixture-bg' => 'linear-gradient(135deg, #1a1a2e, #16121f)'],
-                'ppfixture'
-            );
-            $this->assertStringContainsString('--ppfixture-bg: linear-gradient(135deg, #1a1a2e, #16121f)', $result);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
 
     public function testHeroEyebrowRenders(): void
     {
@@ -2076,16 +1792,6 @@ class ComponentPropsTest extends TestCase
             'the subheading keeps its ink as a role default.');
     }
 
-
-    public function testGridEyebrowRejectsInjectionInStyleSlot(): void
-    {
-        $html = $this->render('grid', $this->gridProps([
-            'title' => 'H',
-            'eyebrow' => 'KICKER',
-            '__pp_style' => ['--grid-eyebrow-color' => '#fff; background:url(evil)'],
-        ]));
-        $this->assertStringNotContainsString('url(evil)', $html);
-    }
 
     // ── pp_render_heading_with_accent() + title_accent (#110) ────────────────
     // Structured, plain-text mechanism — NOT an HTML/markup allowlist. Both
@@ -3676,20 +3382,6 @@ class ComponentPropsTest extends TestCase
             'a v2 band emits no inline custom properties at all.');
     }
 
-
-    public function testStatsBgPositionOverrideRenders(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $html = $this->render('ppfixture', $this->statsProps(['background_image' => 'https://example.com/bg.jpg', '__pp_style' => ['--ppfixture-bg-position' => 'left']]));
-            $this->assertStringContainsString('--ppfixture-bg-position: left', $html);
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
 
     /**
      * THE ROSTER EMPTIED AND THE CLAIM MOVED, rather than the test being deleted (#1038).

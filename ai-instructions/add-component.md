@@ -224,7 +224,7 @@ buys you a role that passes CI and styles nothing.
 
   **`defaults` and an authored `udc` map do not accept the same values, and this is the
   trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is what
-  EIGHT of the nine v2 `_band` roles use for their padding, stats included. `hero` is
+  NINE of the ten composable `_band` roles use for their padding, `grid` included since #1101. `hero` is
   deliberately outside that rhythm, carrying its own `@space-2xl` / `@space-xl` scale, and
   chrome is outside it too (`footer` uses `@space-lg`, `nav` declares no spacing default),
   so "every band shares one rhythm" is the rule and a band is allowed its own scale when
@@ -349,7 +349,7 @@ STYLE-SLOT concept and the v2 rebuilds retired the slots (testimonials alone too
 rows with it). A v2 component's roles are unconditional by construction, so a new
 component on the design contract will usually add nothing here at all. The *same*
 field drives a write-time advisory:
-when a composition sets a slot whose condition is unmet, a non-blocking **`inert_slot`**
+when a composition set a slot whose condition was unmet, a non-blocking **`inert_slot`** (RETIRED at #1101 with the slot engine)
 smell names the slot and every unmet clause. Since #687 that advisory rides the
 ACCEPTED WRITE's own envelope (`findings`), as well as `wp pp check page` and the
 restore findings — so an author learns the slot is dead from the write that set it,

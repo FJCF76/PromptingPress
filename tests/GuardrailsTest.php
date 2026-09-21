@@ -1362,10 +1362,32 @@ class GuardrailsTest extends TestCase
         $this->assertSame('core', $result['classification']);
     }
 
-    public function testGuidanceRoutesLibToStyleComponent(): void
+    /**
+     * THE ROUTE IT NAMES HAS TO BE ONE THAT WORKS (#1101).
+     *
+     * This asserted `style_component` until the style-slot engine was retired, and the
+     * production string it was reading still said so — so the test kept passing while the
+     * guidance sent an agent to a verb that now refuses every component. A blocked edit
+     * that hands back a dead route is worse than a blocked edit with no route at all: the
+     * agent spends a turn being refused and learns nothing about where the capability
+     * went.
+     *
+     * It asserts the SURFACE and the ACTION separately on purpose. Naming only the `udc`
+     * map would pass on guidance that never says how to write one, and update_composition
+     * is the load-bearing half — it is one of exactly two actions that carry a band.
+     */
+    public function testGuidanceRoutesLibToTheBandUdcMapAndAnActionThatCarriesIt(): void
     {
         $result = pp_classify_surface('lib/wp.php');
-        $this->assertStringContainsString('style_component', $result['guidance']);
+
+        $this->assertStringContainsString('`udc` map', $result['guidance'], 'it names the v2 styling surface');
+        $this->assertStringContainsString('update_composition', $result['guidance'], 'and an action that carries a band');
+        $this->assertStringNotContainsString(
+            'style_component',
+            $result['guidance'],
+            'style_component refuses every component since #1101, so routing a blocked edit '
+            . 'there costs the agent a turn and teaches it nothing'
+        );
     }
 
     public function testGuidanceRoutesFunctionsPhpToApply(): void

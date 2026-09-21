@@ -413,207 +413,64 @@ function _pp_component_target_not_found(array $params, int $resolved_index): boo
 // lib/admin.php's editor-save AJAX handlers — so the owner had to move for those sinks to
 // reach it without an always-loaded file depending on a conditional one. Everything in
 // this file calls them exactly as before; lib/wp.php is require #1, so they are always
-// resolved by the time anything here runs. The two constants below stay: they bound how
-// much a chat MESSAGE says, which is this file's job, not the reflected-text owner's.
-
-/** Most unknown style-slot keys examined for a cross-component hint. */
-const PP_CROSS_COMPONENT_HINT_MAX = 64;
-
-/** Most declared slot names the friendly message says out loud. */
-const PP_FRIENDLY_SLOT_SAMPLE_MAX = 5;
+// resolved by the time anything here runs.
+//
+// TWO CONSTANTS USED TO LIVE HERE AND WENT AT #1101, with the surfaces they bounded.
+// PP_CROSS_COMPONENT_HINT_MAX (64) capped how many unknown slot keys were scanned for a
+// cross-component hint; PP_FRIENDLY_SLOT_SAMPLE_MAX (5) capped how many declared slot
+// names the message said out loud. Both were real bounds on real unbounded things — the
+// sample cap came from a hero rejection measuring 11,309 characters — and both lost their
+// subject when no component declared a slot. The message bounding that survives is
+// PP_REFLECTED_NAME_MAX and PP_REFLECTED_ERROR_MAX, which lib/wp.php owns.
 
 /**
- * Writes the visible sentence for an invalid_style_slot rejection that has no
- * cross-component hint to offer (#661).
+ * The visible sentence for an aged band's stored style map (#1101).
  *
- * This is the branch the author lands on when the name they used exists nowhere —
- * a typo on a real slot, or a setting the component genuinely doesn't have. There
- * is no other component to point at, so the message's whole job is orientation:
- * what was tried, and what the component actually has.
+ * WHAT PRODUCES THIS. A band written before its component's v2 rebuild still holds a
+ * `style` map in the stored composition. No component declares a style slot, so every key
+ * in that map is undeclared and _pp_validate_style_slot_map() refuses the band — on EVERY
+ * `update_component` edit to it, including one that touches only props. So the author who
+ * reads this sentence most often changed a TITLE and was refused about a slot name they
+ * never typed, which is why the sentence leads with the stored map rather than with the
+ * slot.
  *
- * WHY THIS IS NOT JUST A SENTENCE. It used to concatenate the DESCRIPTION of every
- * declared slot, and the descriptions are full sentences carrying multi-clause
- * caveats. On hero (49 slots) that measured 11,309 characters. `user_message` is
- * the one part of the payload THIS branch writes out unconditionally
- * (ppChatRenderPreviewError, assets/js/pp-ai-chat.js) — no disclosure, no clamp —
- * so at 375px a single failed step buried the Apply/Cancel row under many screens
- * of prose. What kept the rest of the response readable was not one property but
- * two, and only one of them is a bound: `raw_error` is genuinely capped at
- * PP_REFLECTED_ERROR_MAX, while `alternatives` is merely COLLAPSED — it still ships
- * every declared name at full length, so a component declaring enormous names moves
- * the wall behind a click rather than removing it. Bounding the payload itself is
- * the reflected-value axis (#647/#649), not this one; what #661 owns is the part
- * with nothing to collapse.
- *
- *   response                  rendered by the card (ppChatRenderPreviewError)
- *   ──────────────────────    ────────────────────────────────────────────────
- *   user_message      ──────→ .pp-ai-preview-error-message      ALWAYS OPEN ← here
- *   cross_component_
- *     hints           ──────→ .pp-ai-preview-error-hint         ALWAYS OPEN
- *                             (this branch has none, by definition)
- *   raw_error         ──────→ ┐ ONE <details>, summary "Show technical
- *   alternatives      ──────→ ┘ details" — both are LINES inside its
- *                               single content div, "Available slots: …"
- *                               being the alternatives line (all of them)
- *
- * So the fix is not to say less TRUE, it is to say less OUT LOUD. Nothing is
- * dropped from the response: the complete declared list still ships as
- * `alternatives`, one click away, and the sample below is the FIRST
- * PP_FRIENDLY_SLOT_SAMPLE_MAX entries of that same list in the same order — so a
- * reader who opens the disclosure finds the names they just read at the top of it,
- * rather than a second, differently-ordered list. The one case where the two texts
- * differ is a name long enough to be truncated by the clean below: it reads as
- * `…` above and appears whole in the disclosure. That is the right way round (a
- * 4000-character name does not belong above the fold) and the ellipsis is the
- * reader's signal not to type what they see.
- *
- * WHY NAMES AND NOT DESCRIPTIONS. The author who lands here got a NAME wrong. A
- * description ("Background color or gradient") does not tell them what to type;
- * `--hero-bg` does, and seeing three or four of them together teaches the
- * convention, which is what turns a near miss into a next attempt.
- *
- * The rejected name is stated when there is exactly one, which is the shape of
- * every near miss. With several unknown keys, naming one of them would read as a
- * claim about the whole set, so the message keeps the older, unattributed opening
- * and lets raw_error carry the specifics.
- *
- * EVERY name this interpolates goes through _pp_clean_reflected_text() at
- * PP_REFLECTED_NAME_MAX — the rejected one, the component name, and each sampled
- * slot name. Capping how MANY names are printed bounds the message only if each
- * name is bounded too, and none of the three is guaranteed short by anything
- * upstream: the rejected name is caller-supplied outright, the component name is
- * read from stored composition on the fallback path, and the sampled names come
- * from the rejection's own error data, which pp_rejected_slot_context() checks for
- * shape but never for size. Reusing the existing constant and helper keeps one
- * owner for the question of how long a reflected name may be.
- *
- * The hinted branch above is STILL left exactly as it was, and after #647 that is a
- * recorded outcome rather than a deferral. #647 inventoried the server's reflection
- * sinks and converted the ones that own their own sink — this file's two AJAX error
- * payloads among them. The hinted branch is not one of those: it interpolates
- * `$component_name` into composed prose, which is the composed-message cluster #864
- * carries, together with the editor save response's sites. Left for that ruling, not
- * for want of noticing.
- *
- * BOUND. At most 2 + PP_FRIENDLY_SLOT_SAMPLE_MAX cleaned names of
- * PP_REFLECTED_NAME_MAX each, plus fixed prose — arithmetic, not an assumption
- * about how the registry is written. Measured on the shipped registry, whose
- * longest declared name is 39 characters, the worst real case (hero, 49 slots) is
- * 273 characters, down from 11,309.
+ * IT DOES NOT NAME THE SLOT, deliberately. The validator's own message names it and rides
+ * in `raw_error`, which the card renders in its details disclosure; repeating it here would
+ * put a CSS custom property in the one line a non-technical reader sees, in place of the
+ * thing they can act on. The repair is the same whatever the key is.
  *
  * @param  string $component_name  Component the rejection resolved to, or ''.
- * @param  string[] $available     Every declared slot name, declaration order.
- * @param  array  $invalid_slots   The rejected slot NAMES (values, not keys).
  * @return string
  */
-function _pp_no_hint_slot_message(string $component_name, array $available, array $invalid_slots, bool $authoritative): string {
-    $named     = _pp_clean_reflected_text($component_name, PP_REFLECTED_NAME_MAX);
-    // Compared against '' rather than leaning on ?:, because "0" is a falsy string and
-    // a component actually named 0 would otherwise be described as "the selected" one.
-    $component = $named === '' ? 'selected' : $named;
-    $total     = count($available);
+function _pp_aged_style_map_message(string $component_name): string {
+    $named = _pp_clean_reflected_text($component_name, PP_REFLECTED_NAME_MAX);
 
-    // Nothing resolved AND nothing declared. Every sentence below would be a claim
-    // about a component that was never found, so make the only claim the evidence
-    // supports. An out-of-range `component_index` lands here — the target-not-found
-    // answer above fires only for a bad `component_id` — and "it has no style
-    // settings" about a component that does not exist is exactly the confident
-    // falsehood this branch is being rewritten to stop telling.
-    if ($total === 0 && $named === '') {
-        return 'I tried to change a style setting, but I couldn\'t tell which component on the page it was meant for.';
+    // Compared against '' rather than leaning on ?:, because "0" is a falsy string and a
+    // component actually named 0 would otherwise be described as the unresolved one. An
+    // out-of-range `component_index` also lands here — the target-not-found answer above
+    // fires only for a bad `component_id` — and a confident sentence about a component
+    // that was never found is the falsehood this whole branch exists to avoid.
+    if ($named === '') {
+        return 'This band still stores styling from the old system, and that blocks edits to it'
+            . ' — but I couldn\'t tell which component on the page it belongs to.';
     }
 
-    // Quote the rejected name ONLY when the rejection carried its own candidate set
-    // (#626). On the fallback that set is re-derived from `$params['style']`, which is
-    // NOT recipe-expanded — so a proposal mixing a recipe with one explicit unknown key
-    // would let this quote the explicit key while the validator actually refused a slot
-    // the recipe contributed. Naming a slot is a new, load-bearing attribution that the
-    // old plural-only sentence never made; second-hand evidence gets the hedged form.
-    //
-    // Re-indexed rather than reset(): reading position 0 of a list says "the rejected
-    // NAME" however the array is keyed. On a map, reset() returns the VALUE beside the
-    // key — for a style map that is the colour the author typed, and quoting that back
-    // as the name they got wrong would be a confident falsehood about their own input.
-    $rejected = array_values($invalid_slots);
-
-    $opening = ($authoritative && count($rejected) === 1)
-        ? sprintf(
-            'I tried to set "%s" on the %s component, but it doesn\'t support that style setting.',
-            _pp_clean_reflected_text((string) $rejected[0], PP_REFLECTED_NAME_MAX),
-            $component
-        )
-        : sprintf(
-            'I tried to change a style setting that the %s component doesn\'t support.',
-            $component
-        );
-
-    if ($total === 0) {
-        // The component resolved and genuinely declares nothing, so the claim holds.
-        // A real rejection from the validator reports no_style_slots before it looks at
-        // any name, so this is the contextless fallback's case, not the validator's.
-        return $opening . ' It has no style settings.';
-    }
-
-    // Clean the sampled names too, and clean them BEFORE they are joined. Capping the
-    // COUNT of names bounds the message only if each name is itself bounded, and
-    // nothing upstream guarantees that: `available_slots` arrives on the rejection's
-    // error data, and pp_rejected_slot_context() (lib/actions.php) checks that map for
-    // presence, type and emptiness but never for the size of its keys. Shipped
-    // components declare nothing longer than 39 characters, so on the shipped registry
-    // this is a no-op — but "the registry happens to be small" is an assumption about
-    // theme content, not a bound, and #661 is a bug about a message nobody bounded.
-    $sample = [];
-    foreach (array_slice($available, 0, PP_FRIENDLY_SLOT_SAMPLE_MAX) as $name) {
-        $clean = _pp_clean_reflected_text((string) $name, PP_REFLECTED_NAME_MAX);
-        // A name made entirely of format characters cleans away to nothing. Printing it
-        // would put an empty item in a list of settings ("are: , --hero-bg"), so drop it
-        // — the complete list still ships in `alternatives` either way.
-        if ($clean !== '') {
-            $sample[] = $clean;
-        }
-    }
-
-    // The completely-stated form is an EXHAUSTIVE claim, not a sample, so it may only be
-    // made when the printed names really are all of them AND each survived the clean as
-    // itself. Two names sharing their first 253 characters both truncate to the same
-    // string, which would enumerate one setting twice and present that as the whole set;
-    // a name that cleaned away leaves the set short. Either way the counted form below
-    // is the honest answer, because "including" claims nothing about completeness.
-    $intact = count($sample) === $total && count(array_unique($sample)) === $total;
-
-    if ($total <= PP_FRIENDLY_SLOT_SAMPLE_MAX && $intact) {
-        // Small enough to state completely, so state it completely and promise nothing
-        // further — pointing at a disclosure holding the same few names would send the
-        // author looking for something they have already read.
-        return $opening . sprintf(
-            $total === 1 ? ' Its one style setting is: %s.' : ' Its style settings are: %s.',
-            implode(', ', $sample)
-        );
-    }
-
-    // "the details below" rather than the disclosure's own label: the card can rename
-    // its summary without turning this sentence into a wrong direction.
-    if ($sample === []) {
-        return $opening . sprintf(
-            ' It has %d style settings. The full list is in the details below.',
-            $total
-        );
-    }
-
-    return $opening . sprintf(
-        ' It has %d style settings, including %s. The full list is in the details below.',
-        $total,
-        implode(', ', $sample)
+    return sprintf(
+        'This "%s" band still stores styling from the old system. That stored styling paints'
+        . ' nothing, and it blocks every edit to this band — even one that changes no styling'
+        . ' — until it is cleared. See the details below for the exact keys and how to clear'
+        . ' them in one call.',
+        $named
     );
 }
+
 
 /**
  * Builds a structured, user-friendly error response for preview failures.
  *
  * Returns `{error_code, user_message, alternatives, cross_component_hints,
- * raw_error}` on every path, plus `unknown_slots_unscanned` (int) on the
- * invalid_style_slot path only, and only when the cross-component scan hit
- * PP_CROSS_COMPONENT_HINT_MAX — so an ordinary rejection's shape is unchanged.
+ * raw_error}` on EVERY path, with no conditional keys since #1101 — the
+ * `unknown_slots_unscanned` counter went with the cross-component scan it reported on.
  *
  * Bounding raw_error here, at the single point where it is read, means every
  * return site below inherits it — including any added later, which a per-site
@@ -625,233 +482,89 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
 
     switch ($code) {
         case 'invalid_style_slot':
-            $component_name  = '';
-            $available_slots = [];
-
-            // Which keys could carry a cross-component hint? The ones the VALIDATOR
-            // drew from — recipe-expanded, `__recipe` and removals already dropped —
-            // never a set re-derived here. Deriving it twice is what let the two
-            // disagree (#626): `array_keys($params['style'])` misses every slot a
-            // recipe contributed, so a recipe drifting out of its component's
-            // declared set produced a rejection this branch could not explain, and
-            // it counted the `__recipe` tracking key as a phantom unknown slot.
-            $context = pp_rejected_slot_context($error);
-            if ($context !== null) {
-                $component_name  = $context['component_name'];
-                $available_slots = $context['available_slots'];
-                $invalid_slots   = array_diff($context['candidate_slots'], array_keys($available_slots));
-            } else {
-                // No authoritative context, so no rejection to answer from: this is a
-                // hand-built error, or one from a producer that stamps none. Best
-                // effort from the composition as it reads NOW, which is what this
-                // branch always did before #626 — and what the bare-WP_Error cases in
-                // tests/ActionsTest.php pin. The component-not-found answer belongs to
-                // this path only: when the validator did supply context it resolved
-                // the component itself, so "I couldn't find that component" would
-                // contradict the rejection in hand rather than explain it.
-                $composition = pp_get_composition($params['post_id'] ?? 0);
-                $idx         = _pp_resolve_component_index_for_error($params);
-                if (_pp_component_target_not_found($params, $idx)) {
-                    return [
-                        'error_code'            => $code,
-                        'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
-                        'alternatives'          => [],
-                        'cross_component_hints' => (object) [],
-                        'raw_error'             => $raw_msg,
-                    ];
-                }
-                if (isset($composition[$idx])) {
-                    $component_name  = $composition[$idx]['component'] ?? '';
-                    $available_slots = pp_get_style_slots($component_name);
-                }
-                $invalid_slots = array_diff(array_keys($params['style'] ?? []), array_keys($available_slots));
-            }
-
-            $available = array_keys($available_slots);
-
-            // Cross-component hint: does this slot exist on a different component?
+            // THE AGED-BAND ARM, AND IT IS ALL THAT IS LEFT OF IT (#1101).
             //
-            // Each unknown key costs a pass over every registered component and every
-            // slot it declares, so the size of this list sets both the work done and
-            // the size of the object emitted. Bound it here, once, before the scan.
-            $cross_hints   = (object) [];
-            $invalid_slots = array_values($invalid_slots);
-
-            // The cap applies to the keys BEFORE any matching, because bounding the
-            // scan is the point — deciding which keys are worth reporting would mean
-            // doing the very work the cap exists to avoid. So when it fires, keys
-            // that would have produced a hint can be among the ones dropped, and the
-            // count below reports unexamined KEYS, not suppressed hints.
-            $slots_unscanned = count($invalid_slots) - PP_CROSS_COMPONENT_HINT_MAX;
-            if ($slots_unscanned > 0) {
-                $invalid_slots = array_slice($invalid_slots, 0, PP_CROSS_COMPONENT_HINT_MAX);
-            } else {
-                $slots_unscanned = 0;
-            }
-
-            $all_components = pp_get_registered_components();
-            foreach ($invalid_slots as $invalid_slot) {
-                // Defence in depth rather than a live path, and the reason is an
-                // invariant worth stating: a key reaches either assignment below only
-                // by equalling a declared slot name (exact) or by sharing a normalized
-                // suffix with one (suffix). Declared names are clean and at most 39
-                // characters, and neither a name carrying stripped characters nor one
-                // past the length budget can satisfy either test — the comparisons run
-                // on the RAW key. So wherever $reflected is used below it is equal to
-                // $invalid_slot, and the cleaning is a no-op that costs one call and
-                // keeps this from being a premise the registry could stop satisfying.
-                $reflected = _pp_clean_reflected_text((string) $invalid_slot, PP_REFLECTED_NAME_MAX);
-                $suffix = preg_replace('/^--[a-z]+-/', '--*-', $invalid_slot);
-                foreach ($all_components as $other_name => $other_schema) {
-                    if ($other_name === $component_name) continue;
-                    $other_slots = pp_get_style_slots($other_name);
-                    // Exact match
-                    if (isset($other_slots[$invalid_slot])) {
-                        $cross_hints->{$reflected} = [
-                            'component' => $other_name,
-                            'slot'      => $reflected,
-                            'match'     => 'exact',
-                        ];
-                        break;
-                    }
-                    // Suffix match: strip component prefix, compare
-                    foreach ($other_slots as $other_slot_name => $other_slot_def) {
-                        $other_suffix = preg_replace('/^--[a-z]+-/', '--*-', $other_slot_name);
-                        if ($suffix === $other_suffix) {
-                            $cross_hints->{$reflected} = [
-                                'component' => $other_name,
-                                'slot'      => $other_slot_name,
-                                'match'     => 'suffix',
-                            ];
-                            break 2;
-                        }
-                    }
-                }
-            }
-
-            $hints_array = (array) $cross_hints;
-            $has_hints = $hints_array !== [];
-            if ($has_hints) {
-                $first_hint = reset($hints_array);
-                // CLEANED, LIKE ITS SIBLING (#864). $component_name is read from stored
-                // composition ($composition[$idx]['component']) on the fallback path, so
-                // it is reflected text; the no-hint branch below has routed the identical
-                // value through the same owner at the same budget since #661, inside
-                // _pp_no_hint_slot_message(). Two branches of one switch arm gave that
-                // value two answers, and which one a caller got depended on whether a
-                // cross-component hint happened to match. $first_hint['component'] needs
-                // nothing: it is a key of pp_get_registered_components(), theme-authored.
+            // This used to be the misspelled-slot answer: a rejection carried its own
+            // candidate set, this branch diffed it against the component's DECLARED slots
+            // and, for each unknown key, scanned every other registered component for the
+            // same name so it could say "that setting lives on `hero`, not here".
+            //
+            // No component declares a style slot now, so every one of those moving parts
+            // is unreachable and they are deleted rather than left to run over empty sets:
+            //
+            //   pp_rejected_slot_context()  required a NON-EMPTY `available_slots` to
+            //                               return anything, so it answered null always
+            //   the cross-component scan    compared against other components' slot maps,
+            //                               every one of which is empty — no hint can match
+            //   `unknown_slots_unscanned`   counted keys skipped by the scan's bound;
+            //                               reporting unexamined keys when no key can
+            //                               produce a hint is noise, not a disclosure
+            //
+            // WHAT STILL REACHES HERE IS REAL, which is why the arm survives the sweep: a
+            // band written before its component's v2 rebuild still carries a stored `style`
+            // map, and _pp_validate_style_slot_map() refuses EVERY edit to that band by
+            // this code until the map is cleared. So the author meeting this message is not
+            // someone who mistyped a slot — it is someone holding a page from the previous
+            // era, and the answer they need is the repair route, which the validator's own
+            // message carries and `raw_error` delivers intact.
+            $composition = pp_get_composition($params['post_id'] ?? 0);
+            $idx         = _pp_resolve_component_index_for_error($params);
+            if (_pp_component_target_not_found($params, $idx)) {
+                // IT RETURNS `component_not_found`, NOT THE CODE IT WAS HANDED (#1101).
                 //
-                // The `?:` is KEPT rather than swapped for the sibling's `=== ''` test, so
-                // the sentence stays byte-identical for every well-formed name — including
-                // a component literally named "0", which both branches still describe as
-                // "the selected" one. That divergence predates this change and is not the
-                // reflected-text axis.
-                $user_message = sprintf(
-                    'I tried to change a setting on the %s component, but it isn\'t available there. It does exist on the %s component. You could ask me to change it there instead.',
-                    _pp_clean_reflected_text((string) $component_name, PP_REFLECTED_NAME_MAX) ?: 'selected',
-                    $first_hint['component']
-                );
-            } else {
-                // $context !== null is exactly "the rejection carried its own candidate
-                // set", which is what licenses quoting a single rejected name (#626).
-                $user_message = _pp_no_hint_slot_message(
-                    $component_name,
-                    $available,
-                    $invalid_slots,
-                    $context !== null
-                );
+                // This arm fires when the caller named a `component_id` that resolves to
+                // nothing. It used to echo `invalid_style_slot` back, which was harmless
+                // while that code meant one thing — the card's own sentence said
+                // "couldn't find that component" and the reader saw the truth.
+                //
+                // It stopped being harmless when `invalid_style_slot` came to mean an AGED
+                // BAND, because the chat's status bar reads the CODE and now answers that
+                // meaning: it would tell an author whose id was stale to clear styling from
+                // a band that does not exist. Two halves of one card saying different
+                // things is the #667 defect, and echoing a code whose meaning has narrowed
+                // under you is how you get there.
+                //
+                // `component_not_found` is what actually happened, is already a code this
+                // system uses, and lets the JS answer the real problem.
+                return [
+                    'error_code'            => 'component_not_found',
+                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
+                    'alternatives'          => [],
+                    'cross_component_hints' => (object) [],
+                    'raw_error'             => $raw_msg,
+                ];
             }
+            $component_name = isset($composition[$idx])
+                ? (string) ($composition[$idx]['component'] ?? '')
+                : '';
 
-            $response = [
-                'error_code'            => $code,
-                'user_message'          => $user_message,
-                'alternatives'          => $available,
-                'cross_component_hints' => $cross_hints,
-                'raw_error'             => $raw_msg,
-            ];
-            // Present only when the bound actually applied, so the response shape on
-            // every ordinary rejection is exactly what it was before. Named for what
-            // it counts: keys that were never examined. Most unknown keys yield no
-            // hint even when scanned, so calling it a count of omitted hints would
-            // overstate what was lost.
-            if ($slots_unscanned > 0) {
-                $response['unknown_slots_unscanned'] = $slots_unscanned;
-            }
-            return $response;
-
-        case 'invalid_style_value':
-            // Extract the slot name, type, and description from schema.
-            $slot_name   = '';
-            $type_hint   = '';
-            $slot_desc   = '';
-            $slot_default = '';
-            if (preg_match('/^Style slot "([^"]+)"/', $raw_msg, $m)) {
-                // Cleaned once, then used for both the schema lookup and the message.
-                // A name that this changes cannot match a declared slot anyway, and a
-                // declared name (39 characters at the longest) passes through untouched.
-                $slot_name = _pp_clean_reflected_text($m[1], PP_REFLECTED_NAME_MAX);
-                $composition = pp_get_composition($params['post_id'] ?? 0);
-                $idx         = _pp_resolve_component_index_for_error($params);
-                $comp_name   = $composition[$idx]['component'] ?? '';
-                $slots       = pp_get_style_slots($comp_name);
-                $type_hint    = $slots[$slot_name]['type'] ?? '';
-                $slot_desc    = $slots[$slot_name]['description'] ?? '';
-                $slot_default = $slots[$slot_name]['default'] ?? '';
-            }
-
-            // Detect CSS keyword removal attempts (none, unset, initial, auto, inherit).
-            $attempted_value = '';
-            $style = $params['style'] ?? [];
-            if ($slot_name && isset($style[$slot_name])) {
-                $attempted_value = strtolower(trim((string) $style[$slot_name]));
-            }
-            $css_keywords = ['none', 'unset', 'initial', 'auto', 'inherit', 'revert'];
-
-            if ($attempted_value && in_array($attempted_value, $css_keywords, true)) {
-                // User tried to remove/disable a constraint via CSS keyword.
-                $suggestion = _pp_suggest_alternative_value($type_hint, $slot_desc, $slot_default);
-                if ($suggestion) {
-                    return [
-                        'error_code'            => $code,
-                        'user_message'          => sprintf(
-                            'The value "%s" can\'t be used for style settings. %s',
-                            $attempted_value,
-                            $suggestion
-                        ),
-                        'alternatives'          => [],
-                        'cross_component_hints' => (object) [],
-                        'raw_error'             => $raw_msg,
-                    ];
-                }
-            }
-
-            $format_hints = [
-                'color'       => 'Use hex (#1a1a2e), rgb(), rgba(), hsl(), or hsla() format.',
-                // DERIVED, never restated. This hint used to be a hand-maintained
-                // second copy of the accepted unit set with no test pinning it to
-                // the validator — it happened to agree, until the v2 consolidation
-                // would have silently made it a lie. pp_css_grammar_summary() is
-                // the single owner (lib/apply.php); FriendlyErrorMessageBoundTest
-                // pins this string against it.
-                'length'      => sprintf('Use a number with a CSS unit (%s), e.g. 4rem, 200px.', pp_css_grammar_summary()),
-                'number'      => 'Use a plain number without units (e.g. 650, 1.6).',
-                'duration'    => 'Use a number with ms or s (e.g. 300ms, 0.3s).',
-                'font-family' => 'Use a comma-separated list of font names.',
-                'shadow'      => 'Use a preset ("var(--shadow-sm)", "var(--shadow-md)", "var(--shadow-lg)", or "none") or a single-layer box-shadow like "0 4px 12px rgba(0,0,0,0.1)".',
-                'gradient'    => 'Use a color (hex, rgb(), rgba(), hsl(), hsla()) or a gradient like "linear-gradient(135deg, #1a1a2e, #16121f)" or "radial-gradient(#1a1a2e, #16121f)".',
-            ];
+            // THE VISIBLE SENTENCE DESCRIBES WHAT HAPPENED, which is the half a reader
+            // actually sees: `user_message` is always open on the card, `raw_error` is
+            // behind a disclosure. It used to say "I tried to change a style setting that
+            // the X component doesn't support" — accurate for a mistyped slot name, and
+            // wrong for the case that produces this code now, where the author very likely
+            // changed a TITLE and met a refusal about a slot they never mentioned.
             return [
                 'error_code'            => $code,
-                'user_message'          => sprintf(
-                    'The value for %s isn\'t in the right format. %s',
-                    $slot_name ? '"' . $slot_name . '"' : 'the style slot',
-                    $format_hints[$type_hint] ?? 'Check the expected format and try again.'
-                ),
+                'user_message'          => _pp_aged_style_map_message($component_name),
                 'alternatives'          => [],
                 'cross_component_hints' => (object) [],
                 'raw_error'             => $raw_msg,
             ];
+
+        // THE `invalid_style_value` ARM WAS HERE AND IS UNREACHABLE (#1101). Both of its
+        // producers sit BEHIND a declared-slot check — lib/admin.php's two raisers run
+        // only after `isset($available_slots[$slot_name])`, and lib/actions.php's runs
+        // inside style_component's body, which `no_style_slots` returns before. No
+        // component declares a slot, so no input reaches either. It took
+        // _pp_suggest_alternative_value() with it: that helper turned a rejected CSS
+        // keyword into a per-type suggestion ("try 100% instead of `none` on a length"),
+        // and it had exactly one caller, here.
+        //
+        // The equivalent v2 answer is not missing, it is elsewhere: a bad value in a `udc`
+        // map is refused by pp_udc_validate_value() (lib/udc.php) naming the role, the
+        // group and the parameter, which is a more precise locator than a slot name ever
+        // was.
 
         case 'no_style_slots':
             return [
@@ -880,34 +593,14 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 'raw_error'             => $raw_msg,
             ];
 
-        case 'invalid_recipe':
-            $available_recipes = [];
-            $composition = pp_get_composition($params['post_id'] ?? 0);
-            $idx         = _pp_resolve_component_index_for_error($params);
-            if (_pp_component_target_not_found($params, $idx)) {
-                return [
-                    'error_code'            => $code,
-                    'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
-                    'alternatives'          => [],
-                    'cross_component_hints' => (object) [],
-                    'raw_error'             => $raw_msg,
-                ];
-            }
-            if (isset($composition[$idx])) {
-                $comp_name = $composition[$idx]['component'] ?? '';
-                $recipes   = pp_get_style_recipes($comp_name);
-                $available_recipes = array_keys($recipes);
-            }
-            return [
-                'error_code'            => $code,
-                'user_message'          => sprintf(
-                    'That recipe doesn\'t exist. Available recipes: %s',
-                    $available_recipes ? implode(', ', $available_recipes) : '(none)'
-                ),
-                'alternatives'          => $available_recipes,
-                'cross_component_hints' => (object) [],
-                'raw_error'             => $raw_msg,
-            ];
+        // THE `invalid_recipe` ARM WAS HERE AND IS UNREACHABLE (#1101). `style_component`
+        // is the only producer of that code, and its refusal now fires BEFORE the recipe
+        // parameter is read — measured: a real recipe name, a made-up one and a slot value
+        // all return `no_style_slots` (tests/AgedBandStoredStyleMapTest.php). No shipped
+        // component declares a recipe, so there is also no roster for the arm to offer.
+        //
+        // The v2 equivalent of a recipe is a PRESET (`save_preset`), and its refusals are
+        // named by the UDC engine on their own codes rather than routed through here.
 
         default:
             return [
@@ -920,68 +613,6 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
     }
 }
 
-/**
- * Suggests a valid alternative value when a CSS keyword was rejected.
- * Uses the slot's type and description to pick a practical suggestion.
- */
-function _pp_suggest_alternative_value(string $type, string $description, string $default): ?string {
-    $desc_lower = strtolower($description);
-
-    if ($type === 'length') {
-        // Max-width / width constraints: suggest 100% to "use all available space".
-        if (strpos($desc_lower, 'max') !== false || strpos($desc_lower, 'width') !== false) {
-            return 'Try setting it to "100%" to use all available horizontal space.';
-        }
-        // Padding / gap / spacing: suggest "0" to remove.
-        if (strpos($desc_lower, 'padding') !== false || strpos($desc_lower, 'gap') !== false || strpos($desc_lower, 'spacing') !== false || strpos($desc_lower, 'margin') !== false) {
-            return 'Try setting it to "0" to remove the spacing.';
-        }
-        // Radius: suggest "0" to remove.
-        if (strpos($desc_lower, 'radius') !== false) {
-            return 'Try setting it to "0" to remove the rounding.';
-        }
-        // Generic length: suggest a large value.
-        return 'This slot requires a numeric value with a CSS unit (e.g. 100%, 9999px, 0).';
-    }
-
-    if ($type === 'length-or-none') {
-        // The width caps whose declared default is `none` — the band-geometry cap
-        // (#579) and the four uncapped text measures (#578). This is the ONE length family whose
-        // grammar can express "remove the cap", so the suggestion is the keyword
-        // itself rather than the `100%` workaround a plain `length` slot needs.
-        return 'Try "none" to remove the cap entirely, or a value with a CSS unit (e.g. 60rem, 100%).';
-    }
-
-    if ($type === 'color') {
-        return 'Try "transparent" for an invisible color, or a hex/rgb value.';
-    }
-
-    if ($type === 'number') {
-        return 'This slot requires a plain number (e.g. 0, 1, 650).';
-    }
-
-    if ($type === 'align') {
-        return 'This slot requires a text-align keyword: "left", "right", "center", "start", "end", or "justify".';
-    }
-
-    if ($type === 'text-transform') {
-        return 'This slot requires a text-transform keyword: "none" (sentence case as authored), "uppercase", "lowercase", or "capitalize".';
-    }
-
-    if ($type === 'duration') {
-        return 'Try "0s" to disable the duration, or a value like "300ms".';
-    }
-
-    if ($type === 'shadow') {
-        return 'Try a preset: "var(--shadow-sm)", "var(--shadow-md)", "var(--shadow-lg)", or "none". Or a single-layer box-shadow like "0 4px 12px rgba(0,0,0,0.1)".';
-    }
-
-    if ($type === 'gradient') {
-        return 'Try "transparent" for an invisible background, a hex/rgb color, or a gradient like "linear-gradient(135deg, #1a1a2e, #16121f)".';
-    }
-
-    return null;
-}
 
 // ── Capability Resolver ─────────────────────────────────────────────────────
 

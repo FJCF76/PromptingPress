@@ -188,10 +188,12 @@ class StyleSlotContractTest extends TestCase
      * false), and the predicate that produced both answers still returns true for a schema
      * that DOES declare a slot map.
      *
-     * The detection proof is a synthetic decoded schema rather than a fixture on disk. The
-     * fixture component `tests/fixtures/components/ppfixture` still declares sixteen slots
-     * and would have served — but it is scheduled for deletion, and a proof that dies with
-     * a fixture is a proof that stops proving on someone else's schedule.
+     * The detection proof is a synthetic decoded schema rather than a fixture on disk,
+     * because a proof that dies with a fixture stops proving on someone else's schedule.
+     * That reasoning was written when `tests/fixtures/components/ppfixture` still declared
+     * sixteen slots and would have served; #1101 stripped it to zero (and did NOT delete
+     * it), so the fixture could no longer serve even if you wanted it to — and the census
+     * five lines below now reads that same fixture, asserting the zero.
      */
     public function testNoComponentDeclaresAStyleSlotAndDiscoveryCouldStillSeeOne(): void
     {
@@ -234,6 +236,70 @@ class StyleSlotContractTest extends TestCase
         );
         $this->assertFalse(self::declaresStyleSlots(['styling' => ['style_slots' => []]]));
         $this->assertFalse(self::declaresStyleSlots([]));
+
+        // ANTI-VACUITY 4: THE TEST FIXTURE, WHICH THE GLOB ABOVE CANNOT SEE (#1101 PR2).
+        //
+        // `discover()` reads components/*/schema.json — the SHIPPED registry. But the last
+        // declarer of a style slot in this repo was never a shipped component: it was
+        // tests/fixtures/components/ppfixture, which is why the slot engine stayed alive
+        // for a whole sprint after the last real consumer left. A census that cannot see
+        // the fixture would have reported ZERO throughout that sprint and been wrong about
+        // the only thing anyone needed to know.
+        //
+        // Read off disk rather than through the registry, deliberately: the fixture is
+        // invisible to pp_get_registered_components() without an opt-in, so asking the
+        // registry would answer "not present" and prove nothing about what it declares.
+        $fixture = dirname(__DIR__) . '/tests/fixtures/components/ppfixture/schema.json';
+        $this->assertFileExists($fixture, 'the fixture moved — this census now has a blind spot');
+        $fixtureSchema = json_decode((string) file_get_contents($fixture), true);
+        $this->assertIsArray($fixtureSchema);
+        $this->assertFalse(
+            self::declaresStyleSlots($fixtureSchema),
+            'ppfixture declares a style slot again. It was the LAST declarer in the repo and '
+            . 'the reason the engine outlived its last shipped consumer by a sprint — so a '
+            . 'slot here is not a test detail, it is the engine coming back with no wiring '
+            . 'contract behind it. Read this file\'s header first.'
+        );
+    }
+
+    /**
+     * THE RECIPE HALF OF THE SAME CENSUS, and it needs its own method because a recipe
+     * could be declared without a slot map: `styling.recipes` is read by a different
+     * accessor and nothing makes the two move together.
+     *
+     * A recipe was a named bundle of slot values. With no slots to bundle, one would be a
+     * name an author could ask for and never receive — style_component refuses before it
+     * reads the `recipe` parameter at all, so the request would not even fail informatively.
+     */
+    public function testNoComponentDeclaresARecipeEither(): void
+    {
+        $declaring = [];
+        $checked   = 0;
+        foreach (glob($this->themeRoot . '/components/*/schema.json') as $schemaFile) {
+            $schema = json_decode((string) file_get_contents($schemaFile), true);
+            $this->assertIsArray($schema, basename(dirname($schemaFile)) . '/schema.json is not valid JSON');
+            $checked++;
+            if (($schema['styling']['recipes'] ?? []) !== []) {
+                $declaring[] = basename(dirname($schemaFile));
+            }
+        }
+
+        $this->assertSame([], $declaring, 'a component declares `styling.recipes` again, and there is no engine to expand it');
+        $this->assertGreaterThanOrEqual(12, $checked, 'schema discovery found fewer components than the theme ships');
+
+        // The fixture, for the same reason as above: it held the last three recipes in the
+        // repo, moved here from grid earlier in #1101 and deleted with the engine.
+        $fixtureSchema = json_decode(
+            (string) file_get_contents(dirname(__DIR__) . '/tests/fixtures/components/ppfixture/schema.json'),
+            true
+        );
+        $this->assertIsArray($fixtureSchema);
+        $this->assertSame([], $fixtureSchema['styling']['recipes'] ?? [], 'ppfixture declares a recipe again');
+
+        // And the engine's own answer, which is what an author would actually meet.
+        foreach (['grid', 'hero', 'section', 'cta'] as $component) {
+            $this->assertSame([], pp_get_style_recipes($component));
+        }
     }
 
     /**
