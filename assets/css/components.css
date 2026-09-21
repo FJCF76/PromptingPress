@@ -1707,6 +1707,32 @@
   outline-offset: -3px;
 }
 
+/* THE INSET RING NEEDS SOMEWHERE TO LAND, AND WITHOUT THIS IT LANDS ON THE LABEL.
+   The rule above draws the ring 3px INSIDE the link's border box, because
+   `.grid__item` clips anything outside it. But the link had NO inline padding, and an
+   inline-flex box hugs its text — so the glyphs start exactly at the border box edge
+   and a 2px stroke at -3px cuts straight through them.
+
+   MEASURED IN CHROMIUM at 1280, before this rule: box left edge x=129, first glyph
+   x=129, ring stroke spanning x=[130, 132]. The stroke crossed the stem of the "R" in
+   "Read" and split the `::after` arrow. A focus affordance that obscures the thing it
+   is indicating fails on its own terms — it was a regression inside the fix for #1056,
+   caught by the pre-landing design pass.
+
+   PADDING OUT, MARGIN BACK, so nothing moves. The 5px inline padding gives the ring
+   its 3px offset plus its 2px stroke; the equal negative margin keeps the link's text
+   optically aligned with the copy above it, which is what `align-self` and the
+   `card-body` text alignment are positioning. Symmetric, so an authored
+   `sizing.align-self: center` still centres the same visual box.
+
+   STRUCTURAL, LIKE THE OFFSET ITSELF. Both halves of this affordance have to be out of
+   the author's reach or the pair can be broken one write at a time — which is the whole
+   reason #1056 was fixed here rather than as a role default. */
+.grid__item-link {
+  padding-inline: 5px;
+  margin-inline: -5px;
+}
+
 .grid__empty {
   grid-column: 1 / -1;
 }

@@ -595,15 +595,45 @@ class GridRoleDefaultsEmitTest extends TestCase
             'subheading' => ['typography' => ['color' => '@color-bg']],
         ], 'grid'), 'the documented dark-band write must be accepted whole');
 
-        // `theme: "muted"` -> the framing rule pair, not a fill.
+        // `theme: "muted"` -> the framing rule pair, not a fill. PER-EDGE `style`, and
+        // the first cut of this test used a BLANKET one — which validates, which is
+        // exactly why validating it proved nothing.
+        //
+        // `border.style` sets `border-style` on all four edges. With widths declared only
+        // top and bottom, the left and right edges have a style and no width, so they
+        // fall back to CSS's initial `border-width: medium` — 3px. Measured: the band
+        // grew a 3px rule down both sides and the card track lost 6px, on a route the
+        // README handed the author and this test called correct.
         $this->assertNull(pp_udc_validate_map([
             '_band' => [
                 'border' => [
-                    'width-top' => '1px', 'width-bottom' => '1px',
-                    'style'     => 'solid', 'color' => '@color-border',
+                    'width-top'  => '1px', 'width-bottom'  => '1px',
+                    'style-top'  => 'solid', 'style-bottom' => 'solid',
+                    'color'      => '@color-border',
                 ],
             ],
         ], 'grid'), 'the `muted` framing route must be accepted');
+
+        // AND IT EMITS PER-EDGE, which is the half acceptance cannot see. This file's own
+        // docblock says it: a schema key can be correct while the emission is wrong.
+        $framed = pp_udc_band_css([
+            'component' => 'grid',
+            'id'        => 'pp-11112222',
+            'udc'       => ['_band' => ['border' => [
+                'width-top'  => '1px', 'width-bottom'  => '1px',
+                'style-top'  => 'solid', 'style-bottom' => 'solid',
+                'color'      => '@color-border',
+            ]]],
+            'props'     => ['items' => [['title' => 'a']]],
+        ]);
+        $this->assertStringContainsString('border-top-style:solid;', $framed);
+        $this->assertStringContainsString('border-bottom-style:solid;', $framed);
+        $this->assertStringNotContainsString(
+            'border-style:solid;',
+            $framed,
+            'a blanket border-style gives the width-less side edges CSS\'s initial `medium` '
+            . '— a 3px rule the muted band never had'
+        );
 
         // `title_align: "center"` -> the header's alignment, plus the auto margins that
         // centre the two capped BOXES. `text-align` alone leaves both boxes at the left

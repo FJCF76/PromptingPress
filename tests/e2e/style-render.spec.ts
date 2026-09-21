@@ -2478,6 +2478,40 @@ test.describe('Safe-surface rendered proof', () => {
         `the focus ring must STILL paint with the card body flush to the clip box @${width} — ` +
           'zero accent pixels here is WCAG 2.4.7 and means the outward offset came back',
       ).toBeGreaterThan(30);
+
+      // AND IT MUST NOT PAINT ON THE LABEL. An inset ring has to land in padding; an
+      // inline-flex box hugs its text, so with no inline padding the stroke cut straight
+      // through the glyphs — measured at 1280: box left x=129, first glyph x=129, stroke
+      // spanning x=[130,132], crossing the "R" of "Read" and splitting the ::after arrow.
+      // That was a regression INSIDE this fix, and "the ring paints" alone could not see
+      // it: the pixels it counts are the same pixels either way.
+      const clearance = await page
+        .locator('#pp-grid-ring .grid__item-link')
+        .first()
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          const box = el.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+          const off = parseFloat(cs.outlineOffset);
+          const stroke = parseFloat(cs.outlineWidth);
+          // A negative offset draws the ring inward; its inner edge sits `|off| + width`
+          // from the border box on each side.
+          const inset = Math.abs(off) + stroke;
+          return {
+            left: Math.min(...rects.map((r) => r.left)) - (box.left + inset),
+            right: box.right - inset - Math.max(...rects.map((r) => r.right)),
+          };
+        });
+      expect(
+        clearance.left,
+        `the ring must not cross the first glyph @${width} — it needs inline padding to land in`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        clearance.right,
+        `the ring must not cross the arrow @${width}`,
+      ).toBeGreaterThanOrEqual(0);
     }
   });
 
