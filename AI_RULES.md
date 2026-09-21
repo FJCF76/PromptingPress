@@ -167,7 +167,7 @@ npm run test:e2e    # editor round-trip, serialization gate, CLI actions, post-a
 npm run env:stop    # tear down
 ```
 
-Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, accordion round-trip, the serialization gate (blocked state, save/publish restore, copy-as-issue), and rendered-layout proof — geometry and style slots measured in the browser, because a static check on the CSS text cannot prove what the cascade actually renders.
+Requires Docker. Tests cover workspace init, preview updates, save rejection, autosave skip, front-end rendering, accordion round-trip, the serialization gate (blocked state, save/publish restore, copy-as-issue), and rendered-layout proof — geometry and the band CSS the design engine emits, measured in the browser, because a static check on the CSS text cannot prove what the cascade actually renders. (It measured style SLOTS until #1101; no component declares one now, and a v2 band's design arrives as a band-scoped block rather than an inline style attribute.)
 
 ## File responsibilities
 
