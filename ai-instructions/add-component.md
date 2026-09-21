@@ -224,7 +224,7 @@ buys you a role that passes CI and styles nothing.
 
   **`defaults` and an authored `udc` map do not accept the same values, and this is the
   trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is what
-  EIGHT of the nine v2 `_band` roles use for their padding, stats included. `hero` is
+  NINE of the ten composable `_band` roles use for their padding, `grid` included since #1101. `hero` is
   deliberately outside that rhythm, carrying its own `@space-2xl` / `@space-xl` scale, and
   chrome is outside it too (`footer` uses `@space-lg`, `nav` declares no spacing default),
   so "every band shares one rhythm" is the rule and a band is allowed its own scale when

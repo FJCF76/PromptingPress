@@ -286,13 +286,12 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **NONE OF THE NINE v2 COMPONENTS IS ON THIS SURFACE ANY MORE (#986, #1023, #1026,
-> #1046, #1066): hero, section, testimonials, cta, faq, table, embed, stats and logos.**
-> Everything in this section describes the v1 per-instance STYLE SLOT cascade, which now
-> governs `grid` ALONE — the last v1 component in the theme (`stats` and `logos` left at
-> #1066). `hero`, `section`, `testimonials`, `faq`, `table`, `embed`, `stats`, `logos`
-> and `cta` — all nine — are v2 components with no style slots: their buttons and text are ROLES, styled
-> through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
+> **NO COMPONENT IS ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046, #1066, #1101).**
+> Everything in this section describes the v1 per-instance STYLE SLOT cascade, and that
+> cascade governs NOTHING: `grid` was the last component on it and its rebuild at #1101
+> retired the engine itself. All TEN composable components — hero, section, testimonials,
+> cta, faq, table, embed, stats, logos and grid — declare no style slots, and their
+> buttons and text are ROLES styled through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with
 > `no_style_slots`. Read
 > them as "the cta equivalent"; to restyle a hero button set `background.fill`,
