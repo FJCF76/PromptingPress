@@ -365,6 +365,26 @@ function pp_udc_reserved_keys(): array {
 const PP_UDC_PRESET_KEY = '_preset';
 
 /**
+ * The key an `items[]` entry carries its own design map under (Addendum B1).
+ *
+ * DELIBERATELY THE SAME WORD AS THE BAND'S, and not `_udc` or `item_udc`. B1's
+ * claim is that an item map is "identical in internal shape to a band's `udc`
+ * map, validated by the same engine, the same grammar, the same group taxonomy
+ * and the same refusal codes" — an author who has learned one has learned the
+ * other, and a second spelling would imply a second thing to learn.
+ *
+ * It carries NO underscore prefix, unlike `_tokens`, `_band` and `_preset`,
+ * because those three are engine-owned keys sitting INSIDE a map while this is
+ * the map itself, sitting beside `title` and `text` in an entry the author
+ * wrote. The prefix marks "the engine owns this name"; here the name is the
+ * author's entry point.
+ */
+const PP_UDC_ITEM_MAP_KEY = 'udc';
+
+/** The key an `items[]` entry carries its minted styling handle under. */
+const PP_UDC_ITEM_ID_KEY = 'id';
+
+/**
  * A preset name is stable, not CSS: the charset matches a band token's name.
  *
  * ANCHORED WITH `\z`, NOT `$`, AND THE DIFFERENCE IS THE POINT. PCRE's `$` matches
@@ -1752,6 +1772,184 @@ function pp_udc_is_v2_component(string $component): bool {
     return pp_udc_component_roles($component) !== [];
 }
 
+// ── Item grain (BUILD-SPEC Addendum B) ──────────────────────────────────────
+
+/**
+ * A component's ITEM-GRAIN declaration, from `schema.item_roles`, or null.
+ *
+ * ADDENDUM B5 IN ONE FUNCTION: item-grain addressing is DECLARED, and the
+ * engine holds no list of component names. A component that declares nothing
+ * here behaves exactly as it did before this tier existed — which is what makes
+ * the tier additive rather than a migration.
+ *
+ * The declaration names three things and no more:
+ *   prop   the repeater prop that holds the entries
+ *   root   the role an entry's own `data-pp-item` attribute is rendered on
+ *   roles  which of the component's roles an entry's map may address
+ *
+ * FAILS CLOSED ON A MALFORMED DECLARATION, and that is the #1090 lesson applied
+ * before it can bite: a declaration this cannot read returns null, so the
+ * component simply has no item grain rather than half of one. A schema that
+ * reaches that branch is a repo bug, and SchemaValidationTest fails on it in CI
+ * rather than leaving it to be discovered as missing CSS.
+ *
+ * EVERY NAMED ROLE MUST EXIST, and `root` must be among them. A role named here
+ * that the component does not declare would validate an author's map against a
+ * role the emitter then skips — stored, reported ok, painting nothing, which is
+ * the I35 class this contract exists to close.
+ *
+ * @return array{prop: string, root: string, roles: array<int, string>}|null
+ */
+function pp_udc_item_roles(string $component): ?array {
+    $registered  = pp_get_registered_components();
+    $declaration = $registered[$component]['item_roles'] ?? null;
+    if (!is_array($declaration)) {
+        return null;
+    }
+
+    $prop = $declaration['prop'] ?? null;
+    $root = $declaration['root'] ?? null;
+    $list = $declaration['roles'] ?? null;
+    if (!is_string($prop) || $prop === '' || !is_string($root) || $root === ''
+        || !is_array($list) || $list === [] || !pp_is_list($list)) {
+        return null;
+    }
+
+    $roles = pp_udc_component_roles($component);
+    if (!isset($roles[$root])) {
+        return null;
+    }
+    foreach ($list as $name) {
+        if (!is_string($name) || !isset($roles[$name])) {
+            return null;
+        }
+    }
+    if (!in_array($root, $list, true)) {
+        return null;
+    }
+    // The repeater must be a declared prop, or nothing ever reaches this tier.
+    $props = $registered[$component]['props'] ?? [];
+    if (!is_array($props) || !isset($props[$prop])) {
+        return null;
+    }
+
+    return ['prop' => $prop, 'root' => $root, 'roles' => array_values($list)];
+}
+
+/**
+ * The shape of an item's styling handle (Addendum B2).
+ *
+ * STRICTER THAN pp_udc_valid_band_id() ON PURPOSE, and the asymmetry is the
+ * whole safety argument for widening the token namespace. A band id is
+ * permissive because v2 inherited authored ids; an item id is minted by this
+ * engine and by nothing else, so it can be pinned to exactly the shape the
+ * engine produces: the literal prefix, then eight lowercase hex digits.
+ *
+ * WHAT THE PREFIX BUYS, beyond readability. `it-` cannot begin a band id that
+ * this engine mints (`pp-`), so the two can never be confused in a selector, a
+ * message or a test — B2 asks for that in as many words. It also gives the mint
+ * classifier an unambiguous first segment to split on, which is what lets a
+ * token name carrying an item segment be resolved back to the ONE map that
+ * could have produced it instead of searched for across all of them.
+ *
+ * ANCHORED WITH `\z`, NOT `$`. PCRE's `$` matches before a final newline unless
+ * the `D` modifier is set, so `/^…$/` accepts "it-deadbeef\n" — and this value
+ * is interpolated into a CSS attribute selector. Every sibling string-to-CSS
+ * gate in this file anchors the same way; widen the CLASS if a ruling says so,
+ * never the ANCHORING.
+ */
+function pp_udc_valid_item_id(string $id): bool {
+    return (bool) preg_match('/^it-[0-9a-f]{8}\z/', $id);
+}
+
+/**
+ * The reserved keys an ITEM map may not carry, each with the reason it is
+ * refused rather than ignored (Addendum B6 exclusions 2, 7, and the `_tokens`
+ * boundary that falls out of B4).
+ *
+ * REFUSED, NEVER IGNORED. A key accepted and dropped is the accepted-stored-
+ * ignored shape invariant I35 forbids, and it is worse here than at band grain:
+ * an author who writes `_band` inside a card is expressing an intention the
+ * contract has decided against, and silence would let them believe it landed.
+ *
+ * `_tokens` is not an exclusion the owner ruled — it falls out of B4. Minted
+ * item values lift their literals into the BAND's `_tokens` map, because the
+ * tokens are emitted as custom properties on the band root and that is the only
+ * element both tiers share. A second token map inside an item would have no
+ * element to declare itself on.
+ *
+ * @return array<string, string> key => the sentence the refusal uses
+ */
+function pp_udc_item_reserved_keys(): array {
+    return [
+        '_band' => 'an item cannot restyle the band that contains it — `_band` is the band\'s own root '
+            . 'by definition, so set it on the band\'s own map',
+        PP_UDC_CSS_KEY => 'raw CSS is not available at item grain: every disclosure that makes it safe '
+            . 'on a band reports with a band locator and cannot yet name a single item',
+        '_tokens' => 'tokens are declared once per band, on the band\'s own map — they emit as custom '
+            . 'properties on the band root, which is the only element the band and its items share',
+    ];
+}
+
+/**
+ * The `udc` maps a composition item carries at ITEM grain, keyed by item id.
+ *
+ * ONE READER FOR A SHAPE FOUR CALLERS NEED. The write gate, the compiler, the
+ * findings walk and the mint classifier all have to agree about which entries
+ * carry a map and what id each one answers to; four hand-rolled walks of
+ * `props[<prop>]` would be four chances to disagree, and a disagreement between
+ * the gate and the emitter is the I29 write/render split this engine exists to
+ * prevent.
+ *
+ * SKIPS WHAT CANNOT BE ADDRESSED, silently and deliberately: an entry with no
+ * usable id has no selector to emit under, and an entry with no map has nothing
+ * to emit. Neither is an error HERE — the write gate is where a malformed id or
+ * a map on an unaddressable entry is refused, and reporting it twice from two
+ * layers would give an operator two findings for one fact.
+ *
+ * @return array<string, array> item id => that item's `udc` map
+ */
+function pp_udc_item_maps(array $item): array {
+    $component = isset($item['component']) && is_scalar($item['component'])
+        ? (string) $item['component']
+        : '';
+    if ($component === '') {
+        return [];
+    }
+    $declaration = pp_udc_item_roles($component);
+    if ($declaration === null) {
+        return [];
+    }
+    $entries = $item['props'][$declaration['prop']] ?? null;
+    if (!is_array($entries)) {
+        return [];
+    }
+
+    $maps = [];
+    foreach ($entries as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $id = isset($entry['id']) && is_scalar($entry['id']) ? (string) $entry['id'] : '';
+        if ($id === '' || !pp_udc_valid_item_id($id)) {
+            continue;
+        }
+        $map = $entry[PP_UDC_ITEM_MAP_KEY] ?? null;
+        if (!is_array($map) || $map === []) {
+            continue;
+        }
+        // LAST ONE WINS IS NOT A CHOICE HERE — a duplicate id inside one band is
+        // refused at write (Addendum B2), so reaching this line with two entries
+        // claiming one id means stored data the gate never saw. Keeping the first
+        // is the conservative read: it is the one whose selector an already-
+        // rendered page was built against.
+        if (!isset($maps[$id])) {
+            $maps[$id] = $map;
+        }
+    }
+    return $maps;
+}
+
 // ── References ──────────────────────────────────────────────────────────────
 
 /**
@@ -2458,7 +2656,7 @@ function pp_udc_validate_value(string $value, array $param) {
  *
  * @return WP_Error|null
  */
-function pp_udc_validate_map($udc, string $component): ?WP_Error {
+function pp_udc_validate_map($udc, string $component, array $item_maps = []): ?WP_Error {
     if (!is_array($udc)) {
         return new WP_Error('invalid_prop_value', sprintf(
             'Component "%s" udc must be an object of roles; got %s.',
@@ -2528,7 +2726,7 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
                 ));
             }
             if (_pp_udc_is_mint_shaped_name((string) $name)
-                && !_pp_udc_name_is_the_engines_own_mint((string) $name, $udc)) {
+                && !_pp_udc_name_is_the_engines_own_mint((string) $name, $udc, $item_maps)) {
                 return new WP_Error('invalid_prop_value', sprintf(
                     'Component "%s" udc token "%s" uses a name the engine mints for itself '
                     . '(<role>-<group>-<param>[-<state>]-<breakpoint>, where <state> is one of %s). '
@@ -2622,6 +2820,155 @@ function pp_udc_validate_map($udc, string $component): ?WP_Error {
                     return $error;
                 }
                 continue;
+            }
+            $error = _pp_udc_validate_group_map(
+                $component, $role_name, (string) $group_name, $group_map, $permitted, $band_tokens, '', true
+            );
+            if ($error !== null) {
+                return $error;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Validates ONE `items[]` entry's `udc` map (Addendum B1, B6).
+ *
+ * NOT A SECOND ENGINE, and the delegation below is the proof rather than the
+ * claim. Everything that decides whether a VALUE is acceptable —
+ * `_pp_udc_validate_preset_reference()` for a preset, `_pp_udc_validate_group_map()`
+ * for a group — is the same function the band gate calls, reached with the same
+ * arguments. B1 promises "the same engine, the same grammar, the same group
+ * taxonomy, and the same refusal codes"; what this function adds is only the
+ * two things that are genuinely different at item grain, and nothing else:
+ *
+ *   1. THE RESERVED KEYS ARE REFUSED RATHER THAN SKIPPED. At band grain
+ *      `_band`, `_tokens` and `_css` are legal members that the role loop steps
+ *      over. At item grain each is an excluded capability (B6 exclusions 2 and
+ *      7, plus the `_tokens` boundary that falls out of B4), and an excluded
+ *      capability that is silently stepped over is the accepted-stored-ignored
+ *      shape I35 forbids. Each refusal carries its own reason, from
+ *      pp_udc_item_reserved_keys(), because "not a role" would send an author
+ *      looking for a typo when the answer is "that is not available here".
+ *
+ *   2. THE ROLE SET IS THE DECLARED ONE. B5 says the component names which of
+ *      its roles are item-addressable; a role the component declares but does
+ *      NOT list here is refused, and the message distinguishes that case from a
+ *      role that does not exist at all — the two have different fixes.
+ *
+ * TOKENS ARE THE BAND'S, passed in rather than parsed out. An item may
+ * REFERENCE any band token; it may not define one (see the `_tokens` refusal).
+ * Handing the band's map down is what makes `@name` resolve identically on
+ * both tiers, which is the property that keeps a minted item value readable.
+ *
+ * @param mixed  $udc         The entry's map.
+ * @param string $component   The band's component.
+ * @param array  $declaration pp_udc_item_roles() output for that component.
+ * @param array  $band_tokens The band's own `_tokens`, name => literal.
+ * @param string $where       A locator naming the entry, e.g. `items[1]`.
+ */
+function pp_udc_validate_item_map(
+    $udc,
+    string $component,
+    array $declaration,
+    array $band_tokens,
+    string $where
+): ?WP_Error {
+    if (!is_array($udc)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s" %s "%s" must be an object of roles; got %s.',
+            $component,
+            $where,
+            PP_UDC_ITEM_MAP_KEY,
+            _pp_schema_value_for_message($udc)
+        ));
+    }
+
+    $roles    = pp_udc_component_roles($component);
+    $reserved = pp_udc_item_reserved_keys();
+    $allowed  = $declaration['roles'];
+
+    foreach ($udc as $role_name => $role_map) {
+        $role_name = (string) $role_name;
+
+        if (isset($reserved[$role_name])) {
+            return new WP_Error('unknown_udc_role', sprintf(
+                'Component "%s" %s: "%s" is not available on a single item — %s.',
+                $component,
+                $where,
+                $role_name,
+                $reserved[$role_name]
+            ));
+        }
+
+        if (!in_array($role_name, $allowed, true)) {
+            // TWO DIFFERENT MISTAKES, TWO DIFFERENT SENTENCES. A role that does
+            // not exist is a typo; a role that exists but is not item-addressable
+            // is a real role the author reached for at the wrong grain, and the
+            // fix is to set it on the band instead. One message for both would
+            // send half the authors to the wrong repair.
+            if (isset($roles[$role_name])) {
+                return new WP_Error('unknown_udc_role', sprintf(
+                    'Component "%s" %s: role "%s" exists but is not settable per item — set it on the '
+                    . 'band\'s own "%s" map, where it applies to every item. Item-settable roles: %s',
+                    $component,
+                    $where,
+                    $role_name,
+                    PP_UDC_ITEM_MAP_KEY,
+                    implode(', ', $allowed)
+                ));
+            }
+            return new WP_Error('unknown_udc_role', sprintf(
+                'Component "%s" %s has no UDC role %s. Item-settable roles: %s',
+                $component,
+                $where,
+                _pp_render_undeclared_prop_keys([$role_name]),
+                implode(', ', $allowed)
+            ));
+        }
+
+        if (!is_array($role_map)) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                'Component "%s" %s role "%s" must be an object of groups; got %s.',
+                $component,
+                $where,
+                $role_name,
+                _pp_schema_value_for_message($role_map)
+            ));
+        }
+
+        $permitted = $roles[$role_name]['groups'] ?? [];
+
+        if (array_key_exists(PP_UDC_PRESET_KEY, $role_map)) {
+            $error = _pp_udc_validate_preset_reference(
+                $component, $role_name, null, $role_map[PP_UDC_PRESET_KEY], 'role', $permitted
+            );
+            if ($error !== null) {
+                return $error;
+            }
+        }
+
+        foreach ($role_map as $group_name => $group_map) {
+            if ($group_name === PP_UDC_PRESET_KEY) {
+                continue;
+            }
+            // `_css` is caught by the reserved-key gate at ROLE level above only
+            // when an author writes it as a role. Written as a GROUP inside a
+            // permitted role it arrives here, and exclusion 7 refuses it in the
+            // same words rather than letting the group validator call it an
+            // unknown group — the author asked for a capability the contract
+            // withholds, which is a different answer from "no such group".
+            if ((string) $group_name === PP_UDC_CSS_KEY) {
+                return new WP_Error('unknown_udc_group', sprintf(
+                    'Component "%s" %s role "%s": "%s" is not available on a single item — %s.',
+                    $component,
+                    $where,
+                    $role_name,
+                    PP_UDC_CSS_KEY,
+                    $reserved[PP_UDC_CSS_KEY]
+                ));
             }
             $error = _pp_udc_validate_group_map(
                 $component, $role_name, (string) $group_name, $group_map, $permitted, $band_tokens, '', true
@@ -3371,10 +3718,51 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
  * every write and make the composition false-conflict against itself, which is
  * the defect that put the props.id strip in the hash in the first place.
  */
-function pp_udc_mint_name(string $role, string $group, string $param, string $state, string $bp): string {
+/**
+ * @param string $item The minting item's id, or '' for a band-grain value.
+ *                     Addendum B4 widens the name to
+ *                     `<item>-<role>-<group>-<param>[-<state>]-<bp>` so two
+ *                     items styling the same role at the same breakpoint
+ *                     cannot collide on one token name.
+ */
+function pp_udc_mint_name(string $role, string $group, string $param, string $state, string $bp, string $item = ''): string {
     $states  = pp_udc_states();
     $segment = ($state !== '' && isset($states[$state])) ? '-' . $states[$state]['mint'] : '';
-    return $role . '-' . $group . '-' . $param . $segment . '-' . $bp;
+    // The item segment is a MINTED id, never author text — pp_udc_valid_item_id()
+    // bounds it to `it-` plus eight hex digits, so it can introduce no character
+    // the name grammar does not already admit and no second reading of the
+    // segments after it.
+    $prefix = $item !== '' ? $item . '-' : '';
+    return $prefix . $role . '-' . $group . '-' . $param . $segment . '-' . $bp;
+}
+
+/**
+ * Splits an item-minted token name into its item id and the rest, or null.
+ *
+ * ONE READING, GUARANTEED, which is the property the whole widening rests on.
+ * A mint name joins its segments with `-` and escapes nothing, so a new leading
+ * segment is only safe if it cannot be confused with the segments after it.
+ * `it-<hex8>` is fixed-width and charset-bounded, so the split is positional
+ * rather than a search: eleven characters, then a hyphen, then the band-grain
+ * name the classifier already knows how to read. There is no second way to
+ * read it, so this cannot open the double-decode hazard _pp_udc_mint_readings()
+ * exists to close one level down.
+ *
+ * NOT preg_quote()-BASED, AND NOT ACCIDENTALLY SO: lib/udc.php may not contain
+ * the substring this file's own engine-neutrality invariant forbids, which
+ * rules that helper out. A positional read is cheaper anyway.
+ *
+ * @return array{0: string, 1: string}|null  [item id, remaining name]
+ */
+function _pp_udc_split_item_mint(string $name): ?array {
+    if (strlen($name) < 13 || strncmp($name, 'it-', 3) !== 0 || $name[11] !== '-') {
+        return null;
+    }
+    $id = substr($name, 0, 11);
+    if (!pp_udc_valid_item_id($id)) {
+        return null;
+    }
+    return [$id, substr($name, 12)];
 }
 
 /**
@@ -3594,6 +3982,177 @@ function pp_udc_normalize_composition(array $items): array {
  *                           already cleaned for reflection. Left untouched at null,
  *                           which is what every render path passes.
  */
+/**
+ * May this role selector be emitted into a stylesheet at all?
+ *
+ * ONE GATE, TWO TIERS. The band tier and the item tier emit the SAME role
+ * selectors under different scopes, so a check that lived in only one of them
+ * would leave the other emitting what this file has already decided is unsafe.
+ * The reasoning below was written for the band loop and is unchanged by the
+ * move; what changed is that there is now exactly one copy of it.
+ *
+ * Returns false for a selector the emitter must skip. The caller decides what
+ * skipping means — the band loop continues to the next role, and neither
+ * caller ledgers the skip, for the reason the charset gate states below.
+ */
+function _pp_udc_selector_is_emittable(string $selector): bool {
+    // Second-layer gate, mirroring the render boundary's posture: schemas are
+    // repo-controlled and integrity-checked, but a selector is emitted into
+    // raw CSS and the cost of checking is a regex.
+    //
+    // THE PERMITTED CHARSET, enumerated so the next reader knows what is
+    // deliberate: letters, digits, `_`, `.`, `-`, the SPACE (descendant),
+    // `>` (child), and the two BRACKETS. Everything else is still out, and the
+    // exclusions matter as much as the inclusions — `,` would let one role own
+    // an unrelated selector list, `:` a pseudo-class or (a colon being one
+    // character from a semicolon in effect) a place to end the selector early,
+    // and `=` plus the two quote characters an attribute VALUE match. None of
+    // those can be spelled here.
+    //
+    // THE BRACKETS JOINED IN #1046, and the shape of that widening is the whole
+    // of its security argument. Without `=` or a quote character, a bracketed
+    // term can only be an attribute PRESENCE test — `[open]`, `[disabled]`,
+    // `[aria-expanded]`. `[href="javascript:void(0)"]`, `[class*="btn"]` and
+    // every other value-matching form stays unspellable, because each needs a
+    // character this class still refuses. The existing refusal case in
+    // UdcEngineTest (`.a[data-x="y"]`) survives the widening UNCHANGED for
+    // exactly that reason, and it is the cheapest proof that the class grew by
+    // presence selectors and nothing else.
+    //
+    // The measured reason, matching the `>` precedent below: faq's accordion
+    // colours its open <summary> through `.faq__item[open] > .faq__question`,
+    // an ancestor state. Ruling A3 defers ancestor states as a value DIMENSION,
+    // so the open treatment is expressed the way nav's `link-current` expresses
+    // the current page — as its own role with its own selector. Before this, a
+    // role declaring that selector was SILENTLY SKIPPED here while
+    // pp_udc_validate_map() accepted authored values on it: stored, reported
+    // `ok: true`, painting nothing. That gap is wider than faq and is filed as
+    // #1048; this widening removes faq from its reach rather than closing it.
+    // An attribute presence term is inert as CSS source text, exactly as a child
+    // combinator is: it cannot open a string, a comment or a declaration, and it
+    // cannot escape the rule it sits in.
+    //
+    // WHAT THIS GATE DOES NOT CHECK, said plainly so the next reader does not
+    // over-trust it: it bounds the CHARACTER SET, not the SHAPE. `> a`, `a >` and
+    // `a >> b` all pass it and are all invalid CSS selectors — as `.` and `--` were
+    // before `>` existed here, so this is a fragility the widening enlarges rather
+    // than creates. It matters because _pp_udc_reduced_motion_guard() groups every
+    // motion-carrying role selector into ONE comma-separated rule, and CSS discards
+    // a whole grouped rule when any selector in the list is invalid: one malformed
+    // role selector would silently drop the prefers-reduced-motion guard for every
+    // role in that scope. The input is repo-controlled (schemas are on disk and
+    // integrity-checked), so this is a theme-bug blast radius, not a reachable one —
+    // and UdcEngineTest pins the shape of every shipped selector so a bad one fails
+    // in CI rather than in someone's browser.
+    //
+    // `>` JOINED IN #994 (ruling D4) for one measured reason. nav's
+    // current-page rules were `li.current-menu-item > a`; the `link-current`
+    // role could only spell the DESCENDANT form, which also matches every link
+    // in a current parent's dropdown. That cost nothing while chrome shipped no
+    // defaults, and became a visible regression the moment the retirement made
+    // those values a default — a current "Services" page would have turned its
+    // whole submenu bold and accent-coloured. A child combinator is inert as
+    // CSS source text: it cannot open a string, a comment or a declaration, and
+    // it cannot escape the rule it sits in.
+    //
+    // THE ANCHORS ARE THE OTHER HALF OF THIS GATE, and `\z` is doing that work
+    // rather than `$`. PCRE's `$` matches before a FINAL newline unless the `D`
+    // modifier is set, so `/^…$/` accepts "a\n" — excluding `\n` from the class
+    // does NOT close that, it is precisely what makes a trailing newline the one
+    // character `$` forgives. `\z` matches only at the true end of the subject.
+    //
+    // The practical exposure was nil (a trailing newline in a selector emits inert
+    // CSS, and nothing past it can follow — ".a\n.b" was refused either way), so
+    // this is consistency and honesty rather than a fix: every sibling string-to-CSS
+    // gate in this file already uses `\z` (pp_udc_valid_band_id, the `@reference`
+    // name gates), and a maintainer widening this class again should inherit an
+    // anchoring guarantee that is actually in force. Widen the CLASS if a ruling
+    // says so; do not widen the ANCHORING.
+    // THE BRACKETS ALSO HAVE TO BALANCE, AND THE CHARSET CANNOT SAY SO.
+    //
+    // A character class is a per-character test; "every `[` has its `]`" is a
+    // property of the whole string. That distinction is not academic here, and the
+    // repo has already paid for learning it once: `_pp_udc_delimiters_balanced()`
+    // exists because CSS Syntax L3's "consume a simple block" treats `[` exactly as
+    // it treats `(` — an unclosed one consumes across the terminating `;` and the
+    // closing `}` TO EOF (#965). Its docblock is the reference.
+    //
+    // The blast radius is why this is checked here rather than trusted to the
+    // schemas. A malformed `>` costs the one grouped rule it sits in. A malformed `[`
+    // costs every rule that PRINTS AFTER IT in the SAME `<style>` element — and
+    // WordPress core concatenates a handle's inline styles into one element
+    // (WP_Styles::print_inline_style; functions.php:105 says so too). PER HANDLE,
+    // measured against functions.php rather than assumed:
+    //   defaults ride `pp-base` (:193)      -> the rest of this component's defaults,
+    //                                          every LATER component's defaults, and
+    //                                          the chrome defaults (:220)
+    //   authored rides `pp-utilities` (:198) -> every later band block and the chrome
+    //                                          authored block (:225)
+    // Two handles, so a broken DEFAULTS selector cannot reach an authored band block
+    // at all, and the token tier is safe in both directions because it is added to
+    // `pp-base` FIRST (:112) and therefore prints ahead of any damage. An earlier
+    // draft of this comment claimed the opposite on both counts.
+    // The input is repo-owned either way; this bounds what a theme bug can do, which
+    // is the same posture the charset itself takes.
+    //
+    // ONE OWNER, deliberately: this routes through the shared balance helper rather
+    // than counting brackets locally, because a second implementation of "is this
+    // delimiter-safe" is exactly the forked-grammar the architecture forbids.
+    //
+    // WHICH GATE DECIDES WHAT, measured rather than reasoned, because two earlier
+    // drafts of this comment got it wrong in opposite directions. The helper balances
+    // quotes and parens as well as brackets, but the charset below refuses `(`, `)`,
+    // `'` and `"` outright — so for those characters the helper only ever decides the
+    // UNBALANCED case, and a BALANCED one falls through to the charset:
+    //
+    //   `.a(b)`  balanced=true   charset=false  -> refused by the CHARSET
+    //   `.a"b"`  balanced=true   charset=false  -> refused by the CHARSET
+    //   `.a(b`   balanced=false  charset=false  -> refused HERE
+    //   `.a[b`   balanced=false  charset=TRUE   -> refused HERE, and ONLY here
+    //
+    // That last row is why this CALL SITE exists (the helper itself is #965's, shared
+    // with three older callers; #1046 only routes the selector path through it). Brackets are the one delimiter
+    // class the charset ADMITS (widened at #1046 for `question-open`), so this is the
+    // only thing standing between an unbalanced `[` and the emitter printing
+    // `.faq__item[open > .faq__question{...}`, which swallows the following role to
+    // end-of-rule. For every other delimiter the helper is a cheap early exit, not the
+    // decider. Order therefore changes which gate reports, never what is admitted.
+    //
+    if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
+        return false;
+    }
+
+    // BALANCED IS NOT WELL FORMED, and the charset cannot tell the difference.
+    // #1046's adversarial pass measured the gap it left: `.a[]`, `.a[[b]]` and `.a[b c]`
+    // are all BALANCED and all pass the charset, so they reached the emitter as invalid
+    // CSS — a shape no bracket could reach at all before #1046 widened the class. The
+    // cost is not confined to the rule it sits in: _pp_udc_reduced_motion_guard() emits
+    // ONE rule with a comma-joined selector list, and CSS discards an entire rule when
+    // any selector in a plain list is invalid, so one bracket typo in one role selector
+    // deletes the reduced-motion neutralisation for EVERY role of that band. Input is
+    // schema-owned, so this is a maintainer trap rather than author-reachable, and
+    // UdcEngineTest already sweeps the shipped schemas for this exact shape — but a gate
+    // should refuse what the sweep forbids instead of relying on the sweep to notice.
+    // Strip the well-formed presence terms; nothing bracket-like may survive.
+    if ($selector !== '' && strpbrk($selector, '[]') !== false) {
+        $bracket_stripped = preg_replace('/\[[A-Za-z][A-Za-z0-9_-]*\]/', '', $selector);
+        if (strpbrk((string) $bracket_stripped, '[]') !== false) {
+            return false;
+        }
+    }
+    if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector)) {
+        // DELIBERATELY NOT LEDGERED. A role selector comes only from a
+        // repo-owned, integrity-checked component schema, never from an author
+        // — the same reason a role DEFAULT's discard is filtered out of the
+        // ledger. Surfacing it would hand the operator a configuration-class
+        // finding whose next_action ("re-set that value") is unactionable for a
+        // theme bug they cannot reach.
+        return false;
+    }
+
+    return true;
+}
+
 function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
 
@@ -3668,156 +4227,11 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
 
     foreach ($ordered as $role_name => $role_def) {
         $selector = (string) ($role_def['selector'] ?? '');
-        // Second-layer gate, mirroring the render boundary's posture: schemas are
-        // repo-controlled and integrity-checked, but a selector is emitted into
-        // raw CSS and the cost of checking is a regex.
-        //
-        // THE PERMITTED CHARSET, enumerated so the next reader knows what is
-        // deliberate: letters, digits, `_`, `.`, `-`, the SPACE (descendant),
-        // `>` (child), and the two BRACKETS. Everything else is still out, and the
-        // exclusions matter as much as the inclusions — `,` would let one role own
-        // an unrelated selector list, `:` a pseudo-class or (a colon being one
-        // character from a semicolon in effect) a place to end the selector early,
-        // and `=` plus the two quote characters an attribute VALUE match. None of
-        // those can be spelled here.
-        //
-        // THE BRACKETS JOINED IN #1046, and the shape of that widening is the whole
-        // of its security argument. Without `=` or a quote character, a bracketed
-        // term can only be an attribute PRESENCE test — `[open]`, `[disabled]`,
-        // `[aria-expanded]`. `[href="javascript:void(0)"]`, `[class*="btn"]` and
-        // every other value-matching form stays unspellable, because each needs a
-        // character this class still refuses. The existing refusal case in
-        // UdcEngineTest (`.a[data-x="y"]`) survives the widening UNCHANGED for
-        // exactly that reason, and it is the cheapest proof that the class grew by
-        // presence selectors and nothing else.
-        //
-        // The measured reason, matching the `>` precedent below: faq's accordion
-        // colours its open <summary> through `.faq__item[open] > .faq__question`,
-        // an ancestor state. Ruling A3 defers ancestor states as a value DIMENSION,
-        // so the open treatment is expressed the way nav's `link-current` expresses
-        // the current page — as its own role with its own selector. Before this, a
-        // role declaring that selector was SILENTLY SKIPPED here while
-        // pp_udc_validate_map() accepted authored values on it: stored, reported
-        // `ok: true`, painting nothing. That gap is wider than faq and is filed as
-        // #1048; this widening removes faq from its reach rather than closing it.
-        // An attribute presence term is inert as CSS source text, exactly as a child
-        // combinator is: it cannot open a string, a comment or a declaration, and it
-        // cannot escape the rule it sits in.
-        //
-        // WHAT THIS GATE DOES NOT CHECK, said plainly so the next reader does not
-        // over-trust it: it bounds the CHARACTER SET, not the SHAPE. `> a`, `a >` and
-        // `a >> b` all pass it and are all invalid CSS selectors — as `.` and `--` were
-        // before `>` existed here, so this is a fragility the widening enlarges rather
-        // than creates. It matters because _pp_udc_reduced_motion_guard() groups every
-        // motion-carrying role selector into ONE comma-separated rule, and CSS discards
-        // a whole grouped rule when any selector in the list is invalid: one malformed
-        // role selector would silently drop the prefers-reduced-motion guard for every
-        // role in that scope. The input is repo-controlled (schemas are on disk and
-        // integrity-checked), so this is a theme-bug blast radius, not a reachable one —
-        // and UdcEngineTest pins the shape of every shipped selector so a bad one fails
-        // in CI rather than in someone's browser.
-        //
-        // `>` JOINED IN #994 (ruling D4) for one measured reason. nav's
-        // current-page rules were `li.current-menu-item > a`; the `link-current`
-        // role could only spell the DESCENDANT form, which also matches every link
-        // in a current parent's dropdown. That cost nothing while chrome shipped no
-        // defaults, and became a visible regression the moment the retirement made
-        // those values a default — a current "Services" page would have turned its
-        // whole submenu bold and accent-coloured. A child combinator is inert as
-        // CSS source text: it cannot open a string, a comment or a declaration, and
-        // it cannot escape the rule it sits in.
-        //
-        // THE ANCHORS ARE THE OTHER HALF OF THIS GATE, and `\z` is doing that work
-        // rather than `$`. PCRE's `$` matches before a FINAL newline unless the `D`
-        // modifier is set, so `/^…$/` accepts "a\n" — excluding `\n` from the class
-        // does NOT close that, it is precisely what makes a trailing newline the one
-        // character `$` forgives. `\z` matches only at the true end of the subject.
-        //
-        // The practical exposure was nil (a trailing newline in a selector emits inert
-        // CSS, and nothing past it can follow — ".a\n.b" was refused either way), so
-        // this is consistency and honesty rather than a fix: every sibling string-to-CSS
-        // gate in this file already uses `\z` (pp_udc_valid_band_id, the `@reference`
-        // name gates), and a maintainer widening this class again should inherit an
-        // anchoring guarantee that is actually in force. Widen the CLASS if a ruling
-        // says so; do not widen the ANCHORING.
-        // THE BRACKETS ALSO HAVE TO BALANCE, AND THE CHARSET CANNOT SAY SO.
-        //
-        // A character class is a per-character test; "every `[` has its `]`" is a
-        // property of the whole string. That distinction is not academic here, and the
-        // repo has already paid for learning it once: `_pp_udc_delimiters_balanced()`
-        // exists because CSS Syntax L3's "consume a simple block" treats `[` exactly as
-        // it treats `(` — an unclosed one consumes across the terminating `;` and the
-        // closing `}` TO EOF (#965). Its docblock is the reference.
-        //
-        // The blast radius is why this is checked here rather than trusted to the
-        // schemas. A malformed `>` costs the one grouped rule it sits in. A malformed `[`
-        // costs every rule that PRINTS AFTER IT in the SAME `<style>` element — and
-        // WordPress core concatenates a handle's inline styles into one element
-        // (WP_Styles::print_inline_style; functions.php:105 says so too). PER HANDLE,
-        // measured against functions.php rather than assumed:
-        //   defaults ride `pp-base` (:193)      -> the rest of this component's defaults,
-        //                                          every LATER component's defaults, and
-        //                                          the chrome defaults (:220)
-        //   authored rides `pp-utilities` (:198) -> every later band block and the chrome
-        //                                          authored block (:225)
-        // Two handles, so a broken DEFAULTS selector cannot reach an authored band block
-        // at all, and the token tier is safe in both directions because it is added to
-        // `pp-base` FIRST (:112) and therefore prints ahead of any damage. An earlier
-        // draft of this comment claimed the opposite on both counts.
-        // The input is repo-owned either way; this bounds what a theme bug can do, which
-        // is the same posture the charset itself takes.
-        //
-        // ONE OWNER, deliberately: this routes through the shared balance helper rather
-        // than counting brackets locally, because a second implementation of "is this
-        // delimiter-safe" is exactly the forked-grammar the architecture forbids.
-        //
-        // WHICH GATE DECIDES WHAT, measured rather than reasoned, because two earlier
-        // drafts of this comment got it wrong in opposite directions. The helper balances
-        // quotes and parens as well as brackets, but the charset below refuses `(`, `)`,
-        // `'` and `"` outright — so for those characters the helper only ever decides the
-        // UNBALANCED case, and a BALANCED one falls through to the charset:
-        //
-        //   `.a(b)`  balanced=true   charset=false  -> refused by the CHARSET
-        //   `.a"b"`  balanced=true   charset=false  -> refused by the CHARSET
-        //   `.a(b`   balanced=false  charset=false  -> refused HERE
-        //   `.a[b`   balanced=false  charset=TRUE   -> refused HERE, and ONLY here
-        //
-        // That last row is why this CALL SITE exists (the helper itself is #965's, shared
-        // with three older callers; #1046 only routes the selector path through it). Brackets are the one delimiter
-        // class the charset ADMITS (widened at #1046 for `question-open`), so this is the
-        // only thing standing between an unbalanced `[` and the emitter printing
-        // `.faq__item[open > .faq__question{...}`, which swallows the following role to
-        // end-of-rule. For every other delimiter the helper is a cheap early exit, not the
-        // decider. Order therefore changes which gate reports, never what is admitted.
-        if ($selector !== '' && !_pp_udc_delimiters_balanced($selector)) {
-            continue;
-        }
-
-        // BALANCED IS NOT WELL FORMED, and the charset cannot tell the difference.
-        // #1046's adversarial pass measured the gap it left: `.a[]`, `.a[[b]]` and `.a[b c]`
-        // are all BALANCED and all pass the charset, so they reached the emitter as invalid
-        // CSS — a shape no bracket could reach at all before #1046 widened the class. The
-        // cost is not confined to the rule it sits in: _pp_udc_reduced_motion_guard() emits
-        // ONE rule with a comma-joined selector list, and CSS discards an entire rule when
-        // any selector in a plain list is invalid, so one bracket typo in one role selector
-        // deletes the reduced-motion neutralisation for EVERY role of that band. Input is
-        // schema-owned, so this is a maintainer trap rather than author-reachable, and
-        // UdcEngineTest already sweeps the shipped schemas for this exact shape — but a gate
-        // should refuse what the sweep forbids instead of relying on the sweep to notice.
-        // Strip the well-formed presence terms; nothing bracket-like may survive.
-        if ($selector !== '' && strpbrk($selector, '[]') !== false) {
-            $bracket_stripped = preg_replace('/\[[A-Za-z][A-Za-z0-9_-]*\]/', '', $selector);
-            if (strpbrk((string) $bracket_stripped, '[]') !== false) {
-                continue;
-            }
-        }
-        if ($selector !== '' && !preg_match('/^[A-Za-z0-9_ .>\[\]\-]{1,120}\z/', $selector)) {
-            // DELIBERATELY NOT LEDGERED. A role selector comes only from a
-            // repo-owned, integrity-checked component schema, never from an author
-            // — the same reason a role DEFAULT's discard is filtered out of the
-            // ledger. Surfacing it would hand the operator a configuration-class
-            // finding whose next_action ("re-set that value") is unactionable for a
-            // theme bug they cannot reach.
+        // THE THREE GATES THIS USED TO SPELL INLINE now live in
+        // _pp_udc_selector_is_emittable(), because the item tier applies exactly the
+        // same three to exactly the same selectors. Two copies of a security gate is
+        // one copy that gets fixed.
+        if (!_pp_udc_selector_is_emittable($selector)) {
             continue;
         }
 
@@ -7693,7 +8107,41 @@ function _pp_udc_mint_splits(array $parts): array {
  * squatting the name is not, and is the case worth refusing — their value would be
  * silently overwritten on the next write.
  */
-function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc): bool {
+/**
+ * @param array $item_maps id => that item's `udc` map, for the item tier.
+ *
+ * THE ITEM ARM IS NOT AN ENHANCEMENT — WITHOUT IT THE ENGINE REFUSES ITS OWN
+ * OUTPUT. Measured on this tree before the arm existed: an item-minted token
+ * lands in the BAND's `_tokens` (that is where tokens live, see
+ * pp_udc_item_reserved_keys()) while its reference `@it-…-<role>-…` lands
+ * inside `props.items[k].udc`. This function searched `$udc` alone, so it
+ * answered false, and pp_udc_validate_map()'s reserved-name gate then refused
+ * the band with "uses a name the engine mints for itself" — on every band
+ * carrying a responsive item value, permanently, for a name the engine wrote.
+ *
+ * That is the exact failure class _pp_udc_mint_value()'s docblock records
+ * ("an accepted write produced a composition that errors on every post-write
+ * envelope, `wp pp check page` and restore"), reached from the other side. The
+ * decoder and the minter have to agree about the whole namespace or neither is
+ * trustworthy; a widening that taught the MINTER a new segment and left the
+ * DECODER behind is the disagreement _pp_udc_mint_splits()' docblock warns
+ * turns every already-written band into a permanent false refusal.
+ *
+ * RESOLVED, NOT SEARCHED. An item-minted name carries the id of the one map
+ * that could have produced it, so this looks in that map and nowhere else. A
+ * name whose id names no item on this band is NOT the engine's own — falling
+ * back to a scan would let a stored name borrow another item's reference and
+ * pass a gate it should fail.
+ */
+function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc, array $item_maps = []): bool {
+    $split = _pp_udc_split_item_mint($name);
+    if ($split !== null) {
+        [$item_id, $rest] = $split;
+        if (!isset($item_maps[$item_id]) || !is_array($item_maps[$item_id])) {
+            return false;
+        }
+        return _pp_udc_name_is_the_engines_own_mint($rest, $item_maps[$item_id]);
+    }
     $parts = explode('-', $name);
     $bp    = array_pop($parts);
     // POP BY SEGMENT COUNT, never by one. `focus-visible` is two segments, and
