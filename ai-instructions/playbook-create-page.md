@@ -20,8 +20,13 @@ Run `wp pp operate inspect`. Review:
 
 ### 2. PLAN
 Map the brief to PromptingPress components:
-- Hero, section, grid, CTA, FAQ, stats, footer, etc.
-- Choose layouts and themes based on the brief's intent
+- The ten composable body components: `hero`, `section`, `grid`, `cta`, `faq`, `stats`,
+  `table`, `embed`, `logos`, `testimonials`. **`nav` and `footer` are NOT on this list** —
+  they are site chrome the template renders on every page, and composing either is
+  rejected with `template_owned_component`
+- Choose layouts from the `layout` prop where the component has one (`hero`, `section`,
+  `grid`, `cta`, `testimonials` — those five), and plan the band's TONE as its `udc` map,
+  not as a `theme` prop: only `grid` still has one
 - Plan the composition array (component order, props)
 - Note any design token changes needed (stored in database, not file-based)
 

@@ -117,11 +117,13 @@ When building or editing components:
 
 ## Desktop width expectations
 
-Hero width and spacing props serve layout-specific needs. All other
-components use CSS defaults for width and spacing — no composition-level
-width/spacing overrides. The one bounded structural exception is grid's
-optional `columns` prop (integer 1-4), which forces the desktop column count;
-it is opt-in and leaves the auto-by-count default byte-identical when unset.
+**NO COMPONENT DECLARES A `width` OR `spacing` PROP ANY MORE.** Hero's two were
+retired at #986 with the rest of its v1 styling surface, and sending either is
+refused with `retired_prop`. Band width and band rhythm are `udc` values now: the
+`inner` role's `sizing.max-width` and the `_band` role's `spacing.padding-top` /
+`padding-bottom`. The one bounded structural exception is grid's optional
+`columns` prop (integer 1-4), which forces the desktop column count; it is opt-in
+and leaves the auto-by-count default byte-identical when unset.
 
 A page built with all-default composition props should look credible on desktop.
 If it doesn't, the fix belongs in design tokens (base.css) or component CSS

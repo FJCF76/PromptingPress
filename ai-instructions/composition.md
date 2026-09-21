@@ -26,7 +26,9 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 - `component` — must match a registered component name (a folder in `components/`)
 - `props` — must satisfy required props from that component's `schema.json`
-- `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. Set these via a composition write (`create_page` / `update_composition`), the `style_component` action, or by passing `style` to `add_component` (which writes it onto the new item in one call, validated by the same shared engine — no separate follow-up `style_component` needed); see `ai-instructions/style-component.md`
+- `udc` — (optional) **the styling key for every component on the design contract**, which is all of them except `grid`. A map of `role → group → parameter → value`, validated against the component's declared roles. Only `update_composition` and `create_page` carry it: `update_component` and `add_component` declare no `udc` parameter, so a styling edit is a read-modify-write of the whole composition. See `ai-instructions/style-component.md`, and read a component's roles with `wp pp schema <component>` before writing one
+- `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. **`grid` is the only component that declares any**, so on anything else this key has nothing to address and `style_component` refuses it with `no_style_slots`. Set grid's via a composition write (`create_page` / `update_composition`), the `style_component` action, or by passing `style` to `add_component` (which writes it onto the new item in one call, validated by the same shared engine — no separate follow-up needed)
+- `id` — (optional) an anchor id, which also becomes the band's stable identity. A band with no `id` is given one at write time, and only at write time
 - Order in the array = render order on the page
 - Any registered component can appear any number of times in any order
 - **The composition is an ARRAY, never an object (#724).** Send `[{...}, {...}]`. A JSON object keyed by position — `{"1": {...}, "3": {...}}` — is refused with `unexpected_shape`, because it is not a composition: it is the shape `wp pp check page` classifies as corrupted. Nothing is reindexed for you. This used to be accepted and silently replaced the page with just those entries while reporting `ok:true`, so if you have a script that builds the composition as a keyed map, change it to build a list. Position is expressed by ORDER in the array, never by a key.
@@ -44,16 +46,16 @@ See `AI_CONTEXT.md` → Component index for the current list. As of last update:
 
 | Name    | Required props                          | Optional props (selection)                              |
 |---------|-----------------------------------------|---------------------------------------------------------|
-| hero    | title                                   | title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, layout, image_url, image_id, image_alt, split_ratio, vertical_align, proof |
-| section | one of: body / body_items / panel content | body, title, title_accent, eyebrow, subheading, layout, image_url, image_id, image_alt, body_marker, body_items, body_items_align, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url — and NOT `theme`, `title_align`, `background_image` or `panel_cta_variant`, which the v2 rebuild retired (see section.styling below) |
-| faq     | items[] {question, answer}              | title, title_accent, eyebrow, id                        |
-| grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
+| hero    | title                                   | id, title_accent, eyebrow, subheading, button_text, button_url, button2_text, button2_url, layout, image_url, image_id, image_alt, split_ratio, vertical_align, proof — and NOT `button_variant`, `button2_variant`, `spacing` or `width`, which the v2 rebuild retired (the two button looks are the `cta` / `cta-secondary` roles, band padding is `_band` `spacing`, and the content width is `inner` `sizing.max-width`) |
+| section | one of: body / body_items / panel content | id, body, title, title_accent, eyebrow, subheading, layout, image_url, image_id, image_alt, body_marker, body_items, body_items_align, panel_heading, panel_body, panel_items, panel_items_marker, panel_cta_text, panel_cta_url — and NOT `theme`, `title_align`, `background_image` or `panel_cta_variant`, which the v2 rebuild retired (see section.styling below) |
+| faq     | items[] {question, answer}              | id, title, title_accent, eyebrow — and NOT `theme`, retired at #1046 — the last of the seven `theme` props the v2 rebuild retired. `grid` is the only component that still has a live one; on every other component the tone is the band's `udc` map |
+| grid    | items[] (fields: number, title, text, text_role, bullets[], image_url, image_alt, image_id, link_url, link_text, style — none individually required) | id, title, title_accent, eyebrow, subheading, title_align, layout, card_emphasis, theme, columns, image_treatment |
 | table   | headers[], rows[][]                     | title, caption, id — v2 since #1066, and it retired NOTHING (it never declared `theme`) |
 | cta     | button_text, button_url                 | title, title_accent, eyebrow, body, button2_text, button2_url, layout, id — and NOT `theme`, `background_image`, `button_variant` or `button2_variant`, which the v2 rebuild retired (see cta.styling below) |
 | stats   | items[] {number, label}                 | title, title_accent, id — and NOT `theme` or `background_image`, which the v2 rebuild retired (see stats.styling below) |
 | logos   | items[] {image_url, image_alt, image_id?, label?} | title, id — and NOT `theme`, which the v2 rebuild retired (see logos.styling below) |
 | embed   | content                                 | title, id — **no `theme`** (retired in #1066; say it in the `udc` map instead) |
-| testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | title, title_accent, eyebrow, subheading, layout — **and NO `theme` / `title_align`**: testimonials is on the v2 Universal Design Contract, so a tone or an alignment is set through the band's `udc` map (`_band` background, role `typography.align`), not through a prop. See `ai-instructions/style-component.md`. |
+| testimonials | items[] {quote (req); optional author, role, company, image_url, image_alt, image_id} | id, title, title_accent, eyebrow, subheading, layout — **and NO `theme` / `title_align`**: testimonials is on the v2 Universal Design Contract, so a tone or an alignment is set through the band's `udc` map (`_band` background, role `typography.align`), not through a prop. See `ai-instructions/style-component.md`. |
 
 ## Text content model: which props accept HTML
 
@@ -84,9 +86,10 @@ plain-text prop (it will show as literal `<a href=...>` text on the page).
 ### cta: primary + secondary button pair
 
 A closing CTA can offer two actions instead of forcing a choice between them. Set
-`button2_text` (and `button2_url`) alongside the primary button props; `button2_variant`
-defaults to `outline`, so the pair reads as one filled action and one outlined
-action without setting it. This is the `cta` equivalent of the hero's `button2_text` / `button2_url`,
+`button2_text` (and `button2_url`) alongside the primary button props; `button2_variant` is RETIRED
+on `cta` and refused with `retired_prop` — the secondary button's look is the
+`button-secondary` role in the band's `udc` map now, and the `button-secondary` preset
+is the one-line way to get it. This is the `cta` equivalent of the hero's `button2_text` / `button2_url`,
 so a closing band does not have to become a `hero` just to offer a secondary action.
 
 ```json
@@ -590,7 +593,7 @@ Then set both fields on the component:
 { "component": "hero", "props": { "layout": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
 ```
 
-Always verify against `components/{name}/schema.json` before writing — the source of truth. Without filesystem access to the theme, `wp pp schema {name}` reads the prop, style-slot and recipe declarations over the CLI (the rest of `styling` still needs the file); `wp pp schema` lists every registered component and whether it is composable.
+Always verify against `components/{name}/schema.json` before writing — the source of truth. Without filesystem access to the theme, `wp pp schema {name}` reads the prop, style-slot, recipe AND ROLE declarations over the CLI — the `roles` block, each role's permitted `groups`, its `description` and its `obligations`, plus `udc_groups` and `udc_raw_css`. For a component on the design contract that block IS the styling contract (the rest of `styling` still needs the file); `wp pp schema` lists every registered component and whether it is composable.
 
 ---
 
@@ -619,11 +622,25 @@ wp pp action preview update_component --params='{"post_id":42,"component_index":
 wp pp action execute create_page --run-id=<uuid> --params='{"title":"About Us"}'
 ```
 
-**Direct meta write** (legacy, bypasses validation):
+**Direct meta write — do not use this to author.** It exists, and you will meet pages written
+this way, so it is documented rather than hidden:
 
 ```bash
 wp post meta update 42 _pp_composition '[{"component":"hero","props":{"title":"Hello"}}]'
 ```
+
+It stores the bytes and does nothing else. The only check it gets is the meta's
+`sanitize_callback`, which asks one question — does this parse as JSON? — so any shape the write
+path would refuse lands intact, and anything that does *not* parse is stored as the **empty
+string**: the page's content is silently discarded and the page then reads back as a healthy
+page with no composition yet. It skips the version counter and the history ring, so there is
+nothing to roll back to and a concurrent edit is a lost update rather than a refusal. And it
+skips band-id assignment — `pp_update_composition()` is the only place ids are minted, in its own words
+*mint-on-write only, here and nowhere else* — so a band written this way has no id, and a `udc`
+map scoped to that id styles nothing.
+
+If you are repairing a page that was written this way, re-send the whole composition through
+`update_composition`. That one write validates it, gives every band an id, and starts its history.
 
 **Read operations:**
 
@@ -654,47 +671,77 @@ Before writing, verify:
 2. Every required prop from `components/{name}/schema.json` has its KEY present. Presence is what the required rule tests, so `null` and `""` satisfy it and leave the prop on its default. Two separate rules catch what that does not: a band with a **content requirement** (`section`) still needs real content in one of its content props, where `null`, `false`, `""` and `[]` do not count; and a `false` on a text prop is a TYPE rejection (see 4), not an absence — a different error code with a different repair
 3. The JSON is a valid array (not an object, not null)
 4. Prop types match the schema (`string`, `boolean`, `array`, `enum`). A `string` prop means a **quoted JSON string** and nothing else — since #707 a bare `42`, `3.14`, `true` or `false` is rejected with `invalid_prop_value` naming the prop, at both depths, instead of being stored raw behind an `ok:true`. Quote it (`"number": "99%"`, `"image_url": "/wp-content/uploads/logo.png"`), or leave the key out; `null` and `""` still satisfy the type rule and keep the prop's default, though they do not satisfy a band's content requirement — an empty `section` is still rejected for having nothing to render. Watch the two places the mistake is natural: a stats or steps `number` field, which is text so it can hold `99%` or `01`, and a `*_url` prop you might try to clear with `false` — use `""` or omit it. Since #744 the container types read the same way at both depths: a prop or field declared as a list takes a **JSON array** and a per-item `style` takes a **JSON object**, so `"bullets": ["Fast", "Honest"]` and `"style": {"--grid-item-bg": "#111111"}` — a scalar in either is rejected with `invalid_prop_value` naming the prop, and one level down the item and the field. That one used to be silent one level down: `"bullets": "Fast, honest"` returned `ok:true`, stored the string as written, and the card rendered with no checklist at all. `null`, `""`, `[]` and `{}` are all still accepted and leave the field on its default (which means they render nothing — they are not a way to express a value you want). Since #738 a declared list must also be a **JSON array specifically**: a keyed object where a list belongs (`"items": {"first": {...}, "second": {...}}`) is rejected with `invalid_prop_value` — `must be a list, but this one is a JSON object (N entries)` — at both depths. Order is the array order; there are no position keys and nothing reads a key as an ordinal. That shape used to return `ok:true`, persist as written, and then 500 the public page, so the refusal is the write path declining to store something the renderer cannot walk. Since #883 the mirror holds too: a declared **object** must be a JSON object specifically, so a POPULATED list where a map belongs (`"style": ["#fff"]`) is rejected with `invalid_prop_value` — `must be an object, but this one is a JSON list (N entries)` — at both depths. Send slot names as keys (`"style": {"--grid-item-bg": "#111111"}`). `{}` and `[]` are indistinguishable once parsed and count as the empty container for both rules, so an empty value is still accepted; the flip side is that an object whose keys are exactly `0..n-1` parses as a list and is refused where an object is declared.
-5. Every prop key is declared in the component's `schema.json` `props` — an undeclared key is rejected on save and the write does not persist. The CODE tells you which kind of mistake it was (#1007): a key the component declares in its `retired_props` block returns `retired_prop` and the message names the v2 surface that replaced it plus the `null` clear; anything else returns `unknown_prop`. Do not invent prop names; if a capability has no matching prop, it is not expressible.
-6. Every field INSIDE an `items[]` entry is declared in that prop's `items` field map — an undeclared field is rejected on save with `unknown_prop` as well (#643), naming the item and the fields the entry accepts. The two depths answer alike: `imageId` is refused where `image_id` is declared, rather than persisting behind `ok:true` and rendering nothing.
+5. Every prop key is declared in the component's `schema.json` `props` — an undeclared key is rejected by the write path and does not persist. The CODE tells you which kind of mistake it was (#1007): a key the component declares in its `retired_props` block returns `retired_prop` and the message names the v2 surface that replaced it plus the `null` clear; anything else returns `unknown_prop`. Do not invent prop names; if a capability has no matching prop, it is not expressible.
+6. Every field INSIDE an `items[]` entry is declared in that prop's `items` field map — an undeclared field is rejected by the write path with `unknown_prop` as well (#643), naming the item and the fields the entry accepts. The two depths answer alike: `imageId` is refused where `image_id` is declared, rather than persisting behind `ok:true` and rendering nothing.
 
-Invalid compositions are rejected on save by the PHP layer — the DB retains the last valid value.
+Invalid compositions are rejected by the WRITE PATH — the `update_composition` / `create_page` actions. **There is no save handler guarding the meta, and the DB does not retain the last valid value**: the meta's `sanitize_callback` asks only whether the value parses as JSON, and stores the EMPTY STRING for anything that does not. Measured: a raw `wp post meta update <id> _pp_composition '{not json'` reports Success, the meta reads back empty, and `wp pp check page` then says "No composition found" — the page's content silently discarded. That is why the raw write is not an authoring path (see below).
 
 ---
 
 ## Example: build a full landing page
 
-```bash
-wp post meta update 42 _wp_page_template composition.php
+**Go through the actions, never through `wp post meta update`.** A raw meta write stores the bytes
+and nothing else: `pp_update_composition()` is where band ids are assigned, and its own comment
+says so — *mint-on-write only, here and nowhere else*. A composition written straight to post meta
+therefore has no band ids, so a `udc` map on it has nothing to scope to and the band renders with
+no authored styling. The same write also skips validation, the history ring, and the version
+counter that makes a later concurrent edit safe.
 
-wp post meta update 42 _pp_composition '[
-  {
-    "component": "hero",
-    "props": {
-      "title": "Build AI-Ready Sites",
-      "subheading": "A theme designed for AI-first editing.",
-      "button_text": "Get Started",
-      "button_url": "/docs",
-      "layout": "centered"
+Build the whole page in one `create_page` call:
+
+```bash
+wp pp action execute create_page --run-id=<uuid> --params='{
+  "title": "Launch",
+  "status": "draft",
+  "composition": [
+    {
+      "component": "hero",
+      "props": {
+        "layout": "split",
+        "title": "Ship faster",
+        "subheading": "Everything you need, nothing you do not.",
+        "button_text": "Start free",
+        "button_url": "/signup"
+      }
+    },
+    {
+      "component": "section",
+      "props": { "title": "How it works", "body": "<p>Three steps.</p>" },
+      "udc": { "_band": { "background": { "fill": "@color-surface" } } }
+    },
+    {
+      "component": "cta",
+      "props": { "title": "Ready?", "button_text": "Get started", "button_url": "/signup" }
     }
-  },
-  {
-    "component": "section",
-    "props": {
-      "title": "How It Works",
-      "body": "<p>PromptingPress exposes every component as a typed, schema-validated unit. AI reads the schema and edits with confidence.</p>"
-    }
-  },
-  {
-    "component": "cta",
-    "props": {
-      "title": "Ready to build?",
-      "button_text": "View on GitHub",
-      "button_url": "https://github.com/FJCF76/PromptingPress",
-      "layout": "full-width"
-    }
-  }
-]'
+  ]
+}'
 ```
+
+Then read the envelope. `ok: true` is not the whole result: an empty `findings` array is the
+positive confirmation, and anything in it is the engine telling you a value did not land the way
+you wrote it. `create_page` is all-or-nothing — if the composition write fails, the page it created
+moments earlier is removed rather than left behind empty.
+
+To change one band afterwards, read the composition back, edit it, and send the whole thing:
+
+```bash
+wp post meta get 42 _pp_composition_version   # READ THE VERSION FIRST (this is the 3 below)
+wp post meta get 42 _pp_composition           # then the bytes, `udc` included; `inspect` has neither
+wp pp action execute update_composition --run-id=<uuid> --params='{
+  "post_id": 42,
+  "expected_version": 3,
+  "composition": [ ... the full array, with your edit applied ... ]
+}'
+```
+
+Pass the `version` you read back as `expected_version`. **On the CLI today that is weaker than
+it sounds** — `wp pp action execute` overwrites the value you send with its own freshness
+baseline, so a stale one is accepted rather than refused (measured: `expected_version: 1`
+against a composition at version 7 returned `ok: true`). The engine's compare-and-swap is sound
+and the chat and dashboard surfaces honour it; the CLI wrapper discards it, and that is filed.
+Until it lands, keep the window small — version, bytes, edit, write, in one unbroken sequence —
+and see the `expected_version` note in `ai-instructions/style-component.md`. Re-send each band's
+`id` as you read it, so the ids stay stable across the re-apply.
 
 ---
 
@@ -708,7 +755,7 @@ See `ai-instructions/build-landing-page.md` → Step 5 for the full verification
 
 ## What NOT to store in _pp_composition
 
-- Arbitrary CSS (only schema-declared style slots are allowed in the `style` key)
+- Arbitrary CSS in the `style` key — only schema-declared style slots are accepted there. This is NOT a prohibition on raw CSS as such: a role's `"_css"` map inside `udc` is a sanctioned channel, stored in the composition and covered by the same validation, versioning, undo and rollback as every other value. What does not belong here is CSS with no role to attach to
 - Navigation or footer configuration (nav and footer are injected by `pp_base_template` automatically)
 - ACF field data (use `pp_field()` in templates or component props for that)
 

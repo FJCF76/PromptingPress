@@ -1,979 +1,499 @@
 # Style a Component Instance
 
-Use the `style_component` action to change the visual appearance of a specific component instance without editing CSS files. Style overrides are stored in the composition alongside props and survive theme updates.
+Styling one band on one page. Two systems exist, they do not overlap, and the first thing to
+establish is which one the component you are looking at is on.
 
-> ## First: is this component on the v2 contract?
->
-> `hero` and `testimonials` are. Run `wp pp schema hero` (or read the component catalog) — if it lists **UDC roles** instead of style slots, `style_component` will refuse it with `no_style_slots`, and everything below about slots does not apply to it.
->
-> **Every `--hero-*` slot name later in this file is HISTORY.** The v1 cascade sections are kept because they still govern grid, stats and logos (section left at #1023, cta at #1026, faq at #1046, and table and embed at #1066), and hero appears in them as the example it used to be. Writing any of those names is refused. The v2 equivalent for each is a role in the band's `udc` map — see "Brand-accent hero CTA buttons" below for the worked translation.
->
-> Style a v2 component by putting a `udc` map on the BAND, beside `props`, through `update_composition` / `update_component` / `add_component` / `create_page`:
->
-> ```json
-> "udc": {
->   "card":  {"background": {"fill": "#ffffff"},
->             "border": {"width": "1px", "style": "solid", "color": "#e6e6e6"}},
->   "quote": {"typography": {"family": "@font-heading", "style": "italic",
->                            "size": {"d": "19px", "p": "17px"}}}
-> }
-> ```
->
-> - **Roles** are the named parts of the component (`quote`, `card`, `attribution`, `heading`, …; `_band` is the band itself). The catalog lists each role with the groups it permits. Do not invent a role name — `unknown_udc_role` names the ones that exist.
-> - **`@token-name`** follows a design token instead of freezing a copy of its value (`@color-accent`, `@space-lg`, `@font-heading` — no `--` prefix, no `var()`). This works on **every** parameter including lengths, which the slots below cannot do. An unresolvable name is rejected at write, never ignored.
-> - **Breakpoints:** any value can be `{"d": …, "t": …, "p": …}` — desktop (the base), tablet 768-1023px, phone ≤767px. The ranges do not overlap, so a value you set at one breakpoint is never cancelled by another.
-> - **States:** a `":hover"`, `":focus-visible"` or `":active"` key inside a group, holding the same parameters (and their values may be breakpoint maps too). Those three are the whole set — `:disabled`, pseudo-elements (`::before`) and states on an ancestor are refused at write, and states never nest. They emit hover → focus-visible → active, so a pressed element shows `:active`. Every focusable element already gets the theme's keyboard focus ring; use `:focus-visible` to add to it, not to replace it.
-> - **Motion:** the `motion` group carries `transition-duration` (a time: `"150ms"`, `"0.2s"`) and `timing-function` — one of `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `step-start`, `step-end`; or `cubic-bezier(x1,y1,x2,y2)` where the 1st and 3rd are between 0 and 1 and the 2nd and 4th may be any number including negative (that is what produces overshoot); or `steps(n[, jump-start|jump-end|jump-none|jump-both|start|end])` with n up to 1000, and `jump-none` needing n of 2 or more. **Values are case-sensitive** — write `ease`, not `EASE`, exactly as for every other value. Both params default to the theme's `150ms` / `ease`. Ignore `prefers-reduced-motion`: the engine emits that guard itself, and there is no parameter for it.
-> - **Layout** (#1084) is how a CONTAINER arranges its children, and it is permitted only on roles whose box is one — the catalog says which. `columns` takes a whole number 1-12 or a track list (`"3fr 2fr"`, `"repeat(auto-fit, minmax(20rem, 1fr))"`); `orientation` (`row`/`column` and their `-reverse`), `wrap` (`nowrap`/`wrap`/`wrap-reverse`), `justify` (main-axis packing) and `align` (cross-axis) take their CSS keywords, with `safe`/`unsafe` allowed before a positional one. **Setting `columns` makes that box a grid** — the engine emits `display: grid` with it, because the value would otherwise paint nothing wherever the theme uses flexbox — so `orientation` and `wrap` stop applying there, at the breakpoints you set. **The phone is not stacked for you:** `d` applies at every width, so write `{"columns": {"d": 4, "p": 1}}` for the ordinary stack. How a box places ITSELF is `sizing.align-self`, not a layout parameter. **Two names are shared with `typography` and mean different things:** `layout.align` is box alignment and `typography.align` is text alignment; `layout.wrap` is flex wrapping and `typography.wrap` is line wrapping — `center`, `wrap` and `nowrap` are legal under both, so the wrong group validates and styles the wrong thing. A component's `layout` PROP is a different thing again: it selects a whole arrangement, and the group retunes the values inside it.
-> - **Presets** apply a shared bundle by name through a `"_preset"` key — at role grain beside the groups (`"cta": {"_preset": "button", "border": {"radius": "12px"}}`) or at group grain beside the parameters (`"quote": {"typography": {"_preset": "link", "size": "1.25rem"}}`, taking only that preset's typography). The name is **bare**, never `@`-prefixed: an `@name` always means a design token. The presets that exist are listed in the runtime context you are given (and a wrong name is refused at write with the full list) — read them there rather than assuming, because the set grows. Whatever you set beside the preset overrides it. Role defaults outrank presets, PER STATE: a role that declares its own background keeps it at rest and still takes the preset's `:hover` background. So a preset applied to an already-styled role can end up with its own surface at rest and the preset's accent fill on hover. Set `typography.color` explicitly, at rest and in every state you use, rather than assuming the preset supplied a matching pair. A role-grain preset applies only the groups that role PERMITS and skips the rest, and the write envelope names exactly which were skipped and which applied (if it declares nothing the role permits, the write is refused naming both). A preset carries a button's LOOK, not its behaviour. **You can also create presets of your own** (#1016): `save_preset` stores a named fragment for the whole site, `delete_preset` removes one. A saved preset is validated by this same engine, its `@` references resolve against the SITE tokens only (a preset belongs to the site, not to a band), and editing one moves every band that references it with no band write. A theme preset's name cannot be taken, a preset cannot reference another preset, and a preset that is still referenced anywhere cannot be deleted — that refusal lists every place it is used.
-> - **Raw CSS** is the escape hatch for a property no group owns: a `"_css"` key beside the groups, at role or `_band` grain, holding a plain map of CSS property => value (`"quote": {"typography": {"size": "1.25rem"}, "_css": {"opacity": "0.75", "mix-blend-mode": "multiply"}}`). Values take the same breakpoint maps, `@token` references and `:hover`/`:focus-visible`/`:active` states as any other value. **Structured params first, `_css` for what structure cannot say** — if a group owns the property, use the parameter: `_css` buys you nothing there and costs you the catalog entry and the type check. A property the vocabulary already knows KEEPS its parameter's grammar inside `_css` (a raw `color` still refuses `red`; a raw `width` still refuses `fit-content`), so `_css` reaches properties that have no grammar rather than getting around one. If you set both, `_css` wins and the write envelope says so with a `udc_css_overrides_group_value` finding; a property the vocabulary does not know is emitted as written with a `udc_css_unchecked_property` finding, so a typo reaches the page and paints nothing — read the findings back. `!important` is refused (on a typed property by its grammar, on an untyped one by name), and so are five properties by name: `all`, `content`, `behavior`, `-moz-binding` and the engine's own `-pp-background-overlay` carrier. Read the runtime context you are given for the full statement — it derives that list from the source, so trust it over this sentence if they ever differ.
-> - **A dark band** has no `theme` prop to set: give `_band` a `background.fill` and then a `typography.color` to EVERY text role on it (`quote`, `author`, `meta`, `heading`, `subheading`, `eyebrow`) plus any link colour. You own the contrast — check each against the background for WCAG AA (4.5:1 body, 3:1 large text). Nothing re-lights text for you.
-> - **Why `_band` typography does not reach the text.** `_band` has no selector of its own, so an inherited value you set there (a colour, a family, a size) reaches the parts of the band by INHERITANCE — and a role that declares its own default for that property beats inheritance, always, whatever the order. That is why the rule above says every text role and not just the band. When it happens the write envelope tells you: a `udc_band_value_shadowed_by_role_default` finding names the property and the roles that shadow it. Read it back and set those roles directly rather than assuming the band-level value landed. It is deliberately narrow, so its silence means something: it fires only for INHERITED properties (a band padding and a role padding are different boxes and both paint), only when the `_band` value is itself valid (one that is not painted anywhere is reported by `wp pp readiness status` instead, as a value that cannot take effect), and never for a role you have already set yourself.
->
-> The grammar for values is identical to the one stated below; only the addressing differs.
+**Almost everything is on the Universal Design Contract (v2).** You style it by putting a `udc`
+map on the band, beside `props`. Nine composable components and both chrome components work this
+way: `cta`, `embed`, `faq`, `hero`, `logos`, `section`, `stats`, `table`, `testimonials`, plus
+`nav` and `footer`.
+
+**One component is still on style slots (v1):** `grid`. You style it with the `style_component`
+action, setting CSS custom properties. Everything about that path is in the last section of this
+file.
+
+How to tell without guessing: run `wp pp schema <component>`. A `roles` block in the report means
+the design contract. `style_slots` entries mean slots. A component on the contract declares **no**
+style slots, so `style_component` refuses it with `no_style_slots` — and the refusal lists the
+roles you should have used instead.
 
 ---
 
-## Step 1 -- Inspect available style slots
+## Step 1 — Read the component's roles
+
+**Always do this before writing a `udc` map. Never write one from memory.**
 
 ```bash
-wp pp operate inspect-composition --post_id=<id>
+wp pp schema faq
 ```
 
-The output shows each component's available `style_slots` (name, type, default, current value) and `available_recipes` (named shorthand).
+The report gives you, per role: its `role` name, the `selector` it emits at, the `groups` it
+permits, a `description` explaining what the part is and how it behaves, and `obligations` when the
+role has any. It also carries `udc_groups` (the whole vocabulary, derived from the engine) and
+`udc_raw_css` (the escape hatch, described below).
 
-**Reading `default`.** It states the **effective** default — what actually renders with
-the slot unset, in the component's default configuration, at desktop (>=768px, the theme's
-desktop tier; a few slots have a further >=1024px tier, always named in the description).
-It is not the CSS fallback literal. Where the real default varies by variant or breakpoint, `default` names
-the desktop / default-configuration value and the slot's `description` enumerates the
-alternatives, so read the description before assuming one number holds everywhere.
-Setting a slot **replaces every branch at once**, at every layout and viewport — a value
-picked from the desktop number alone can be wrong at 375px. A parenthesised default such
-as `(premium bevel)` means a built-in treatment with no single literal worth quoting.
+**This file deliberately does not list any component's roles.** A roster copied into a document
+goes stale at the next rebuild; the report is generated from the schema every time you ask. If you
+have filesystem access you can read `components/<name>/schema.json` directly, but the report is the
+surface that also works over SSH and through the chat.
 
-`styling.tokens` names SOME of the global design tokens that component's own rules consume.
-Two things about it are guaranteed, and both are test-enforced: every entry is a **registered
-design token** (a property in the first `:root` block of `base.css`, which is the same set
-`update_design_token` accepts), and every entry is **reachable by the component that lists it**
-(a rule that component can match actually reads it). Completeness is NOT guaranteed. The array
-is hand-curated and deliberately partial: a band's own rules read several times more registered
-tokens than its array names, and a token can be missing for no reason beyond nobody having added
-it. `--overlay-bg` is listed by NOBODY since #1066 — `stats` was the last v1 component that
-reached it, through `var(--stats-overlay-bg, var(--overlay-bg))`, and both that slot and
-that chain retired with its rebuild. On a v2 band the token is written BY NAME instead:
-`_band` -> `background.overlay: "@overlay-bg"`. `--measure-heading` is in the same
-position and likewise listed by no one (`hero`, `section` and `cta` listed it until their
-rebuilds retired the slot chain that reached it) — on a v2 component it is reached by a
-ROLE default, e.g. cta's `heading` and `text` roles both default `sizing.max-width` to
-`@measure-heading`.
-**So never read absence from this array as "this component does not consume that token."** For
-what you can actually set on one band, read its `style_slots` — each slot's `default` names the
-token it routes — or, on a v2 component, its `roles` and the band's `udc` map, which declare no
-slots at all. For what you can retune site-wide, read the design-token list in the catalog.
-
-The shared band rhythm and heading scale are a different thing from a missing entry:
-`--pp-band-padding` and `--pp-band-heading-size` are not design tokens at all, so no array could
-list them. They are declared in a separate `:root` block that the token registry does not read,
-so `update_design_token` rejects them as an `unknown_token`, and no action in the write path
-reaches them — retuning them site-wide is a theme-source change, not something you can author.
-The per-band `--<comp>-padding-top` / `--<comp>-padding-bottom` / `--<comp>-heading-size` slots
-are your only surface for them, and each one moves that band alone.
-
-The template-owned chrome pair (`nav`, `footer`) declares `roles` instead: chrome's
-styling surface is its UDC roles, written into the `pp_site_udc` **site option** with
-`update_site_option`. That is a different thing from a design token and a different
-thing from a style slot — chrome has neither.
+A role whose definition is malformed is reported as `unreportable` with the reason. That is not a
+role you can style — fix the schema first.
 
 ---
 
-## Step 2 -- Apply style slots
+## Step 2 — Write the `udc` map
 
-> `component_id` accepts an authored `id` prop or the auto-generated `pp-<hex8>` id read back from the composition. Auto-generated ids are regenerated by a full `update_composition` re-apply — give components you style an explicit `id` if the page is maintained from source JSON (see website-building.md, "Component IDs").
-
-> **This step is for v1 components only.** `hero`, `section`, `testimonials`, `cta`, `faq`,
-> `table` and `embed` are on the Universal Design Contract: they declare no style slots and
-> no recipes, and a `style_component` call naming one is refused. Style them through the band's `udc` map —
-> see the Universal Design Contract section below. The examples here use `grid`, which is
-> still on the slot system.
-
-**Direct slot values:**
-```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "style": {
-    "--grid-bg": "#1a1a2e",
-    "--grid-heading-color": "#f0f0f0",
-    "--grid-padding-top": "8rem"
-  }
-}'
-```
-
-**Using a recipe:**
-```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "recipe": "dark-showcase"
-}'
-```
-
-**Recipe + overrides (recipe expands first, then explicit values win):**
-```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "recipe": "dense-cards",
-  "style": {
-    "--grid-heading-size": "clamp(3rem, 6vw, 5rem)"
-  }
-}'
-```
-
----
-
-## Step 3 -- Verify
-
-```bash
-wp pp operate inspect-composition --post_id=<id>
-```
-
-Check that `current` values reflect your changes and the `active_recipe` shows correctly.
-
----
-
-## Semantics
-
-- **PATCH merge:** Style slots merge with existing values. Unspecified slots are unchanged.
-- **Remove a slot:** Set its value to `null` to remove the override and revert to the global token default.
-- **Clear all style:** Pass `"style": {}` to remove all overrides.
-- **Validation:** Only schema-declared slots are accepted. Invalid slot names or values are rejected with descriptive errors.
-- **Conditional slots (issue #580):** many slots only do something in a particular configuration, and the schema now says so. The runtime component catalog appends `applies when ...` to those slots (e.g. `--grid-item-bar-color (color, default: ...; applies when layout = "cards")`); `wp pp operate inspect-composition` still lists slot/type/default/current only, so read the condition from the catalog, from `wp pp schema <component>` (#688 — every slot with its raw `applies_when` and `conditionality_note` plus an `applies_when_rendered` phrase carrying both, ANDed, in the catalog's own words; read-only, no run token, no filesystem access needed), or from the component's `schema.json`. **Check the condition against the component's props before you set the slot.** Setting one whose condition is unmet is accepted and stored — the write succeeds — but it renders nothing. **Your own write tells you so (#687):** the accepted envelope carries a `findings` entry of type `inert_slot`, `severity: warning`, naming the slot, the band `index` and the unmet clauses — *"the value is stored and reported as applied, but nothing on the page reads it"*. Read `findings` on every accepted write; that is the whole point of it. `wp pp check page` reports the same advisory, and you no longer have to run it to find out. If you meant the effect, change the prop that gates it (`layout`, `card_emphasis`, `eyebrow`, `image_treatment`, ...) in the same edit; if you did not, drop the slot rather than leaving a stored value that reports as applied and does nothing. Two limits worth knowing: the advisory reads the **component-level** `style` map only, so a per-item override (`items[].style` on grid) is never checked — `panel_items[].style` was the other one and #1023 retired it with section's slot map; and conditions carried as prose in `conditionality_note` (the `main >` composed-page scope, a FAQ's open state, an item-level switch) cannot be machine-checked at all — read those yourself before writing. NONE OF THIS APPLIES TO A v2 COMPONENT (`hero`, `section`, `testimonials`, `cta`, `faq`, `table`, `embed`): a role's block is emitted only when its element renders, so there is no inert-value class to warn about, and the layout-dependent props that WOULD paint nothing are REFUSED at write (`inert_prop`) rather than stored with an advisory.
-
----
-
-## Slot types
-
-**The accepted units, stated once for every length-bearing type on this page:**
-`rem px em % vw vh vmin vmax ch ex lh rlh`. A length is a number with one of those
-attached (no space between them), unitless `0`, or a `clamp()`/`calc()` expression
-built from the same units. Negative values are accepted where the property takes
-them — letter-spacing and margins yes, padding and sizes no. This list is the whole
-set for `length`, `length-or-none`, `position`, `shadow` lengths and gradient stop
-positions alike: since v2 they share ONE grammar, so a unit that works in one works
-in all of them.
-
-Two per-property exceptions, which are facts of CSS rather than leftovers of the old
-divergence: `shadow` lengths take NO percentage (`box-shadow: 0 50%` is not valid
-CSS), and `clamp()`/`calc()` are accepted on `length` and `length-or-none` only —
-`position`, `shadow` and gradient stops have never taken a function and still do
-not.
-
-| Type | Examples | Validator |
-|------|----------|-----------|
-| `color` | `#1a1a2e`, `rgb(26, 26, 46)`, `transparent`, `currentColor`, `var(--color-accent)` | `_pp_validate_color()` |
-| `length` | `8rem`, `50%`, `clamp(3rem, 6vw, 5rem)`, `calc(100% - 2rem)`, `0` | `_pp_validate_length()` |
-| `length-or-none` | `none`, `60rem`, `100%` — the `length` grammar plus the keyword `none` ("no cap"). **NO SHIPPED STYLE SLOT CARRIES IT ANY MORE.** It was carried by the width caps whose declared default IS `none`, so the built-in uncapped state stayed authorable; `--stats-max-width` was the last and retired at #1066 with stats' rebuild. (The text measures went first: `--cta-body-measure` at #1026 and `--faq-body-measure` at #1046, and neither component's role declares a measure at all, because v1 rendered `none` — the same uncapped render stated as silence rather than as a keyword.) grid's remaining measure slots have real length defaults and stay plain `length`, which still rejects `none`. The TYPE is live and still reachable, on a v2 component: an uncapped measure is the role's `sizing.max-width` set to `none`, which the v2 grammar accepts on that parameter directly, and `sizing.max-height` takes it too. | `_pp_validate_length()` (with the `none` keyword) |
-| `number` | `700`, `1.5` | `_pp_validate_number()` |
-| `duration` | `250ms`, `0.3s` | `_pp_validate_duration()` |
-| `font-family` | `"Inter", sans-serif`, `system-ui, sans-serif`, `-apple-system, BlinkMacSystemFont`, `var(--font-heading)` — a comma-separated list where every name is one of three shapes: an **unquoted** name of letters, digits, spaces, `-` or `_`; a **fully quoted** name (`"Helvetica Neue"`, `'Cascadia Code'`) whose quote character does not recur inside it; or a **single token reference** (`var(--font-mono)`, no fallback, no nesting — unlike `color`, this is not checked against the token registry, so a typo validates and paints nothing). Quote any name carrying other characters, a non-ASCII face name included — quoting is not a licence for anything, since the shared reject set still applies to the whole value on every surface (`{ } ; < >`, backslash, `/*`, `url(`, `@import` are rejected inside quotes too). Empty names (`Inter,, serif`) and trailing commas are rejected. **Two extra limits apply wherever the value reaches raw CSS source text** — every v2 `udc` parameter, and the `:root` block the theme emits for design-token overrides (a v1 style slot is unaffected; its sink is an escaped `style` attribute). First, brackets must be closed, matching pairs: `(` with `)` and `[` with `]`, properly nested (`"Foo (Display)"` ok, `"Foo (Display"` rejected, `[full-start] 1fr [full-end]` ok, `([)]` rejected). Second, each of `'` and `"` must appear an even number of times across the whole value (`"Foo's Font"` rejected however written; `'Foo "Display Font'` rejected; `'Foo "Display" Font'` ok). **Where it bites differs by surface:** a `udc` value breaking either limit is REFUSED at write; a design-token override breaking one is accepted at write but DROPPED at render, and `wp pp readiness status` then reports it. | `_pp_validate_font_family()` (+ the shared delimiter gate on `udc` values and design-token overrides) |
-| `shadow` | `var(--shadow-sm)`, `var(--shadow-md)`, `var(--shadow-lg)`, `none`, `0 4px 12px rgba(0,0,0,0.1)` | `_pp_validate_shadow()` |
-| `gradient` | `#1a1a2e`, `transparent`, `var(--color-accent)`, `linear-gradient(135deg, #fff, #000)`, `radial-gradient(circle at top left, #fff, #000)` | `_pp_validate_color()` or `_pp_validate_gradient()` |
-| `position` | `center`, `top left`, `20% 80%` | `_pp_validate_position()` |
-| `ratio` | `auto`, `1`, `16/9` | `_pp_validate_ratio()` |
-
-> **Which types accept `var()`, and which are literal-only.** A `var()` reference is
-> accepted only by these types, each in a bounded way: `color` (a single reference
-> to a registered **color**-typed token, e.g. `var(--color-accent)`), `gradient`
-> (that same single color-token reference, as its plain-color half — **never**
-> `var()` *inside* a `linear-gradient()`/`radial-gradient()`, and never a "gradient
-> token"), `shadow` (only the fixed presets `var(--shadow-none|sm|md|lg)`, never
-> an arbitrary token), and `font-family` (any single bare reference such as
-> `var(--font-mono)` — note this is the ONE of the four that is checked for SHAPE
-> only: unlike `color`, the token is not required to exist or to be font-typed, so
-> a misspelled name validates and then paints nothing).
-> Every other type — `length`, `length-or-none`, `number`, `duration`, `position`,
-> and `ratio` — is **literal-only**: `var()` is rejected in every form, bare or
-> nested. Look up the token's current value (`inspect-composition`, or the
-> design-token registry) and pass that literal value. Passing a literal **freezes**
-> it: a `length`/`number`/`duration`/`position`/`ratio` slot cannot FOLLOW a token
-> the way a `color` slot can, so if the token changes later, the literal you passed
-> does not. A bare `var(--space-lg)` in a `length` slot is rejected — not only
-> `var()` nested inside `clamp()`/`calc()`.
-
-The `color` type (#230) accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the CSS color
-keywords `transparent` and `currentColor` (case-insensitive), or a **single bare
-reference to a registered color-typed design token** — `var(--color-accent)` exactly.
-No fallback (`var(--x, #fff)`), no nesting, no whitespace inside the parentheses, and
-the referenced token must exist in the design-token registry and itself be color-typed.
-Named colors (`red`) are rejected. Use a `var()` reference when a slot should FOLLOW a
-token ("this button follows the brand accent") instead of duplicating literal hex.
-For `update_design_token`, a reference chain that loops back to the token being set
-(directly or through other tokens) is rejected as a cycle — the browser would resolve
-every token in the loop to invalid. Inside `linear-gradient()`/`radial-gradient()`
-functions, `var()` is still rejected; the `gradient` type accepts the new color forms
-only as its plain-color half.
-
-The `shadow` type is bounded: a preset (`var(--shadow-none\|sm\|md\|lg)` or `none`)
-or a single-layer `box-shadow` (2-4 px/rem lengths plus an rgb/rgba/hsl/hsla color).
-`inset`, multi-layer shadows, and `url()` are rejected. The grid (card) component is the
-only one left that exposes namespaced `*-border-color`, `*-border-width`, `*-radius` and
-`*-shadow` slots. hero, section, testimonials, cta, faq, table, embed, stats and logos
-exposed them until their rebuilds (#986, #1023, #958, #1026, #1046, #1066); on a v2
-component that framing is the role's own `border` and `shadow` groups.
-
-**THE `stats` FRAMING SLOTS LEFT AT #1066 AND THE CAPABILITY DID NOT.** `--stats-radius`
-and `--stats-max-width` built a **contained, rounded metrics card** (#383); the v2 write is
-`_band` -> `border.radius` beside `_band` -> `sizing.max-width`, in one map. The centring
-comes free: `_band` defaults both side margins to `auto`, so a capped stats band centres
-itself exactly as the slot pair did. To remove the cap, write `none` on
-`sizing.max-width` — the v2 grammar accepts the keyword on that parameter directly, which
-is why no `length-or-none` SLOT is needed for it.
-
-**AND NO SLOT NEEDS IT ANY MORE AT ALL.** `--stats-max-width` was the last carrier of the
-`length-or-none` type in the theme; grid, the one v1 component left, carries none. So the
-rule below is about the TYPE rather than about any shipped slot, and it still matters
-because the type is live on every v2 component's `sizing.max-width` and `sizing.max-height`:
-`none` removes a cap, and it is accepted **only** where the grammar declares it. A plain
-`length` slot (padding, font-size, radius, and any measure with a real length default such
-as `--grid-heading-measure`) still rejects `none`, and there `100%` remains the way to
-widen a cap (#579).
-
-## Text measures — prefer the token over a per-band literal (#578)
-
-**ONE band component still declares `--<component>-heading-measure`, and it is `grid`.**
-Nothing declares `--<component>-body-measure` at all. The rosters were five and two: this
-sentence read "grid and table … only embed also declares a body measure" until #1066, which
-is wrong twice over — it said "one" and listed two, and BOTH names it listed belong to
-components that now declare zero slots, so `--table-heading-measure` and
-`--embed-body-measure` are refused with `no_style_slots`. On every v2 component a measure
-is the role's own `sizing.max-width` (section's and cta's left at #1023 and #1026, faq's at
-#1046, table's and embed's at #1066's first half, stats' and logos' at its second). grid's
-remaining measure slots **default to the shared `--measure-heading` design token**
-(`40rem`), so the
-normal way to change band heading measure across a site is ONE `update_design_token`
-write, not ten `style_component` writes.
-
-That is not just a convenience: measure slots are `length` / `length-or-none`, which are
-**literal-only**, so you cannot write the token reference into the slot either.
-`style_component` with `--grid-heading-measure: var(--measure-heading)` is rejected even
-though that string IS the slot's declared default. Retune the token, or write a literal
-and accept that this band stops following.
-
-Two components are deliberately exempt and default to `none`:
-
-- **`hero`** — both hero names below are RETIRED (#986) and are kept because the
-  BEHAVIOUR they describe survived the rebuild intact. `.hero__content` is a flex item
-  that shrink-wraps to its widest child, so a cap on the TITLE's measure narrows the whole
-  content column (title, subheading AND buttons), not just the headline. The cap you
-  almost always want is the CONTENT column's, which is the `content` role's
-  `sizing.max-width`; reach for the `title` role's only to hold a headline deliberately
-  narrower than its column. (v1 spelled the pair `--hero-heading-measure` and
-  `--hero-content-width`; writing either is refused with `no_style_slots`.)
-- **`section`** — the section title has never carried a cap, and section is the most-used
-  band, so it stays uncapped unless you say otherwise.
-
-Writing a plain length into any measure slot is **accepted and renders exactly as
-written** — a per-band measure is a legitimate typographic choice. Be aware of what it
-costs: that band is then pinned, so a later site-wide measure retune moves every other
-band and leaves this one behind. Keep the literal when this band must differ; otherwise
-leave the slot unset and tune the `--measure-*` tokens.
-
-**Two scope corrections worth knowing before you go looking for a measure that is not
-there.** First, `--measure-heading` routes **band headings, not item titles** — the
-`main > .grid--steps .grid__item-title { max-width: 17rem }` cap is deliberately outside
-the measure surface, so no measure retune reaches a step title. Second, the
-`--<component>-body-measure` family covers `embed` **only** (faq's left at #1046; section's and cta's
-retired at #1023 and #1026). `testimonials` is **not** among them, so the `layout: "stack"` reading measure
-(`42rem`) is a stated default, not something a measure retune moves.
-
-THE BRANCH-FALLBACK SLOTS ARE GONE, and what replaced them is better. `--section-body-measure`
-(four branches) and `--hero-content-width` (three) each had defaults that varied by layout
-and viewport, and setting either replaced EVERY branch with one value at every layout and
-viewport. Both components are v2 now: a measure is the `body` / `content` role's
-`sizing.max-width`, which takes a `breakpoints` map, so a per-viewport measure is one value
-per tier instead of one value for all of them. Section's role default is `40rem` — the
-width a v1 band actually RENDERED, which is not the same as the rule that won among those
-targeting the element: the 49rem override never bound, because the element's own wrapper
-capped it at 40rem first. What the branches encoded was a LAYOUT difference (a centered
-band got a wider cap), and a role default is per component, so one measure now serves all
-five layouts; a `centered` band is 32px tighter than it was and sets its own value if that
-matters. See components/section/README.md, "Stated defaults" and "What narrowed".
-
-**Stats display numbers follow the heading system only when you ask (#472).** The big
-metric values are the largest text in the component, but by default they take the page
-**body** font at weight `700` — they are not headings, and the `number` role DECLARES NO
-`family` DEFAULT precisely so that inherited face keeps landing. On a site whose headings
-use a distinct display face, bring the figures with it in the band's `udc` map:
+The shape is `role → group → parameter → value`:
 
 ```json
-{ "number": { "typography": { "family": "var(--font-heading)", "weight": "600" } } }
-```
-
-`typography.family` takes a font token or any comma-separated stack. `typography.weight`
-is a purpose-built `font-weight` type and, unlike the v1 slot it replaces, ACCEPTS THE CSS
-KEYWORDS (`bold`, `normal`, `lighter`, `bolder`) as well as a unitless number — `600px`,
-`heavy` and `-100` are still refused. Both are opt-in: write neither and the band renders
-exactly as before. The `label` role is a sibling element and never follows the number's
-face. (v1 spelled this pair `--stats-number-font` / `--stats-number-weight`; both retired
-with stats' slot map at #1066 and writing either is refused with `no_style_slots`.)
-
-The grid's **featured first-card treatment** (accent top bar, texture stripe, blue
-glow on card 1 of a cards-layout grid) is slot-controllable (#293):
-`--grid-item-bar-color`/`--grid-item-bar-height` pin one top bar on EVERY card
-(height `0` removes it everywhere); `--grid-featured-texture-color: transparent`
-removes the card-1 texture stripe; `--grid-featured-shadow` overrides the shared
-`--grid-item-shadow` on card 1 only (`none` removes the glow, or set
-`--grid-item-shadow` for one identical shadow on all cards). For a uniform row in
-one step, apply the `uniform-cards` recipe instead of setting the slots by hand.
-
-For a fully uniform card row, prefer the grid **`card_emphasis: uniform`** PROP
-(set with `update_component` / `create_page`, NOT `style_component` — it is a prop,
-not a style slot). It drops the ENTIRE featured first-card treatment — the accent
-bar, tinted fill, larger title, the extra first-card top-padding, AND the dark-theme
-lift — so card 1 renders identically to its siblings. This is the right tool for a
-symmetric/peer card row (specification/comparison cards whose checklists must line
-up, an equal-weight feature/plan row). It is more complete than the slot-level
-`uniform-cards` recipe, which cannot reach the first-card top-padding or the dark
-lift. Keep the default `featured` when one card is genuinely the lead.
-
-The grid's desktop **column count** is likewise a PROP, not a style slot: set the
-grid **`columns`** prop (integer 1-4, via `update_component` / `create_page`) to
-force a specific number of columns at >=768px instead of the default derivation
-from item count. There is no `--grid-columns` slot; do not look for one. Unset
-leaves the auto-by-count default unchanged; out-of-range/non-integer values are
-rejected. `columns` is a `cards` concept and is ignored on the `steps` layout.
-
-Whether a card image renders as a **16:9 banner or a small icon** is a PROP too, not
-a style slot: set the grid **`image_treatment`** prop (`banner` default / `icon`, via
-`update_component` / `create_page`) to switch a card's `image_url` from the full-width
-16:9 cover banner to a small un-cropped icon above the title (the icon+title+text
-feature card). The *size* of that icon IS a style slot: **`--grid-item-icon-size`**
-(length, default 48px, item-eligible) — set it via `style_component` grid-wide or in a
-per-card `items[].style`. The slot only takes effect under `image_treatment: icon`;
-under the default `banner` the 16:9 wrap ignores it. The icon also FOLLOWS the card's
-`--grid-item-text-align` (center/right/left) just like the text and the `Read more`
-link do — one authored slot aligns all three — so a centered icon+title+text card is
-fully centered without a separate icon-alignment slot. `image_treatment` is a `cards`
-concept and is ignored on the `steps` layout.
-
-To style **one card differently from its siblings** (a dark CTA panel beside light
-checklist cards, or a green-on-dark terminal card), set a per-card `style` object on
-that grid item — `props.items[].style` — with the **card-scoped** grid slots (e.g.
-`--grid-item-bg`, `--grid-item-border-color`, `--grid-item-title-color`,
-`--grid-item-text-color`). It is validated by the same shared engine and overrides
-the grid-level value for that card only. Container/heading slots (`--grid-bg`,
-`--grid-gap`, `--grid-heading-*`, `--grid-padding-*`) render on the section, not a
-card, so they are rejected here — set those on the grid-level style. Set it through the composition
-(`update_component` / `update_composition` / `create_page`), NOT `style_component` —
-`style_component` targets a whole component instance, not a single item. See
-`ai-instructions/composition.md` → "grid items[].style".
-
-The `position` and `ratio` types (#108) control image focal point and aspect ratio,
-per-instance. `position` accepts 1-2 keyword/length tokens (no functions, no `var()`);
-`ratio` accepts `auto` (natural proportions) or a number/fraction. NO COMPONENT EXPOSES
-EITHER TYPE ANY MORE: `--stats-bg-position` was the last, and it left with stats' rebuild
-(#1066). A band background's focal point is `_band` -> `background.position` on every
-component now. Not exposed on logos at any point (fixed `object-fit: contain` layout, not
-a crop model).
-
-**HERO AND SECTION ARE NOT ON THIS LIST (#986, #1006, #1023).** Their `--*-image-*` and
-`--*-bg-position` slots were retired with their v2 rebuilds, and both values are role
-parameters now: the content image's box shape is the `media` role's
-`sizing.aspect-ratio` and its focal point is the same role's `sizing.object-position`.
-`object-position` is the parameter #1023 added to the engine — section's rebuild needed
-it, an engine gap is fixed in the engine rather than worked around locally, and adding it
-also REVERSED hero's #986 narrowing of the same property. The band background's focal
-point is `_band`'s `background.position`. A hero band
-background is `_band` `background.image` plus `background.position` — never `image_url`,
-which on `layout: "cover"` is now REFUSED at write with `inert_prop`.
-
-**NO BAND HAS A SCRIM SLOT ANY MORE.** `--stats-overlay-bg` was the last (stats got one
-at #577 and lost it at #1066; cta's left at #1026, hero's at #986, section's at #1023), and
-writing any of them is refused with `no_style_slots`. The scrim is the `_band` role's
-`background.overlay`, authored beside `background.image` in the same map. It is
-`gradient`-typed — and unlike the slot it replaces it has **no default**: a band with an
-image and no `background.overlay` paints no scrim at all, where v1 painted one
-unconditionally. Write `"@overlay-bg"` for v1's scrim. Reach for a different value when one
-particular photo needs a darker or lighter scrim than the site default, instead of
-retuning `--overlay-bg` and moving every image band at once. Two things to know before
-you lighten one: the band's text defaults are calibrated against the SHIPPED scrim over a
-worst-case white image, so lightening it weakens contrast the theme is relying on; and
-de-emphasised ink on that band (a stats `label`; a cta `body` was the other until #1026) is already at the edge
-of AA, which is why it routes the `--color-muted-on-overlay` role rather than an
-`opacity` literal. Do not express de-emphasis on an image band with `opacity` — and note
-that since #1079 a role's `"_css"` map WILL accept one, so nothing refuses this for you.
-See `ai-instructions/retheme.md` for the measurements.
-
-The `align` type (#357) controls text alignment. It accepts exactly one `text-align`
-keyword: `left`, `right`, `center`, `start`, `end`, or `justify`. Grid exposes it as
-`--grid-item-text-align` — an item-eligible slot, so it can be set grid-wide (all cards)
-or per-card via `items[].style`. Default `left` matches historical rendering; set
-`center` to center a card's content — the centered emoji/label contact-card pattern.
-The slot aligns BOTH the text content (title, text, bullets) AND the `Read more`
-link/button: the link follows the same alignment via a derived companion (#361), so
-one value fully centers (or right-aligns) the whole card. An unset slot leaves the
-card byte-identically left-aligned.
-
-The `text-transform` type (#370) controls letter-casing. It accepts exactly one
-`text-transform` keyword: `none`, `uppercase`, `lowercase`, or `capitalize` — a closed
-set (the CJK `full-width`/`full-size-kana` values and bare `unset`/`initial` are
-rejected, the same tight-vocabulary posture as `align`). The eyebrow/kicker pill
-exposes it on the one that still has the slot, as `--grid-eyebrow-text-transform` (hero, section, testimonials, cta and faq take the `eyebrow` role's `typography.transform` instead),
-defaulting to `uppercase` (today's baked rendering). Set it to `none` when a reference
-shows the kicker in sentence case, or `lowercase`/`capitalize` for those looks. An unset
-slot leaves the eyebrow byte-identically uppercase.
-
-### Eyebrows: differentiate one deliberately, or leave the default alone
-
-> **An eyebrow is optional framing, not a default part of a section. Add one only where
-> a band genuinely needs the extra orienting line, and when you do style it, restyle the
-> ONE band that needs to stand apart — a page whose every band opens with the same
-> uppercase pill is the cookie-cutter rhythm the anti-slop rules exist to prevent.**
-
-The eyebrow family is fully authorable — six slots on each of six components (colour,
-background, radius, border width, border colour, casing) — so the control surface is not
-the problem. Uniformity is. The default pill is deliberately quiet so that a band which
-*does* differentiate its eyebrow reads as deliberate; recolour all six bands and you have
-spent the contrast and bought nothing.
-
-**Practical shape.** Leave `--<c>-eyebrow-*` unset on every band you are not
-deliberately marking. When you do mark one, `--<c>-eyebrow-text-transform: none` (sentence
-case against the uppercase default) usually differentiates more cleanly than a colour
-change, because it does not compete with the band's accent.
-
-**One thing does not move with the rest — ON THE SLOT SYSTEM.** The pill's **geometry** —
-`padding: 0.35rem 0.85rem` — is uniform across all six components by construction, and on
-the one still on slots (`grid`) it is a stated default with no slot: those two values are
-off the `--space-*` scale, so they are not token-reachable either. Colour, background,
-border, radius and casing all move per band there; the pill's shape does not. If
-differentiating a `grid` eyebrow leaves you needing a different pill *shape*, that is the
-reopening condition for the geometry — record it as an incident rather than working around
-it. **On the five v2 components the shape DOES move:** `hero`, `section`, `testimonials`,
-`cta` and `faq` each declare `spacing` on the `eyebrow` role, so the same two values are the
-role's `spacing.padding` default and an authored map overrides them per breakpoint.
-
-**Out of scope here, deliberately:** the eyebrow's TYPE triple (`0.8125rem` / `600` /
-`0.04em`, the same three values on all six) reaches no style SLOT and is not settled by this
-guidance — on `grid` there is nothing to set it with, and on the five v2 components it is the
-`eyebrow` role's `typography.size` / `weight` / `letter-spacing` default, authorable but
-deliberately left alone until #574 resolves. `base.css` ships a documented `--text-kicker-*` family at `0.75rem` / `700` /
-`0.08em`, and the eyebrow does **not** route it even though "kicker" is the token's own
-documented job. Those tokens are live — the `.text-kicker` utility class consumes all
-three, and a grid item with `text_role: "kicker"` renders it — so retuning
-`--text-kicker-size` restyles kicker-role card text and leaves every eyebrow pill exactly
-where it was. Routing the eyebrow to the semantically correct token would change rendered
-type in six components, so the reconciliation is tracked as its own needs-design issue
-(#574). Do not pre-empt it by hand-setting eyebrow type here.
-
-> **Text styling is a PROP, not a style slot.** A grid item's typography role
-> (`text_role`: mono/meta/label/kicker) is set with `update_component` (props), not
-> `style_component`. `style_component` only accepts schema-declared style slots.
-> A CTA's button style used to belong in this note as `button_variant`; that prop retired
-> at #1026 and a button's look is the `button` / `button-secondary` ROLE now — neither a
-> prop nor a slot, but a third address. See the worked example below.
-
-**Links inside `section.body` are the `body-link` ROLE since #1023 (#576 originally).** Its
-`typography.color` and its `':hover'` nested inside the same group colour the anchors the
-rich-text `body` surface can carry. Set them together — a hover colour with no resting
-colour reads as a bug the first time a pointer touches it:
-
-```json
-"body-link": { "typography": { "color": "#9ec5ff", ":hover": { "color": "#ffffff" } } }
-```
-
-TWO v1 SCOPE LIMITS ARE GONE. The old `--section-body-link-color` /
-`--section-body-link-hover-color` pair was consumed on the `inverted` and
-`background_image` bands only — on a default or `muted` band the anchors took the global
-accent and the two slots did nothing, so they were a dark-band correction rather than the
-general way to colour section links. A ROLE HAS NO SUCH SCOPE: `body-link` paints on every
-band, whatever its background, so it IS the general way now. And its condition was one of
-the three PROSE-ONLY conditions the clause grammar could not express (a disjunction —
-"inverted OR a background image"); a role's block is emitted only when its element renders,
-so that condition is structural and needs no note.
-
-**FOUR OF THE SIX RICH-TEXT SURFACES HAVE THIS ROLE, UNDER FOUR NAMES.** A link inside
-authored rich text is never reachable from the container's `typography.color` — that value
-lands on the wrapper and reaches an anchor only by INHERITANCE, while `base.css` declares
-`color` on `a` directly, and a direct declaration always beats an inherited one. So each
-rich-text surface has its own link role:
-
-| surface | role | selector |
-|---|---|---|
-| `section.body` | `body-link` | `.section__content a` |
-| `cta.body` | `body-link` | `.cta__body a` |
-| `embed.content` | `content-link` | `.embed__content a` |
-| `table.rows[][]` cells | `cell-link` | `.table__cell a` |
-
-All four ship with **no defaults**, deliberately. A default restating base.css's anchor
-values would be emitted unlayered and would outrank the premium button rules for an
-author-written `<a class="btn">` inside the surface — a real shape, since `wp_kses_post()`
-admits `class`. With no default the role costs nothing until you use it.
-
-**On a dark band you must use it, and you must write both states.** Measured on an
-authored `@color-bg-inverted` embed band:
-
-```json
-"content-link": { "typography": {
-  "color": "@color-accent-on-inverted",
-  ":hover": { "color": "@color-accent-on-inverted-hover" }
-} }
-```
-
-- no write at all → the link stays `@color-accent`, **3.23:1**, under the AA floor
-- resting only → the authored value is unlayered, so it wins on hover TOO: the link holds
-  one colour in both states and **stops responding to hover entirely**
-- both → 8.33:1 resting, 11.4:1 hovered
-
-**Two surfaces have NO link role, and both are gaps rather than designs:** `faq.answer` and
-`hero.proof` (which also takes `wp_kses_post` markup). On either, a link on a band you darken
-stays at `@color-accent` — 3.23:1 on `@color-bg-inverted`, under the AA floor — and no write can
-reach it. Filed as #1069.
-
-## The bands that left the slot surface
-
-**`grid` is the only component in the theme that still declares style slots.** Everything
-below about `logos`, `stats`, `table` and `embed` is the RETIRED surface, kept for whoever
-meets a stored `--logos-*`, `--stats-*`, `--table-*` or `--embed-*` key on an old page.
-Writing any of those names is refused with `no_style_slots`, and the refusal lists the
-roles that replaced them.
-
-**`logos` and `stats` moved to the v2 contract at #1066** and declare no slots. logos' band
-padding, heading size/colour/measure/rhythm, strip gap and the two image caps are its eight
-roles; stats' band, heading, accented substring, list, item, figure and caption are its
-seven. Two things are worth knowing before you darken either: the `label` on both pins
-`@color-muted` as a direct declaration, so a band ink write does not reach it, and v1's
-inverted label carried an `opacity: 0.75` that has no UDC group of its own — do NOT port it
-through `"_css"` just because #1079 makes that possible; it ports as the measured
-composite `rgb(192, 195, 201)` written on `label` -> `typography.color`.
-
-**`table` is on the v2 contract since #1066 and has NO style slots.** Its band padding, heading
-size/colour/measure/rhythm, and everything v1 had no slot for at all — the table fill, the head
-fill, header and cell ink, the rule widths, the caption — are the eleven roles in
-`components/table/schema.json`, set through the band's `udc` map. Sending any `--table-*` name to
-`style_component` is refused with `no_style_slots`, and the refusal lists the roles. Two things are
-worth knowing before you darken one: the table paints its OWN light surface (`table` fills
-`@color-bg`, `head` fills `@color-surface`) so `header` and `cell` ink stay pinned and must NOT be
-re-inked for a dark band; while `caption` and `empty` sit on the BAND fill and DO need a write.
-The retired v1 surface, for reference only: `--table-padding-top` /
-`-bottom`, plus `--table-heading-size` / `-color` / `-measure` / `-margin-bottom`. The
-table's own text surface — body type, caption ink, header fill, header ink, rule widths
-— had **no slots at all** on v1 and has role addresses now; and while `table` still
-declares no `theme` prop and no variant classes, a band tone is `_band` →
-`background.fill`, which is a capability v1 had no slot for. The one thing to know when authoring:
-the horizontal scroll is **viewport-independent** (`overflow-x: auto` with no media
-query), so a wide table scrolls at 1440px exactly as it does at 375px. Widen the band or
-cut columns; there is no slot that switches it off.
-
-**`embed` is on the v2 contract since #1066 and has NO style slots.** Its band padding,
-heading and content column are the four roles in `components/embed/schema.json` — `_band`,
-`heading`, `content` and `content-link` — set through the band's `udc` map. Sending any
-`--embed-*` name to `style_component` is refused with `no_style_slots`, and the refusal lists
-the roles. The `theme` prop retired with them, and THAT one is refused with `retired_prop`
-naming its `_band` route — two different codes for two different surfaces.
-
-THE ONE THING TO KNOW BEFORE DARKENING AN EMBED BAND, because it reaches less than you
-expect: `content` is arbitrary author HTML, and a `_band` -> `typography.color` write is
-used only where nothing else declares a colour. A bare paragraph inherits it. An
-author-written `<h2>`-`<h6>` does NOT (base.css pins `@color-text`, 1.006:1 on an inverted
-band), nor does a `<blockquote>`, nor does a link — links have the `content-link` role,
-which ships with no defaults precisely so that an authored value there wins without a
-default outranking the premium button rules for an `<a class="btn">`. So a dark embed band
-costs the `_band` write plus one per element the embedded content actually uses.
-
-Neither the old slots nor the new roles reach into a plugin's own markup further than
-inheritance does: a shortcode that sets its own colours wins, and that is expected —
-`embed` is the sanctioned escape hatch for plugin-rendered content, not a styling surface
-for it. The retired v1 surface, for reference only: `--embed-padding-top` / `-bottom`,
-`--embed-heading-size` / `-color` / `-measure` / `-margin-bottom`, `--embed-body-measure`
-and `--embed-body-color`.
-
-**`grid` (38 slots) — the only component in the theme that still has any.**
-Everything the style-slot system does, it does for grid: card and step layouts, the
-featured-card treatment, per-item overrides through `items[].style`, the icon and banner
-image treatments, and the named recipes. When grid is rebuilt on the design contract, the
-slot engine has no shipped consumer left and this whole section retires with it. Until
-then, a `--grid-*` name is the only slot name any write will accept.
-
-**`logos` LEFT THIS SECTION AT #1066 — it is a v2 component and declares no slots at all.**
-Style it through the `udc` map on the band, on one of its eight roles. Two things the slot
-surface taught are still true, and one of them CHANGED SHAPE in the move:
-
-- **The two image caps are two roles now, and they are independent.** The RETIRED
-  `--logos-image-size` had **two** effective defaults — `3rem` on a logo-only strip,
-  `2.5rem` on a labelled tile — and setting it replaced both branches with your single
-  value, deliberately. A role carries one default, so the caps are the `image` and
-  `image-labeled` roles, and the label-driven switch survives by specificity rather than by
-  fallback. Rendered default is
-  byte-identical (measured 48px / 40px); what changed is that "make the logos bigger" is
-  now two writes rather than one.
-- **It is still a fit model** (`object-fit: contain`, structural), so it exposes no
-  focal-point or aspect-ratio parameter — a client logo must be shown whole. That is the
-  deliberate contrast with the testimonials avatar, which is a **crop** model.
-
-**`faq` LEFT THIS SECTION AT #1046 — it is a v2 component and declares no slots at all.**
-Style it through the `udc` map on the band, on one of its ten roles. Two things the slot
-surface used to teach are still true and still worth knowing, because the roles inherited
-both:
-
-- **The closed and open states are positional twins.** `question` owns the resting row and
-  `question-open` owns the expanded one, and the open role's selector outranks the resting
-  one — so a colour set on `question` alone reverts the moment the reader opens the item.
-  Set both or neither. The same ranking applies to a `:hover` or `:focus-visible` map: set
-  it on `question-open` too when it must survive opening.
-- **The disclosure chevron has no role and needs none.** It is drawn with currentColor
-  borders, so it follows whatever `question` and `question-open` resolve to. Only its box
-  and stroke are stated defaults, and they stay in the stylesheet because a pseudo-element
-  has no role address (ruling A3).
-
-The question/answer type pair still distinguishes the two **at identical size**, using
-weight (560 vs 430) and leading alone — but it is authorable now, per breakpoint, on the
-`question` and `answer` roles.
-
-### `--logos-bg` does not exist, and it never needs to
-
-**THIS SECTION DESCRIBED A DEFERRED GATE UNTIL #1066 AND DESCRIBES A CLOSED ONE NOW.**
-`--table-bg`, `--embed-bg` and `--logos-bg` never existed; the names are kept here only so
-an author who meets one on an old page knows what happened. All three components are v2
-now, so a band tone on any of them is the `_band` role's `background.fill` — a real
-capability, reached the same way on every band in the theme.
-
-`--logos-bg` **does not exist and is not declared**, and the gate that would have shipped
-it is moot — but the criterion is worth recording rather than deleting, because it is the
-one a future v1 slot request should still be held to: **a band background arrives together
-with everything needed to keep the band readable.** Shipping the fill first leaves an author
-able to paint a band they cannot make legible.
-
-- **`table` was the worked example.** Its whole text surface — body type, caption ink,
-  header fill and header ink — had to land with the background, and the rebuild did exactly
-  that: all four are roles (`table`, `caption`, `head`, `header`), and the schema states
-  which a dark band must re-ink and which it must leave alone.
-- **`logos` cleared the same bar at #1066.** Its framing borders were the open question —
-  paint the band and a frame that no longer matches it stays behind. They are `_band`'s own
-  `border` group now, written in the same map as the fill, so the mismatch cannot arise.
-  Its one text surface, the `label`, pins `@color-muted` as a direct declaration, so the
-  schema and the README both say a dark logos band owes that role a write.
-
-So: to tone a logos band, write its `_band` role's `background.fill` (plus
-`typography.color`, and `label` -> `typography.color`). Do NOT reach for `--logos-bg` or
-`logos`'s old `theme` prop — the slot is not declared and the write is rejected, and
-`theme` retired at #1066 and is refused with `retired_prop`.
-
-## Fusing adjacent components into one colored band
-
-By default every band-level component (`section`, `grid`, `cta`, `stats`, `faq`,
-`testimonials`, `table`, `logos`, `embed`) renders **symmetric, non-zero** vertical
-padding from the shared `--pp-band-padding` rhythm, and a band placed after another
-band takes that same value on its top edge. So two stacked bands that share a
-background already read as one color with a comfortable gap between them — you do not
-need to touch spacing for that.
-
-To make two adjacent same-background bands read as **one continuous, seamless band**
-(no internal gap), collapse the space between them deliberately:
-
-1. Give both components the same background (`--<upper>-bg` and `--<lower>-bg`).
-2. Zero the two **facing** paddings: `--<upper>-padding-bottom: 0` on the upper
-   component and `--<lower>-padding-top: 0` on the lower one. A band's own
-   `--*-padding-top` slot governs its adjacent-top edge too, so this is all it takes;
-   the default bottom padding stays non-zero until you override it.
-3. Zero the bottom margin on the **last element of the upper component** — for a v1
-   `grid` whose title is its last visible element, `--grid-heading-margin-bottom: 0`. On a
-   v2 component it is the `heading` role's `spacing.margin-bottom` set to `0`, which takes
-   a `breakpoints` map, so you can zero it at one tier and keep it at another — something
-   the single slot could not do.
-
-   Since #584 every band component still on the slot system carries this slot —
-   `--{grid,stats,logos}-heading-margin-bottom` (hero's left in #986, cta's at #1026,
-   faq's at #1046, table's and embed's at #1066, section's and testimonials' with their
-   own rebuilds) —
-   so the band's header rhythm is authorable everywhere. Unset, each keeps the spacing it
-   always had.
-
-   Read step 3 as "the LAST element", not "the heading". The heading is only that element on a
-   band whose heading is the last thing it renders; on `stats`, `table`, `embed`
-   and `logos` a required content prop always renders after the heading (the CTA group, the
-   number row, the table, the embed, the strip), so on those bands the heading-margin slot is
-   the INTERNAL header rhythm and step 2's `--<upper>-padding-bottom: 0` is what closes the
-   seam. Zeroing the heading margin there tightens the band's own header and does nothing to
-   the seam.
-
-Step 3 is the one that is easy to miss. Once the upper band's bottom padding is zero,
-its trailing element's bottom margin is no longer held inside the band: it escapes the
-zero-padding edge and opens a gap between the two backgrounds that shows the page
-background as a thin seam of the wrong color (a real dogfood hit a ~26px white seam
-between two navy bands this exact way). Zeroing that margin closes the seam.
-
----
-
-## Available recipes (v1)
-
-| Component | Recipe | Description |
-|-----------|--------|-------------|
-| hero | — | No named recipe. `hero` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
-| section | — | No named recipe. `section` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. The two recipes it used to ship, `accent-panel` and `spacious-editorial`, were bundles of slot values; a `udc` map says the same thing directly, and a custom preset (`save_preset`) is the reusable form. |
-| grid | `dark-showcase` | Dark background with light cards |
-| grid | `dense-cards` | Compact card layout with tight spacing |
-| grid | `uniform-cards` | Neutralize the featured first-card treatment (top bar, texture, glow) for a uniform row |
-| cta | — | No named recipe. `cta` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. The two recipes it used to ship, `dark-bold` and `accent-framed`, were bundles of slot values; a `udc` map says the same thing directly, and a custom preset (`save_preset`) is the reusable form. `dark-bold` becomes `_band` -> `background.fill` plus `typography.color` on the text roles and `heading` -> `typography.size`; `accent-framed` becomes `_band` -> `border` (`width`, `style`, `color`, `radius`). |
-| testimonials | — | No named recipe. `testimonials` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
-| stats | — | **`stats` is a v2 component (#1066)** — no slots, no recipes, no `theme` and no `background_image` prop, and a `style_component` call naming it is refused with `no_style_slots`. Band tone is `_band` -> `background.fill` plus `typography.color`, AND the three child inks (`heading-accent`, `number`, `label`) which a band ink write does not reach. The contained rounded metrics card (#383) that `--stats-bg` + `--stats-radius` + `--stats-max-width` built is now `_band` -> `background.fill` + `border.radius` + `sizing.max-width` in one map; the centring comes free, because `_band` defaults both side margins to `auto`. Retired v1 position: 17 slots |
-| faq | — | No named recipe. `faq` is a v2 component: it has no style slots for a recipe to expand into. Style it through the `udc` map on the band — see the Universal Design Contract section. |
-| table | — | **`table` is a v2 component (#1066)** — no slots, no recipes, and a `style_component` call naming it is refused with `no_style_slots`. Its band tone is `_band` -> `background.fill`; its text surface is the `table` / `caption` / `head` / `header` / `cell` roles. What follows is the retired v1 position: it declared 6 slots, all band padding and heading, so there is nothing for a recipe to bundle. Use the `theme` prop of a surrounding `section` if the band needs a tone |
-| embed | — | **`embed` is a v2 component (#1066)** — no slots, no recipes, no `theme` prop, and a `style_component` call naming it is refused with `no_style_slots`. Band tone is `_band` -> `background.fill` plus `typography.color`; the content column is the `content` role and its links are `content-link`. Retired v1 position: 8 slots covering band padding, heading and the content column |
-| logos | — | **`logos` is a v2 component (#1066)** — no slots, no recipes, no `theme` prop, and a `style_component` call naming it is refused with `no_style_slots`. Strip density is `list` -> `spacing.gap` plus the `image` AND `image-labeled` roles' `sizing.max-height` (two roles, because a role carries one default per parameter — write both for a flat strip). Band tone is `_band` -> `background.fill` plus `typography.color`, and `label` -> `typography.color`, which a band ink write does not reach. Retired v1 position: 8 slots |
-
-A `—` row means the component ships **no named recipe**, so `style_component` with a
-`recipe` key naming one is rejected. That is a real absence, not a documentation gap —
-recipes were authored for the four band components a dogfood kept restyling, and the
-other five never got one. It is not a claim that no useful bundle exists for them (the
-stats contained-card trio above is an obvious candidate). Set the slots directly.
-
-> **`dark-*` recipes vs. the `theme` prop — do not confuse them.** These `dark-*`
-> recipes DO paint a genuinely dark background (via style slots). The band-level
-> `theme` prop is different: its tinted value is `muted` (a LIGHT `--color-surface`
-> band with borders), and a `theme: "inverted"` band is the dark one. For a dark band,
-> set `theme: "inverted"` or use a `dark-*` recipe.
-
----
-
-## Worked example -- shadows, button variants, and text roles (v0.12.0)
-
-These three controls reach the page through **two different actions**. Slots
-(shadow, border, radius, color) go through `style_component`. Props (button
-variant, typography role) go through `update_component`. Mixing them up is the
-most common mistake -- `style_component` rejects anything that is not a declared
-style slot.
-
-**1. Add a drop shadow + rounded corners to a band (style slots).**
-```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "style": {
-    "--grid-item-shadow": "var(--shadow-md)",
-    "--grid-item-radius": "1rem"
-  }
-}'
-```
-Shadow values are bounded: a preset (`var(--shadow-none|sm|md|lg)` or `none`) or a
-single-layer `box-shadow` like `0 4px 12px rgba(0,0,0,0.1)`. `inset`, multi-layer
-shadows, and `url()` are rejected. The same `*-shadow` / `*-border-color` /
-`*-border-width` / `*-radius` family exists on the components still on slots. On grid the
-card members are namespaced under `item` (`--grid-item-border-color`, and so on), because
-they paint the card rather than the band.
-
-`hero`, `section`, `testimonials`, `cta` and `faq` are no longer in that list: they are v2
-components, so a band's border, radius and shadow are the `_band` role's `border` and
-`shadow` groups in the band's `udc` map (and a card's are its own role's). The
-bounded-shadow grammar above is the same one either way — only the addressing differs.
-
-**2. Style a CTA's buttons — cta IS v2, so this is a `udc` map, not slots (#1026).**
-
-The block that used to sit here taught `button_variant`, `--cta-button-*`,
-`--cta-button2-*` and `--cta-accent`. All of them are gone: `style_component` refuses cta
-with `no_style_slots`, and a write naming `button_variant` is refused with `retired_prop`.
-The replacement is shorter and does more, because a role takes the whole design vocabulary
-and its states rather than a fixed list someone had to think of in advance.
-
-**The two buttons are two roles.** `button` is the primary, `button-secondary` the second
-one (rendered only when `button2_text` is set). They are independent by construction: v1
-needed a dedicated re-pointing rule to stop the primary's slots inheriting onto the second
-button, because slots were emitted as custom properties on the band root. Nothing is
-emitted there now, so nothing inherits.
-
-**The fastest route is a preset**, and `button` declares NO defaults precisely so one lands
-whole:
-
-```bash
-wp pp action execute update_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
+{
+  "component": "testimonials",
+  "props": { "title": "What clients say" },
   "udc": {
-    "button":           { "_preset": "button" },
-    "button-secondary": { "_preset": "button-secondary", "border": { "radius": "0" } }
+    "quote": { "typography": { "family": "@font-heading", "style": "italic", "size": "19px" } },
+    "card":  { "background": { "fill": "#ffffff" },
+               "border": { "width": "1px", "style": "solid", "color": "#e6e6e6" } }
   }
-}'
-```
-
-**A brand-coloured filled primary**, with the hover state v1's slots could only reach one
-property at a time:
-
-```bash
-wp pp action execute update_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "udc": {
-    "button": {
-      "background": { "fill": "#7c3aed", ":hover": { "fill": "#6d28d9" } },
-      "typography": { "color": "#ffffff", ":hover": { "color": "#ffffff" } },
-      "border":     { "width": "2px", "style": "solid", "color": "#7c3aed",
-                      ":hover": { "color": "#6d28d9" } },
-      "shadow":     { "box": "none" }
-    }
-  }
-}'
-```
-
-`shadow.box: "none"` is what makes it FLAT. `background.fill` emits the `background`
-shorthand, which clears the premium gradient on its own — but nothing clears the premium
-BEVEL, so leave that line out and you get a flat fill wearing a gradient button's shadow.
-The same applies to `button-secondary`, whose own defaults already set it.
-
-**`outline` and `ghost` have no preset.** They were `button_variant` values; write them on
-the role:
-
-```json
-"button": {"background": {"fill": "transparent"},
-           "border": {"width": "2px", "style": "solid", "color": "@color-accent"},
-           "typography": {"color": "@color-accent"}}
-```
-
-That is `outline`; `ghost` is the same without the `border` group. **Ship the `:hover` with
-it.** A role block is emitted UNLAYERED, so a resting colour outranks the stylesheet's own
-hover rules in every state — a resting value without a state map is a button that does not
-respond to a pointer at all.
-
-**YOU own the contrast on a dark cta.** v1 routed the outline/ghost ink of both buttons to
-an AA-safe on-dark accent whenever the band carried `theme: "inverted"` or a
-`background_image`. Both props are retired, so both routings are gone: set
-`typography.color` and `border.color` on the roles, against the background you authored.
-`--color-accent-on-inverted` (8.33:1 on the inverted token) and `--color-accent-on-overlay`
-(4.59:1 over the worst-case scrim) are still declared at `:root` and are the values to reach
-for. The one exception is the FOCUS ring over a scrim, which the engine still routes
-automatically — see `ai-instructions/retheme.md`.
-
-> **Per-instance vs site-wide.** The role values above restyle ONE band's buttons. The
-> global `--btn-bg` / `--btn-text` / `--btn-border-color` / `--btn-shadow` tokens — plus the
-> hover pair `--btn-hover-bg` / `--btn-hover-border-color` (#539), which keep a site-wide
-> fill or border retheme from reverting to the theme gradient under the pointer — (base.css,
-> set via `update_design_token`) restyle EVERY composed primary button at once: the premium
-> `main .btn` primary cascade routes its fill/border/ink/shadow fallbacks through them
-> (#458). A role value still wins where set, and wins more decisively than a slot did: a
-> band block is unlayered, so it outranks the whole stylesheet rather than sitting at the
-> head of a fallback chain. See `ai-instructions/retheme.md` for the full global button
-> surface.
->
-> The two tiers also differ in WHICH BUTTONS THEY REACH. A `.btn` you hand-write into a
-> rich-text prop is not a button any renderer owns: it follows the site-wide `--btn-*` tier
-> and whatever ROLE its container declares. On cta that is moot — `cta.body` goes through
-> `pp_kses_inline`, whose `a` allowlist is href/title only, so a class cannot survive there
-> at all.
-
-**Brand-accent hero CTA buttons — HERO IS v2, so this is a `udc` map, not slots (#986).**
-The block that used to sit here taught `--hero-button-*`, `--hero-button2-*` and
-`--hero-accent`. Those slots are gone: `style_component` refuses hero with
-`no_style_slots`. The replacement is shorter and does more, because a role takes the whole
-design vocabulary and three states rather than a fixed list someone had to think of in
-advance.
-
-To give a hero a solid brand-coloured primary and a matching secondary:
-
-```bash
-wp pp action execute update_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-a1b2c3d4",
-  "udc": {
-    "cta": {
-      "_preset": "button",
-      "background": { "fill": "#7c3aed", ":hover": { "fill": "#6d28d9" } },
-      "typography": { "color": "#ffffff" },
-      "border": { "color": "#7c3aed" },
-      "shadow": { "box": "none" }
-    },
-    "cta-secondary": {
-      "border": { "color": "#7c3aed" },
-      "typography": { "color": "#7c3aed" }
-    }
-  }
-}'
-```
-
-Three differences worth knowing before translating an old slot recipe:
-
-- **No fill slot is needed to defeat the gradient.** `background.fill` on the role wins
-  outright — authored band blocks are unlayered and the v1 stylesheet lives in
-  `@layer pp-v1`, so nothing in that sheet can outrank it however many classes it carries.
-  The "the premium gradient masks my flat fill" problem does not exist here.
-- **Hover is a map, not a parallel slot family.** `":hover": { "fill": "…" }` inside the
-  group, instead of a `--*-hover-bg` twin. `:focus-visible` and `:active` work the same
-  way, which the slot surface never offered at all.
-- **The second button already looks different.** `cta-secondary` ships the v1 outline
-  treatment as its role default, so you author only what you want to CHANGE — unlike the
-  slot era, where an unstyled second button inherited the primary's look.
-
-Presets carry the LOOK, not the behaviour, and anything you set beside a preset wins over
-it.
-
-**The section's `text-panel` CTA is the `panel-cta` ROLE since #1023, and three v1 limits
-went with the slots.** It used to carry the same premium gradient and the same masking
-problem as the hero's, handled by a family of five slots:
-
-```json
-"panel-cta": {
-  "_preset": "button",
-  "background": { "fill": "#7c3aed", ":hover": { "fill": "#6d28d9" } },
-  "typography": { "color": "#ffffff" },
-  "shadow": { "box": "none" },
-  "border": { "color": "#7c3aed", ":hover": { "color": "#a78bfa" } }
 }
 ```
 
-What that fixes, stated because the v1 restrictions were real and documented:
+`_band` is the band element itself — the `<section>`. Use it for the band's own background,
+padding and border.
 
-- **THE MASKING PROBLEM IS GONE.** A plain background colour could not replace the premium
-  gradient, because the gradient is a background-IMAGE painted over it, so `#536` needed a
-  dedicated fill slot leading a carefully-ordered chain. A role's block is emitted
-  UNLAYERED and band-scoped, so it outranks the shared premium rule outright. Set
-  `background.fill` and it paints.
-- **THERE IS NO primary-ONLY RESTRICTION.** The v1 slots reached a `primary`
-  `panel_cta_variant` only, and outline/ghost/secondary panel CTAs kept their transparent
-  treatment whatever you set. `panel_cta_variant` is retired; a preset plus your overrides
-  is the whole treatment, so there is no variant left to contradict.
-- **THERE IS A HOVER FILL.** v1 governed the resting state only: a flat panel button
-  reverted to the premium gradient under the pointer, and no per-instance hover fill slot
-  existed (only the ring got a twin, in #584). A `':hover'` nested inside `background`
-  holds through the hover, same as the ring's.
+### Which action carries it
 
-The CTA still renders only when the panel does (`panel_cta_text` + `panel_cta_url`), and
-an unauthored `panel-cta` renders as the bare shared button.
+**`update_composition` and `create_page` are the only two verbs that carry a `udc` map.** Both take
+a whole band, which is why they can. `update_component` and `add_component` declare `props` and
+`style` only — there is no `udc` parameter on either, so a `udc` key sent to them is never examined,
+and `update_component` additionally requires `props`.
 
-**3. Tag a grid card's text with a typography role (an item field).**
-`text_role` lives on each item inside the grid's `items` array, not as a top-level
-prop. Patch the whole `items` array via `update_component` (a prop shallow-merge
-replaces the array wholesale, so include every item you want to keep):
+So a styling edit is a read-modify-write of the composition:
+
 ```bash
-wp pp action execute update_component --run-id=<uuid> --params='{
-  "post_id": 19,
-  "component_id": "pp-grid5678",
-  "props": {
-    "items": [
-      { "title": "v0.12.0", "text": "Shipped 2026-06-26", "text_role": "kicker" }
-    ]
+wp post meta get 42 _pp_composition_version  # READ THE VERSION FIRST — see below
+wp post meta get 42 _pp_composition          # then the resendable bytes, `udc` maps included
+wp pp action execute update_composition --run-id=<uuid> --params='{ ... }'
+```
+
+**Read the meta, not `inspect`.** This is the one place a raw meta READ is the right tool, and
+it is worth being exact about why: `wp pp operate inspect` returns the page map, tokens, chrome
+and smells but no composition array; `wp pp operate inspect-composition` returns per-field
+targets for patching and carries **no `udc` at all** (measured: zero occurrences in its report).
+Neither gives you the map you are about to edit. Reading the meta is safe — it is WRITING it
+that skips validation, minting, versioning and history.
+
+**On `expected_version`, with two caveats that matter more than the parameter does.**
+
+Read it from its own meta key — `wp post meta get 42 _pp_composition_version` — and read it
+**before** the composition, not after. Read the data first and the version second and you have
+built the race you were trying to close: a write landing between the two reads gives you stale
+bytes and a version that already covers them, so the check passes and the other edit is gone.
+(The version also comes back on every write's envelope as `composition_version`.)
+
+**And on the CLI today, passing it protects you less than it looks.** `wp pp action execute`
+runs its own freshness gate and then OVERWRITES whatever `expected_version` you sent with the
+baseline that gate computed, so a deliberately stale value is accepted rather than refused —
+measured: a write carrying `expected_version: 1` against a composition at version 2 returned
+`ok: true`. The engine's compare-and-swap is sound and the chat and dashboard surfaces honour
+it; it is the CLI wrapper that discards your value, and only for COMPOSITION writes — the site-option path on the same CLI refuses a stale `expected_version` correctly with `site_option_conflict`, so the chrome promises elsewhere hold. Filed as its own issue.
+
+Until that lands, treat the CLI as last-write-wins and make the window small: read the version,
+read the composition, edit, and write **immediately**, in one unbroken sequence. Do not carry a
+composition you read earlier in the session. Pass `expected_version` anyway — it costs nothing,
+it is honoured on the other surfaces, and it will start being honoured here.
+
+### Groups and parameters
+
+Eight groups. `wp pp schema <component>`'s `udc_groups` field states the whole vocabulary, derived
+from the engine, and a role permits only the groups its own `groups` list names:
+
+- **typography** — family, size, weight, style, line-height, letter-spacing, align, transform, decoration, wrap, color
+- **spacing** — padding (and per-side), margin (and per-side), gap, row-gap, column-gap
+- **border** — width, style, color (each with per-side forms), radius (and per-corner)
+- **background** — fill, image, overlay, position, size, repeat
+- **sizing** — width, height, min/max width and height, aspect-ratio, object-position, align-self
+- **layout** — columns, orientation, wrap, justify, align
+- **shadow** — box
+- **motion** — transition-duration, timing-function
+
+Two names appear in two groups and mean different things. `layout.align` is the cross-axis
+alignment of a container's children; `typography.align` is text alignment. `layout.wrap` is flex
+wrapping; `typography.wrap` is line wrapping. Both accept `center`, so writing one under the wrong
+group validates and styles the wrong thing.
+
+### Values: the accepted grammar
+
+A length is a number with a CSS unit, unitless `0`, or a `clamp()`/`calc()` expression. The
+accepted units are exactly: `px`, `rem`, `em`, `ex`, `ch`, `lh`, `rlh`, `vw`, `vh`, `vmin`, `vmax`,
+and `%`. One grammar owns every length-bearing value, so a unit that works in a padding works in a
+radius and in a gradient stop. Absolute print units are not accepted.
+
+Two per-property exceptions keep that sentence honest. `shadow` lengths take NO percentage,
+because `box-shadow: 0 50%` is not valid CSS. And `clamp()`/`calc()` are accepted on the
+`length` and `length-or-none` only — not on a ratio, a duration or a position.
+
+Negative values are allowed only where the property takes them — letter-spacing and margins yes;
+padding, sizes, radii and gaps no. `padding`, `margin`, `border.width` and `border.radius` take one
+to four space-separated lengths; everything else takes a single value.
+
+Colours are hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, `transparent` or `currentColor`. Named colours
+are refused.
+
+`sizing.aspect-ratio` is the one parameter that is not a length: `auto`, a single positive number,
+or two positive numbers separated by a slash (`16/9`). Zero and negatives are refused on both sides.
+
+**Where a value reaches raw CSS text — which is every `udc` parameter — two further limits apply.**
+Brackets must come in closed, properly nested pairs, and each quote character must appear an even
+number of times across the whole value. A `udc` value breaking either is **REFUSED at write**, so
+you find out immediately. The same limits reach a design-token override, but there the value is
+accepted at write and then **DROPPED at render**, so the token silently falls back to its default
+and the only report is `wp pp readiness status` as a `token_override_validity` finding. A v1 style
+slot is the one sink where an unclosed mark is genuinely inert, because it lands in an escaped
+`style` attribute.
+
+### References: follow a token instead of freezing a copy
+
+Write `"@token-name"` to make a value track a design token: `"@color-accent"`, `"@space-lg"`,
+`"@font-heading"`. No `--` prefix, no `var()`. This works on **every** parameter, lengths included.
+
+A name matching neither the band's own `_tokens` nor a registered design token is refused at write,
+never silently ignored. A reference must also be usable for the parameter: a colour token in a
+length is refused, and `@transition` is a compound (`150ms ease`) with no single grammar, so write
+`motion` values literally.
+
+Reach for a reference whenever the intent is "this follows the brand", and a literal when the
+intent is "this band specifically differs".
+
+### Responsive: breakpoint maps
+
+Any value may be a map instead of a single value:
+
+```json
+{
+  "component": "section",
+  "udc": { "heading": { "typography": { "size": { "d": "2.5rem", "t": "2.1rem", "p": "1.75rem" } } } }
+}
+```
+
+`d` is **the base and carries no media query at all** — it applies at every width unless a narrower tier overrides it, which is why writing only `d` is the normal case. `t` is tablet
+(768–1023px), `p` is phone (≤767px). `t` and `p` do not overlap each other, so neither cancels
+the other — but `d` sits underneath both and IS overridden by whichever of them you set, which is
+the same thing as saying it is the base.
+
+### States
+
+A `":hover"`, `":focus-visible"` or `":active"` key inside a group holds the same parameters for
+that state, and its values may themselves be breakpoint maps:
+
+```json
+{
+  "component": "cta",
+  "udc": { "button": { "typography": { "color": "#ffffff", ":hover": { "color": "#f0f4ff" } } } }
+}
+```
+
+Those three are the whole set. `:disabled`, pseudo-elements and states on an ancestor are refused.
+States do not nest. They emit in the order hover, focus-visible, active.
+
+Do not restate the theme's keyboard focus ring — every focusable element already has one. Use
+`:focus-visible` to add to it, never to replace it.
+
+### Reading `default` in a report
+
+A `default` states the **effective** default: what actually renders with the value unset, in the
+component's default configuration, at desktop. It is not a CSS fallback literal and not a guess.
+Where the real default varies by variant or breakpoint, the `default` names the desktop value and
+the `description` enumerates the alternatives — so read the description before assuming one number
+holds everywhere. Setting a value **replaces every branch at once**, at every layout and viewport,
+so a value chosen from the desktop number alone can be wrong at 375px.
+
+### Presets
+
+A `"_preset"` key applies a named bundle. At role grain it sits beside the groups; at group grain
+beside the parameters:
+
+```json
+{
+  "component": "cta",
+  "udc": { "button": { "_preset": "button", "border": { "radius": "12px" } } }
+}
+```
+
+Write the name bare — an `@name` always means a design token, never a preset. The shipped presets
+are `button`, `button-secondary` and `link`; a name that is not one is refused and the refusal
+lists the ones that are. Anything you set beside the preset wins over it.
+
+Two things to expect. Role defaults outrank presets, **per state** — a role that already declares
+its own background keeps it at rest and still takes the preset's `:hover` background, so check the
+contrast of both. And a role-grain preset applies only the groups that role permits, skipping the
+rest; the write envelope names what was skipped in a `udc_preset_groups_skipped` finding.
+
+You can create your own with `save_preset` (and remove one with `delete_preset`). A saved preset is
+validated by the same engine that validates a band's `udc`, its `@` references resolve against the
+site design tokens, and editing it moves every band that references it with no band write.
+
+### Raw CSS (`_css`) — the escape hatch, and when not to use it
+
+Beside a role's groups you may write `"_css"`, a plain map of CSS property to value:
+
+```json
+{
+  "component": "testimonials",
+  "udc": { "quote": { "typography": { "size": "1.25rem" },
+                      "_css": { "opacity": "0.75", "mix-blend-mode": "multiply" } } }
+}
+```
+
+It takes the same breakpoint maps and the same states as any group, on every role and on `_band`.
+
+**The rule for choosing: structured first, `_css` for what structure cannot say.** If a group and
+parameter exist for what you want, use them — those values are type-checked, they appear in the
+report, they can be changed by name, and the engine can tell you when one cannot take effect.
+
+Five things to know. A property the vocabulary already owns **keeps its parameter's grammar**, so
+`_css` buys you nothing there and costs you the type check. If you set both, `_css` wins and the
+envelope says so with `udc_css_overrides_group_value`. A property the vocabulary does not know is
+checked for safety only and emitted verbatim, with a `udc_css_unchecked_property` finding — read
+those, they are the only signal a value went out unverified. `@token` references work only on
+properties the vocabulary knows. And no value may name an external resource: a background image is
+an attachment id on `background.image`, and the Media Library is the only source of external
+assets. `!important` is refused — this engine keeps specificity flat, and your value already wins
+on cascade position.
+
+---
+
+## What the component tells you to pair
+
+Some roles carry `obligations`: a fact that a value you write here does not reach a part you might
+expect it to, so you have to write both. Two shapes exist — a partner role whose own default
+outranks what you set, and a partner that sits inside this one and takes its styling directly
+rather than by inheritance.
+
+**Read them from `wp pp schema <component>`**, per role, at the moment you write. They are not
+reproduced here on purpose: an obligation copied into a document is a second copy with nothing
+keeping it true, and the report is generated from the schema. The runtime assistant is given them
+automatically for the same reason.
+
+The one that bites most often in practice: darkening a surface that carries prose costs more writes
+than the surface itself, because the links inside it and the parts with their own colour do not
+follow the container.
+
+---
+
+## A dark band
+
+There is no `theme` prop on a component on the design contract. Say it directly — set the band's
+background, then every text part's colour:
+
+```json
+{
+  "component": "testimonials",
+  "udc": {
+    "_band":       { "background": { "fill": "#101828" } },
+    "card":        { "background": { "fill": "#1d2939" }, "border": { "color": "#344054" } },
+    "quote":       { "typography": { "color": "#f7f8fa" } },
+    "author":      { "typography": { "color": "#f7f8fa" } },
+    "meta":        { "typography": { "color": "#c8ccd4" } },
+    "heading":     { "typography": { "color": "#f7f8fa" } },
+    "subheading":  { "typography": { "color": "#c8ccd4" } }
   }
+}
+```
+
+**`card` is in that map for a reason, and leaving it out is the trap.** The quote, author and
+meta all render INSIDE `.testimonials__item`, and the `card` role ships
+`background.fill: "@color-surface"` as its own DEFAULT — a near-white panel. Darken `_band`,
+re-ink the text, and skip `card`, and you get near-white ink on a near-white card: measured
+**1.01:1** for the quote and 1.50:1 for the meta against THIS example's resolved card fill
+(#f4f7fb), on a write that returns `findings: []`,
+because the engine warns about a value that cannot take effect and not about a role default
+that survives a change you made to a different role.
+
+**You own the contrast, and you own it per ROLE, not per band.** Nothing re-lights text for
+you. Check every colour against the surface it actually sits on — which is the nearest
+ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
+WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
+un-recoloured renders dark ink on dark, or light ink on light, and that is the single most
+common way this goes wrong.
+
+Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
+`@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and
+`@color-muted-on-overlay` for de-emphasised text over a background image.
+
+A background image is an attachment id, never a URL:
+
+```json
+{
+  "component": "section",
+  "udc": { "_band": { "background": { "image": 42, "overlay": "@overlay-bg",
+                                      "size": "cover", "repeat": "no-repeat" } },
+           "heading": { "typography": { "color": "#ffffff" } } }
+}
+```
+
+`import_media` returns the id. Pair an image with an `overlay` whenever text sits on it, or the text
+is illegible over whatever the photograph happens to contain. The scrim is not automatic, and
+neither are `size` and `repeat`.
+
+---
+
+## Site chrome: the header and the footer
+
+`nav` and `footer` are on the same contract with the same grammar, but they are not bands — the
+theme renders them once on every page and they cannot be composed. Their map lives in the
+`pp_site_udc` site option, written with `update_site_option`, one entry per chrome component:
+
+```json
+{ "nav": { "_band": { "background": { "fill": "#101828" } },
+           "link": { "typography": { "color": "#f7f8fa", ":hover": { "color": "@color-accent-on-inverted" } } },
+           "link-current": { "typography": { "color": "@color-accent-on-inverted" } },
+           "logo": { "typography": { "color": "#ffffff" } },
+           "submenu-toggle": { "typography": { "color": "#f7f8fa" } } } }
+```
+
+**A write replaces the whole option**, so send every chrome component you want to keep in the same
+write. Read the current map back first with `wp pp operate inspect` (it returns it as `chrome`,
+with the `version` to pass as `expected_version`), edit it, and send the whole thing. `""` clears
+all chrome styling.
+
+`_presets` and `_presets_version` share that row and are engine-owned: they are preserved across
+every chrome write, and a write carrying either is refused telling you to drop it.
+
+Chrome styling is site-wide. There is no per-page override, and a key that is not a chrome
+component name is refused.
+
+**A dark header or footer is where contrast goes wrong most often**, because many chrome parts
+carry their own colour and a background change moves none of them. The accent used above is the
+on-inverted token rather than the plain brand accent for exactly that reason: the plain accent
+measures 3.21:1 on `#101828`, under the floor, while the on-inverted token measures 8.28:1. Ask
+`wp pp schema nav` and `wp pp schema footer` which parts declare a colour, and re-ink every one you
+put over a new background.
+
+### Eyebrows: differentiate one deliberately, or leave the default alone
+
+The eyebrow is the small kicker above a heading, and it renders as a pill. Its colour, background,
+border, radius, casing **and geometry** are all authorable through the `eyebrow` role: every one
+of the five v2 components that has an eyebrow declares `spacing` among its permitted groups, with
+`padding: 0.35rem 0.85rem` as the role's DEFAULT. So a restyled eyebrow keeps the original pill
+proportions until you set `spacing.padding`, and then it takes yours, breakpoint map and all. On
+`grid` the geometry genuinely is fixed, because no slot reaches it.
+
+That asymmetry is the thing to plan around. The first instinct on being asked to make one eyebrow
+stand out is to change its colour and background, which moves everything except the shape — and a
+differently-coloured pill of exactly the same size often reads as a mistake rather than a choice.
+Either commit and set the padding too, or leave the eyebrow alone and differentiate the heading.
+
+The eyebrow's TYPE triple — size, weight and letter-spacing — is a separate open question
+(#574): the shipped `--text-kicker-*` family carries different values and has no consumers, so
+it is not a third thing to reach for here. Authoring the eyebrow's typography through the role
+is the supported route today.
+
+Do not restyle every eyebrow on a page to prove the capability exists. A kicker that is uniform
+across bands is doing its job; one that differs on every band is noise.
+
+---
+
+## The one component still on style slots: **`grid` (38 slots)**
+
+`grid` is the last component on the v1 styling system. It is styled with `style_component`, setting
+CSS custom properties rather than roles:
+
+```bash
+wp pp action execute style_component --run-id=<uuid> --params='{
+  "post_id": 42,
+  "component_id": "pp-a1b2c3d4",
+  "style": { "--grid-bg": "#101828", "--grid-item-text-align": "center" }
 }'
 ```
-`text_role` accepts `mono`, `meta`, `label`, `kicker` and nothing else — an unknown
-role is rejected at write with `invalid_prop_value` (#600), so omit the key when you
-want plain body text rather than inventing a role name. `meta`/`kicker` set a preset text color; an
-explicit `--grid-item-text-color` slot overrides it at all breakpoints (the role's
-size/weight/spacing still apply).
 
-**Verify all three:** re-run `wp pp operate inspect-composition --post_id=<id>` and load
-the page. The grid card carries the `--grid-item-shadow` / `--grid-item-radius` inline
-custom properties and its text carries `.text-kicker`. A v2 band shows nothing in
-`inspect-composition`'s slot report by design — check its `udc` map and confirm the page
-emits a `[data-pp-band="pp-…"]` block for each role you styled:
-`curl -s "$(wp option get siteurl)/?page_id=<id>" | grep -o '\[data-pp-band[^}]*}'`.
-**If you see nothing there, the most likely cause is a write that minted no band id** — a
-raw `wp post meta update` of `_pp_composition` stores the bytes and mints nothing, so the
-map scopes to nothing. Rewrite through `update_composition` or `update_component`.
+Read the available slots with `wp pp schema grid`. Each carries its `type`, its **effective**
+`default`, and a description. The type list that still has a carrier is `color`, `length`,
+`gradient`, `shadow`, `align` and `text-transform` — the same unit set and the same colour grammar
+as above, because one grammar owns both systems.
+
+Three slot behaviours worth knowing before you write one:
+
+- `--grid-heading-measure` is a **text measure**. A literal there is accepted but opts this band out
+  of any later site-wide measure retune, so prefer leaving it unset and tuning the `--measure-*`
+  design tokens unless this band must differ.
+- `--grid-eyebrow-text-transform` takes one `text-transform` keyword. The pill defaults to
+  `uppercase`; set it to `none` when a reference shows the kicker in sentence case.
+- Per-item overrides go in the composition, not in `style_component`: a `grid.items[].style` map
+  accepts only the card-scoped slots, and container or heading slots are rejected there.
+
+**Slot names you may meet on an aged page, all retired**, because the components that carried them
+are on the design contract now: `--stats-max-width`, `--stats-bg-position`, `--stats-number-font`,
+`--faq-body-measure`, `--logos-image-size`, `--cta-body-measure`, `--hero-heading-measure` and
+`--section-heading-measure` are gone, along with every other `--<component>-*` name on a rebuilt
+component. Writing any of them is refused with `no_style_slots`. The replacements are `udc` values:
+a width cap is a role's `sizing.max-width`, an image cap its `sizing.max-height`, a band
+background's focal point `_band` → `background.position`, and a text colour that role's
+`typography.color`.
+
+### Recipes
+
+A recipe is a named bundle of slot values. There is no `apply_recipe` action: a recipe is applied through `style_component`'s optional `recipe` parameter, which expands into slot values before any explicit `style` map you send alongside it is merged on top. Only `grid` ships any:
+
+| component | recipe |
+|---|---|
+| grid | `dark-showcase` |
+| grid | `dense-cards` |
+| grid | `uniform-cards` |
+| cta | — |
+| embed | — |
+| faq | — |
+| hero | — |
+| logos | — |
+| section | — |
+| stats | — |
+| table | — |
+| testimonials | — |
+
+A `—` means the component ships no named recipe, so stop looking for one. On the design contract
+the equivalent is a saved preset, which you can create yourself.
+
+---
+
+## Step 3 — Verify
+
+A write is not finished when it returns `ok: true`.
+
+1. **Read the envelope's `findings`.** An empty array is the positive confirmation. Anything in it
+   is the engine telling you a value did not land the way you wrote it — a skipped preset group, a
+   shadowed value, an unchecked raw property, a minted token.
+2. **Re-read the composition** with `wp post meta get <id> _pp_composition` and confirm the map is
+   what you sent. (`inspect` does not return the composition, and `inspect-composition` does not
+   return `udc` — see the read-modify-write note above.)
+3. **Check the page** with `wp pp check page --post_id=<id>` for rendered problems.
+4. **Look at it.** Contrast, wrapping and cramped text are not things any check catches for you.
+
+Common refusals and what each means:
+
+| Refusal | Meaning |
+|---|---|
+| `no_style_slots` | The component is on the design contract. Write a `udc` map; the refusal lists its roles. |
+| `unknown_udc_role` | That role does not exist on this component. The refusal lists the ones that do. |
+| `unknown_udc_group` | The role does not permit that group. The refusal lists the groups it permits. |
+| `invalid_prop_value` | A value failed its parameter's grammar, named by band, role, group and parameter. |
+| `retired_prop` | A prop the component used to declare. The refusal names the `udc` surface that replaced it. |
+| `inert_prop` | The prop exists but does nothing in this configuration (a `cover` hero's inline image props, say). |
 
 ---
 
 ## What NOT to do
 
-- Do not edit `assets/css/components.css` to change per-instance appearance -- use style slots
-- Do not add inline styles in component PHP files -- the style system handles this
-- Do not set style slots that aren't declared in the component's schema.json
-- Do not put `var()` in a `length` slot (or `length-or-none`/`number`/`duration`/`position`/`ratio`) at all -- these types are literal-only. This includes every measure slot: `--grid-heading-measure: var(--measure-heading)` is **rejected**, even though that is the slot's own declared default. To move band measures together, retune the token with `update_design_token`; to pin one band, write a literal. That includes a bare `var(--space-lg)` **and** `var()` nested inside `clamp()`/`calc()` (the nested form is additionally blocked for security). Look up the token's value and pass it literally -- see "Which types accept `var()`" above the recipes table
+- **Do not write a `udc` map from memory.** Read the roles first. An invented role name is refused,
+  and a plausible-looking one that exists on a different component is the most common mistake.
+- **Do not reach for `_css` when a parameter exists.** You lose the type check and the report entry,
+  and you gain nothing.
+- **Do not send `udc` to `update_component` or `add_component`.** They have no such parameter.
+- **Do not edit `assets/css/components.css`** to change one band's appearance. That file is
+  theme-owned, an upgrade replaces it, and per-instance styling is what the `udc` map is for.
+- **Do not use WordPress Additional CSS** for component styling. It is a global stylesheet outside
+  the composition: not scoped to a band, not versioned with the page, not covered by undo or
+  rollback. A band's `_css` is the opposite on every one of those axes.
+- **Do not darken a surface and stop there.** Re-ink the text, the links inside prose, and every
+  part that carries its own colour.
+- **Do not write a composition with `wp post meta update`.** A raw meta write stores the bytes and
+  mints nothing, so the band ids a `udc` map scopes to never exist. Go through the actions.

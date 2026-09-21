@@ -75,13 +75,44 @@ class DocumentedUdcSnippetsTest extends TestCase
     }
 
     /** Every ```json fenced block in a file, decoded. Undecodable blocks are reported. */
-    private function jsonBlocks(string $path): array
+    /** Documented `--params` payloads the lifter could not read, collected per walk. */
+    private array $shellPayloadDrops = [];
+
+    private function jsonBlocks(string $path, bool $includeShellParams = false): array
     {
         $text = (string) file_get_contents($path);
         preg_match_all('/```json\n(.*?)```/s', $text, $m);
+        $raws = $m[1];
+
+        // THE MOST-COPIED EXAMPLES ARE NOT IN A ```json FENCE, and that is where the one
+        // defect these walks exist to catch actually survived (#1087).
+        //
+        // A whole-page example is a COMMAND — `wp pp action execute create_page --params='{…}'`
+        // — so it is written in a ```bash fence, and every JSON guard in this file skipped it.
+        // composition.md's flagship `create_page` example is exactly that shape, and it carried
+        // an undeclared `subtitle` prop on its hero band through this entire suite: the parse
+        // check never saw the block, the `udc` walk never saw the block, and a planted
+        // regression in it produced a PASS. It is also the single most likely block in the
+        // corpus to be copied verbatim by an agent.
+        //
+        // So the payload of a `--params='…'` argument is lifted out of bash fences and walked
+        // like any other block.
+        //
+        // ONLY PAYLOADS THAT PARSE ARE LIFTED, and that restraint is deliberate rather than
+        // lazy. Two shapes here are not defects and must not fail: a doc legitimately ELIDES
+        // part of a long command (`--params='{"title":"Product Launch", ... }'`), which is
+        // clearer prose and not valid JSON; and this extractor reads the payload with a lazy
+        // match to the next single quote, which truncates a multi-line payload that contains
+        // an apostrophe. Failing on either would be asserting about this regex rather than
+        // about the docs. What is lifted is a strict ADDITION of subjects — composition.md's
+        // 648-byte flagship `create_page` command among them, which is the block the
+        // `subtitle` defect lived in.
+        if ($includeShellParams) {
+            $raws = array_merge($raws, $this->shellParamPayloads($path, $text));
+        }
 
         $out = [];
-        foreach ($m[1] as $i => $raw) {
+        foreach ($raws as $i => $raw) {
             $raw     = trim($raw);
             $decoded = json_decode($raw, true);
 
@@ -316,12 +347,12 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         // Fail-closed. A walk that stops finding documented maps — a fence style changing,
         // a docs directory moving — must not read as compliance.
-        // FAIL-CLOSED AT THE REAL COUNT (45 today; 42 before the `an-embed` glob fix), not
-        // at a token floor. 15 was low enough that two thirds of the corpus could stop
-        // being scanned unnoticed — the understated-floor defect this PR fixed in the emit
-        // tests and then repeated here.
+        // FAIL-CLOSED AT THE REAL COUNT (48 today), not at a token floor. 15 was low enough
+        // that two thirds of the corpus could stop being scanned unnoticed — the
+        // understated-floor defect this PR fixed in the emit tests and then repeated here.
+        // The `45` this comment carried was measured before the bash-fence lifter landed.
         $this->assertGreaterThan(
-            38,
+            45,
             $checked,
             'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
@@ -352,7 +383,7 @@ class DocumentedUdcSnippetsTest extends TestCase
     {
         $checked = 0;
         foreach ($this->instructionFiles() as $file) {
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 $this->assertNotNull(
                     $block['json'],
                     sprintf(
@@ -366,7 +397,7 @@ class DocumentedUdcSnippetsTest extends TestCase
                 $checked++;
             }
         }
-        $this->assertGreaterThan(20, $checked, 'the instruction-file walk stopped finding blocks');
+        $this->assertGreaterThan(54, $checked, 'the instruction-file walk stopped finding blocks'); // 57 today
     }
 
     /**
@@ -381,7 +412,7 @@ class DocumentedUdcSnippetsTest extends TestCase
     {
         $checked = 0;
         foreach ($this->instructionFiles() as $file) {
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
                     if (\pp_udc_component_roles($component) === []) {
                         continue;
@@ -406,32 +437,130 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        // 7 self-identifying maps today.
-        $this->assertGreaterThan(6, $checked, 'the instruction-file `udc` walk lost subjects');
+        // 19 self-identifying maps today, and the floor sits just under it rather than at a
+        // token value. The nineteenth arrived when the extractor learned to read a
+        // `--params='…'` payload out of a ```bash fence, which is where composition.md's
+        // flagship whole-page `create_page` example lives.
+        //
+        // WHY IT MOVED FROM 6, and it is the reason this floor matters more than most: the
+        // walk this test consumes was widened in #1087 from two levels to a full recursive
+        // descent, so it now reaches the bands nested under a `composition` key — the shape a
+        // whole-page `create_page` example uses, which is where the richest maps live. MEASURED
+        // both ways over the SAME corpus: the widened walk finds 18, the old two-level walk
+        // finds 14. With the floor at `> 6`, reverting the widening — silently losing
+        // composition.md's flagship example and build-landing-page.md's five-band recipe, the
+        // exact maps it was written to reach — left this suite GREEN. A floor has to sit close
+        // enough to the real count to notice the change it is guarding.
+        $this->assertGreaterThan(17, $checked, 'the instruction-file `udc` walk lost subjects');
     }
 
-    /** Component-attributed `udc` maps in one decoded block, at either depth. */
-    private function selfIdentifyingUdcMaps($json): array
+    /**
+     * JSON payloads lifted out of `--params='…'` inside ```bash fences.
+     *
+     * THE MOST-COPIED EXAMPLES ARE NOT IN A ```json FENCE, and that is where the one defect
+     * these walks exist to catch actually survived (#1087). A whole-page example is a COMMAND
+     * — `wp pp action execute create_page --params='{…}'` — so it is written in a bash fence,
+     * and every JSON guard in this file skipped it. composition.md's flagship `create_page`
+     * example is exactly that shape and carried an undeclared `subtitle` prop on its hero band
+     * through the entire suite. It is also the single most likely block in the corpus to be
+     * copied verbatim by an agent.
+     *
+     * OPT-IN at the call site, because it is only sound where attribution is. The
+     * instruction-file walks take SELF-IDENTIFYING bands, so a lifted payload is either a band
+     * or ignored. The per-component doc walk instead attributes a bare map to the component
+     * its file is about — and a lifted `import_media` payload (`{"url": "…"}`) attributed to
+     * `cta` produced a confident refusal about a doc that is correct.
+     *
+     * ONLY PAYLOADS THAT PARSE ARE RETURNED. A doc legitimately ELIDES part of a long command
+     * (`{"title":"Product Launch", ... }`), which is clearer prose and not valid JSON. A
+     * payload that fails to parse with NO elision truncated instead — the capture is lazy to
+     * the next single quote, so an apostrophe in the copy cuts it short, and that same
+     * apostrophe breaks the documented command for anyone who runs it. Those are collected in
+     * $shellPayloadDrops and asserted on, because a silently skipped example is exactly the
+     * blind spot this lifter was added to remove.
+     */
+    private function shellParamPayloads(string $path, string $text): array
     {
-        if (!is_array($json)) {
-            return [];
+        $payloads = [];
+        preg_match_all("/```bash\n(.*?)```/s", $text, $shell);
+        foreach ($shell[1] as $script) {
+            if (!preg_match_all("/--params='(.*?)'/s", $script, $params)) {
+                continue;
+            }
+            foreach ($params[1] as $payload) {
+                if (is_array(json_decode($payload, true))) {
+                    $payloads[] = $payload;
+                    continue;
+                }
+                $elided = str_contains($payload, '...') || str_contains($payload, "\u{2026}");
+                if (!$elided) {
+                    $this->shellPayloadDrops[] = basename($path) . ': a `--params` payload '
+                        . 'does not parse and carries no elision, so it truncated — almost '
+                        . 'always at an apostrophe in the copy, which ALSO breaks the '
+                        . 'documented command for anyone who runs it. Payload: ' . $payload;
+                }
+            }
         }
+        return $payloads;
+    }
+
+    /**
+     * Component-attributed maps in one decoded block, at ANY depth.
+     *
+     * ONE WALKER, TWO KEYS. The `udc` and `props` walks were written as separate copies of
+     * the same recursive descent, and the copies bought nothing: byte-identical logic fails
+     * together rather than independently, and every message is built at the call site, not
+     * here. What they bought was independent DRIFT — which is precisely the defect this walk
+     * was widened to fix. The `udc` walk went from two levels to full recursion because the
+     * richest examples sit nested under a `composition` key, and the second walk then had to
+     * be hand-copied to match. A third would have to be too.
+     *
+     * WALK THE WHOLE DOCUMENT, not just its first two levels (#1087). Taking the block and,
+     * if it is a LIST, its entries, reaches a lone band object and a bare composition array —
+     * and misses the shape a doc most naturally uses to show a WHOLE PAGE: the params object
+     * for `create_page`. A planted `"nonesuch"` role in build-landing-page.md passed the
+     * suite, which is how this was found.
+     *
+     * The predicate is what keeps a recursive walk honest: an entry must carry BOTH a string
+     * `component` and an array under the requested key before it is taken, so descending into
+     * unrelated structure yields nothing rather than guesses. A taken node is still descended
+     * into, so no role or group may be named `component` or `udc` — measured: zero
+     * within-block duplicate takes across the corpus.
+     */
+    private function selfIdentifying($json, string $key): array
+    {
         $found = [];
-        $take  = static function ($entry) use (&$found) {
+        $take  = static function ($entry) use (&$found, $key) {
             if (is_array($entry)
-                && isset($entry['udc'], $entry['component'])
-                && is_array($entry['udc'])
-                && is_string($entry['component'])) {
-                $found[] = [$entry['component'], $entry['udc']];
+                && isset($entry['component'], $entry[$key])
+                && is_string($entry['component'])
+                && is_array($entry[$key])) {
+                $found[] = [$entry['component'], $entry[$key]];
             }
         };
-        $take($json);
-        if (array_is_list($json)) {
-            foreach ($json as $entry) {
-                $take($entry);
+        $walk = static function ($node) use (&$walk, $take) {
+            if (!is_array($node)) {
+                return;
             }
-        }
+            $take($node);
+            foreach ($node as $child) {
+                $walk($child);
+            }
+        };
+        $walk($json);
         return $found;
+    }
+
+    /** Component-attributed `udc` maps in one decoded block, at any depth. */
+    private function selfIdentifyingUdcMaps($json): array
+    {
+        return $this->selfIdentifying($json, 'udc');
+    }
+
+    /** Component-attributed `props` maps in one decoded block, at any depth. */
+    private function selfIdentifyingBands($json): array
+    {
+        return $this->selfIdentifying($json, 'props');
     }
 
     /**
@@ -488,6 +617,44 @@ class DocumentedUdcSnippetsTest extends TestCase
         // a pattern that only matched a leading brace validated the chrome example and
         // almost nothing else.
         preg_match_all('/`((?:"udc":\s*)?\{.*?\})`/s', $prompt, $m, PREG_SET_ORDER);
+
+        // A THIRD SHAPE: BARE, UNFENCED CHROME MAPS. The prompt is assembled from more than
+        // its own prose — action descriptions in lib/actions.php are embedded verbatim, and
+        // one of them carries a chrome example written without backticks. It was therefore
+        // invisible here while being fully visible to the model, and it shipped the exact
+        // defect this class exists to catch: no `submenu` (dropdown links at 1.01:1) and
+        // `@color-accent` on three roles over a dark header (3.21:1, which the prompt's own
+        // neighbouring prose names as under AA). A guard that reads a subset of what the
+        // model reads certifies the subset.
+        //
+        // Anchored on the two chrome component names rather than on a brace, because a bare
+        // `{` in prose is not a JSON boundary and this must not start guessing. BRACE-BALANCED
+        // rather than regex: a lazy `.*?` stops at the first `}` and truncates every one of
+        // these (measured: four matches, none of them valid JSON, all silently skipped —
+        // which is how the first attempt at this check passed while catching nothing).
+        foreach (['{"nav":', '{"footer":'] as $needle) {
+            $from = 0;
+            while (($at = strpos($prompt, $needle, $from)) !== false) {
+                $depth = 0;
+                $end   = null;
+                for ($i = $at, $n = strlen($prompt); $i < $n; $i++) {
+                    if ($prompt[$i] === '{') {
+                        $depth++;
+                    } elseif ($prompt[$i] === '}') {
+                        $depth--;
+                        if ($depth === 0) {
+                            $end = $i;
+                            break;
+                        }
+                    }
+                }
+                if ($end === null) {
+                    break;
+                }
+                $m[]  = [null, substr($prompt, $at, $end - $at + 1)];
+                $from = $end + 1;
+            }
+        }
 
         $out = [];
         foreach ($m as $hit) {
@@ -600,7 +767,7 @@ class DocumentedUdcSnippetsTest extends TestCase
         $sources = [['the runtime prompt', $this->promptUdcExamples(\pp_ai_system_prompt())]];
         foreach ($this->instructionFiles() as $file) {
             $maps = [];
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
                     $maps[] = [$component, $map, 'block ' . $block['index']];
                 }
@@ -623,7 +790,20 @@ class DocumentedUdcSnippetsTest extends TestCase
                     // dark-band example in the prose PR impossible to write without weakening
                     // this guard. False negative: a role that sets its own fill and an
                     // illegible ink on it, with no `_band` fill anywhere, was skipped entirely.
-                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+                    //
+                    // AND WHERE THE ROLE SETS NONE, THE NEAREST ANCESTOR ROLE'S FILL WINS
+                    // OVER THE BAND'S — including a fill the ancestor never had to be given,
+                    // because it ships one as a schema DEFAULT. The red team found the gap
+                    // with the flagship dark-band example in style-component.md: it darkened
+                    // `_band` and re-inked `quote`, `author` and `meta`, but `card`
+                    // (`.testimonials__item`) DEFAULTS to `background.fill: @color-surface`
+                    // and physically contains all three. Rendered, the quote measured
+                    // 1.01:1 — near-white on near-white — and this walk called it 16.70:1
+                    // because it measured against the band. A guard that resolves the wrong
+                    // surface is worse than no guard: it certifies the defect.
+                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens)
+                        ?? $this->ancestorRoleFill($component, $role, $map, $tokens)
+                        ?? $bandFill;
                     if ($fill === null) {
                         continue;
                     }
@@ -654,15 +834,145 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
 
-        // 12 pairings today. A floor set at a token value is a floor that never fires: this
-        // walk could lose ten of its twelve subjects — every chrome subject among them — and
-        // a `> 2` floor would still call it a pass.
+        // 26 pairings today. This number has now been wrong twice in one PR, both times in
+        // the same direction, so it is worth saying why: `21` was the count measured while
+        // `ancestorRoleFill()` was STUBBED during a probe, and it was left standing as
+        // "today's" — which put the floor at `> 19`, BELOW the stubbed count, so stubbing the
+        // helper dropped the class to 21 and still passed. A floor picked against a number
+        // taken with the mechanism disabled cannot detect the mechanism being disabled.
+        // Measured with everything live, and the floor sits just under it.
         $this->assertGreaterThan(
-            10,
+            24,
             $checked,
             'the contrast walk found fewer background+ink pairings than the corpus carries; '
             . 'the extractor or the ink resolver stopped reaching most of its subjects'
         );
+    }
+
+    /**
+     * The fill of the role that renders this one inside it, where one exists.
+     *
+     * DECLARED, NOT INFERRED FROM SELECTORS. Guessing containment from a shared BEM prefix
+     * treated cta's `button` as an ancestor of cta's `heading` — they are siblings — and
+     * measured the heading's ink against the button's fill at a bogus 2.11:1. Selector text
+     * cannot prove containment; only the markup can, so every entry below was read out of the
+     * component's own PHP.
+     *
+     * KEYED BY THE CONTAINED ROLE, innermost container FIRST. table's `header` sits inside
+     * `head` which sits inside `table`, and all three declare a fill — so an outer-first walk
+     * answered with the wrong surface, certifying a dark table head at 16.13:1 while it
+     * rendered at 1.08:1. The surface a role sits on is the NEAREST one that has a fill.
+     *
+     * Only containers that BOTH wrap text roles AND carry a fill need listing: a leaf that
+     * happens to declare one (an `eyebrow` pill, an outline button) contains nothing, and
+     * `_band` is already the caller's fallback.
+     */
+    private const ROLE_CONTAINERS = [
+        // component => [contained role => [containers, innermost first]]
+        'testimonials' => [
+            'quote' => ['card'], 'author' => ['card'], 'meta' => ['card'],
+            'attribution' => ['card'], 'avatar' => ['card'],
+        ],
+        'section' => [
+            'panel-heading' => ['panel'], 'panel-body' => ['panel'], 'panel-row' => ['panel'],
+            'panel-row-label' => ['panel'], 'panel-row-value' => ['panel'], 'panel-cta' => ['panel'],
+            'panel-list' => ['panel'],
+        ],
+        'faq' => [
+            'question' => ['item'], 'question-open' => ['item'],
+            'answer' => ['item'], 'answer-link' => ['item'],
+        ],
+        'table' => [
+            'header' => ['head', 'table'],
+            'row' => ['table'], 'cell' => ['table'], 'cell-link' => ['table'],
+        ],
+        'nav' => ['link' => ['submenu'], 'link-current' => ['submenu']],
+    ];
+
+    /** The nearest containing role's fill: authored map first, else its schema default. */
+    private function ancestorRoleFill(string $component, string $role, array $map, array $tokens): ?string
+    {
+        $containers = self::ROLE_CONTAINERS[$component][$role] ?? [];
+        $roles      = \pp_udc_component_roles($component);
+
+        foreach ($containers as $container) {
+            // An authored fill wins over that container's default: an author who filled the
+            // card has already answered the question this is asking. But an OUTER container
+            // never outranks an inner one, authored or not — hence innermost-first, returning
+            // on the first container that resolves to anything at all.
+            $authored = $this->hex($map[$container]['background']['fill'] ?? null, $tokens);
+            if ($authored !== null) {
+                return $authored;
+            }
+            $default = $this->hex($roles[$container]['defaults']['background']['fill'] ?? null, $tokens);
+            if ($default !== null) {
+                return $default;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The contrast model resolves the surface a role ACTUALLY sits on (#1087).
+     *
+     * Pinned directly because the corpus cannot pin it: stubbing ancestorRoleFill() to return
+     * null dropped this class from 26 subjects to 21 and cleared every floor, so the 1.01:1
+     * regression it was written to catch was reintroducible with the suite green. A helper
+     * whose failure only SHRINKS a count needs its own assertions.
+     *
+     * @dataProvider ancestorFillProvider
+     */
+    public function testTheContrastModelResolvesTheNearestContainingFill(
+        string $component,
+        string $role,
+        array $map,
+        ?string $expected,
+        string $why
+    ): void {
+        // Real tokens, because the defaults this resolves are `@token` references and the
+        // whole point of the helper is what they resolve TO.
+        $this->assertSame(
+            $expected,
+            $this->ancestorRoleFill($component, $role, $map, \pp_design_tokens()),
+            $why
+        );
+    }
+
+    public static function ancestorFillProvider(): array
+    {
+        return [
+            'a contained role falls back to its container DEFAULT' => [
+                'testimonials', 'quote', [], '#f4f7fb',
+                'the quote renders inside `card`, which ships @color-surface as its own default '
+                . '— this is the exact resolution the 1.01:1 defect needed',
+            ],
+            'an authored container fill beats the default' => [
+                'testimonials', 'quote', ['card' => ['background' => ['fill' => '#1d2939']]], '#1d2939',
+                'an author who filled the card has answered the question',
+            ],
+            'the INNERMOST container wins over an outer one' => [
+                'table', 'header', [], '#f4f7fb',
+                'header sits in head (@color-surface) which sits in table (@color-bg); an '
+                . 'outer-first walk answered #ffffff and certified a dark table head at 16:1',
+            ],
+            'an outer container cannot outrank an inner one even when authored' => [
+                'table', 'header', ['table' => ['background' => ['fill' => '#000000']]], '#f4f7fb',
+                'the surface is still `head`',
+            ],
+            'a sibling is not a container' => [
+                'cta', 'heading', ['button' => ['background' => ['fill' => '#9dafee']]], null,
+                'cta`s button and heading are siblings — the prefix heuristic read this as '
+                . 'containment and failed a correct example at 2.11:1',
+            ],
+            'a role with no container resolves to nothing' => [
+                'testimonials', 'heading', [], null,
+                'the caller then falls back to the band fill',
+            ],
+            'an unknown component resolves to nothing' => [
+                'grid', 'heading', [], null,
+                'grid declares no roles at all',
+            ],
+        ];
     }
 
     /**
@@ -709,6 +1019,147 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
         return $inks;
+    }
+
+    /**
+     * EVERY PROP AN INSTRUCTION FILE TELLS AN AGENT TO WRITE IS DECLARED (#1087).
+     *
+     * The sibling check above runs each documented band's `udc` map through the write path.
+     * Nothing ran its `props`, and the gap was not theoretical: this PR's own rewrite of
+     * composition.md's flagship whole-page example wrote `"subtitle"` on a hero band. hero
+     * declares `subheading`; `subtitle` is a retired legacy key with no alias surface (#604),
+     * so the documented command is refused with `unknown_prop` and creates nothing — and the
+     * suite was green twice over, because the block's `udc` map was valid AND the block sits
+     * in a ```bash fence that no walk here used to read.
+     *
+     * A documented command that cannot run is worse than a missing one: an agent executes it,
+     * gets a refusal for a shape the docs handed it, and cannot tell whether the doc or the
+     * engine is wrong.
+     */
+    public function testEveryInstructionFilePropKeyIsDeclaredByItsComponent(): void
+    {
+        $checked = 0;
+        $errors  = [];
+
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
+                foreach ($this->selfIdentifyingBands($block['json']) as [$component, $props]) {
+                    // RESOLVE THROUGH THE REGISTRY, not by pasting a documented string into a
+                    // path. `$component` comes out of decoded markdown with only an is_string()
+                    // check, so `"component": "../ai-instructions"` would resolve outside
+                    // components/. The realism is nil — repo-controlled input, CI-only, and the
+                    // file is merely json_decode()d — but every sibling helper in this suite
+                    // goes through the registry and this was the one place that did not.
+                    if (!\pp_component_exists($component)) {
+                        continue;
+                    }
+                    $path = dirname(__DIR__) . "/components/{$component}/schema.json";
+                    if (!is_file($path)) {
+                        continue;
+                    }
+                    $schema = json_decode((string) file_get_contents($path), true);
+                    if (!is_array($schema) || !isset($schema['props']) || !is_array($schema['props'])) {
+                        continue;
+                    }
+                    $declared = array_keys($schema['props']);
+                    $retired  = array_keys(\pp_component_retired_props($component));
+                    foreach (array_keys($props) as $key) {
+                        $checked++;
+                        if (in_array($key, $declared, true)) {
+                            continue;
+                        }
+                        $errors[] = sprintf(
+                            '%s block %d: `%s` documents prop `%s`, which the component %s. Declared: %s',
+                            basename($file),
+                            $block['index'],
+                            $component,
+                            $key,
+                            in_array($key, $retired, true)
+                                ? 'RETIRED (the write is refused with `retired_prop`)'
+                                : 'does not declare (the write is refused with `unknown_prop`)',
+                            implode(', ', $declared)
+                        );
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $errors, "an instruction file documents a prop the write path refuses:\n"
+            . implode("\n", $errors));
+
+        $this->assertSame([], $this->shellPayloadDrops, "a documented command's `--params` "
+            . "payload could not be read, and an apostrophe is why:\n"
+            . implode("\n", $this->shellPayloadDrops));
+
+        // FAIL-CLOSED, with the floor under the measured count so a walk that stops finding
+        // bands cannot pass by asserting on nothing.
+        // 98 prop keys across the documented bands today, and the floor sits just under it.
+        // `> 80` let the whole bash-fence lifter — which contributes 17 of those 98 — be
+        // reverted and land on 81, passing by one.
+        $this->assertGreaterThan(95, $checked, 'the documented-prop walk lost its subjects');
+    }
+
+
+    /**
+     * The self-identifying walk reaches a band at ANY depth (#1087).
+     *
+     * Pinned directly, for the same reason the ink walk below is: a regression here does not
+     * move any count the corpus-walking tests report. MEASURED: the old two-level walk finds
+     * 14 maps in today's corpus and the widened one finds 18, so with the floor where it was
+     * a full revert of this walk left every downstream test green. The floor is tightened now,
+     * but a floor is a smoke alarm — this is the pin that says what the walk must actually do.
+     *
+     * FOUR PROPERTIES ACROSS SIX CASES: the nested `composition` shape this widening exists
+     * for, the two shapes that already worked (a bare band, a bare list), the predicate's
+     * refusal of a malformed entry (two cases — a non-string `component`, a non-array `udc`),
+     * and the no-double-count property (a taken node is still descended into, so a role or
+     * group named `component` or `udc` would be the way that could break).
+     *
+     * @dataProvider selfIdentifyingWalkProvider
+     */
+    public function testTheSelfIdentifyingWalkReachesABandAtAnyDepth(array $doc, array $expected, string $why): void
+    {
+        $this->assertSame($expected, $this->selfIdentifyingUdcMaps($doc), $why);
+    }
+
+    public static function selfIdentifyingWalkProvider(): array
+    {
+        $map = ['heading' => ['typography' => ['color' => '#111111']]];
+        return [
+            'nested under composition (the create_page shape the two-level walk missed)' => [
+                ['title' => 'A page', 'composition' => [['component' => 'hero', 'props' => [], 'udc' => $map]]],
+                [['hero', $map]],
+                'a band one level down under `composition` must be found: this is the shape '
+                . 'composition.md and build-landing-page.md use for a whole-page example',
+            ],
+            'a bare band object (already worked)' => [
+                ['component' => 'cta', 'udc' => $map],
+                [['cta', $map]],
+                'the block IS the band',
+            ],
+            'a bare list of bands (already worked)' => [
+                [['component' => 'hero', 'udc' => $map], ['component' => 'cta', 'udc' => $map]],
+                [['hero', $map], ['cta', $map]],
+                'a composition array at the top level',
+            ],
+            'component is not a string' => [
+                ['component' => ['hero'], 'udc' => $map],
+                [],
+                'the predicate takes only a STRING component, so descending into unrelated '
+                . 'structure yields nothing rather than a guess',
+            ],
+            'udc is not an array' => [
+                ['component' => 'hero', 'udc' => 'none'],
+                [],
+                'the predicate takes only an ARRAY udc',
+            ],
+            'one band yields exactly one pair' => [
+                ['composition' => [['component' => 'hero', 'udc' => $map]]],
+                [['hero', $map]],
+                'the walk descends into a node it has already taken, so a band must not be '
+                . 'counted twice',
+            ],
+        ];
     }
 
     /**
@@ -832,6 +1283,19 @@ class DocumentedUdcSnippetsTest extends TestCase
     /** A literal hex, or a hex an `@token` resolves to. Null when it is neither. */
     private function hex($value, array $tokens): ?string
     {
+        // A BREAKPOINT MAP IS A REAL FILL, and returning null for one made the ancestor
+        // resolution silently inert exactly where it was most needed. nav's `submenu` ships
+        // `{"d": "@color-surface", "p": "transparent"}`, so a dark-header example that
+        // re-inks `link` renders its dropdown links at 1.01:1 on desktop — the same defect,
+        // the same number, as the testimonials card — and the container map entry for it
+        // existed but never fired because the fill was a map rather than a string.
+        //
+        // The DESKTOP tier is the one to resolve: it is the base, carries no media query, and
+        // is the tier every documented example is written against. A tier that resolves to
+        // `transparent` is correctly not a fill and falls through to null.
+        if (is_array($value)) {
+            $value = $value['d'] ?? null;
+        }
         if (!is_string($value)) {
             return null;
         }

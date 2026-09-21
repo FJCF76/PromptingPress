@@ -67,6 +67,23 @@ class ModelFacingRosterTest extends TestCase
         return $files;
     }
 
+    /**
+     * Read a file an anchor names, failing with the anchor's own label if it is gone.
+     *
+     * The anchors build their haystacks EAGERLY, so a renamed or moved file made
+     * file_get_contents() return false and the assertion below raise a TypeError under
+     * strict_types — still a failure, so the fail-closed property held, but reported as a PHP
+     * warning plus a type error instead of the diagnostic the anchor mechanism exists to
+     * produce. A guard that fails for the wrong stated reason costs the next reader the time
+     * it was built to save.
+     */
+    private function anchorSource(string $relative, string $label): string
+    {
+        $path = dirname(__DIR__) . '/' . $relative;
+        $this->assertFileExists($path, "the anchor \"{$label}\" names {$relative}, which no longer exists");
+        return (string) file_get_contents($path);
+    }
+
     /** The composable components on the v2 contract, derived. */
     private function v2Composable(): array
     {
@@ -99,16 +116,65 @@ class ModelFacingRosterTest extends TestCase
         $anchors = [
             // Already derived and pinned by DocsCoverageTest; re-checked here so the two
             // guards cannot disagree about what a complete roster is.
-            ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)]+)\)/'],
-        ];
-        // ONE ANCHOR TODAY, AND THAT IS THE HONEST STATE RATHER THAN THE INTENDED ONE.
-        // No `ai-instructions/*.md` roster is anchored here yet: those files are being
-        // rewritten wholesale in the prose PR, and anchoring prose that is about to be
-        // replaced would pin the stale version. The anchors for them land WITH that rewrite,
-        // which is the whole reason this mechanism merges first — every rewritten roster
-        // arrives already pinned. Until then this suite's instruction-file coverage is the
-        // reverse-membership check below, not this one.
+            ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)\n]{0,200})\)/'],
 
+            // THE PROSE ANCHORS, landing WITH the rewrite exactly as the note below
+            // promised. Each of these is a sentence that genuinely introduces a COMPLETE
+            // v2 roster — the shape #1045 identified as where drift hides, because a
+            // reader takes an enumeration as exhaustive whether or not it is. Every one
+            // of the three was undercounting before this rewrite (seven names, or six),
+            // and two of them sat in files that named the full nine correctly somewhere
+            // else, so the documents disagreed with themselves.
+            //
+            // Anchored rather than scanned: a roster is only checkable when something
+            // marks where it starts and ends, and a phrase that must keep matching is
+            // also a phrase an editor cannot quietly delete.
+            [
+                'AI_CONTEXT.md\'s styling route',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's styling route"),
+                '/For the NINE v2 components \(([^)\n]{0,200})\)/',
+            ],
+            [
+                'AI_CONTEXT.md\'s style-slot exclusion',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's style-slot exclusion"),
+                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all nine of ([^:\n]{0,200}):/',
+            ],
+            [
+                'AI_CONTEXT.md\'s band-background roster',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's band-background roster"),
+                '/Every v2 component is different, and better:\*\* on all nine of ([^\n]{0,200}?) the band background/',
+            ],
+            [
+                // THE FILE EVERY OTHER FILE POINTS AT for styling, and the only complete
+                // roster in it — so an omission here reaches a reader who was sent to it
+                // precisely because they needed the authoritative list.
+                'style-component.md\'s opening roster',
+                $this->anchorSource('ai-instructions/style-component.md', "style-component.md's opening roster"),
+                '/Nine composable components and both chrome components work this\s+way: ([^.]{0,200}?), plus/s',
+            ],
+            [
+                'retheme.md\'s rhythm tier split',
+                $this->anchorSource('ai-instructions/retheme.md', "retheme.md's rhythm tier split"),
+                '/\*\*The nine v2 components\*\* \(([^)]{0,200})\)/s',
+            ],
+            [
+                'retheme.md\'s dark-band trap',
+                $this->anchorSource('ai-instructions/retheme.md', "retheme.md's dark-band trap"),
+                '/All NINE v2 components — (.{0,200}?) — have no `theme` prop/s',
+            ],
+        ];
+
+        // EVERY ANCHOR MUST BOUND ITS OWN CAPTURE, and the bound is not cosmetic. A
+        // negated character class matches newlines, and `.` matches them under `/s`, so an
+        // unbounded capture is terminated only by the next occurrence of its closing
+        // delimiter ANYWHERE in the file. Measured on the style-slot anchor before this was
+        // fixed: replacing the sentence's terminating colon with an em dash — an ordinary
+        // prose edit — grew the capture from 86 characters to 701 spanning several unrelated
+        // paragraphs, AND THE TEST STILL PASSED, because the wider span happened to contain
+        // all nine v2 names and no other component name. The anchor was then pinning a
+        // paragraph rather than its sentence, and any roster edit inside that window could be
+        // masked by a v2 name mentioned elsewhere in it. Excluding the newline and capping the
+        // span at 200 characters keeps each anchor scoped to the sentence it names.
         $checked = 0;
         foreach ($anchors as [$label, $haystack, $pattern]) {
             $this->assertMatchesRegularExpression(
@@ -128,7 +194,11 @@ class ModelFacingRosterTest extends TestCase
             );
             $checked++;
         }
-        $this->assertGreaterThan(0, $checked, 'no roster anchor was checked');
+        // SEVEN ANCHORS TODAY, and the floor sits just under it. `> 0` was the token floor
+        // this suite rejects everywhere else: six of the seven could be deleted from the array
+        // and it would still pass, which is the same silent-exemption shape the per-anchor
+        // fail-closed match exists to prevent for the prose. Bump it with the array.
+        $this->assertGreaterThan(6, $checked, '7 roster anchors today; deleting one exempts its roster from this guard');
     }
 
     /**
@@ -166,7 +236,54 @@ class ModelFacingRosterTest extends TestCase
                 // exempt. That is the 46%-by-accident shape this repo has already paid for,
                 // and the vacuity probe missed it because it counted HITS (zero, correctly)
                 // instead of SUBJECTS SCANNED (one).
-                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $claim[0])) {
+                // THE EXEMPTION WINDOW IS SENTENCE-START THROUGH THE END OF THE CLAIM, and
+                // both halves of that are load-bearing because both failure modes have
+                // happened here.
+                //
+                // Scoping it to the whole SENTENCE was the original bug: a real defect —
+                // "declares style slots, but not for its background" — was exempted by a
+                // negation that came AFTER the claim and had nothing to do with it. Scoping
+                // it to the matched CLAUSE fixed that and over-corrected, because the clause
+                // starts at the verb: "No component in the theme declares a button style
+                // slot" is a correct NEGATIVE statement whose "No" sits 26 characters before
+                // `declares`, so it was scanned as a positive claim.
+                //
+                // Ending the window at the end of the claim keeps the trailing negation out
+                // while letting a leading one in, which is exactly the distinction that
+                // matters: a negation before the verb negates this claim, one after it
+                // qualifies something else.
+                //
+                // AND STARTING IT AT THE CLAUSE, not the sentence, closes the hole that
+                // sentence-start opened. A COMMA COUNTS AS A BOUNDARY, and dropping it was a mistake worth
+                // recording. It was dropped so that a roster like "No v2 component — hero,
+                // section, stats — declares style slots" would stay exempt; measured over the
+                // real corpus, including the comma changes nothing (14/10/4 either way),
+                // because no sentence of that shape exists. What dropping it DID cost is a
+                // false NEGATIVE: "The grid rebuild is not finished, so the stats component
+                // has style slots" is a FALSE claim about a v2 component, and the unrelated
+                // leading negation exempted it. For a guard whose job is catching defects, a
+                // false negative is silent and a false positive is loud and one edit away —
+                // so the comma stays, and a roster written in that shape should be rephrased
+                // rather than this loosened. "There is no simpler route: the stats component has
+                // style slots for its numbers" is a FALSE claim whose sentence happens to
+                // begin with a negation about something else — measured exempt under the
+                // sentence-start window, and scanned under this one. The three real shapes it
+                // has to separate, all probed: a leading negation that DOES negate the claim
+                // ("No component in the theme declares a button style slot") stays exempt
+                // because nothing separates it from the verb; an unrelated leading negation
+                // is cut off at its colon; and the trailing negation that caused the original
+                // bug is still outside the window entirely.
+                $claimStart = (int) strpos($sentence, $claim[0]);
+                $before     = substr($sentence, 0, $claimStart);
+                $clauseAt   = 0;
+                foreach ([':', ';', ','] as $separator) {
+                    $at = strrpos($before, $separator);
+                    if ($at !== false && $at + 1 > $clauseAt) {
+                        $clauseAt = $at + 1;
+                    }
+                }
+                $clause = substr($sentence, $clauseAt, $claimStart - $clauseAt + strlen($claim[0]));
+                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $clause)) {
                     continue;
                 }
                 $scanned++;
@@ -188,13 +305,23 @@ class ModelFacingRosterTest extends TestCase
         // of sixteen and report success.
         if (\pp_ai_live_slot_types() !== []) {
             $this->assertGreaterThan(
-                2,
+                3,
                 $scanned,
                 'the reverse check scanned fewer positive slot claims than the corpus carries. '
-                . 'MEASURED TODAY: 16 sentences make a slot claim, 13 of those claim-clauses '
-                . 'say the component declares NO slots (correct, and correctly exempt), and 3 '
-                . 'are scanned. If this drops, the negation exemption has widened again and '
-                . 'the guard is passing on an empty set rather than on clean docs'
+                . 'RE-MEASURED TWICE. The 8/6/2 this message first carried was taken after only '
+                . 'the first file was rewritten and was stale by six more; the 14/9/5 that '
+                . 'replaced it was measured before the exemption window was corrected to reach '
+                . 'a LEADING negation, which had been counting one correct NEGATIVE sentence '
+                . '("No component in the theme declares a button style slot") as a positive '
+                . 'claim. TODAY: 14 sentences make a positive slot claim, 10 are correctly '
+                . 'exempt as saying the component declares NO slots, and 4 are scanned — down '
+                . 'from 16/13/3 before the rewrite, because it removed v1-era claims rather '
+                . 'than because the guard narrowed. THIS NUMBER TRACKS THE CORPUS and is '
+                . 'expected to fall as the last slot-carrying component is rebuilt; the gate '
+                . 'above is what makes zero legitimate then. Re-measure it when the corpus '
+                . 'changes rather than loosening it. If it falls without the corpus shrinking, '
+                . 'the negation exemption has widened again and the guard is passing on an '
+                . 'empty set rather than on clean docs'
             );
         }
     }

@@ -2844,7 +2844,9 @@ function pp_component_schema_report(string $component): array|WP_Error {
     // cannot use.
     //
     // Emitted only when declared, so its absence is not mistaken for "declared empty":
-    // the eleven components still on style slots carry no `roles` key and say nothing.
+    // `grid` — the ONE component still on style slots — carries no `roles` key and says
+    // nothing. The other eleven (the nine v2 body components plus nav and footer) all
+    // declare roles.
     $roles = pp_udc_component_roles($component);
     if ($roles !== []) {
         $report['roles'] = [];

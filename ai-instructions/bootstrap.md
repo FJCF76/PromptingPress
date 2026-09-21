@@ -19,7 +19,7 @@ Three playbooks customize the loop for common operations:
 - `playbook-revise-section.md` — Revise an existing section
 - `playbook-inspect-fix.md` — Diagnose and fix a reported issue
 
-The procedural guides in this directory (`add-page.md`, `composition.md`, `retheme.md`, etc.)
+The procedural guides in this directory (`composition.md`, `build-landing-page.md`, `retheme.md`, etc.)
 describe *what* actions are available. The operating loop governs *how* and *when* to use them.
 
 ---
@@ -75,7 +75,14 @@ wp theme activate promptingpress --path=/var/www/{site}
 - Verify: `wp post meta get <id> _pp_composition` → valid JSON array
 - WARNING: an absent `_pp_composition` on a composition page produces a blank render
   with no error message. Absence is a failure state, not an empty state.
-- Set: `wp post meta update <id> _pp_composition '<json>'`
+- Set: **through the action model, never by writing the meta.**
+  `wp pp action execute update_composition --run-id=<uuid> --params='{"post_id":<id>,"composition":[...]}'`
+  (a mutating action needs `wp pp operate inspect` → `wp pp apply preflight` first).
+  A raw `wp post meta update <id> _pp_composition '<json>'` stores the bytes and skips
+  everything that makes them a composition: validation, the version counter, the history
+  ring, and band-id minting — and a value that does not parse as JSON is stored as the
+  EMPTY STRING, which reads back as a healthy page with no composition. Reading the meta
+  to VERIFY, as above, is fine; writing it is not.
 
 ---
 
@@ -115,10 +122,14 @@ Every page with `_wp_page_template = composition.php` must have a valid `_pp_com
 - Non-null
 - Non-empty (not `[]`)
 - Valid JSON array
-- Each item has `component` (registered name) and `props` (satisfying schema.json)
+- Each item has `component` (registered name) and `props` (satisfying schema.json), and
+  may carry a `udc` map (the band's styling, for the nine v2 components) and a band `id`
 
-The PHP save handler rejects invalid values on save and retains the last valid one.
-But a new page with no `_pp_composition` set produces a blank render with no error.
+Validation lives in the WRITE PATH — the `update_composition` / `create_page` actions —
+not in a save handler that guards the meta. The meta's own `sanitize_callback` asks only
+whether the value parses as JSON, so a raw write of a shape the actions would refuse
+lands intact. A new page with no `_pp_composition` set produces a blank render with no
+error.
 
 **Verify all composition pages:**
 ```bash
@@ -141,7 +152,10 @@ wp eval 'flush_rewrite_rules(true);'
 ```
 
 **`wp post create --post_meta` JSON format** does not reliably set post meta on creation.
-Always use a separate `wp post meta update <id> <key> <value>` call after creating the post.
+Use a separate `wp post meta update <id> <key> <value>` call after creating the post — for
+ordinary meta such as `_wp_page_template`. **Not for `_pp_composition`:** create the page
+and its composition in one validated call with the `create_page` action, which is also the
+only way the bands get ids.
 
 ---
 

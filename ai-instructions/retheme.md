@@ -24,8 +24,13 @@ double as the reference for what each token does.
 These are the theme's shipped color defaults. For a SITE, set these values via
 `update_design_token` instead (see the programmatic path below) — editing `base.css`
 here changes the product default and is overwritten on update. When using the
-programmatic path, changing `--color-accent` auto-derives the six accent variants and
-changing `--color-text` auto-derives `--color-text-secondary`:
+programmatic path, changing `--color-accent` auto-derives **eight** tokens —
+`--color-accent-hover`, `--color-accent-strong`, `--color-border-accent`,
+`--color-surface-accent`, and the four on-inverted / on-overlay pairs — and changing
+`--color-text` auto-derives `--color-text-secondary`. Those are the only two families
+(`pp_token_families()`), so every other registered token stands alone. Note that
+`--color-accent-hover` appears in the editable list below AND in that derived set: set
+`--color-accent` and it moves on its own; pin it by hand and you own it from then on:
 
 ```css
 --color-bg:           #ffffff;  /* Page background */
@@ -177,8 +182,9 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** `hero`, `section`, `testimonials`, `cta`, `faq`, `table`
-and `embed` have no `theme` prop, no band class, and no dark-band ROUTING: a band you make dark with `_band`
+is the shape of every future sprint.** All NINE v2 components — `hero`, `section`,
+`testimonials`, `cta`, `faq`, `table`, `embed`, `stats` and `logos` — have no `theme` prop,
+no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
 own the contrast — set a `typography.color` on every text role over the background. There
@@ -280,11 +286,12 @@ it rounds every card and panel too, and no longer reaches the button at all.
 
 ### The global button color tokens (the site-wide button surface)
 
-> **HERO, SECTION, CTA, FAQ, TABLE AND EMBED ARE NOT ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046, #1066).**
+> **NONE OF THE NINE v2 COMPONENTS IS ON THIS SURFACE ANY MORE (#986, #1023, #1026,
+> #1046, #1066): hero, section, testimonials, cta, faq, table, embed, stats and logos.**
 > Everything in this section describes the v1 per-instance STYLE SLOT cascade, which now
 > governs `grid` ALONE — the last v1 component in the theme (`stats` and `logos` left at
-> #1066). `hero`, `section`, `testimonials`, `faq`, `table`, `embed` and
-> `cta` are v2 components with no style slots: their buttons and text are ROLES, styled
+> #1066). `hero`, `section`, `testimonials`, `faq`, `table`, `embed`, `stats`, `logos`
+> and `cta` — all nine — are v2 components with no style slots: their buttons and text are ROLES, styled
 > through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with
 > `no_style_slots`. Read
@@ -317,7 +324,10 @@ the per-component button slots and the literal fallback. Every one of those fami
 retired with its component: `--hero-button-*` and `--hero-accent` at #986,
 `--section-panel-cta-*` at #1023, `--cta-button-*` / `--cta-button2-*` / `--cta-accent` at
 #1026. No component in the theme declares a button style slot, so each chain is one global
-knob and one literal.
+knob and one literal. (`grid` declares `--grid-item-link-color` and
+`--grid-item-link-hover-color`, and those are not the exception they look like: they are
+INK slots on the card's "Read more" link — no fill, no border — so a `--btn-*` retheme
+still owns every button surface on the page.)
 
 **Per-component button styling did not go with them — it moved somewhere stronger.** A v2
 component declares button ROLES: hero's `cta` and `cta-secondary`, section's `panel-cta`,
@@ -448,13 +458,22 @@ on top of it. This coupling is the ink rule's literal fallback
 
 ## Step 5 — Verify no raw hex remains in components.css
 
-Run this command to check that no hex colors were accidentally introduced:
+Run the repo's own checker:
 
 ```bash
-grep -P '#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])' assets/css/components.css
+php scripts/check-raw-hex.php
 ```
 
-The output should be empty. If it returns matches, replace each with the corresponding CSS variable from `base.css`.
+It prints `OK: no raw hex colors in assets/css/components.css` and exits 0 when clean.
+If it names offending lines, replace each value with the corresponding CSS variable from
+`base.css`.
+
+**Do not substitute a bare `grep` for this, which earlier versions of this page told you
+to do.** A pattern like `#[0-9a-fA-F]{3,6}` cannot tell a colour from an issue reference,
+and the stylesheet's v2 rebuild comments are full of the latter: that grep returns 180
+matches today — `#1023`, `#1026`, `#1046`, `#994`, `#986` and friends — against a file the
+real checker calls clean. An agent that trusts the grep starts rewriting issue numbers
+into CSS variables.
 
 ---
 
@@ -468,9 +487,32 @@ The output should be empty. If it returns matches, replace each with the corresp
 | schema.json files        | Machine-readable contracts — not styling |
 | functions.php            | Use `enqueue_font` apply instead of editing directly |
 
-The entire visual output of the site flows through the design tokens and the apply/action model. Editing files directly is unnecessary for a retheme — use `update_design_token` for global tokens, `enqueue_font` for fonts, and `style_component` for per-instance visual overrides.
+The entire visual output of the site flows through the design tokens and the apply/action
+model. Editing files directly is unnecessary for a retheme — use `update_design_token` for
+global tokens, `enqueue_font` for fonts, and, for per-band visual overrides, **the band's
+`udc` map** on any of the nine v2 components (carried by `update_composition` /
+`create_page`). `style_component` remains only for `grid`, the last component with style
+slots; on anything else it is refused with `no_style_slots`.
 
-One documented exception, so you do not go looking for a token that is not there: the shared band rhythm and band-heading scale (`--pp-band-padding`, `--pp-band-heading-size`) are theme-internal properties declared outside the token registry, so `update_design_token` rejects them as `unknown_token`. They have no site-wide authoring surface. To change a band's vertical rhythm or heading size for a site, set that band's own `--<component>-padding-top` / `--<component>-padding-bottom` / `--<component>-heading-size` slot with `style_component`, one band at a time.
+One documented exception, so you do not go looking for a token that is not there: the
+shared band rhythm and band-heading scale (`--pp-band-padding`, `--pp-band-heading-size`)
+are theme-internal properties declared outside the token registry, so
+`update_design_token` rejects them as `unknown_token`. They have no site-wide authoring
+surface, and changing one is a band-at-a-time job. **How you do it depends on the tier,
+and the slot answer is now the rare case:**
+
+- **The nine v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
+  logos) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
+  `spacing.padding-top` / `padding-bottom`; heading size is the `heading` role's
+  `typography.size`. Both accept a literal or a REGISTERED design token (`@space-2xl`
+  verified accepted). They do **not** accept `@pp-band-padding` or
+  `@pp-band-heading-size` — the same registry gap that makes `update_design_token` reject
+  them makes an authored reference to them `invalid_prop_value`. Those two names are
+  reachable only as shipped role defaults.
+- **`grid`** — the one component with style slots left, and the only place the slot
+  answer still applies: `--grid-padding-top` / `--grid-padding-bottom` /
+  `--grid-heading-size` via `style_component`. On any other component that call is
+  refused with `no_style_slots`.
 
 ---
 

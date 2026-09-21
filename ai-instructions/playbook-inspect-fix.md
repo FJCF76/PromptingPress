@@ -25,7 +25,14 @@ Correlate the reported issue with the inspect data. Note what you see in the scr
 
 ### 2. PLAN
 Diagnose the root cause. Common categories:
-- **Composition issue**: Wrong props, missing component, wrong layout/theme
+- **Composition issue**: Wrong props, missing component, wrong `layout`
+- **Band styling (`udc`) issue**: the largest class of v2 visual bug, and it has no
+  other bucket — a role styled that should not be, a role NOT styled that should be
+  (a dark `_band` fill with no `typography.color` on the text roles is the classic),
+  a value outranked by a role default or a preset, or a `_css` shorthand resetting a
+  group value. Fix it in the band's `udc` map via `update_composition`. Note there is
+  no `theme` prop to get wrong on any of the nine v2 components — only `grid` still
+  has one; on the rest `theme` is refused with `retired_prop`
 - **Token issue**: Incorrect design token value (color, spacing, font)
 - **CSS conflict**: Custom CSS overriding component styles
 - **Content issue**: Wrong text, missing image URL, broken link

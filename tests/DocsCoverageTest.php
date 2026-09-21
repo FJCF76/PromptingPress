@@ -122,7 +122,15 @@ class DocsCoverageTest extends TestCase
 
     private function doc(string $relative): string
     {
-        return (string) file_get_contents($this->themeRoot . '/' . $relative);
+        // ASSERT THE FILE EXISTS FIRST. Without this, a renamed or moved doc makes
+        // file_get_contents() return false and every assertion downstream reports something
+        // else entirely — "states a stale retired-prop count" for a file that is simply gone.
+        // This PR relocates `ai-instructions/add-page.md`, which is exactly the move that
+        // produces that misleading failure, and the sibling anchor helper in
+        // ModelFacingRosterTest was given the same guard for the same reason.
+        $path = $this->themeRoot . '/' . $relative;
+        $this->assertFileExists($path, "a docs guard reads {$relative}, which no longer exists");
+        return (string) file_get_contents($path);
     }
 
     // ── Style-slot coverage ──────────────────────────────────────────────────
@@ -398,34 +406,128 @@ class DocsCoverageTest extends TestCase
             . 'for it — extend $words, then fix the doc sentence.'
         );
 
-        $doc = $this->doc('ai-instructions/add-component.md');
-        $this->assertStringContainsString(
-            "the {$words[$total]} v2-rebuild keys",
-            $doc,
-            "ai-instructions/add-component.md states a stale retired-prop count. The "
-            . "registry declares {$total} keys across " . count(array_unique(array_column($keys, 0)))
-            . ' components. An agent reading the stale number is told a retired prop is an '
-            . 'unknown one, so it never learns where the value went.'
-        );
+        // EVERY COPY OF THE ROSTER, not just the first one written (#1087).
+        //
+        // This check used to cover `ai-instructions/add-component.md` alone, and its own
+        // docblock called that "a third copy of a registry fact". The prose rewrite then
+        // widened the roster in two MORE places — validate-site.md's repair table and the CLI
+        // reference's error-code migration — because both are genuinely the right place for a
+        // reader to meet it. That is three full enumerations of a registry fact with one of
+        // them guarded, which is exactly how validate-site.md's list came to say fifteen keys
+        // when the registry had nineteen.
+        //
+        // Each entry carries its own anchor because each file states the roster in its own
+        // words, and each anchor is FAIL-CLOSED: if the sentence is reworded so the anchor
+        // stops matching, this fails rather than silently checking nothing.
+        //
+        // AND EACH CAPTURE IS BOUNDED, for the reason ModelFacingRosterTest states at length
+        // in this same change: an unbounded `(.+?)` under `/s` is terminated only by the next
+        // occurrence of its closing phrase ANYWHERE in the file, so a reworded delimiter can
+        // silently grow the span into neighbouring prose and let a component named elsewhere
+        // satisfy a roster it has left. Measured today these captures are 485 and 451
+        // characters on a single line each, so the line bound plus 800 characters is generous
+        // for the roster and far short of the next paragraph. Two guards in one PR should not
+        // disagree about what a checkable roster is.
+        $componentCount = count(array_unique(array_column($keys, 0)));
+        $sites = [
+            [
+                'ai-instructions/add-component.md',
+                "the {$words[$total]} v2-rebuild keys",
+                '/the ' . $words[$total] . ' v2-rebuild keys \((.+?)\) return/',
+            ],
+            [
+                'ai-instructions/validate-site.md',
+                // Derived, like its two siblings — a hardcoded literal fails on a correct
+                // update and passes on a stale one. AND IT KEEPS THE COMPONENT COUNT: the
+                // first cut at deriving this dropped the word "components" and with it the
+                // only assertion in the repo that the component count is right, so
+                // "nineteen keys across twelve components" passed. $componentCount was
+                // already computed for a failure message and never asserted.
+                "{$words[$total]} keys across {$words[$componentCount]} components",
+                '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, ([^\n]{0,800}?) `table` is v2/',
+            ],
+            [
+                'docs/reference-apply-cli.md',
+                "**{$words[$total]}** keys",
+                '/the \*\*' . $words[$total] . '\*\* keys across \*\*[a-z-]+\*\* components([^\n]{0,800}?)moved from/',
+            ],
+        ];
 
-        // And the roster itself: every declaring component and every key it retired has to
-        // be NAMED, or the sentence's count is right while its list still omits a component.
-        // Scoped to the parenthetical, not the whole doc: matching document-wide would let
-        // a component named in some unrelated checklist satisfy a roster it has left.
-        $this->assertSame(
-            1,
-            preg_match('/the ' . $words[$total] . ' v2-rebuild keys \((.+?)\) return/', $doc, $roster),
-            "ai-instructions/add-component.md no longer carries a parenthesised "
-            . 'retired-prop roster after its count, so nothing states WHICH keys they are.'
-        );
-        foreach ($keys as [$component, $prop]) {
-            $this->assertMatchesRegularExpression(
-                // Possessive either way: "hero's" and the plural "testimonials'".
-                '/' . preg_quote($component, '/') . "(?:'s|') [^;]*?`" . preg_quote($prop, '/') . '`/',
-                $roster[1],
-                "ai-instructions/add-component.md's retired-prop roster never names "
-                . "{$component}'s `{$prop}`. The roster reads: {$roster[1]}"
+        foreach ($sites as [$relative, $countPhrase, $rosterPattern]) {
+            $doc = $this->doc($relative);
+            $this->assertStringContainsString(
+                $countPhrase,
+                $doc,
+                "{$relative} states a stale retired-prop count. The registry declares "
+                . "{$total} keys across {$componentCount} components. An agent reading the "
+                . 'stale number is told a retired prop is an unknown one, so it never learns '
+                . 'where the value went.'
             );
+
+            // And the roster itself: every declaring component and every key it retired has
+            // to be NAMED, or the sentence's count is right while its list still omits a
+            // component. Scoped to the roster span, not the whole doc: matching document-wide
+            // would let a component named in some unrelated checklist satisfy a roster it has
+            // left.
+            $this->assertSame(
+                1,
+                preg_match($rosterPattern, $doc, $roster),
+                "{$relative} no longer carries a retired-prop roster its count can be checked "
+                . 'against, so nothing states WHICH keys they are. Re-point the anchor in this '
+                . 'test if the sentence was deliberately reworded.'
+            );
+            // EACH COMPONENT'S SEGMENT, not a character window. The first cut let the
+            // search run from a component's possessive to the next SEMICOLON, which two of
+            // the three rosters do not use as their separator — so the window crossed into a
+            // neighbour and would certify a MISSING pair as present (measured: `embed`'s
+            // window reached `stats`' `background_image`). Stopping at a comma instead broke
+            // the third roster, which comma-separates one component's OWN props.
+            //
+            // The real divider is the NEXT possessive. Splitting on it gives each component
+            // exactly its own entry, whichever punctuation the file uses inside it.
+            // THE FIRST SEGMENT ONLY, and parentheticals stripped. Concatenating every
+            // mention of a component let any later reference satisfy it — "logos' `theme` —
+            // hero's old `width` slot is unrelated" certified hero's `width` while hero's own
+            // entry omitted it. And a parenthetical inside an entry does the same within one
+            // segment: "stats' `theme` (its `background_image` moved to the `_band` role)"
+            // certified a pair the roster does not claim. Neither is exotic prose; both are
+            // how these rosters already read.
+            $possessive = "/([a-z]+)`?(?:'s|') /";
+            $segments   = [];
+            $parts      = preg_split($possessive, $roster[1], -1, PREG_SPLIT_DELIM_CAPTURE);
+            for ($i = 1; $i < count($parts); $i += 2) {
+                if (isset($segments[$parts[$i]])) {
+                    continue;
+                }
+                // STRIP A PARENTHETICAL ONLY WHEN SOMETHING SURVIVES IT. An aside like
+                // "stats' `theme` (its `background_image` moved to `_band`)" must not certify
+                // a pair the roster does not claim — but a roster that lists its props INSIDE
+                // parentheses ("hero's retired keys (`spacing`, `width`)") is ordinary prose
+                // and stripping it wholesale fails a correct doc. Strip only if a backticked
+                // prop remains outside.
+                $segment = $parts[$i + 1] ?? '';
+                $outside = preg_replace('/\([^)]*\)/', '', $segment) ?? '';
+                $segments[$parts[$i]] = str_contains($outside, '`') ? $outside : $segment;
+            }
+
+            foreach ($keys as [$component, $prop]) {
+                $this->assertArrayHasKey(
+                    $component,
+                    $segments,
+                    "{$relative}'s retired-prop roster never names {$component} at all. "
+                    . "The roster reads: {$roster[1]}"
+                );
+                $this->assertMatchesRegularExpression(
+                    // Possessive either way: "hero's" and the plural "testimonials'" — and
+                    // with or without the backtick the newer copies wrap the name in, so
+                    // "`cta`'s `theme`" and "cta's `theme`" both satisfy it. Requiring one
+                    // house style here would fail a roster that is correct.
+                    '/`' . preg_quote($prop, '/') . '`/',
+                    $segments[$component],
+                    "{$relative}'s retired-prop roster never names {$component}'s "
+                    . "`{$prop}`. The roster reads: {$roster[1]}"
+                );
+            }
         }
     }
 
