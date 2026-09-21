@@ -510,8 +510,24 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
             $composition = pp_get_composition($params['post_id'] ?? 0);
             $idx         = _pp_resolve_component_index_for_error($params);
             if (_pp_component_target_not_found($params, $idx)) {
+                // IT RETURNS `component_not_found`, NOT THE CODE IT WAS HANDED (#1101).
+                //
+                // This arm fires when the caller named a `component_id` that resolves to
+                // nothing. It used to echo `invalid_style_slot` back, which was harmless
+                // while that code meant one thing — the card's own sentence said
+                // "couldn't find that component" and the reader saw the truth.
+                //
+                // It stopped being harmless when `invalid_style_slot` came to mean an AGED
+                // BAND, because the chat's status bar reads the CODE and now answers that
+                // meaning: it would tell an author whose id was stale to clear styling from
+                // a band that does not exist. Two halves of one card saying different
+                // things is the #667 defect, and echoing a code whose meaning has narrowed
+                // under you is how you get there.
+                //
+                // `component_not_found` is what actually happened, is already a code this
+                // system uses, and lets the JS answer the real problem.
                 return [
-                    'error_code'            => $code,
+                    'error_code'            => 'component_not_found',
                     'user_message'          => 'I couldn\'t find that component on the page — it may have been removed or the id is wrong.',
                     'alternatives'          => [],
                     'cross_component_hints' => (object) [],

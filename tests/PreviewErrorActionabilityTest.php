@@ -63,6 +63,82 @@ class PreviewErrorActionabilityTest extends TestCase
     }
 
     /**
+     * THE TARGET-NOT-FOUND ARM OF _pp_build_friendly_error(), RE-HOMED AT #1101.
+     *
+     * It came from tests/FriendlyErrorSlotContextTest.php, which this PR deleted whole on
+     * the reasoning that every method there was about `pp_rejected_slot_context()`. This one
+     * never called it: it hand-builds the WP_Error and needs no slot-declaring component, so
+     * the "provably dead by its own guard" argument did not reach it. Deleting it left the
+     * arm mutable with the whole suite green — `if (false && _pp_component_target_not_found(…))`
+     * broke nothing. Caught by a review specialist that mutation-proved the gap.
+     *
+     * This file is the right home: it already owns the claim that a stale id is reported as
+     * `component_not_found` rather than as a styling problem, and this is the same claim one
+     * layer down, at the reporting surface rather than the action.
+     *
+     * WHY THE CODE IS `component_not_found` AND NOT WHAT THE PRODUCER STAMPED. The arm used
+     * to echo `invalid_style_slot` back. That was harmless while the code meant one thing.
+     * It stopped being harmless when #1101 narrowed the code to mean an AGED BAND, because
+     * the chat's status bar reads the code and would then tell an author whose id was stale
+     * to clear styling off a band that does not exist.
+     */
+    public function testAnUnresolvableIdIsReportedAsNotFoundRatherThanAsStyling(): void
+    {
+        $post_id = $this->authorPage('No context, bad id', [
+            ['component' => 'section', 'props' => ['id' => 'pp-aabb1122', 'title' => 'Hi', 'body' => 'Body text']],
+        ]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "section" has no style slot "--section-bgs".'),
+            ['post_id' => $post_id, 'component_id' => 'pp-nosuchid', 'style' => ['--section-bgs' => '#111']]
+        );
+
+        $this->assertStringContainsString('couldn\'t find that component', $friendly['user_message']);
+        $this->assertSame([], $friendly['alternatives']);
+        $this->assertSame(
+            'component_not_found',
+            $friendly['error_code'],
+            'the reported code must be what happened, not what the producer stamped — the chat '
+            . 'status bar reads it, and `invalid_style_slot` now means an aged band\'s stored map'
+        );
+        $this->assertStringNotContainsString(
+            'old system',
+            $friendly['user_message'],
+            'and it must not offer the aged-band repair for a band that was never found'
+        );
+    }
+
+    /**
+     * AN OUT-OF-RANGE INDEX IS A DIFFERENT DOOR TO THE SAME PROBLEM, and it does NOT reach
+     * the arm above — the target-not-found answer fires only for a bad `component_id`. So
+     * this rejection reaches the message composer with nothing resolved, and what it must
+     * not do is make a confident claim about a component that does not exist.
+     *
+     * Re-homed from tests/FriendlyErrorMessageBoundTest.php, also deleted whole, also
+     * unrecorded. The guard hole itself is pre-existing and still open; what is pinned here
+     * is that the message does not exploit it.
+     */
+    public function testAnOutOfRangeIndexIsNotToldAnythingConfidentAboutTheBand(): void
+    {
+        $post_id = $this->authorPage('Empty map', [
+            ['component' => 'hero', 'props' => ['title' => 'Hi']],
+        ]);
+
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component "ghost" has no style slot "--ghost-zzz".'),
+            ['post_id' => $post_id, 'component_index' => 7, 'style' => ['--ghost-zzz' => '#111']]
+        );
+
+        $this->assertSame([], $friendly['alternatives']);
+        $this->assertStringContainsString('couldn\'t tell which component', $friendly['user_message']);
+        // It must not quote the rejected slot name back as something a band refused, and it
+        // must not name a band, because no band was resolved.
+        $this->assertStringNotContainsString('"--ghost-zzz"', $friendly['user_message']);
+        $this->assertStringNotContainsString('"ghost" band', $friendly['user_message']);
+        $this->assertLessThan(600, mb_strlen($friendly['user_message']), 'and it stays readable in the chat column');
+    }
+
+    /**
      * Authors a page through the real write path: pp_create_page for the post,
      * the update_composition ACTION (schema-validated) for the composition.
      */

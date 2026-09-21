@@ -866,7 +866,24 @@ describe('getErrorStepClass', function () {
     });
 
     test('returns pp-ai-step-failed for an unrecognized error code', function () {
-        expect(getErrorStepClass({ error_code: 'component_not_found' })).toBe('pp-ai-step-failed');
+        // `component_not_found` was the example here until #1101, when it became a
+        // RECOGNIZED code (see below) — so the default arm needs a code that genuinely
+        // maps to nothing, or this test moves quietly to asserting about a mapped one.
+        expect(getErrorStepClass({ error_code: 'some_code_no_reader_knows' })).toBe('pp-ai-step-failed');
+    });
+
+    // #1101: `component_not_found` is its own arm now. It reaches the card when the caller
+    // named an id that resolves to nothing, and it is FIXABLE because the author corrects
+    // the id. It must NOT share `invalid_style_slot`'s sentence — that code means an aged
+    // band's stored style map, and telling someone whose id was wrong to clear styling from
+    // a band that does not exist is the #667 two-halves-disagreeing defect.
+    test('returns pp-ai-step-fixable for component_not_found, with its own sentence', function () {
+        expect(getErrorStepClass({ error_code: 'component_not_found' })).toBe('pp-ai-step-fixable');
+
+        var msg = getStatusMessage({ error_code: 'component_not_found', cross_component_hints: {} });
+        expect(msg).toContain('couldn\'t find that component');
+        expect(msg).not.toContain('old system');
+        expect(msg).not.toContain('Clear it first');
     });
 });
 
@@ -956,8 +973,11 @@ describe('getStatusMessage', function () {
     // hints only inside the invalid_style_slot arm, so the bar carries the same gate;
     // no shipped payload puts hints under another code, and neither reader assumes it.
     test('hints under another error code do not produce the retarget sentence', function () {
+        // The code this uses must be one the reader does NOT map, or it stops testing the
+        // gate and starts testing whichever arm it landed in. `component_not_found` was
+        // that code until #1101 gave it an arm of its own.
         var msg = getStatusMessage({
-            error_code: 'component_not_found',
+            error_code: 'some_code_no_reader_knows',
             cross_component_hints: { '--grid-gap': { component: 'grid' } }
         });
         expect(msg).not.toContain('different component');

@@ -1605,6 +1605,11 @@ function ppChatGetErrorStepClass(data) {
     var code = data.error_code || '';
     if (code === 'no_style_slots') return 'pp-ai-step-impossible';
     if (code === 'invalid_style_slot') return 'pp-ai-step-fixable';
+    // A STALE OR WRONG id. Fixable — the author corrects the id — and deliberately NOT
+    // folded in with `invalid_style_slot` above: since #1101 that code means an aged band's
+    // stored style map, and its status sentence names that repair. Telling someone whose id
+    // was wrong to clear styling from a band that does not exist is the #667 defect.
+    if (code === 'component_not_found') return 'pp-ai-step-fixable';
     if (code === 'invalid_style_value' || code === 'invalid_recipe') return 'pp-ai-step-fixable';
     return 'pp-ai-step-failed';
 }
@@ -1661,6 +1666,7 @@ function ppChatGetStatusMessage(data) {
     // until it is cleared — so there IS a next action, and denying possibility would be the
     // #625 defect again.
     if (code === 'invalid_style_slot') return 'This band still stores styling from the old system, which blocks edits to it. Clear it first — see details above.';
+    if (code === 'component_not_found') return 'I couldn\'t find that component on the page. Check the id and try again.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
     return 'Some changes couldn\'t be previewed. See details above.';
 }
