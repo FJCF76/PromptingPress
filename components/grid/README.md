@@ -1,203 +1,176 @@
 # Component: grid
 
-Responsive card grid for discrete content objects. Use this for blog post listings, team members, or real features with substantive descriptions. Do NOT use this as a decorative icon grid.
+Responsive card grid for discrete content objects — posts, features, team members, process steps. Not for icon-in-circle decoration: every card should represent a real content object.
+
+**This is a v2 component, and it was the LAST one to arrive (#1101).** It declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See `docs/v2/BUILD-SPEC-sprint0.md` §3 and `docs/explanation-cascade-layers.md`.
+
+It is also the first component to carry **item-grain** styling: a single card may hold its own `udc` map, addressed by a minted id, so one card in an otherwise uniform grid can be dark while its siblings stay light. That contract is BUILD-SPEC **Addendum B**, and the `item_roles` section below is how this component opts into it.
 
 ## Props
 
-| Prop            | Type   | Required | Default   | Description |
-|-----------------|--------|----------|-----------|-------------|
-| `id`            | string | No       | `''`      | HTML id for anchor linking |
-| `title`         | string | No       | `''`      | Section heading above the grid |
-| `title_accent`  | string | No       | `''`      | Exact substring of `title` to render in an accent color |
-| `eyebrow`       | string | No       | `''`      | Short kicker/label rendered as a pill above the title |
-| `subheading`    | string | No       | `''`      | Supporting line below the title |
-| `title_align` | enum   | No       | `'start'` | Header block alignment: `start` / `center` |
-| `layout`        | enum   | No       | `'cards'`   | Structural layout: `cards` (card grid) / `steps` (numbered process cards) |
-| `card_emphasis` | enum   | No       | `'featured'` | First-card emphasis: `featured` (default — first card gets an accent bar, tinted fill, larger title, extra top padding, muted-theme lift) / `uniform` (every card identical). Use `uniform` for a symmetric/peer card row (see below). Cards-layout concept; ignored on `steps`. |
-| `theme`         | enum   | No       | `'default'` | Background color: `default` / `muted` (light tinted surface band) / `inverted` (genuinely dark band) (independent of `layout`) |
-| `columns`       | number | No       | —         | Explicit desktop (768px+) column count, integer `1`–`4`. Unset = auto by item count (see below). Out-of-range/non-integer values are rejected, not clamped. Cards-layout concept; ignored on `steps`. |
-| `image_treatment` | enum | No       | `'banner'` | How each card's `image_url` renders: `banner` (full-width 16:9 cover banner above the body) / `icon` (small fixed icon size, un-cropped, above the title — see below). Unset = `banner` (byte-identical). Values outside the set are rejected, not coerced. Cards-layout concept; ignored on `steps`. |
-| `items`         | array  | Yes      | —         | Array of card objects |
+| Prop           | Type   | Required | Default    | Description |
+|----------------|--------|----------|------------|-------------|
+| `id`           | string | No       | `''`       | HTML id for anchor linking; also becomes the stable component id |
+| `title`        | string | No       | `''`       | Section heading above the grid |
+| `title_accent` | string | No       | `''`       | Exact substring of `title` to render in an accent color |
+| `eyebrow`      | string | No       | `''`       | Short kicker/label rendered as a pill above the title |
+| `subheading`   | string | No       | `''`       | Supporting line below the title |
+| `layout`       | enum   | No       | `'cards'`  | `cards` or `steps`. STRUCTURE, not styling: `steps` renders a numbered badge on each card and no card images |
+| `columns`      | number | No       | —          | Explicit desktop (≥768px) column count, an integer 1–4. Unset keeps the auto-derivation from item count. Ignored on `steps` |
+| `items`        | array  | Yes      | —          | The cards |
 
-Each item in `items`:
+Each entry in `items`:
 
-| Key         | Type   | Required | Default        | Description |
-|-------------|--------|----------|----------------|-------------|
-| `number`    | string | No*      | —              | Step number label, e.g. `'1'`. *Required when `layout` is `'steps'`. |
-| `title`     | string | No       | `''`           | Card heading (h3) |
-| `text`      | string | No       | `''`           | Card body text. Inline HTML allowed: a, strong, em, br. |
-| `bullets`   | array  | No       | —              | Checklist lines rendered below `text`, each prefixed with a check mark. Plain text only. |
-| `text_role` | enum   | No       | —              | Typography role for the card text: `mono` / `meta` / `label` / `kicker`. Unset (key absent, `null`, or empty) keeps default body text; values outside the set are rejected at write, not coerced. `meta`/`kicker` set a preset text color; an explicit `--grid-item-text-color` slot overrides it at all breakpoints. |
-| `image_url` | string | No       | `''`           | Card image URL |
-| `image_alt` | string | No       | `''`           | Alt text for the card image |
-| `image_id`  | int    | No       | `0`            | Media Library attachment ID for the card image. When set and it resolves, renders responsively (`srcset`/`sizes`) via `wp_get_attachment_image()`; falls back to `image_url` otherwise. A companion to `image_url`, not a replacement — an item with only an id renders no image. |
-| `link_url`  | string | No       | `''`           | Card link URL (shown only if set) |
-| `link_text` | string | No       | `'Read more'`  | Card link label |
+| Key         | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `number`    | string | No       | Step number label. Required in spirit when `layout` is `steps`; unset falls back to the 1-based position |
+| `title`     | string | No       | Card heading (`<h3>`) |
+| `text`      | string | No       | Card body. Inline HTML allowed: `a`, `strong`, `em`, `br` |
+| `bullets`   | array  | No       | Checklist lines below the text, each prefixed with a check mark. Plain text only |
+| `image_url` | string | No       | Card image URL. Not rendered on `steps` |
+| `image_alt` | string | No       | Alt text for the card image |
+| `image_id`  | number | No       | Media Library attachment id — renders responsively with srcset/sizes when it resolves |
+| `link_url`  | string | No       | Card link destination |
+| `link_text` | string | No       | Link label (default `Read more`) |
 
-## Responsive behavior
+Two further keys on an entry are **engine-owned** and are not fields you author: `id` (minted on write, shape `it-<hex8>`) and `udc` (that card's own design map). See **Item-grain styling** below.
 
-| Breakpoint | Columns |
-|------------|---------|
-| Mobile     | 1       |
-| Tablet (md 768px+) | 2  |
-| Desktop (lg 1024px+) | depends on item count — see below |
+### Six props that used to exist
 
-At desktop, a composed `cards` grid lays out by item count:
+Every one was measured on a rendered page before it was retired, and four of them were measured against the owner's live site as well. The `retired_props` block in `schema.json` carries the full route for each; a refusal at write names the route too, so you never have to guess.
 
-| Items | Desktop columns |
-|-------|-----------------|
-| 2     | 2, centered in a narrower row |
-| 3     | 3 across, spanning the container |
-| 4     | 2 x 2, centered in a narrower row |
-| other | 2 |
+| v1 prop | what it did | v2 route |
+|---|---|---|
+| `theme` | `default` / `muted` / `inverted` band tone | `_band` → `background.fill`; the `muted` framing is `border.width-top`/`width-bottom` = `"1px"` with **`style-top`/`style-bottom`** = `"solid"` and `color` = `"@color-border"` — per-edge `style`, NOT a blanket one: `border.style` sets `border-style` on all four edges, and an edge with a style but no width falls back to CSS's initial `border-width: medium`, which paints a **3px** rule down both sides of the band. Measured at 375/768/1280: left/right went 0px → 3px and the card track lost 6px; the `inverted` ink is `_band` → `typography.color`, which `heading` follows through `currentColor` — **but `subheading` does not**, so a dark band is at least two writes |
+| `title_align` | `start` / `center` for the header | `header` → `typography.align`. The eyebrow pill follows it (an inline-block is an inline-level box). v1 also centred the heading's and subheading's capped BOXES with auto margins — that half is `spacing.margin-left`/`margin-right` = `"auto"` on those two roles |
+| `card_emphasis` | `featured` / `uniform` — a `:first-child` accent treatment | **Retired, not ported.** Ordinal styling contradicts Addendum B's rule that a card is addressed by its minted id so reordering carries its design with it. Measured first: all 11 of the owner's production grid bands already rendered `uniform`. One special card is an item `udc` map now |
+| `image_treatment` | `banner` / `icon` card image box | `card-media` → `sizing.aspect-ratio` plus `sizing.width`/`height`. **Stated narrowing:** the `icon` value's `object-fit: contain` has no typed parameter, so the un-cropped fit is reachable only through the `_css` valve. Measured: zero production bands used it |
+| `items[].text_role` | `mono` / `meta` / `label` / `kicker` preset on a card's text | the `card-text` role's `udc` map on that item, or a custom preset (#1016). Measured at 375/768/1280: **three of the four rendered.** `mono` set a monospace family at every tier (route: `typography.family`), `label` letter-spacing 0.01em and `kicker` letter-spacing 0.08em + uppercase (`typography.letter-spacing`, `typography.transform`). Only `meta` was inert. One narrowing: `kicker` also painted accent ink **at 375px only**, which the tracking route does not carry — add `typography.color` for it |
+| `items[].style` | a per-card slot map rendered as inline custom properties | **the entry's own `udc` map — Addendum B.** §3.4 forbids inline style emission outright, and the replacement is wider: the same roles, the same engine, the same refusal codes |
 
-The `steps` layout is 3 across at desktop, except for a 4-item steps grid, which lays out 2 x 2.
+Two slot values genuinely retired with no route, and both are named here rather than left to be discovered: `--grid-item-bullet-color` (a `::before` glyph — ruling A3 defers pseudo-elements, so the check mark takes the shared accent) and `--grid-featured-texture-color` (a second background layer the `fill` grammar refuses).
 
-### Forcing the desktop column count (`columns`)
+**The card top bar SURVIVED, and it is why it is a real element now.** v1 painted it as `.grid__item::before`, which no role can address. Ten of the owner's eleven production bands author it — the same purple→orange→teal 3px rule on every one — so the honest port was to give the thing its own selector: an empty `<span class="grid__item-bar">`, styled by the `card-bar` role through ordinary `background.fill` and `sizing.height`. No grammar changed.
 
-The table above is the default when `columns` is unset. Set `columns` to an integer `1`–`4` to force that many equal-width columns at desktop (768px+), overriding the item-count grain — e.g. `columns: 3` renders a 6-item `cards` grid as 3-across x 2-rows instead of the default 2 x 3, and lets a 4-item grid choose 4-across instead of the default 2 x 2. The forced grid spans the container (no narrowing/centering) regardless of item count, and the single-column collapse below 768px is unchanged. A forced count with a non-multiple item count simply wraps the remainder onto the last row (e.g. `columns: 3` with 4 items = a row of 3 then a single left-aligned card); tracks use `minmax(0, 1fr)` so cards never overflow.
+### One geometry narrowing: a card that ends with its paragraph is 16px taller (#1102)
 
-`columns` is a structural prop (set with `create_page` / `update_component`, not `style_component`). Values outside `1`–`4`, or non-integers, are rejected with an error — they are never silently clamped. It is a `cards` concept and is ignored on the `steps` layout, which keeps its fixed process grain.
+Measured in Chromium at 375/768/1280, v1 against the rebuild, on the same scenes:
 
-## Card image treatment (`image_treatment`)
+| card shape | v1 `.grid__item-body` | v2 |
+|---|---|---|
+| title + text + bullets + link | 260.562px | **260.562px** — byte-identical |
+| title + text, nothing after | 126.797px | **138.328px** |
 
-By default (`image_treatment: 'banner'`) each card's `image_url` renders inside a full-width `16:9` cover wrap above the card body — good for post thumbnails and photography, but it blows a small logo or glyph up into a cropped banner. Set `image_treatment: 'icon'` to render the image at a **small fixed icon size** instead: the `--grid-item-icon-size` slot (default `48px`) sizes a square box above the title, the `16:9` crop is dropped, and the image is `object-fit: contain` so the whole glyph/logo shows. This is the shape for the common **icon + title + text** feature card.
+`card-text` defaults `spacing.margin-bottom: @space-md`, and that value is correct — v1 rendered 16px between the paragraph and whatever followed it. But v1 **also** rendered 0px when nothing followed, because base.css's `p:last-child { margin-bottom: 0 }` reset caught it. A v2 element-tier role default emits **unlayered**, so nothing in `@layer pp-v1` can take it back: a structural `.grid__item-text:last-child { margin-bottom: 0 }` was prototyped and measured **inert**.
 
-It works with and without `bullets` on the same card, and at every breakpoint (the icon stays icon-sized on mobile; the `<768px` single-column collapse is unchanged). Resize the icon box with the `--grid-item-icon-size` style slot — grid-wide via `style_component`, or per-card via `items[].style`. The icon **follows the card's `--grid-item-text-align`**: a card (or grid) set to `center` centers its icon above the title, `right` right-aligns it, `left` (the default) keeps it left — the icon aligns with the text and the `Read more` link, which all derive from that one slot (#361). So a centered icon+title+text card is fully centered.
+The condition is *"is this the last child"* — a structural fact about the markup — and **v2 roles have no conditionality concept at all**. That is [#1102](https://github.com/FJCF76/PromptingPress/issues/1102), and this is its first concrete case rather than a defect in these defaults.
 
-`image_treatment` is a structural prop (set with `create_page` / `update_component`, not `style_component`). Unset keeps `banner` (byte-identical to prior rendering). A value outside the closed set (`banner` / `icon`) is rejected with `invalid_prop_value`, never silently coerced. It is a `cards` concept and is ignored on the `steps` layout, which renders no item images.
+**Kept rather than worked around, and the alternatives are why.** Dropping the default fixes the text-last card and collapses text→bullets and text→link from 24px to 8px on every ordinary card. Moving the 16px onto `card-bullets`/`card-link` as a `margin-top` keeps those two right and makes bullets→link 24px where v1 measured 8px. Each trades an uncommon shape's error for a common one's; this one errs toward *more* space rather than cramped.
 
-## Card emphasis (featured vs uniform)
+**To remove it on a band where it shows**, set `card-text` → `spacing.margin-bottom` to `"0"` and put the rhythm on `card-body` → `spacing.gap` instead. An authored value emits unlayered above the default, so it wins.
 
-By default a `cards` grid gives its **first card** a "featured" treatment: an accent top bar, a tinted gradient fill, a larger title, extra body top-padding, and (on the `muted` theme) a slight upward lift. This draws the eye to a lead item and is the historical, unchanged default (`card_emphasis: 'featured'`).
+## Roles
 
-Set `card_emphasis: 'uniform'` to render **every card identically** — no featured first card. Use it whenever the cards are peers of equal weight and the featured emphasis would mislead or misalign them:
+| Role | Selector | What it owns |
+|---|---|---|
+| `_band` | the `<section>` | band padding, background (including `image` + `overlay`), border, shadow, and the band ink `heading` follows |
+| `header` | `.grid__header` | the eyebrow/title/subheading block — its text alignment, and nothing else |
+| `eyebrow` | `.grid__eyebrow` | the kicker pill: background, border, radius, casing, ink |
+| `heading` | `.grid__heading` | the `<h2>`: size, weight, leading, measure, rhythm, ink |
+| `heading-accent` | `.grid__heading-accent` | the accented substring's ink |
+| `subheading` | `.grid__subheading` | the supporting line: ink, measure, rhythm |
+| `list` | `.grid__list` | the `<ul>`: the gap between cards, and `layout.columns` for a per-breakpoint track count |
+| `card` | `.grid__item` | one `<li>` — fill, border, radius, shadow, motion. **THE ITEM ROOT:** this is the element that carries `data-pp-item` |
+| `card-bar` | `.grid__item-bar` | the thin rule across the top of a card (cards layout only) |
+| `card-media` | `.grid__item-image-wrap` | the card's image box: aspect ratio, width, height |
+| `card-body` | `.grid__item-body` | the padded content area below the image — **it owns the card's padding, not `card`** |
+| `card-title` | `.grid__item-title` | the card `<h3>`: ink, size, weight, leading, tracking |
+| `card-text` | `.grid__item-text` | the card's supporting paragraph |
+| `card-bullets` | `.grid__item-bullets` | the checklist `<ul>`: ink, type, gap |
+| `card-bullet` | `.grid__item-bullet` | one checklist line — its left indent, and nothing else |
+| `card-link` | `.grid__item-link` | the "Read more" link, at rest and on `:hover` |
+| `step-number` | `.grid__step-number` | the filled circular badge on the `steps` layout |
+| `empty` | `.grid__empty` | the "Nothing here yet." line — it sits on the BAND fill, not inside a card |
 
-- Symmetric specification/comparison rows whose checklists or bodies must line up across cards (the featured card's extra top-padding otherwise pushes its content down relative to its neighbors).
-- Equal-weight feature, benefit, or plan rows where no single card should stand out.
+**Which roles carry `layout` (#1084):** `card`, `card-body`, `card-bullets`, `card-link`, `list`. A role carries the group when its own structural CSS makes the box a flex or grid container; the rule and its two clauses are in [the Layout contract](../../docs/v2/LAYOUT-GROUP-CONTRACT.md) §5, and a test checks this list against the stylesheet in both directions. `header` is deliberately NOT on it — `.grid__header` is an ordinary block, so a `justify-content` there would paint nothing at any value. `align-self` is NOT in this group either: a box placing ITSELF is `sizing.align-self`, available on any role with `sizing`.
 
-Keep the default `featured` when one card really is the lead (a highlighted plan, a primary feature). This is a structural prop, not a style slot — set it with `create_page` / `update_component`, not `style_component`. It differs from styling one card individually (`items[].style`) or from the slot-level `uniform-cards` recipe: `uniform` cleanly drops the *entire* featured treatment (including the first-card top-padding and muted-theme lift that slot overrides cannot reach).
+### The pairs you have to write together
+
+A card keeps its own light ink even on a dark band — measured, `card-title`, `card-text`, `card-bullets` and `card-link` rendered byte-identically on a v1 `default` and `inverted` band, because v1 deliberately kept cards light. That is still the default, and it is why those four roles pin their colours instead of following the band. The consequence is yours to carry, and the schema declares it as an obligation so the model-facing prompt carries it too:
+
+- **Darkening a `card` fill is five writes, not one:** `card`, then `card-title`, `card-text`, `card-bullets` and `card-link`. `card-link` pins `@color-accent`, which measures **3.2:1 on a `#14141F` card** — under the 4.5:1 AA floor for its 0.9rem weight-600 text.
+- **Darkening the `_band` does not reach `subheading` or `empty`:** both pin `@color-muted`, and `empty` sits on the band fill rather than inside a card. On `@color-bg-inverted` that measures **3.10:1**, under the 4.5:1 AA floor — v1's `theme: "inverted"` re-coloured the subheading automatically and the v2 route does not.
+- **The step badge's fill and its numeral are a pair:** `step-number` defaults to `@color-accent` fill with `@color-bg` ink. Changing one without the other is how a light badge gets invisible numerals.
+
+## Item-grain styling (Addendum B)
+
+```jsonc
+"item_roles": { "prop": "items", "root": "card",
+                "roles": ["card", "card-bar", "card-media", "card-body", "card-title",
+                          "card-text", "card-bullets", "card-bullet", "card-link",
+                          "step-number"] }
+```
+
+An entry in `items` may carry its own `udc` map, in the same shape a band's takes, validated by the same engine, refused with the same codes:
+
+```json
+{
+  "title": "AI-safe structure",
+  "text": "The next agent pass should not have to guess through hidden state.",
+  "udc": {
+    "card":       { "background": { "fill": "#14141F" }, "border": { "color": "#0A0A12" } },
+    "card-title": { "typography": { "color": "#F2EEE5" } },
+    "card-text":  { "typography": { "color": "#E8E2D4" } }
+  }
+}
+```
+
+That emits a band-scoped rule keyed on a minted id, printed after the band's own block:
+
+```css
+[data-pp-band="pp-3f9a1c2e"] .grid__item                               { /* band tier */ }
+[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"] .grid__item-title { /* item tier */ }
+[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"]              { /* item root */ }
+```
+
+**Things worth knowing before you write one:**
+
+- **The id is minted on WRITE, only for entries that carry a `udc` map.** You never author it. It is carried forward across a full `items` re-apply by index + component match, and minted fresh on ambiguity — which is what makes the design travel with the card rather than with position 2.
+- **The band-level header roles are not addressable per item.** `_band`, `header`, `eyebrow`, `heading`, `heading-accent`, `subheading`, `list` and `empty` exist once per band, so styling them "for one card" has no meaning and they are absent from `item_roles`.
+- **Seven things are REFUSED rather than ignored**, because accepted-stored-ignored is the failure class this engine exists to close: per-item chrome; `_band` inside an item map; ordinal or structural selectors (`nth-child`, `first`, `last`, `even`/`odd`); nesting beyond one level; defining a new preset inside an item (referencing one with `_preset` is fine); pseudo-elements; and `_css` at item grain.
+- **The whole disclosure machinery follows the item tier.** `source` gains the value `item`; the shadowing, minting and skipped-preset-group findings all report with an item locator beside the band index.
+
+## Structural CSS — what the stylesheet still owns
+
+The `COMPONENT: grid` block in `assets/css/components.css` is structure only, and a test enforces that on exactly that slice. What lives there and why:
+
+- **Track geometry:** the 1→2 column collapse, the `steps` 3-across, the `data-pp-count` auto-derivation and the `data-pp-columns` override. All of it is `grid-template-columns` plus the max-width/auto-margin pair that centres a short row. The GUTTER is `list` → `spacing.gap`.
+- **`overflow: hidden` on the card**, which clips a banner image to the card's authored radius — and is why `card-link`'s focus ring is drawn INSET (`outline-offset: -3px`). That is #1056's fix, applied structurally so no authored padding can reopen it.
+- **The hover lift** (`transform: translateY(-2px)`) and the `transition` property list, which have no role address at any value.
+- **Two pseudo-elements:** the `::after` arrow on the card link, and the steps connector rule. Ruling A3 defers pseudo-elements, so neither has a role. Two narrowings fall out of that and are stated rather than discovered: the arrow lost its `font-weight: 700` and now renders at the link's own weight, and the connector rule paints a `currentColor` border edge rather than a pinned `@color-border` background.
+
+### The connector rule paints nothing, and it is kept on purpose (#601, #670)
+
+`.grid--steps .grid__item:not(:last-child)::after` is positioned at `left: 100%` — outside the card's padding box — while `.grid__item` declares `overflow: hidden`. The card clips it, at every viewport, so the rule has never put a pixel on the page. That was recorded at #601 and its reopening is #670; the v2 rebuild changes neither fact, because `overflow: hidden` is exactly as load-bearing for the banner-image crop as it was before.
+
+It is ported rather than deleted for the same reason the record exists: deleting it would turn a known-dead rule with an issue number into a silently absent one, and #670 is where the decision to revive or remove it belongs. **Do not read its arithmetic as a promise** — the offset happens to be correct now (the card body's 2rem padding plus half a 44px badge is exactly the `calc(var(--space-lg) + 1.375rem)` the rule carries, which it only approximated under v1's outer padding), and that is a fact about the numbers, not about anything a reader will see.
+
+## Cards layout
+
+`cards` auto-derives its desktop track count from the item count — one card spans the container, two and three span it in equal tracks, four wrap to a centred 2×2 — and the `columns` prop overrides that at ≥768px. Below 768px every grid is a single column. For a per-breakpoint count, `list` → `layout.columns` is the UDC route and it beats both, because an authored value emits unlayered.
 
 ## Steps layout
 
-Set `layout: 'steps'` for a numbered process/how-it-works layout (the default `layout` is `cards`). Each card gets a filled circular number badge above its title, and the row reads as a sequence through the badges and their order. `theme` still controls background color independently of the steps layout.
+`steps` keeps a fixed 3-across process grain at ≥1024px. It renders a numbered badge on each card and no card images, which is why it is a `layout` PROP and not a design value: it changes which elements exist.
 
-## Usage
+**The badge moved INSIDE `.grid__item-body` at #1101.** The steps-only outer padding it used to sit in has no v2 home — a role's defaults carry a breakpoint dimension and a state dimension and NO variant dimension, so "padding, but only on steps" is unspellable (the conditionality gap, #1102). Left outside the body with that padding gone, the badge would sit flush against the card's border. The visible consequences are written down in `grid.php` at the move: a steps card's content inset goes from 48px to 32px at the sides, the badge's own inset from 16px to 32px, and the gap under the badge from 16px to 24px because `card-body`'s flex `gap` now applies between the badge and the title.
 
-```php
-// Blog post archive
-pp_get_component('grid', [
-    'items' => array_map(function() {
-        return [
-            'title'     => pp_page_title(),
-            'text'      => pp_excerpt(25),
-            'image_url' => pp_thumbnail_url('medium'),
-            'link_url'  => pp_permalink(),
-            'link_text' => 'Read post',
-        ];
-    }, $posts),
-]);
+**The steps TYPE SCALE went with it, and that is the same gap reached through typography.** v1 carried a `.grid--steps`-scoped rule at >=768px that no v2 role can express, for the same reason the padding could not be: there is no variant dimension. Measured at 768 and 1280, a steps card's title went **1.04rem/weight 680/`max-width: 17rem`** to the cards default **1.14rem/weight 670/uncapped** (16.64px -> 18.24px, box 246x21 -> 278x23), and its paragraph **0.995rem/1.66** to **1.005rem/1.68**. So a steps card's heading is now slightly larger, slightly lighter and no longer capped at a 17rem measure. The cap is the one worth knowing about, and it is authorable today: set `card-title` -> `sizing.max-width` to `17rem` on a steps band to get it back.
 
-// Feature card with a checklist instead of a paragraph
-pp_get_component('grid', [
-    'title' => 'Security',
-    'items' => [
-        [
-            'title'   => 'Perimeter security',
-            'bullets' => ['HTTP security headers', 'SSL/TLS validity', 'Clickjacking protection'],
-        ],
-        // ...
-    ],
-]);
+The badge's fill and its numeral ink are a PAIR — see the `step-number` role's obligation above. Its size, radius and rhythm are that role's `sizing`, `border` and `spacing`.
 
-// Feature list (content cards, not decoration)
-pp_get_component('grid', [
-    'title' => 'How It Works',
-    'items' => [
-        [
-            'title' => 'WP Abstraction Layer',
-            'text'  => 'lib/wp.php is the only file that calls WordPress functions directly.',
-        ],
-        // ...
-    ],
-]);
-```
+## Files
 
-## Anti-slop rule
-
-Cards in this component must represent real content objects. If you're placing icons in circles with a two-line description, reconsider whether the grid is the right component.
-
-## Style slots
-
-38 per-instance style slots, declared in `schema.json` under `styling.style_slots`
-and set with the `style_component` action. This table is the map — read each slot's
-`type`, effective `default`, `applies_when` condition and full description from the
-schema itself, or with `wp pp operate inspect-composition --post_id=<id>`.
-
-`▪` = item-eligible (also settable per card in `items[].style`) · `◦` = conditional
-(`applies_when`): setting it outside that configuration is accepted and stored but
-paints nothing, and `wp pp check page` reports a non-blocking `inert_slot` smell **for a
-grid-level slot only** — the advisory reads the component-level `style` map, so the same
-mistake inside a per-card `items[].style` is never reported. Check the condition yourself
-when you set a slot per card.
-
-Read the bar slots' grouping carefully: `--grid-item-bar-*` paint the top bar on **every**
-card, not only the featured one. The featured card re-consumes them with louder defaults.
-Setting `--grid-item-bar-height: 0` removes the bar everywhere.
-
-| Group | Slots |
-|---|---|
-| Band | `--grid-padding-top` · `--grid-padding-bottom` · `--grid-bg` · `--grid-gap` |
-| Heading | `--grid-heading-color` ◦ · `--grid-heading-accent-color` ◦ · `--grid-heading-size` ◦ · `--grid-heading-measure` ◦ · `--grid-heading-margin-bottom` ◦ · `--grid-subheading-color` ◦ · `--grid-subheading-margin-bottom` ◦ |
-| Eyebrow | `--grid-eyebrow-color` ◦ · `--grid-eyebrow-bg` ◦ · `--grid-eyebrow-radius` ◦ · `--grid-eyebrow-border-width` ◦ · `--grid-eyebrow-border-color` ◦ · `--grid-eyebrow-text-transform` ◦ |
-| Card frame | `--grid-item-bg` ▪ · `--grid-item-border-color` ▪ · `--grid-item-border-width` ▪ · `--grid-item-radius` ▪ · `--grid-item-shadow` ▪ · `--grid-item-padding` ▪ · `--grid-item-gap` ▪ |
-| Card content | `--grid-item-title-size` ▪ · `--grid-item-title-color` ▪ · `--grid-item-text-color` ▪ · `--grid-item-bullet-color` ▪ · `--grid-item-link-color` ▪ · `--grid-item-link-hover-color` ▪ · `--grid-item-text-align` ▪ · `--grid-item-icon-size` ▪ ◦ |
-| Top bar (EVERY card) | `--grid-item-bar-color` ▪ ◦ · `--grid-item-bar-height` ▪ ◦ |
-| Featured first card | `--grid-featured-texture-color` ▪ ◦ · `--grid-featured-shadow` ▪ ◦ |
-| Steps (`layout: steps`) | `--grid-step-bg` ▪ ◦ · `--grid-step-text-color` ▪ ◦ |
-
-## Stated defaults (and what would reopen them)
-
-These values are deliberate product defaults, not oversights, and are not authorable.
-Each names the condition that would reopen the decision. Adding a control needs a
-**named incident** — a real composition that could not be built — not a hypothesis.
-
-| Default | Why it is a default | What would reopen it |
-|---|---|---|
-| Card hover lift `translateY(-2px)` | A subtle lift is the affordance that tells a pointer the card is a single object, and it is the shared value every card uses so a row lifts consistently. It is motion, not colour or geometry an author composes from content. `base.css` already collapses transition and animation durations under `prefers-reduced-motion` globally, so no per-component guard belongs here. | A named incident where a composition needs a different (or no) hover treatment on one band. |
-| Featured-card lift on the **`muted`** band (1024px and up) — `translateY(-0.18rem)` at rest, `-0.34rem` on hover | The featured card sits on the same tinted `--color-surface` fill as the band itself there, so the shared `-2px` stops separating it from its background; the larger rest lift is what restores the separation, and the hover value keeps the pair proportional rather than adding a second effect. Set `card_emphasis: uniform` to drop the whole featured treatment, this lift included. **Read the selector carefully:** the rule is `main > .grid--dark …`, and `--dark` is a deliberate misnomer for the **`muted`** (light tinted) band — the genuinely dark band is `--inverted`, which does not carry this lift. | The same named-incident bar as the hover lift. |
-| Featured texture stripe **period** — `2.75rem 100%` on the featured card, `3rem 100%` on the non-featured ones | The stripe is decoration, and its **colour is already authorable** on the featured card (`--grid-featured-texture-color`; set it to `transparent` to remove the stripe). The **period** is what makes the pattern read as texture rather than as ruled lines — it is not a value an author picks from content. | The same named-incident bar. |
-| The two stripe periods **differ**, and the non-featured stripe is a bare `rgba` with no slot | **Recorded here for the first time — no earlier rationale exists in the repo, and this is a stated reason rather than a recovered one.** The featured card is the tinted, lifted one, so the tighter period keeps its texture at a comparable visual density to the plain cards; and the featured stripe is the slotted one precisely because it is the one an author is most likely to want gone. Both were kept as found: equalising either would change render, which this pass does not do. | A composition where the two densities visibly disagree side by side, or a request to author the non-featured stripe — which would be a new slot, not a retraction of the existing one. |
-| The `steps` connector line (`::after` between badges at 1024px+) — **renders nowhere, and no slot reaches it** | Read this before writing anything that depends on the connector. The rule exists in `components.css`, but `.grid__item` sets `overflow: hidden` and the pseudo-element is `position: absolute; left: 100%` inside that same card, so the card clips its own connector away at every viewport. Nothing restores `overflow: visible`. Verified by rendered A/B against the shipped CSS: with the clip, no segment paints in the gap; with a prototype-only `overflow: visible`, the segment appears. The width does read `--grid-gap` and the colour does read `--grid-item-border-color` — both compute, then get clipped — so **neither slot is a connector control**, and the two slots' descriptions deliberately no longer claim one. **Do not treat this row as a stated default in the usual sense**: it is a dead rule, recorded so nobody re-derives a capability from the CSS source text. #670 owns the design call of whether to resurrect it or delete it. | #670 resolving. If the connector is ever made to paint, six surfaces become wrong together and must be rewritten in that same change: this row, the **Steps layout** section above, the `layout` prop description and the `--grid-gap` / `--grid-item-border-color` slot descriptions in `schema.json`, `AI_CONTEXT.md`, and `ai-instructions/composition.md`. `SchemaTruthfulnessTest::testNothingClaimsTheStepsConnectorIsReachableWhileTheCardClipsIt` enforces all six against the CSS (and sweeps every other grid slot description besides), so the rewrite cannot be half-done. |
-| Four-card row caps (1024px and up) — `max-width: 58rem` on a composed default grid, `56rem` on `steps` | The cap itself has a clear reason: a 2×2 four-card block is deliberately narrower than the `--max-width: 72rem` container so a four-item feature row reads as a **block** rather than spanning the whole band. **The 2rem delta between the two is recorded here for the first time — no earlier rationale exists in the repo.** `steps` cards carry a number badge and a title capped at `17rem` rather than free prose, so the same visual density arrives at a slightly narrower measure. Both were kept as found; equalising them would change render, which this pass does not do. | An operator wants a four-card row to span the full band and does not want to set `columns` to get it. Note what already works: setting `columns: 4` explicitly **clears** this cap (that rule declares `max-width: none` and zeroes the side margins), so the escape hatch exists — it is just bundled with forcing the column count rather than available on its own. |
-| `main > .grid--steps .grid__item-title { max-width: 17rem }` (768px and up) | A step title is a **label in a sequence, not prose**; the cap is what keeps the row of steps reading as a row rather than as three paragraphs. Scope note that belongs with it: `--measure-heading` routes **band headings, not item titles**, so this cap sits deliberately outside the measure surface and no measure retune reaches it. | A long step title (over roughly 30 characters) truncating awkwardly, or wrapping to a depth that pulls the badges out of alignment across the row. |
-
-## CSS
-
-Styles in `assets/css/components.css` under `/* === COMPONENT: grid === */`.
-
-Card hover state: `translateY(-2px)` — subtle lift. No shadow by default; set a
-`--grid-item-shadow` style slot (e.g. `var(--shadow-md)`) for elevated cards. See
-"Stated defaults" above for why the lift itself is not authorable.
-
-## Card content alignment
-
-`--grid-item-text-align` (an `align`-typed style slot, #357) controls the alignment
-of a card's **content** within the card body. It accepts one `text-align` keyword:
-`left` (default, unchanged historical rendering), `center`, `right`, `start`, `end`,
-or `justify`. Because the card body is a flex column whose text-bearing children
-stretch to full width, the value governs each item's inline content — so `center`
-centers the text stack (the centered emoji/label contact-card pattern).
-
-The `Read more` link/button follows the SAME alignment (#361). `.grid__item-link` is
-a flex item placed by `align-self`, and per the #338 flex trap `text-align` cannot
-move its box — so `grid.php` derives an internal `--pp-grid-link-align` companion from
-the same slot value (`left`/`start`/`justify` → `flex-start`, `center` → `center`,
-`right`/`end` → `flex-end`) and the CSS reads `align-self: var(--pp-grid-link-align,
-flex-start)`. The operator sets ONE slot; text and link align together, so a centered
-card is fully centered. An unset slot emits no companion, so the `flex-start` fallback
-keeps the link byte-identically left-pinned.
-
-The slot is `item_eligible`: set it grid-wide via the grid-level style to align every
-card, or per-card in `items[].style` to align a single card. An unset slot emits no
-inline custom property, so existing cards render byte-identically (left-aligned).
+- `grid.php` — the template
+- `schema.json` — props, roles, `item_roles`, `retired_props`
+- `../../assets/css/components.css` — the `COMPONENT: grid` structural block

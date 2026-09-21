@@ -457,36 +457,116 @@ final class UdcTruthSpineTest extends TestCase
         $this->assertStringNotContainsString('font-weight', $css, 'and the missing preset contributes nothing');
     }
 
-    public function testALegacyComponentStillWritesReadsAndPaintsItsStyleMap(): void
+    /**
+     * THERE IS NO LEGACY COMPONENT LEFT (#1101), AND THAT IS THE END OF THE TWO-SYSTEMS
+     * PERIOD THIS TEST EXISTED TO SURVIVE.
+     *
+     * WHAT `testALegacyComponentStillWritesReadsAndPaintsItsStyleMap` PROVED. Through the
+     * whole v2 migration — testimonials #958, hero #986, section #1023, cta #1026, faq
+     * #1046, table and embed #1066, stats and logos #1066 PR2 — the theme shipped TWO
+     * styling systems at once, and the spine's job was that landing the engine did not
+     * quietly break the components that had not moved yet. So it drove one v1 component's
+     * whole round trip on the SAME page-write path the engine uses: a `style` map written
+     * through `create_page`, read back from storage byte-identically, NO band id minted
+     * onto it (id minting is the v2 half and must not reach a v1 band), and the map
+     * painted as inline custom properties with no `data-pp-band` scope attribute. Its
+     * host moved with each rebuild — section, then grid — because the case needs a
+     * component that genuinely still declares slots or it asserts the opposite of its own
+     * name.
+     *
+     * GRID WAS THE LAST HOST AND #1101 REBUILT IT. Every shipped component is on the
+     * engine, so there is no component to ask, and a host chosen from the fixtures would
+     * be worse than nothing: `tests/fixtures/components/ppfixture` still declares slots,
+     * but re-homing here would pin the two-systems guarantee to a file whose whole purpose
+     * is to be deleted, and would report green about shipped behaviour while testing none.
+     *
+     * WHAT IS PINNED INSTEAD, and it is the stronger claim the migration was for: ONE
+     * styling system, asserted over every shipped component rather than one. The four
+     * halves of the old round trip invert exactly — a `style` map is REFUSED at write
+     * rather than stored, the refusal names the v2 route rather than a dead end, no
+     * component declares a slot for such a map to name, and the engine's own answer
+     * (`pp_get_style_slots`) agrees with the schemas rather than carrying a fallback list
+     * of its own. The neighbouring `testAStyleMapOnTheV2ComponentIsRefusedRatherThanStored
+     * Dead` keeps asserting the refusal's WORDING on one component; this asserts its
+     * REACH.
+     */
+    public function testThereIsNoLegacyComponentLeftAndEveryStyleMapIsRefused(): void
     {
-        $result = pp_execute_action('create_page', [
-            'title'       => 'Legacy still works',
-            // `grid` since #1023: the point of this case is that a component still on the
-            // LEGACY styling system keeps its whole round trip — write, read back
-            // verbatim, no band id minted, and the style map painted as inline custom
-            // properties. Section joined the engine, so asking it would assert the
-            // opposite of what the name promises. grid is the widest component still on
-            // slots, and the next one due to move.
-            'composition' => [[
-                'component' => 'grid',
-                'props'     => ['title' => 'Still here', 'items' => [['title' => 'One', 'text' => 'a']]],
-                'style'     => ['--grid-bg' => '#1a1a2e'],
-            ]],
-        ]);
-        $this->assertTrue($result['ok']);
+        // A minimal renderable props set per component, so the refusal under test is the
+        // style map's and not a missing-content rejection arriving first.
+        $props = [
+            'cta'          => ['title' => 'T', 'body' => 'B', 'button_text' => 'Go', 'button_url' => '/go'],
+            'embed'        => ['content' => '<p>E</p>'],
+            'faq'          => ['items' => [['question' => 'Q', 'answer' => 'A']]],
+            'grid'         => ['items' => [['title' => 'A', 'text' => 'a']]],
+            'hero'         => ['title' => 'T'],
+            'logos'        => ['items' => [['image_url' => 'https://e.test/a.png', 'image_alt' => 'a']]],
+            'section'      => ['title' => 'T', 'body' => '<p>B</p>'],
+            'stats'        => ['items' => [['number' => '9', 'label' => 'L']]],
+            'table'        => ['headers' => ['H'], 'rows' => [['r']]],
+            'testimonials' => ['items' => [['quote' => 'Q', 'author' => 'A']]],
+        ];
 
-        $stored = pp_get_composition((int) $result['target']['post_id']);
-        $this->assertSame('#1a1a2e', $stored[0]['style']['--grid-bg'], 'stored as authored');
-        $this->assertArrayNotHasKey('id', $stored[0], 'and no band id was minted onto a legacy component');
+        $checked = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
 
-        ob_start();
-        try {
-            pp_get_component('grid', array_merge($stored[0]['props'], ['__pp_style' => $stored[0]['style']]));
-        } finally {
-            $html = ob_get_clean();
+            // 1. NOTHING DECLARES A SLOT. The schema half, derived — chrome included, which
+            //    never had slots and must not acquire them.
+            $this->assertSame(
+                [],
+                $schema['styling']['style_slots'] ?? [],
+                "{$component} declares `styling.style_slots` again. The legacy styling system "
+                . 'was retired with grid at #1101; a second system is exactly what the UDC '
+                . 'engine replaced, and the round trip this assertion stands in for should '
+                . 'come back with it.'
+            );
+
+            // 2. AND THE ENGINE AGREES WITH THE SCHEMA. Asserted separately because a
+            //    fallback slot table inside the engine would make the schema half true and
+            //    the behaviour false.
+            $this->assertSame([], pp_get_style_slots($component),
+                "pp_get_style_slots('{$component}') disagrees with the schema");
+
+            if (!isset($props[$component])) {
+                continue; // nav and footer are chrome: not composable, so not writable here
+            }
+
+            // 3. THE WRITE IS REFUSED RATHER THAN STORED DEAD, and the refusal names the
+            //    route. This is the inverted round trip: on v1 the map was stored verbatim
+            //    and painted; now it never reaches storage at all.
+            $error = pp_validate_action('create_page', [
+                'title'       => "No legacy map for {$component}",
+                'composition' => [[
+                    'component' => $component,
+                    'props'     => $props[$component],
+                    'style'     => ["--{$component}-bg" => '#1a1a2e'],
+                ]],
+            ]);
+            $this->assertInstanceOf(WP_Error::class, $error, "{$component} accepted a legacy style map");
+            $this->assertSame('invalid_style_slot', $error->get_error_code());
+            $this->assertStringNotContainsString(
+                '(none)',
+                $error->get_error_message(),
+                "{$component}'s refusal reads as \"this component cannot be styled\", which is "
+                . 'the opposite of the truth for a UDC component (#1007)'
+            );
+            $this->assertStringContainsString('`udc` map', $error->get_error_message(),
+                "{$component}'s refusal must name the route, not just the absence");
+
+            $checked[] = $component;
         }
-        $this->assertStringContainsString('--grid-bg: #1a1a2e', $html, 'the inline style path is untouched');
-        $this->assertStringNotContainsString('data-pp-band', $html, 'and a legacy band carries no v2 scope attribute');
+
+        sort($checked);
+        // Fail-closed AND exact: an empty or shrinking roster would let every assertion
+        // above go unreached while this test reported green, and a growth is a new
+        // composable band that should be reviewed here rather than assumed compliant.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            $checked,
+            'every composable component in the theme, each refusing the legacy style map'
+        );
     }
 
     /** A v2 component refuses a legacy style map — one styling system, not two. */

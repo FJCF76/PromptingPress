@@ -312,13 +312,17 @@ Before this, two same-type bands produced byte-identical rejections, so an agent
 
 **`create_page` is all-or-nothing once you hand it a composition (#719).** `create_page` creates the page row first and stores the composition second, and the second step can refuse: `pp_update_composition()` skips the write and returns `composition_lock_failed` when it cannot take that page's advisory write lock. That return used to be discarded, so the call reported `ok: true` with a `target.post_id` over a page that was silently EMPTY — and, since #687, `findings: []` beside it, certifying the very page that had lost its content. The verdict is now honoured: the page just created is removed again and the call is REFUSED with the writer's own `error_code`, in the ordinary rejection envelope (`target: []`, `index: null`, and no `findings` / `composition_version`, as on every rejection). **Retry the same call** — a refusal normally leaves no page and no reserved slug behind, so the retry is clean rather than a duplicate stacked beside an empty first attempt. Two branches do leave the page standing and the message says which: a cleanup delete that was itself refused names the survivor (`post 231 ... is still there and stores no composition`), and a page something else wrote to first is left alone (`is NOT empty — something else wrote to it`). This narrows nothing — every composition valid before is still valid and the success path is byte-identical; it is a false success becoming an honest failure. `composition_conflict` is not reachable here: `create_page` threads no `expected_version`, so `composition_lock_failed` is the only code this path adds **in practice**. Since 1.19.11 the writer has a second refusal, `composition_not_encodable` (#941), and this path honours it the same way — the page just created is removed and the call is refused rather than reported as success over an empty page. It is not reachable through `create_page` today because the composition is validated first; it is named here so the branch is not a surprise if that ever stops being true.
 
-**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — set `--grid-item-bar-color` on a `list` grid and the slot, which renders only on `layout: "cards"`, is stored, versioned, reported as applied and read by nothing. So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
+**What the accepted write wrote (#687).** The mirror of the paragraph above, for the writes that SUCCEED. A composition write could validate, store, return `ok: true` and paint nothing — the shipped example was a grid card-bar slot set on a `steps` grid, where the slot rendered only on `layout: "cards"`, so it was stored, versioned, reported as applied and read by nothing. (That particular slot retired with grid's rebuild at #1101, and with it the whole `applies_when` surface — no shipped schema declares a conditional slot any more. The FINDINGS CHANNEL it motivated is unchanged and still carries every other class.) So every accepted envelope from a composition-mutating action, plus `create_page` and `operate patch`, carries `findings`: what current rules say about the composition that was just stored.
+
+The shape, with the component and slot names generalised because the shipped example retired
+(see the note above — no schema declares a conditional slot any more, so this finding type has
+no live subject and the envelope below is the record of what it looked like):
 
 ```json
 { "ok": true, "action": "style_component", "composition_version": 2,
   "findings": [
     { "type": "inert_slot", "severity": "warning", "index": 0,
-      "message": "Style slot \"--grid-item-bar-color\" on this \"grid\" component has no effect as configured: it applies when layout = \"cards\". Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
+      "message": "Style slot \"--example-bar-color\" on this \"example\" component has no effect as configured: it applies when layout = \"cards\". Either set that up, or drop the slot — the value is stored and reported as applied, but nothing on the page reads it." }
   ] }
 ```
 
@@ -372,7 +376,7 @@ A page whose stored composition already carries a collision (written before this
 
 > `Component 0 ("hero") no longer has a prop "button_variant": it was retired when hero moved to the v2 styling system. The replacement is the \`cta\` role's \`udc\` map ... To clear the stored key, send it as null — update_component with {"button_variant": null} removes it, and this band can be repaired on its own. Available props: ... [retired_prop]`
 
-**If you key on error codes, this is the migration:** the **nineteen** keys across **eight** components, each declared in its schema's `retired_props` block — hero's `button_variant`, `button2_variant`, `spacing`, `width` (#986); testimonials' `theme`, `title_align` (#958); section's `theme`, `title_align`, `background_image`, `panel_cta_variant` (#1023); cta's `theme`, `background_image`, `button_variant`, `button2_variant` (#1026); faq's `theme` (#1046); and embed's `theme`, stats' `theme` and `background_image`, and logos' `theme` (#1066) — moved from `unknown_prop` to `retired_prop`. `table` is a v2 component that retired nothing: it never declared a styling prop. Every other undeclared key still returns `unknown_prop`. The distinction exists so a caller can tell "you typo'd" from "this moved, and here is where" without string-matching prose, exactly as `retired_option` does for the chrome site options.
+**If you key on error codes, this is the migration:** the **twenty-five** keys across **nine** components, each declared in its schema's `retired_props` block — hero's `button_variant`, `button2_variant`, `spacing`, `width` (#986); testimonials' `theme`, `title_align` (#958); section's `theme`, `title_align`, `background_image`, `panel_cta_variant` (#1023); cta's `theme`, `background_image`, `button_variant`, `button2_variant` (#1026); faq's `theme` (#1046); embed's `theme`, stats' `theme` and `background_image`, and logos' `theme` (#1066); and grid's `theme`, `title_align`, `card_emphasis`, `image_treatment`, `items[].text_role` and `items[].style` (#1101) — moved from `unknown_prop` to `retired_prop`. `table` is a v2 component that retired nothing: it never declared a styling prop. Every other undeclared key still returns `unknown_prop`. The distinction exists so a caller can tell "you typo'd" from "this moved, and here is where" without string-matching prose, exactly as `retired_option` does for the chrome site options.
 
 **Props that paint nothing where they sit (#1006).** A prop that is declared, well-typed and stored, but inert in the configuration the band is actually in, is refused with `inert_prop` rather than accepted and ignored. Three rules ship today: a hero on `layout: "cover"` carrying `image_url` or `image_id`; a section on `text-only`, `centered` or `text-panel` carrying `image_url`, `image_id` or `image_alt`; and a section on `text-only`, `centered`, `image-left` or `image-right` carrying any of the six `panel_*` props (#1023). `cover` is still a live layout; the pair is what is dead, because a band background on v2 is the band's `udc` map (`_band` -> `background` -> `image`, a Media Library attachment id) and not a prop. The props stay live on `layout: "split"`, and an EMPTY value is not a request for a background and is not refused. The rule is declared per component in its schema's `refuse_props_when` block, so it is data rather than a branch in the engine.
 
@@ -446,15 +450,15 @@ The render path was fixed in the same change and independently: grid's card loop
 
 > `Component "grid" prop "items" item 0 field "style" must be an object, but this one is a JSON list (1 entry). Send it as an object with keys ({...}), not an array ([...]). [invalid_prop_value]`
 
-The rule covers the one `object` declaration left in the registry, `grid.items[].style`, plus any future `object` prop at either depth. (`section.panel_items[].style` was the second until #1023 retired it.)
+The rule is live and prospective: NO shipped schema declares an object-typed field today. `grid.items[].style` was the last one and retired at #1101; `section.panel_items[].style` went at #1023.
 
 **What actually changes for the two shipped fields is the error code, not what is accepted.** A list reaching either was already refused a few rules later by the shared style-slot engine, which reads a list's integer keys as slot names (`item 0 has no style slot "0". Available slots: ...`) — a populated list always carries integer key `0`, so the set of refused writes is identical before and after. If you key on error codes, `invalid_style_slot` becomes `invalid_prop_value` for this shape; that is the migration.
 
 It shipped anyway because that safety was a property of today's two consumers, not of the rule. The authoring contract held end to end, but enforced by the rule that owns slot NAMES rather than the rule that owns the declared type. A future `type: "object"` field routed anywhere else (a metadata bag, an options object) would have accepted a JSON list, persisted it behind `ok:true`, and rendered whatever its consumer does with a list. So the genuine narrowing here is prospective, plus one edge noted below.
 
-**Fix:** re-send the value as a keyed object. `wp pp action execute update_component --post_id=<id> --component_index=0 --props='{"items":[{"title":"Card one","style":{"--grid-item-bg":"#111111"}}]}'`. Nothing is migrated for you, and `restore_composition` is not blocked by this rule (or any other, #233) — it restores verbatim and reports the shape in `findings`.
+**Fix:** re-send the value as a keyed object rather than a list. (The shipped example used to be a grid card's per-item `style` map; that field retired at #1101 along with `section.panel_items[].style` at #1023, so NO shipped schema declares an object-typed field today — the rule is live and prospective, exactly as the paragraph above says. A card's design is an `items[].udc` map now, which the design engine validates.) Nothing is migrated for you, and `restore_composition` is not blocked by this rule (or any other, #233) — it restores verbatim and reports the shape in `findings`.
 
-Two boundaries, both deliberate. `{}` and `[]` decode identically, so the **empty** container is accepted by this rule and by the `array` rule alike — an empty value is never the thing being refused. And the flip side of that same ambiguity: `{"0": "a", "1": "b"}` decodes to a PHP *list*, so an object whose keys are exactly `0..n-1` in order is refused where an `object` is declared. It costs nothing on the shipped fields (a style map's keys are slot names like `--grid-item-bg`, never `0`), and separating the two would require inspecting raw JSON text, which no caller still has by the time a validator runs.
+Two boundaries, both deliberate. `{}` and `[]` decode identically, so the **empty** container is accepted by this rule and by the `array` rule alike — an empty value is never the thing being refused. And the flip side of that same ambiguity: `{"0": "a", "1": "b"}` decodes to a PHP *list*, so an object whose keys are exactly `0..n-1` in order is refused where an `object` is declared. It costs nothing in practice — an object field's keys are names, never `0..n-1` in order — and separating the two would require inspecting raw JSON text, which no caller still has by the time a validator runs.
 
 A stored list where an object belongs still **renders**, unchanged — the write gate closes the front door and needs no new render guard here. `pp_render_style_vars()` hands each key to `pp_style_declaration_renders()`, whose first act is `isset($slots[$name])`; a list's keys are integers, no component declares a slot named `0`, so every declaration is dropped and the card renders unstyled rather than taking the page down.
 
@@ -929,11 +933,18 @@ wp pp schema hero
 
 Each entry carries **the schema's own keys and values, verbatim** — nothing injected, nothing dropped, order preserved — plus the map key promoted to `name` (props, recipes) or `slot` (style slots). So a prop object is exactly its `schema.json` declaration with `name` added:
 
+The example below is the RETIRED grid featured-card shadow slot, kept because it is the only
+shipped declaration that ever carried every optional key at once — two `applies_when` clauses, a
+`conditionality_note` and the derived `applies_when_rendered`. It went with the `card_emphasis`
+prop at #1101, and with it the last `applies_when` clause in any schema, so nothing you can run
+`wp pp schema` against today will print these keys. The SHAPE is what this table documents, and
+it is unchanged; a future component declaring a condition prints exactly this.
+
 ```json
 {
-  "slot": "--grid-featured-shadow",
+  "slot": "--example-featured-shadow (RETIRED — see the note above)",
   "type": "shadow",
-  "default": "var(--grid-item-shadow)",
+  "default": "var(--example-item-shadow)",
   "description": "Box shadow of the featured first card only …",
   "applies_when": [
     { "prop": "layout", "equals": "cards" },

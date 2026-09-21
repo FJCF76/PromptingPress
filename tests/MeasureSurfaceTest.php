@@ -18,9 +18,12 @@
  *   .stats__heading         ┘  --cta-heading-   .stats__heading         -> its `heading` role
  *                              measure               (all six reach var(--measure-heading);
  *                                                    the AFTER column is the #578 severance
- *                                                    as it stands TODAY — eight of the nine
- *                                                    band components are on roles, and only
- *                                                    grid still owns a measure SLOT)
+ *                                                    as it stood at the time — grid's
+ *                                                    rebuild at #1101 took the LAST measure
+ *                                                    slot in the theme, so every band
+ *                                                    component is on a role now and the
+ *                                                    right-hand column reads
+ *                                                    `-> its heading role` throughout)
  *
  *   main > .grid .grid__item-text ┐  ONE rule    grid + faq -> the 1rem literal
  *   main > .faq  .faq__answer     ├─ reading     cta        -> --cta-body-size (the slot cta owns)
@@ -38,6 +41,17 @@
  * in tests/e2e/style-render.spec.ts. This file owns the authoring contract: what the
  * write path accepts, what it rejects, what the advisory channel says about it, and
  * that the declaration surface and the token registry agree.
+ *
+ * REPRICED, NOT RETIRED, AT #1101 — and the distinction is the whole reason the file
+ * survived its own roster emptying. What it audits is a CAPABILITY: that ONE
+ * `update_design_token` write to `--measure-heading` re-flows every band heading in the
+ * theme, so a site tightens its measure once instead of nine times. The v1 spelling was a
+ * slot defaulting to `var(--measure-heading)`; the v2 spelling is a `heading` role
+ * defaulting `sizing.max-width: @measure-heading`. grid's rebuild took the last slot, so
+ * every sweep here is now derived from the ROLE address and covers nine components rather
+ * than one. Five methods whose subject was the slot MECHANISM retired into the replacement
+ * that carries their claim; each retirement is recorded in full on the method that
+ * absorbed it, never deleted in silence.
  */
 
 declare(strict_types=1);
@@ -83,7 +97,22 @@ class MeasureSurfaceTest extends TestCase
     // now covers NINE components instead of three. The v2 arm is
     // testOneDesignTokenWriteStillReachesEveryBandHeading below; this roster keeps only the
     // components still on slots, and empties when grid rebuilds.
-    private const ROUTED = ['grid'];
+    //
+    // GRID REBUILT AT #1101, AND THE ROSTER EMPTIED — the event this constant's note has
+    // been predicting since #1066 PR2. Grid was the last component in the theme declaring
+    // `styling.style_slots` at all, so this is not "one more component moved": it is the
+    // end of the slot mechanism, and nothing can join this roster again without a schema
+    // declaring a style slot for the first time since #1101.
+    //
+    // THE CONSTANT STAYS, EMPTY, FOR THE REASON EXEMPT DOES: the ROUTED-vs-EXEMPT
+    // distinction keeps a name, the loops that read it keep a subject to be inert ABOUT,
+    // and the emptiness is asserted out loud in
+    // testTheSlotRostersAreEmptyAndTheirLoopsAreThereforeInert() below rather than being
+    // left to a silent `foreach` over []. grid's heading measure moved where every other
+    // band's already had: the `heading` role's `sizing.max-width`, still `@measure-heading`,
+    // so the capability this file audits is unchanged and now covers NINE bands with no
+    // slot-shaped member at all.
+    private const ROUTED = [];
 
     /**
      * EMPTY SINCE #1023, and kept rather than deleted because the emptiness is the fact.
@@ -103,19 +132,63 @@ class MeasureSurfaceTest extends TestCase
     private const EXEMPT = [];
 
     /**
-     * The guard that stops EXEMPT's emptiness reading as "all clear" (#1023).
+     * THE GUARD THAT STOPS BOTH ROSTERS' EMPTINESS READING AS "ALL CLEAR" (#1023, widened
+     * to ROUTED at #1101), AND THE RECORD OF THE TWO TESTS THAT RETIRED WITH THE MECHANISM.
      *
-     * Three tests below loop over EXEMPT, and a foreach over [] asserts nothing while
-     * reporting green. That is the vacuous-pass class, so the emptiness is asserted
-     * OUT LOUD here: if a component is ever added back, this fails and the reader is
-     * sent to the loops that then start doing work again.
+     * Every loop in this file over ROUTED or EXEMPT is a `foreach` over [], which asserts
+     * nothing while reporting green. That is the vacuous-pass class, so the emptiness is
+     * stated OUT LOUD here: adding a component to either roster fails this test and sends
+     * the reader to the loops that then start doing work again.
+     *
+     * TWO TESTS HAD NOTHING LEFT BUT THEIR LOOPS AND RETIRED INTO THIS ONE.
+     *
+     *   `testRoutedComponentsDefaultToTheTokenAndExemptOnesToNone` — a routed component's
+     *       schema `default` had to READ `var(--measure-heading)` and an exempt one `none`.
+     *       The `default` field is the agent-facing effective default: it is the surface an
+     *       authoring AI reads to decide whether a global retune will reach this band, so a
+     *       stale one teaches wrong geometry (the #446 defect class, on the measure family).
+     *       ITS CLAIM IS testOneDesignTokenWriteStillReachesEveryBandHeading, which asserts
+     *       the identical thing at the v2 address — `heading` -> `sizing.max-width` must be
+     *       the shared `@measure-heading` token and not a literal — over a DERIVED roster of
+     *       nine rather than a listed roster of one.
+     *
+     *   `testExactlyEightComponentsRouteTheSharedToken` — a cardinality pin: exactly the
+     *       listed components route the token, no more, so a "consistency" pass folding in
+     *       hero or section had to fail here first. ITS CLAIM is the exact-membership
+     *       assertion at the end of that same v2 sweep, which fails on a shrink AND on a
+     *       growth for the same reason and over a roster nobody maintains by hand.
+     *
+     * Neither was deleted for being red: both would have PASSED, vacuously, over their
+     * empty rosters. That is why they had to go rather than be narrowed.
      */
-    public function testTheExemptRosterIsEmptyAndItsLoopsAreThereforeInert(): void
+    public function testTheSlotRostersAreEmptyAndTheirLoopsAreThereforeInert(): void
     {
         $this->assertSame([], self::EXEMPT,
             'EXEMPT is empty since hero (#986) and section (#1023) left the slot surface. '
-            . 'If you add a component here, the three loops over EXEMPT below stop being '
+            . 'If you add a component here, the loops over EXEMPT below stop being '
             . 'inert — read them before trusting a green run.');
+
+        $this->assertSame([], self::ROUTED,
+            'ROUTED is empty since grid (#1101), which was the last component in the theme '
+            . 'declaring a style slot of any kind. If you add a component here, the loops '
+            . 'over ROUTED below stop being inert — and the two tests recorded in this '
+            . 'docblock should come back with the mechanism they audited.');
+
+        // AND THE EMPTINESS IS A FACT ABOUT THE SCHEMAS, NOT ABOUT THESE TWO CONSTANTS.
+        // A roster can be emptied by hand; what makes that honest is that no schema
+        // declares a slot to put back in it. Derived, so a new declarer fails here on the
+        // day it lands rather than when someone remembers this file.
+        $declarers = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            $this->assertIsArray($schema, basename(dirname($file)) . '/schema.json is not valid JSON');
+            if (($schema['styling']['style_slots'] ?? []) !== []) {
+                $declarers[] = basename(dirname($file));
+            }
+        }
+        $this->assertSame([], $declarers,
+            'a component declares `styling.style_slots` again — the measure SLOT surface '
+            . 'has a member for the first time since #1101, and the rosters above are stale');
     }
 
     private string $themeRoot;
@@ -144,23 +217,12 @@ class MeasureSurfaceTest extends TestCase
         return $schema['styling']['style_slots'] ?? [];
     }
 
-    /** Renders a stored composition through the real read+render path. */
-    private function renderStored(int $post_id): string
-    {
-        ob_start();
-        foreach (pp_get_composition($post_id) as $item) {
-            if (!isset($item['component'])) {
-                continue;
-            }
-            $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
-            $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
-            if ($style) {
-                $props['__pp_style'] = $style;
-            }
-            pp_get_component((string) $item['component'], $props);
-        }
-        return (string) ob_get_clean();
-    }
+    // renderStored() lived here until #1101. It rendered a stored composition through the
+    // real read+render path and re-seeded each band's `style` map into `__pp_style`, so the
+    // authoring sweep could assert that an accepted slot value reached the MARKUP and not
+    // just storage. No component declares a slot and no component emits an inline style
+    // attribute, so its only caller's replacement asserts the emitted band CSS instead
+    // (pp_udc_band_css), which is where a v2 value actually lands.
 
     /** A minimal renderable props array per component, so every band actually emits. */
     private function propsFor(string $component): array
@@ -172,7 +234,10 @@ class MeasureSurfaceTest extends TestCase
             'faq'          => ['items' => [['question' => 'Q', 'answer' => 'A']]],
             'stats'        => ['items' => [['number' => '9', 'label' => 'L']]],
             'table'        => ['headers' => ['H'], 'rows' => [['r']]],
-            'logos'        => ['items' => [['image_url' => 'https://e.test/a.png', 'alt' => 'a']]],
+            // `image_alt`, not `alt`. The stale spelling survived here because this fixture
+            // only ever reached pp_update_composition(), which does not validate; the #1101
+            // rewrite routes it through create_page, which does — and named it immediately.
+            'logos'        => ['items' => [['image_url' => 'https://e.test/a.png', 'image_alt' => 'a']]],
             'embed'        => ['content' => '<p>E</p>'],
             'testimonials' => ['items' => [['quote' => 'Q', 'author' => 'A']]],
         ];
@@ -229,36 +294,119 @@ class MeasureSurfaceTest extends TestCase
     {
         // Not a restatement of the 40rem pin above: that one fails on ANY retune, including
         // a legitimate maintainer one, and would simply be updated. This one survives that
-        // update and still refuses a `ch` value — here and on every routed slot default, so
-        // the reservation cannot be side-stepped by putting the ch on a component instead.
+        // update and still refuses a `ch` value — here and on every per-component heading
+        // measure, so the reservation cannot be side-stepped by putting the ch on a
+        // component instead.
         $this->assertDoesNotMatchRegularExpression(
             '/\d\s*ch\b/',
             pp_design_tokens()['--measure-heading']['value'],
             'The ch-based retune of --measure-heading is reserved for the maintainer. '
             . 'Route the value back rather than picking one here.'
         );
-        foreach (self::ROUTED as $component) {
+
+        // THE SIDE-STEP GUARD, RE-POINTED AT THE ROLE ADDRESS (#1101). It used to walk the
+        // ROUTED slot defaults; that roster is empty, and a `foreach` over [] would have
+        // silently deleted the half of this reservation that actually matters — a `ch`
+        // picked on ONE component is exactly the quiet version of the retune. Derived over
+        // every `heading` role there is, so it covers a component rebuilt next sprint too.
+        $checked = 0;
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
+            $measure   = $schema['roles']['heading']['defaults']['sizing']['max-width'] ?? null;
+            if ($measure === null) {
+                continue;
+            }
             $this->assertDoesNotMatchRegularExpression(
                 '/\d\s*ch\b/',
-                (string) $this->slots($component)["--{$component}-heading-measure"]['default'],
-                "{$component} must not carry a ch heading measure either — same reservation."
+                (string) $measure,
+                "{$component} must not carry a ch heading measure either — same reservation. "
+                . 'A display heading measured in `ch` tracks its type size, which is very '
+                . 'likely right and is a maintainer VISUAL decision, not implementation '
+                . 'discretion. Route it back.'
             );
+            $checked++;
         }
+        $this->assertGreaterThanOrEqual(
+            8,
+            $checked,
+            'the heading-measure sweep found almost no roles — the schema glob or the role '
+            . 'shape changed, and this reservation has lost its reach'
+        );
     }
 
     // ── A-6: the declaration surface ─────────────────────────────────────────
 
-    /** Every band component STILL ON SLOTS declares a heading measure (hero and testimonials are on roles). */
+    /**
+     * A-6's DECLARATION SURFACE, RE-FOUNDED ON THE ROLE ADDRESS (#1101).
+     *
+     * This asserted that every band component STILL ON SLOTS declared
+     * `--<name>-heading-measure`, which is the check that made the surface a SURFACE
+     * rather than a handful of components that happened to have one — before #578 it was
+     * three-quarters missing, and the quarter that existed leaked across components.
+     *
+     * Its last member left with grid, so the slot form of the question cannot be asked.
+     * The question itself is unchanged and is asked here of the address every band uses
+     * now: EVERY band component caps its heading, through a role, with a value a site can
+     * reach. Derived rather than listed, so a component rebuilt in a later sprint is
+     * covered the day it lands.
+     *
+     * hero is the one member whose cap is NOT on a `heading` role — it has none. Its
+     * heading is capped by the `content` column it sits in (`@measure-centered`), which is
+     * why the lookup takes whichever of three candidate roles actually CARRIES the
+     * default rather than assuming a name. That is the same lesson the advisory engine
+     * learned from hero once already: it reads a declared `role` marker rather than a
+     * `-measure` name suffix, because hero's slot was spelled `--hero-content-width`.
+     */
     public function testEveryBandComponentDeclaresAHeadingMeasure(): void
     {
-        foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
-            $slot = "--{$component}-heading-measure";
-            $this->assertArrayHasKey(
-                $slot,
-                $this->slots($component),
-                "{$component} must declare {$slot} — the measure surface covers all ten bands."
+        // nav and footer are CHROME: template-owned, not composable bands, and a footer
+        // column label is not a band heading. They were never part of this surface.
+        $chrome = pp_udc_chrome_names();
+
+        $capped = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            if (in_array($component, $chrome, true)) {
+                continue;
+            }
+            $roles = json_decode((string) file_get_contents($file), true)['roles'] ?? [];
+
+            // The role that actually declares the cap, not the one whose name suggests it.
+            $role = null;
+            foreach (['heading', 'title', 'content'] as $candidate) {
+                if (isset($roles[$candidate]['defaults']['sizing']['max-width'])) {
+                    $role = $candidate;
+                    break;
+                }
+            }
+            $this->assertNotNull(
+                $role,
+                "{$component} declares no heading measure on any of `heading`, `title` or "
+                . '`content`. The measure surface covers every band: a band with no declared '
+                . 'cap renders its heading at the container width, which is the missing '
+                . 'three-quarters #578 found.'
             );
+            $this->assertContains(
+                'sizing',
+                $roles[$role]['groups'] ?? [],
+                "{$component}.{$role} declares a max-width default it does not permit an "
+                . 'author to change — a declared default that is unauthorable is the exact '
+                . 'third-state defect A-30 closed, one role along'
+            );
+            $capped[] = $component;
         }
+
+        sort($capped);
+        // Fail-closed AND exact. hero is a member HERE and excluded from the token-routing
+        // sweep below — two sweeps asking two different questions of one roster: hero caps
+        // its title (at @measure-centered, its own content measure) but deliberately does
+        // not route the shared heading token.
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            $capped,
+            'every band component, each declaring a heading measure on a role'
+        );
     }
 
     /**
@@ -343,36 +491,6 @@ class MeasureSurfaceTest extends TestCase
     }
 
     /**
-     * The eight routed components state the token as their default; the two exempt ones
-     * state `none`. The schema `default` is the agent-facing effective default, so this
-     * is the surface an authoring AI reads to decide whether a global retune will reach
-     * this band.
-     */
-    public function testRoutedComponentsDefaultToTheTokenAndExemptOnesToNone(): void
-    {
-        foreach (self::ROUTED as $component) {
-            $this->assertSame(
-                'var(--measure-heading)',
-                $this->slots($component)["--{$component}-heading-measure"]['default'],
-                "{$component} must route the shared token so one update_design_token write reaches it."
-            );
-        }
-        foreach (self::EXEMPT as $component) {
-            $this->assertSame(
-                'none',
-                $this->slots($component)["--{$component}-heading-measure"]['default'],
-                "{$component} is exempt from --measure-heading and must default to none."
-            );
-        }
-    }
-
-    /**
-     * Exactly eight route it — no more. Hero's container already IS its measure and `ch`
-     * is viewport-local while the container is not; section is the most-used band and its
-     * title has never carried a cap. Both exemptions are intentional differences, and a
-     * later "consistency" pass that folds either one in must fail here first.
-     */
-    /**
      * THE v2 ARM, AND THE REASON THIS FILE SURVIVED ITS OWN ROSTER EMPTYING.
      *
      * The capability under audit has never been "a slot exists". It is that ONE
@@ -418,25 +536,18 @@ class MeasureSurfaceTest extends TestCase
         // Fail-closed AND exact: a shrinking sweep means a component stopped routing the
         // token (or the schema glob broke), and a growing one is a new band that should be
         // reviewed here rather than assumed compliant.
+        //
+        // GRID JOINED THIS ROSTER AT #1101 — it did not leave a surface, it CHANGED ADDRESS.
+        // Its slot defaulted to `var(--measure-heading)` and its `heading` role now defaults
+        // `sizing.max-width: @measure-heading`, which is the same token through the engine
+        // instead of through an inline custom property. That is the whole point of the
+        // re-founding this constant's note asked for at #1066 PR2: the capability audited
+        // here never moved, so grid's rebuild grows this list rather than shrinking it.
         $this->assertSame(
-            ['cta', 'embed', 'faq', 'logos', 'stats', 'table', 'testimonials'],
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'stats', 'table', 'testimonials'],
             $checked,
             'the v2 band headings that route the shared measure token'
         );
-    }
-
-    public function testExactlyEightComponentsRouteTheSharedToken(): void
-    {
-        $routing = [];
-        foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
-            if ($this->slots($component)["--{$component}-heading-measure"]['default'] === 'var(--measure-heading)') {
-                $routing[] = $component;
-            }
-        }
-        sort($routing);
-        $expected = self::ROUTED;
-        sort($expected);
-        $this->assertSame($expected, $routing);
     }
 
     /**
@@ -449,9 +560,14 @@ class MeasureSurfaceTest extends TestCase
      */
     public function testOnlyTheNoneDefaultedMeasureSlotsCarryTheNoneGrammar(): void
     {
+        // DERIVED OVER EVERY COMPONENT SINCE #1101, not over the ROUTED/EXEMPT rosters.
+        // Those are empty, so iterating them would make the pin at the foot of this method
+        // a statement about two hand-maintained constants rather than about the schemas —
+        // true either way, but only one of the two is a fact a new slot could break.
         $noneDefaulted = [];
         $lengthTyped   = [];
-        foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
             foreach ($this->slots($component) as $name => $def) {
                 if (($def['role'] ?? null) !== 'measure') {
                     continue;
@@ -488,18 +604,27 @@ class MeasureSurfaceTest extends TestCase
         // default and an explicit `none` render identically; the difference is that those
         // two say nothing rather than saying the initial value.
         //
-        // THE SET IS EMPTY, AND EMPTY IS AN ASSERTION HERE RATHER THAN AN ABSENCE. The
-        // loops above still run over every slot-bearing component, so this pin says "no
-        // slot declares an uncapped default any more", which is a fact a new slot would
-        // break. The capability it guards — A-30's "a declared default must be
-        // authorable" — did not leave with the last slot: on the v2 side `length-or-none`
-        // is the declared PARAM type, so `none` is writable through the udc map by
-        // construction, and no per-component pin can drift away from it.
+        // BOTH SETS ARE EMPTY, AND EMPTY IS AN ASSERTION HERE RATHER THAN AN ABSENCE. The
+        // loops above run over EVERY component in the theme, so these two pins say "no
+        // measure slot is declared anywhere, with either grammar" — which is a fact a new
+        // slot would break, rather than a restatement of an empty roster. grid was the last
+        // declarer and left at #1101. The capability the method guards — A-30's "a declared
+        // default must be authorable" — did not leave with the last slot: on the v2 side
+        // `length-or-none` is the declared PARAM type, so `none` is writable through the
+        // udc map by construction, and no per-component pin can drift away from it
+        // (asserted in testTheUncappedDefaultIsAuthorable, on the EMITTED declaration).
         $this->assertSame(
             [],
             $this->sortedKeys($noneDefaulted),
             'The set of uncapped-by-default measure slots changed. That is a render decision, '
             . 'not a refactor — update this pin deliberately.'
+        );
+        $this->assertSame(
+            [],
+            $this->sortedKeys($lengthTyped),
+            'A length-typed measure slot is declared again — the first since #1101. The loop '
+            . 'above starts enforcing the plain `length` grammar on it, and the A-30 '
+            . 'third-state boundary needs re-reading before that is trusted.'
         );
     }
 
@@ -510,13 +635,45 @@ class MeasureSurfaceTest extends TestCase
         return $keys;
     }
 
-    /** Every measure slot carries the declared role marker the advisory engine reads. */
-    public function testEveryMeasureSlotDeclaresTheMeasureRole(): void
+    /**
+     * THE `role: "measure"` MARKER HAS NO DECLARER LEFT (#1101), AND THE BOUNDARY IT
+     * SURROUNDED — band geometry is not a text measure — IS STILL ASSERTED.
+     *
+     * This required every measure slot to carry the declared `role: "measure"` marker the
+     * advisory engine reads, and pinned the roster of markers exactly in both directions.
+     * The marker exists because a `-measure` NAME suffix is not a reliable signal: hero's
+     * measure was spelled `--hero-content-width`, which is the lesson that produced the
+     * declared marker in the first place and is why the note survives its slot.
+     *
+     * Grid was the last slot-bearing component, so both sides of the old comparison are
+     * empty and comparing them would be the vacuous pass this file keeps refusing. What is
+     * asserted instead: no slot declares the marker anywhere, DERIVED over every schema so
+     * a re-added measure slot fails here rather than joining an unmaintained roster — and
+     * the stats band-cap boundary below, which was always the substantive content of this
+     * method and is entirely v2 already.
+     */
+    public function testNoSlotDeclaresTheMeasureMarkerAndTheStatsBandCapIsStillNotAMeasure(): void
     {
-        $expected = [];
-        foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
-            $expected[] = "--{$component}-heading-measure";
+        $markers = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
+            foreach (($schema['styling']['style_slots'] ?? []) as $name => $def) {
+                if (($def['role'] ?? null) === 'measure') {
+                    $markers[] = "{$component} {$name}";
+                }
+            }
         }
+        sort($markers);
+        $this->assertSame(
+            [],
+            $markers,
+            'a style slot declares `role: "measure"` again. The advisory consumer is still '
+            . 'deferred (#610, see the two pins at the foot of this file), so a marker with '
+            . 'a declarer means the surface reopened without the grammar that makes its '
+            . 'advisory satisfiable.'
+        );
+
         // section's body measure went with its slot map at #1023 (the `body` role's
         // `sizing.max-width`), the way hero's content measure went at #986, and embed's
         // — the LAST body-measure slot in the theme — at #1066. The v2 half of that
@@ -542,19 +699,6 @@ class MeasureSurfaceTest extends TestCase
             'the stats band cap is geometry, not a text measure: defaulting it would both '
             . 'un-full-bleed every band and drag band geometry into a text-measure retune'
         );
-        sort($expected);
-
-        $found = [];
-        foreach (array_merge(self::ROUTED, self::EXEMPT) as $component) {
-            foreach ($this->slots($component) as $name => $def) {
-                if (($def['role'] ?? null) === 'measure') {
-                    $found[] = $name;
-                }
-            }
-        }
-        sort($found);
-
-        $this->assertSame($expected, $found);
     }
 
     // ── A-5: the severance, from both sides ──────────────────────────────────
@@ -611,6 +755,9 @@ class MeasureSurfaceTest extends TestCase
         }
 
         sort($withHeading);
+        // NINE SINCE #1101: grid's measure is its `heading` role's `sizing.max-width` now,
+        // emitted at a band-scoped selector like every other member, so the #578 severance
+        // covers it structurally rather than by the slot-ownership rule it used to rely on.
         // EIGHT, and section is in this list while being EXCLUDED from the token-routing
         // sweep above — two sweeps asking two different questions of the same roster.
         // Measured: section's `heading` caps at the LITERAL `40rem`, not at
@@ -619,7 +766,7 @@ class MeasureSurfaceTest extends TestCase
         // That literal is section's own recorded decision, pinned in its emit test; it is
         // named here so this roster's membership reads as deliberate rather than accidental.
         $this->assertSame(
-            ['cta', 'embed', 'faq', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'table', 'testimonials'],
             $withHeading,
             'the components whose heading carries a measure — a shrink means one stopped '
             . 'capping its heading, a growth means a new band to review here'
@@ -737,32 +884,69 @@ class MeasureSurfaceTest extends TestCase
         );
     }
 
-    /** Kept for the components still on slots: their title cap must route the slot. */
-    public function testSlottedTitleCapsStillRouteTheirSlot(): void
+    /**
+     * NO HEADING CAP IS DECLARED IN THE STYLESHEET AT ALL (#1101) — the strongest form of
+     * the claim `testSlottedTitleCapsStillRouteTheirSlot` was making.
+     *
+     * That test scanned `.grid__heading`, `.cta__title` and `.faq__heading` for a
+     * `max-width` and required each one it found to route its OWN `--<name>-heading-measure`
+     * slot. The value of that was the routing: a literal cap there is a band opted out of a
+     * site-wide measure retune, silently, and a cap routing a FOREIGN slot is the #578 leak
+     * itself. cta left at #1026 and faq at #1046, so grid was the last subject, and #1101
+     * left the scan with nothing to find — at which point its own fail-closed floor fired,
+     * which is the guard working and the reason this is a rewrite rather than a deletion.
+     *
+     * A v2 component declares no max-width on a text element in CSS at all: the cap is the
+     * role's `sizing.max-width`, emitted at a band-scoped selector by the engine. So the
+     * repriced claim is the ABSENCE, and it is strictly stronger — the old test permitted a
+     * cap as long as it routed, this permits none. The routing half did not go unguarded:
+     * it is testOneDesignTokenWriteStillReachesEveryBandHeading, asserted on the role
+     * defaults over nine components.
+     *
+     * A SCAN THAT PROVES ONLY AN ABSENCE HAS TO PROVE ITSELF, so the same matcher is run
+     * against the shipped-and-removed spelling. Without that, deleting the regex would pass.
+     */
+    public function testNoHeadingCapIsDeclaredInTheStylesheet(): void
     {
-        $css = $this->stripComments($this->css());
-        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+        $headingSelector = '/\.(?:[a-z-]+__(?:heading|title)|[a-z-]+__item-title)(?![-\w])\s*$/';
 
         $caps = [];
-        foreach ($rules as [$whole, $selector, $body]) {
-            foreach (explode(',', $selector) as $part) {
-                if (!preg_match('/\.(grid__heading|cta__title|faq__heading)(?![-\w])\s*$/', trim($part))) {
-                    continue;
-                }
-                foreach ((array) (preg_match_all('/(?<![-a-z])max-width\s*:\s*([^;}]+)/i', $body, $m) ? $m[1] : []) as $v) {
-                    $caps[] = trim($v);
+        foreach ([$this->stripComments($this->css()) => true] as $css => $ignored) {
+            preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER);
+            foreach ($rules as [$whole, $selector, $body]) {
+                foreach (explode(',', $selector) as $part) {
+                    if (!preg_match($headingSelector, trim($part))) {
+                        continue;
+                    }
+                    foreach ((array) (preg_match_all('/(?<![-a-z])max-width\s*:\s*([^;}]+)/i', $body, $m) ? $m[1] : []) as $v) {
+                        $caps[] = trim($part) . ' { max-width: ' . trim($v) . ' }';
+                    }
                 }
             }
         }
-        $this->assertNotEmpty($caps,
-            'the slotted components still declare a title cap — if none is found this scan has gone blind.');
-        foreach ($caps as $value) {
-            $this->assertMatchesRegularExpression(
-                '/^var\(\s*--(?:grid|cta|faq)-heading-measure\s*,/',
-                $value,
-                'a slotted title cap must route its own measure slot.'
-            );
-        }
+
+        $this->assertSame(
+            [],
+            $caps,
+            'a heading cap is declared in components.css. On v2 the cap is the role\'s '
+            . '`sizing.max-width`, emitted band-scoped by the engine; a stylesheet literal '
+            . 'opts that band out of a site-wide measure retune silently, and a stylesheet '
+            . 'cap routing another component\'s name is the #578 leak itself.'
+        );
+
+        // DETECTION PROOF. The shipped-and-removed spelling must still be caught, or this
+        // absence is a statement about a broken regex.
+        preg_match_all(
+            '/([^{}]+)\{([^{}]*)\}/s',
+            '.grid__heading { max-width: var(--grid-heading-measure, 40rem); }',
+            $proof,
+            PREG_SET_ORDER
+        );
+        $this->assertCount(1, $proof, 'the rule splitter no longer parses a simple rule');
+        $this->assertMatchesRegularExpression($headingSelector, trim($proof[0][1]),
+            'the heading-selector matcher no longer recognises .grid__heading');
+        $this->assertMatchesRegularExpression('/(?<![-a-z])max-width\s*:\s*([^;}]+)/i', $proof[0][2],
+            'the max-width matcher no longer recognises a slotted cap');
     }
 
 
@@ -807,47 +991,73 @@ class MeasureSurfaceTest extends TestCase
     // ── Authoring path (Section 14.1): the REAL write surface ────────────────
 
     /**
-     * Every new measure slot is written through pp_execute_action('style_component'),
-     * not a raw _pp_composition meta write — raw seeding bypasses pp_validate_composition
-     * entirely, so it proves nothing about whether the slot is authorable. Each is then
-     * read back from storage AND from the rendered markup, so a value accepted at write
-     * and dropped at the render boundary fails too.
+     * SECTION 14.1's AUTHORING PATH, AT THE ADDRESS A MEASURE IS WRITTEN AT NOW (#1101).
      *
-     * @dataProvider newMeasureSlots
+     * `testEveryNewMeasureSlotIsAuthorableThroughTheActionLayer` was a `@dataProvider`
+     * sweep over the ROUTED and EXEMPT rosters: each measure slot had to be writable
+     * through `pp_execute_action('style_component')` — never a raw `_pp_composition` meta
+     * write, because raw seeding bypasses `pp_validate_composition` entirely and so proves
+     * nothing about authorability — then read back from STORAGE and from the RENDERED
+     * markup, so a value accepted at write and dropped at the render boundary failed too.
+     *
+     * Its provider derived from those rosters, and an empty data provider is a PHPUnit
+     * ERROR rather than a silent skip, so the retirement could not have been quiet even if
+     * someone had wanted it to be. `style_component` itself is not the route any more:
+     * grid was the last component with a slot for it to patch, and it now answers
+     * `no_style_slots` naming the `udc` map (asserted directly below).
+     *
+     * THE CLAIM IS UNCHANGED AND IS ASSERTED THE SAME WAY: a measure is authorable through
+     * the real action layer, stored as authored, and REACHES THE PAGE. The three-layer
+     * shape is kept exactly — validate-then-execute, read back from storage, then assert
+     * the emitted declaration rather than the validator's verdict — because an engine that
+     * accepted a value and dropped it at emission would leave a validation-only test green
+     * while the capability was gone.
+     *
+     * Derived over every band that routes the token, so the sweep covers nine components
+     * rather than the one the provider was down to.
      */
-    public function testEveryNewMeasureSlotIsAuthorableThroughTheActionLayer(
-        string $component,
-        string $slot,
-        string $value
-    ): void {
-        $id = pp_create_page("Authoring {$slot}", 'draft');
-        pp_update_composition($id, [['component' => $component, 'props' => $this->propsFor($component)]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => [$slot => $value],
-        ]);
-
-        $this->assertTrue($result['ok'], $result['error'] ?? "{$slot} must be authorable");
-        $this->assertSame($value, pp_get_composition($id)[0]['style'][$slot]);
-        $this->assertStringContainsString("{$slot}: {$value}", $this->renderStored($id));
-    }
-
-    public static function newMeasureSlots(): array
+    public function testEveryBandsHeadingMeasureIsAuthorableThroughTheActionLayer(): void
     {
-        $cases = [];
-        foreach (self::ROUTED as $component) {
-            $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
+        $checked = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $schema    = json_decode((string) file_get_contents($file), true);
+            if (($schema['roles']['heading']['defaults']['sizing']['max-width'] ?? null) !== '@measure-heading') {
+                continue;
+            }
+
+            $result = pp_execute_action('create_page', [
+                'title'       => "Authoring the {$component} heading measure",
+                'composition' => [[
+                    'component' => $component,
+                    'props'     => $this->propsFor($component),
+                    'udc'       => ['heading' => ['sizing' => ['max-width' => '30rem']]],
+                ]],
+            ]);
+            $this->assertTrue($result['ok'], $result['error'] ?? "{$component}'s heading measure must be authorable");
+
+            $stored = pp_get_composition((int) $result['target']['post_id']);
+            $this->assertSame(
+                '30rem',
+                $stored[0]['udc']['heading']['sizing']['max-width'] ?? null,
+                "{$component}'s authored measure must be stored as authored"
+            );
+
+            $this->assertStringContainsString(
+                'max-width:30rem;',
+                pp_udc_band_css($stored[0]),
+                "{$component}'s authored measure must REACH THE PAGE, not merely pass validation"
+            );
+            $checked[] = $component;
         }
-        foreach (self::EXEMPT as $component) {
-            $cases["{$component} heading"] = [$component, "--{$component}-heading-measure", '30rem'];
-        }
-        // The body-measure row left this provider at #1066 with embed's slot map — it was
-        // the last one. Its claim (a body measure is authorable independently of the
-        // heading measure) is asserted on the v2 side in
-        // testEveryProseBodyRoleCanStillCapItsOwnMeasure, which is registry-derived.
-        return $cases;
+
+        sort($checked);
+        $this->assertSame(
+            ['cta', 'embed', 'faq', 'grid', 'logos', 'stats', 'table', 'testimonials'],
+            $checked,
+            'every band that routes the shared measure token must also be able to override '
+            . 'it per band — a routed default nobody can narrow is half a surface'
+        );
     }
 
     /**
@@ -903,57 +1113,76 @@ class MeasureSurfaceTest extends TestCase
     }
 
     /**
-     * NOT a global widening. A measure slot with a real length default keeps the plain
-     * `length` grammar and keeps rejecting `none`, which is what stops the A-30 fix from
-     * re-opening the accepted-but-dead class it closed.
+     * A MEASURE SLOT NAME IS REFUSED RATHER THAN ACCEPTED-AND-DEAD, and the refusal names
+     * the route (#1101).
+     *
+     * TWO TESTS RETIRE INTO THIS ONE, and both were hosted on grid because grid was the
+     * last component with a slot to host them.
+     *
+     *   `testARoutedMeasureSlotStillRejectsNone` — A-30 widened `--stats-max-width` to
+     *       `length-or-none` so a slot DEFAULTING to `none` could be written back to
+     *       `none`, and this pinned that the widening was not global: a measure slot with
+     *       a real length default kept the plain `length` grammar and kept refusing
+     *       `none`, which is what stopped A-30 from re-opening the accepted-but-dead class
+     *       it closed. THE CLAIM MOVED TO THE ENGINE at #1046 and is asserted in
+     *       testTheUncappedDefaultIsAuthorable(): `length-or-none` is the declared PARAM
+     *       type in the taxonomy, so it cannot be true for one component and false for
+     *       another, and there is no per-slot grammar left to widen by accident.
+     *
+     *   `testAForeignComponentCannotAuthorTheCtaMeasureSlot` — the #578 leak proved from
+     *       the authoring side: five components' headings were capped from a rule reading
+     *       `--cta-heading-measure`, a slot they could neither SET (the write path refuses
+     *       a foreign slot) nor RESOLVE (a slot custom property is emitted on its owner's
+     *       root). Its host moved table -> logos -> grid as each became v2, and the method's
+     *       own note predicted this: "grid is the last v1 component in the theme: when it
+     *       rebuilds, this test has no host left and the claim retires with the mechanism."
+     *       THE CLAIM IS STRUCTURAL ON v2 and is asserted in
+     *       testNoComponentsHeadingMeasureCanBeReachedByAnother(): a measure is a role's
+     *       own `sizing.max-width`, emitted at a selector scoped to that band's minted id,
+     *       so no sibling band can read it even if it wanted to.
+     *
+     * WHAT IS PINNED HERE is the half neither replacement covers: what happens to an
+     * author who WRITES the old name. Not silence, and not a dead end — a refusal that
+     * names the v2 route. An author migrating an aged page hits this, and "no style slots"
+     * on its own reads as "this component cannot be styled", which is the opposite of true
+     * (#1007). Both retired names are used as the fixtures, so the answer is pinned for the
+     * exact strings the old tests wrote.
      */
-    public function testARoutedMeasureSlotStillRejectsNone(): void
+    public function testAMeasureSlotNameIsRefusedWithTheRouteThatReplacedIt(): void
     {
-        $id = pp_create_page('None on a routed measure', 'draft');
+        $id = pp_create_page('Retired measure slot names', 'draft');
         pp_update_composition($id, [['component' => 'grid', 'props' => $this->propsFor('grid')]]);
 
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--grid-heading-measure' => 'none'],
-        ]);
+        foreach ([
+            '--grid-heading-measure' => 'its own retired slot',
+            '--cta-heading-measure'  => "another component's retired slot (#578's leak)",
+            '--grid-heading-measure|none' => 'the A-30 third state on its own retired slot',
+        ] as $spec => $what) {
+            [$slot, $value] = array_pad(explode('|', $spec, 2), 2, '30rem');
 
-        $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('--grid-heading-measure', $result['error']);
-    }
+            $result = pp_execute_action('style_component', [
+                'post_id'         => $id,
+                'component_index' => 0,
+                'style'           => [$slot => $value],
+            ]);
 
-    /**
-     * The leak, proved from the authoring side rather than from the CSS text: a foreign
-     * component cannot even NAME the cta slot. This is half of why the shared rule was a
-     * defect — the five non-cta components could not set the slot their heading read.
-     */
-    public function testAForeignComponentCannotAuthorTheCtaMeasureSlot(): void
-    {
-        // THE HOST MOVED TWICE, table -> logos -> grid, and the claim never moved at all:
-        // ONE component cannot author ANOTHER's slot, which is why #578 had to sever the
-        // shared six-selector rule. Each move happened for the same reason — the host
-        // became a v2 component, and a v2 component's refusal names its ROLES
-        // (`no_style_slots`) rather than the foreign slot, which is a different and better
-        // message but not the one under test. table left at #1066's first half, logos at
-        // its second, and grid is the last v1 component in the theme: when it rebuilds,
-        // this test has no host left and the claim retires with the mechanism.
-        $id = pp_create_page('Foreign slot', 'draft');
-        pp_update_composition($id, [['component' => 'grid', 'props' => $this->propsFor('grid')]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--cta-heading-measure' => '30rem'],
-        ]);
-
-        $this->assertFalse(
-            $result['ok'],
-            'A grid band could never set --cta-heading-measure, which is exactly why capping its '
-            . 'heading through that slot made the cap unauthorable.'
-        );
-        // Assert the REASON, not just the failure: without this the test passes on a broken
-        // fixture, a missing page, or any unrelated validation error.
-        $this->assertStringContainsString('--cta-heading-measure', $result['error']);
+            $this->assertFalse($result['ok'], "grid accepted {$what}: {$slot}");
+            $this->assertSame(
+                'no_style_slots',
+                $result['error_code'] ?? null,
+                "the refusal for {$what} must be the v2 one, not a slot-level rejection"
+            );
+            // Assert the REASON and the ROUTE, not just the failure: without this the test
+            // passes on a broken fixture, a missing page, or any unrelated validation error.
+            $this->assertStringContainsString('grid', $result['error'], 'the refusal names the component');
+            $this->assertStringNotContainsString(
+                '(none)',
+                $result['error'],
+                'the refusal reads as "this component cannot be styled", which is the '
+                . 'opposite of the truth for a UDC component (#1007)'
+            );
+            $this->assertStringContainsString('`udc` map', $result['error'], 'the refusal must name the route');
+        }
     }
 
     // ── Ruling 1: the advisory is DEFERRED, and the marker is not ────────────

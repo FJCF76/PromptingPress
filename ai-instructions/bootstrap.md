@@ -123,7 +123,7 @@ Every page with `_wp_page_template = composition.php` must have a valid `_pp_com
 - Non-empty (not `[]`)
 - Valid JSON array
 - Each item has `component` (registered name) and `props` (satisfying schema.json), and
-  may carry a `udc` map (the band's styling, for the nine v2 components) and a band `id`
+  may carry a `udc` map (the band's styling, for the ten v2 components) and a band `id`
 
 Validation lives in the WRITE PATH — the `update_composition` / `create_page` actions —
 not in a save handler that guards the meta. The meta's own `sanitize_callback` asks only

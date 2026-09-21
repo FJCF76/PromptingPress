@@ -1096,7 +1096,15 @@ class DocumentedUdcSnippetsTest extends TestCase
         // 98 prop keys across the documented bands today, and the floor sits just under it.
         // `> 80` let the whole bash-fence lifter — which contributes 17 of those 98 — be
         // reverted and land on 81, passing by one.
-        $this->assertGreaterThan(95, $checked, 'the documented-prop walk lost its subjects');
+        //
+        // 98 -> 90 AT #1101, and the eight that went are grid's retired props appearing in
+        // documented EXAMPLES: `card_emphasis`, `image_treatment`, `theme`, `title_align`
+        // and the item fields beside them. The examples were rewritten to the `udc` route
+        // rather than deleted, so the walk lost prop KEYS without losing documented bands —
+        // which is why the floor moves rather than the test. It still sits just under the
+        // measured count, and the guard it exists for (a walk that stops finding bands)
+        // is unchanged.
+        $this->assertGreaterThan(88, $checked, 'the documented-prop walk lost its subjects');
     }
 
 

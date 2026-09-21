@@ -315,6 +315,162 @@ class UdcBackgroundImageTest extends TestCase
         ]));
     }
 
+    /**
+     * THE #705 CRASH CLASS IS UNREACHABLE HERE — AND THIS IS THE RECORD OF WHY (#1101, D4).
+     *
+     * ═══ WHAT #705 WAS ═══
+     *
+     * A stored non-scalar `background_image` fataled the PUBLIC PAGE. Three call sites
+     * passed a raw stored value straight into a typed parameter —
+     * `pp_esc_image_src(string $url, int $depth = 0)` — behind a TRUTHINESS gate. A
+     * non-empty array is truthy, so the gate passed, the typed call raised a TypeError,
+     * and `templates/composition.php` calls `pp_get_component()` with no try/catch: one
+     * malformed stored value returned a whole-page 500 rather than a band with a missing
+     * background. It was guarded by a `is_scalar` check AT THE READ, and pinned by
+     * `tests/StoredBackgroundImageRenderGuardTest.php` against the components that
+     * declared the prop.
+     *
+     * ═══ WHY THAT SUITE IS NOT BEING RE-HOMED ONTO THIS PATH ═══
+     *
+     * Ruling D4 (#1101) ordered the orphaned crash coverage re-homed onto the live
+     * `_band.background.image` path, WITH a verification clause: confirm the re-homed
+     * pins actually exercise the #705 crash class rather than assuming equivalence. The
+     * verification was run and it FAILED, so the ruling was revised — the suite dies with
+     * `ppfixture` as scheduled, and this pin replaces it.
+     *
+     * MEASURED, all seven #705 vectors, against `_band.background.image`:
+     *
+     *   vector                         write gate              render
+     *   ─────────────────────────────  ──────────────────────  ────────────────────────
+     *   ['https://example.com/a.jpg']  invalid_prop_value      no url(), band complete
+     *   ['url' => 'https://…']         invalid_prop_value      no url(), band complete
+     *   []                             invalid_prop_value      no url(), band complete
+     *   true                           invalid_prop_value      no url(), band complete
+     *   -0.0                           invalid_prop_value      no url(), band complete
+     *   new stdClass()                 invalid_prop_value      no url(), band complete
+     *
+     * Not one of them throws, so a re-homed suite would be 502 lines of assertions that
+     * CANNOT FAIL — the vacuity class #1026 shipped twice and that #1101 §3.6 requires
+     * planted-defect proofs against. Re-homing it would have converted real coverage into
+     * decoration while keeping its issue number, which is worse than deleting it.
+     *
+     * ═══ THE SEVENTH VECTOR STOPPED BEING A VECTOR, AND THAT IS THE FINDING ═══
+     *
+     * #705's list had a seventh entry: a stored INT. Under v1 that was a defect in its
+     * own right — `background_image: 42` coerced at the string boundary and painted
+     * `url(42)`, a broken image the guard deliberately preserved as COMPATIBILITY while
+     * #707 narrowed the write path. On v2 an integer is not a malformed URL, it is the
+     * CORRECT AND ONLY type: the value IS an attachment id. So `42` is accepted here
+     * whenever attachment 42 is a live image, and refused as DANGLING when it is not —
+     * neither of which is #705's class.
+     *
+     * That is the sharpest evidence that this suite could not have been re-homed
+     * meaningfully: one of its seven vectors inverted from "defect" to "the happy path"
+     * on the very parameter it would have been re-homed onto. A mechanical re-home would
+     * have asserted that the correct value is refused.
+     *
+     * ═══ THE STRUCTURAL REASON, WHICH IS THE PART WORTH REMEMBERING ═══
+     *
+     * The class did not MOVE. It stopped being CONSTRUCTIBLE, because v2 changed what an
+     * author stores: a band background is a Media Library ATTACHMENT ID, not a URL string.
+     * `pp_udc_background_image_url()` opens REJECT-NEVER-COERCE, before any typed call
+     * exists to reach:
+     *
+     *     if (!is_scalar($id) || is_bool($id)) { return null; }
+     *     $raw = trim((string) $id);
+     *     if ($raw === '' || !preg_match('/^[0-9]+$/', $raw)) { return null; }
+     *
+     * `pp_esc_image_src()` is then reached ONLY with a URL this engine built itself, out
+     * of WordPress's own URL for an attachment it has just proved is a live image. There
+     * is no path on which a stored value reaches a typed parameter, so there is no
+     * truthiness gate for a non-empty array to pass. That is strictly stronger than the
+     * #705 guard was: #705 guarded a coercion; this declines to have one.
+     *
+     * ═══ THE LIVE EQUIVALENT, so nobody re-derives the mapping ═══
+     *
+     * `image_url` IS still a live string prop — hero, section, and `items[].image_url` on
+     * grid, logos and testimonials — and it IS a genuine typed-call surface. That is
+     * #641's class, not #705's, and it is owned by
+     * `tests/StoredImageUrlRenderGuardTest.php`. Do not re-home #705's vectors there: the
+     * suite already covers that surface, and duplicating it under the wrong issue number
+     * would make two records of one defect that could drift apart.
+     *
+     * ═══ WHAT THIS TEST ASSERTS ═══
+     *
+     * BOTH GATES, because the halves fail differently and one without the other is half a
+     * claim. The write gate refusing proves an author cannot create the state; the
+     * RENDER completing proves that a composition which already holds it — a pre-v2 page,
+     * a restored snapshot (#233), a raw meta write — still SERVES, which is the thing
+     * #705 was actually about. A guard that only refused at write would leave every
+     * existing page on the fatal.
+     */
+    public function testTheStoredNonScalarCrashClassIsUnreachableOnTheV2BandImagePath(): void
+    {
+        // #705's vectors MINUS the stored int, which inverted — see the docblock. Its two
+        // v2 behaviours are asserted separately at the end, because "accepted when live,
+        // refused when dangling" is a different claim from "never constructible".
+        $vectors = [
+            'list array'  => ['https://example.com/a.jpg'],
+            'assoc array' => ['url' => 'https://example.com/a.jpg'],
+            'empty array' => [],
+            'true'        => true,
+            'negative-zero float' => -0.0,
+            'object'      => new \stdClass(),
+        ];
+
+        foreach ($vectors as $label => $bad) {
+            // GATE 1 — THE WRITE. An author cannot create the state at all.
+            $error = $this->validate(['image' => $bad]);
+            $this->assertInstanceOf(
+                WP_Error::class,
+                $error,
+                "the write gate must refuse a non-scalar image ({$label})"
+            );
+            $this->assertSame('invalid_prop_value', $error->get_error_code(), $label);
+
+            // GATE 2 — THE RENDER, on stored bytes no gate ever saw. This is the half
+            // #705 was about: the page must SERVE. A throw here is the 500 that issue
+            // records, and `templates/composition.php` has no try/catch to soften it.
+            $css = pp_udc_band_css($this->band(['image' => $bad, 'fill' => '#0b7285']));
+            $this->assertStringNotContainsString(
+                'url(',
+                $css,
+                "a non-scalar image must paint nothing ({$label})"
+            );
+            // The SIBLING declaration still paints, which is what makes this a degrade
+            // rather than a band that vanished: exactly one declaration is dropped.
+            $this->assertStringContainsString(
+                'background:#0b7285;',
+                $css,
+                "the rest of the band must survive a bad image ({$label})"
+            );
+
+            // And the resolver itself declines, rather than coercing to attachment 1 —
+            // `(int) ['attachment_id' => 42]` and `(int) true` both evaluate to 1, which
+            // is the coercion the shape check exists to precede.
+            $this->assertNull(pp_udc_background_image_url($bad), "must not resolve ({$label})");
+        }
+
+        // NON-VACUITY, and the inverted seventh vector at the same time. A GOOD id on the
+        // same path still paints. Without this the whole test would pass on an engine
+        // that had stopped emitting background images entirely, which is the shape an
+        // `assertStringNotContainsString` sweep is most prone to — the #1026 lesson this
+        // file is written under. `42` is live in this fixture (setUp), so it is both the
+        // non-vacuity control AND the proof that a stored int is the HAPPY PATH here
+        // rather than #705's coercion defect.
+        $this->assertNull($this->validate(['image' => 42]), 'a live attachment id is the correct value');
+        $good = pp_udc_band_css($this->band(['image' => 42, 'fill' => '#0b7285']));
+        $this->assertStringContainsString('url(', $good, 'a live attachment must still paint');
+
+        // And the same int DANGLING is refused as a dangling reference — named by id,
+        // which is a different diagnostic from "wrong shape" and reaches a different
+        // repair. Neither is #705's class, and saying so here is what stops the next
+        // reader from reading the int's absence above as an oversight.
+        $dangling = $this->validate(['image' => 999999]);
+        $this->assertInstanceOf(WP_Error::class, $dangling);
+        $this->assertStringContainsString('999999', $dangling->get_error_message());
+    }
+
     // ── 4. Composition with the overlay ─────────────────────────────────────
 
     public function testAColourOverlayIsWrappedIntoALayerAndPaintsOverTheImage(): void

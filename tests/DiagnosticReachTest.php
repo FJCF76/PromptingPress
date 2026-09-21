@@ -191,26 +191,68 @@ class DiagnosticReachTest extends TestCase
     }
 
     /**
-     * The two style-slot restamp sites are the only non-mechanical stampings in #622:
-     * they rebuild a WP_Error the shared slot engine produced, which has no view of the
-     * composition offset. The per-item one deliberately reports the BAND while its
-     * message names the CARD — a locator that points at the wrong band is worse than
-     * none, so both are pinned.
+     * THE PER-ITEM STYLE FAMILY RETIRED AT #1101 — THREE TESTS, replaced by one claim.
+     *
+     * (1) WHAT THEY PROVED. `items[].style` let a single CARD carry its own style map,
+     *     validated through the shared slot engine with the card's key threaded in. Three
+     *     tests owned the consequences:
+     *       - testStyleSlotErrorsCarryTheBandOffsetNotTheCardIndex (this one) — the
+     *         per-item restamp is one of the two non-mechanical stampings in #622: it
+     *         rebuilds a WP_Error the slot engine produced, which has no view of the
+     *         composition offset, and it must report the BAND offset while its message
+     *         names the CARD. A locator pointing at the wrong band is worse than none.
+     *       - testThePerItemStyleLocatorNamesTheStoredKeyRatherThanFabricatingItemZero
+     *         (#634) — an object-keyed card renders as `item key "aa"`, never `item 0`.
+     *       - testAStringKeyedItemStillEnforcesThePerItemSlotScope (#323) — a string key
+     *         must still count as "an item" for the item-scope gate, so a container-scoped
+     *         slot on one card is refused as container-scoped rather than as unknown.
+     *
+     * (2) WHY THE SUBJECT IS GONE. `grid.items[].style` was the theme's LAST declared
+     *     nested `style` field, and it retired with grid's v2 rebuild — a card that needs
+     *     its own design now carries its own `udc` map (BUILD-SPEC Addendum B), which is a
+     *     different engine with its own locators. The census below is the measurement, and
+     *     it walks the key the ENGINE reads (`props.<name>.items`, lib/admin.php:4444),
+     *     not the fixture's documentary `item_fields`.
+     *
+     * (3) WHERE THE CLAIMS WENT. The band-offset restamp survives at its COMPONENT-level
+     *     site and is pinned by testAComponentLevelStyleSlotErrorCarriesItsBandOffset
+     *     immediately below. The honest-key locator survives on every other nested rule
+     *     and is pinned by the whole of section 7, including the object-keyed provider.
+     *     The item-SCOPE gate (#323) has no successor claim here: pp_item_eligible_slots()
+     *     and the `$enforce_item_scope` branch in _pp_validate_style_slot_map() are now
+     *     UNREACHABLE from any shipped or fixture schema. Reported, not repaired — dead
+     *     code in the shared slot engine is not this suite's to delete, and the engine
+     *     itself is scheduled to go in this task's PR2.
+     *
+     * (4) THE PIN. The census fails the moment a schema declares a nested `style` field
+     *     again, which is the moment all three tests above should come back.
      */
-    public function testStyleSlotErrorsCarryTheBandOffsetNotTheCardIndex(): void
+    public function testNoSchemaDeclaresANestedStyleFieldAnyMoreSoThePerItemRestampIsUnreachable(): void
     {
-        $findings = _pp_composition_findings([
-            ['component' => 'hero', 'props' => ['title' => 'A']],
-            ['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'x'],
-                ['title' => 'y', 'style' => ['nope_slot' => 'red']],
-            ]]],
-        ]);
-        $slot = array_values(array_filter($findings, static fn ($f) => $f['type'] === 'invalid_style_slot'));
+        $nested_style  = [];
+        $item_props    = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $prop => $definition) {
+                if (!is_array($definition) || ($definition['type'] ?? null) !== 'array' || !isset($definition['items']) || !is_array($definition['items'])) {
+                    continue;
+                }
+                $item_props++;
+                if (isset($definition['items']['style'])) {
+                    $nested_style[] = "{$component}.{$prop}[].style";
+                }
+            }
+        }
 
-        $this->assertCount(1, $slot);
-        $this->assertSame(1, $slot[0]['index'], 'the BAND offset, not the card index the message names');
-        $this->assertStringContainsString('item 1', $slot[0]['message']);
+        // NOT VACUOUS: the walk has to find the item-bearing props it is inspecting, or a
+        // registry that stopped declaring `items` at all would satisfy the claim trivially.
+        $this->assertGreaterThan(0, $item_props, 'no prop declares nested items[] fields — this census proves nothing');
+        $this->assertSame(
+            [],
+            $nested_style,
+            'A schema declares a nested `style` field again. Three tests retired at #1101 because none '
+            . 'did — the per-item band-offset restamp, its honest-key locator, and the #323 item-scope '
+            . 'gate. Restore them against this field; the engine paths are all still there.'
+        );
     }
 
     public function testAComponentLevelStyleSlotErrorCarriesItsBandOffset(): void
@@ -824,47 +866,35 @@ class DiagnosticReachTest extends TestCase
         $this->assertStringNotContainsString('item 0', $message, '(int) "aa" is 0, and there is no item 0');
     }
 
-    public function testThePerItemStyleLocatorNamesTheStoredKeyRatherThanFabricatingItemZero(): void
-    {
-        $errors = pp_validate_composition_errors(
-            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']])
-        );
-
-        $this->assertContainerRefusalIsAlsoReported($errors);
-        $message = $this->assertExactlyOneFindingContains($errors, 'Component "grid" item key "aa" has no style slot');
-        $this->assertStringNotContainsString('item 0', $message);
-    }
-
-    /**
-     * The per-item style path reaches the shared slot engine through a widened parameter,
-     * and that engine decides per-item SCOPE (#323) on `$item_index !== null`. A string
-     * key must still be "an item" for that gate — otherwise widening the type would have
-     * quietly turned a container-scoped slot on one card into an unknown-slot error, or
-     * into acceptance.
-     */
-    public function testAStringKeyedItemStillEnforcesThePerItemSlotScope(): void
-    {
-        $errors = pp_validate_composition_errors(
-            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--grid-gap' => '2rem']])
-        );
-
-        $this->assertContainerRefusalIsAlsoReported($errors);
-        $this->assertExactlyOneFindingContains(
-            $errors,
-            'Component "grid" item key "aa" style slot "--grid-gap" is container-scoped'
-        );
-        // The CODE still has to be the slot engine's, not the container rule's — a scope
-        // rejection that started arriving as `invalid_prop_value` would read as a type
-        // problem to every caller that branches on the code.
-        $codes = array_map(static fn (WP_Error $e): string => $e->get_error_code(), $errors);
-        $this->assertContains('invalid_style_slot', $codes);
-    }
+    // THE TWO PER-ITEM STYLE TESTS THAT STOOD HERE RETIRED AT #1101 —
+    // testThePerItemStyleLocatorNamesTheStoredKeyRatherThanFabricatingItemZero (#634) and
+    // testAStringKeyedItemStillEnforcesThePerItemSlotScope (#323). Both drove the shared
+    // slot engine through `grid.items[].style`, the theme's last declared nested `style`
+    // field, which retired with grid's v2 rebuild. The full retirement note, and the
+    // census that fails the moment a nested `style` field is declared again, are on
+    // testNoSchemaDeclaresANestedStyleFieldAnyMoreSoThePerItemRestampIsUnreachable in
+    // section 2 above — kept in one place rather than restated three times.
+    //
+    // WHAT THIS SECTION STILL COVERS WITHOUT THEM: the honest-key locator claim is the
+    // SHARED one, and every other nested rule still declares a live surface for it — the
+    // link-URL rule immediately above, and one row per rule in the object-keyed provider
+    // below. What left with these two is specifically the SLOT engine's own reach into a
+    // nested entry, which no longer exists.
 
     /**
      * NON-VACUITY, and the case every shipped example is: an ordinary LIST still reports
      * its integer position at both fixed sites. Written at index 1, not 0, so a rule that
      * lost the index entirely (or reported the band) fails here. `docs/reference-apply-cli.md`
      * shows this shape; #634 must not disturb it.
+     *
+     * THE SECOND SITE MOVED AT #1101, from the per-item STYLE rule to the nested FIELD-TYPE
+     * rule (#614). The per-item style rule reached the shared slot engine through
+     * `grid.items[].style`, which retired with grid's v2 rebuild — see the retirement note
+     * on testNoSchemaDeclaresANestedStyleFieldAnyMore... in section 2. The replacement is
+     * chosen for the property this test needs and nothing else: it is a DIFFERENT rule from
+     * the link-URL one above, threading its own container argument through its own call to
+     * _pp_item_index_label(), so two rules are still asserted rather than one rule twice.
+     * That is what makes "at both sites" mean something.
      */
     public function testAListShapedItemsArrayStillReportsItsIntegerPositionAtBothSites(): void
     {
@@ -876,27 +906,40 @@ class DiagnosticReachTest extends TestCase
         ]);
         $this->assertStringContainsString('item 1 field "link_url"', $link[0]->get_error_message());
 
-        $style = pp_validate_composition_errors([
+        $field = pp_validate_composition_errors([
             ['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Fine'],
-                ['title' => 'Bad', 'style' => ['--nope' => '1']],
+                ['title' => 'Bad', 'image_id' => ['nope']],
             ]]],
         ]);
-        $this->assertStringContainsString('Component "grid" item 1 has no style slot', $style[0]->get_error_message());
+        $this->assertStringContainsString(
+            'Component "grid" prop "items" item 1 field "image_id"',
+            $field[0]->get_error_message()
+        );
     }
 
     /**
-     * ONE CONVENTION, proved on ONE key. The two repaired rules and one of the six that
-     * were always honest are asked about the same key in the same composition: before
-     * #634 the first two said `item 0` and the third said `item aa` — the divergence the
-     * issue reports, inside a single validation pass.
+     * ONE CONVENTION, proved on ONE key. THREE DIFFERENT nested rules are asked about the
+     * same key in the same composition: before #634 the repaired ones said `item 0` while
+     * the always-honest ones said `item aa` — the divergence the issue reports, inside a
+     * single validation pass.
+     *
+     * THE THIRD BAND CHANGED RULE AT #1101. It used to trip the per-item STYLE rule, one
+     * of the two #634 repaired the hard-cast in; `grid.items[].style` retired with grid's
+     * v2 rebuild (see testNoSchemaDeclaresANestedStyleFieldAnyMore... in section 2). It
+     * now trips the UNDECLARED-FIELD rule instead, which is a third distinct rule with a
+     * third distinct container argument — so the claim "one convention across rules" is
+     * still measured across three rules, which is the whole point of this test. What it
+     * no longer proves is that the convention holds on a REPAIRED site: the link-URL band
+     * is the last repaired site with a live surface, so one of the three is repaired
+     * rather than two.
      */
     public function testEveryNestedRuleRendersTheSameKeyTheSameWay(): void
     {
         $errors = pp_validate_composition_errors([
             ['component' => 'logos', 'props' => ['items' => ['aa' => ['image_alt' => 'X']]]],
             ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'link_url' => 'javascript:alert(1)']]]],
-            ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'style' => ['--nope' => '1']]]]],
+            ['component' => 'grid',  'props' => ['items' => ['aa' => ['title' => 'X', 'nope_field' => '1']]]],
         ]);
 
         // Six findings now, not three: each band trips its own nested rule AND the #738
@@ -1014,14 +1057,22 @@ class DiagnosticReachTest extends TestCase
      * EVERY nested rule, against an object-shaped container — not just the two the
      * `stringKeyedGrid` fixture happened to reach.
      *
-     * Why this exists: the sibling tests above cover the link-URL rule, the per-item style
-     * rule, the missing-required-field rule and the undeclared-field rule, and it is easy to
-     * read that as "the nested family is covered". It is not the same claim. Each rule threads
+     * Why this exists: the sibling tests above cover the link-URL rule, the
+     * missing-required-field rule and the undeclared-field rule (and covered the per-item
+     * style rule until #1101 retired its declaring surface), and it is easy to read that as
+     * "the nested family is covered". It is not the same claim. Each rule threads
      * its OWN container argument (`$value` for the shape rules, `$entries` for the field
      * rules), so a rule whose container was dropped or wired to the wrong variable renders an
      * object key as a position again while every existing test stays green — the #652 defect,
      * reintroduced one rule at a time. One row per rule is what makes the container wiring
      * asserted rather than assumed.
+     *
+     * THE ROSTER SHRANK BY ONE AT #1101 — the nested-ENUM row, RULE 4 (#600). It is the
+     * only row that ever left, it left because the theme's last nested enum field retired
+     * with grid's v2 rebuild, and testNoSchemaDeclaresANestedEnumFieldAnyMore() below
+     * asserts that emptiness directly rather than letting a four-row provider quietly
+     * imply a five-rule family. Four rules still have live declaring surfaces and are
+     * still one row each.
      *
      * @dataProvider objectKeyedNestedRuleProvider
      */
@@ -1051,11 +1102,16 @@ class DiagnosticReachTest extends TestCase
                 ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'image_id' => ['nope']]]], 'grid',
                 'item key "aa" field "image_id"',
             ],
-            // RULE 4 — nested enum membership.
-            'nested enum value' => [
-                ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'text_role' => 'terminal']]], 'grid',
-                'item key "aa" field "text_role"',
-            ],
+            // RULE 4 — nested enum membership — RETIRED AT #1101. Its row drove
+            // `grid.items[].text_role`, and the census on
+            // testNoSchemaDeclaresANestedEnumFieldAnyMore() below is the measurement: that
+            // was the THEME'S LAST NESTED ENUM, so the rule has no declaring surface at
+            // all. It could only be kept by inventing a fixture field that does not ship,
+            // and the slot-engine fixture cannot host it either — `ppfixture` declares its
+            // nested fields under `item_fields`, a documentary key no engine path reads
+            // (the nested rules read `props.<name>.items`, lib/admin.php:3759). The rule
+            // itself is untouched in lib/admin.php:4091 and fires again the moment any
+            // schema declares a nested enum, which is what the census pins.
             // Nested array-of-strings field.
             'nested bullets entries' => [
                 ['items' => ['aa' => ['title' => 'T', 'text' => 'x', 'bullets' => [123]]]], 'grid',
@@ -1080,27 +1136,95 @@ class DiagnosticReachTest extends TestCase
         $this->assertExactlyOneFindingContains($errors, 'item key "5" field "link_url"');
     }
 
-    public function testTheCreatePagePathReportsTheHonestItemLocatorForAPerItemStyle(): void
+    /**
+     * THE SUBJECT MOVED FROM THE PER-ITEM STYLE RULE TO THE UNDECLARED-FIELD RULE AT
+     * #1101; the test itself is NOT retired, because what it owns is the create_page
+     * PATH, not the rule it happens to trip. `grid.items[].style` retired with grid's v2
+     * rebuild (retirement note on
+     * testNoSchemaDeclaresANestedStyleFieldAnyMoreSoThePerItemRestampIsUnreachable in
+     * section 2), so the nested finding is now an undeclared-field one. create_page stays
+     * asserted separately from update_composition because the two build their params
+     * differently and only one of them was ever the repro — that asymmetry is the claim,
+     * and it survives the change of rule intact.
+     */
+    public function testTheCreatePagePathReportsTheHonestItemLocatorForANestedField(): void
     {
         $result = pp_execute_action('create_page', [
             'title'       => 'New',
-            'composition' => $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']]),
+            'composition' => $this->stringKeyedGrid(['title' => 'X', 'nope_field' => '1']),
         ]);
 
         $this->assertFalse($result['ok']);
-        // Refused at the CONTAINER since #738, band 0 still named by the write path
-        // (#642). create_page is asserted separately from update_composition because the
-        // two build their params differently and only one of them was ever the repro.
+        // Refused at the CONTAINER since #738, band 0 still named by the write path (#642).
         $this->assertStringContainsString('Component 0 ("grid") prop "items" must be a list', $result['error']);
         $this->assertStringNotContainsString('item 0', $result['error']);
 
         // The nested locator this test owns, on the reporting surface.
         $reported = pp_validate_composition_errors(
-            $this->stringKeyedGrid(['title' => 'X', 'style' => ['--nope' => '1']])
+            $this->stringKeyedGrid(['title' => 'X', 'nope_field' => '1'])
         );
-        $message = $this->assertExactlyOneFindingContains($reported, 'has no style slot');
-        $this->assertStringContainsString('Component "grid" item key "aa" has no style slot', $message);
+        $message = $this->assertExactlyOneFindingContains($reported, 'has no field "nope_field"');
+        $this->assertStringContainsString('Component "grid" prop "items" item key "aa" has no field "nope_field"', $message);
         $this->assertStringNotContainsString('item 0', $message);
+    }
+
+    /**
+     * THE NESTED-ENUM ROW'S RETIREMENT PIN (#1101), and the census the provider above
+     * points at.
+     *
+     * (1) WHAT THE ROW PROVED. RULE 4 (#600) — a nested field declaring `type: "enum"`
+     *     rejects a value outside its option set, and names the entry by its stored KEY
+     *     when the container is an object (`item key "aa" field "text_role"`), never by a
+     *     fabricated position.
+     *
+     * (2) WHY THE SUBJECT IS GONE. `grid.items[].text_role` was the THEME'S LAST NESTED
+     *     ENUM and retired with grid's v2 rebuild. The slot-engine fixture cannot stand in:
+     *     `ppfixture` declares its nested fields under `item_fields`, which no engine path
+     *     reads — every nested rule walks `props.<name>.items` (lib/admin.php:3759) — so a
+     *     fixture enum there would be ignored, and the row would pass or fail for reasons
+     *     unrelated to RULE 4.
+     *
+     * (3) WHERE THE CLAIM WENT. The locator half is unchanged and still covered by the
+     *     provider's four surviving rules. The ENUM half has no successor on the nested
+     *     surface: RULE 4's code in lib/admin.php:4091 is now unreachable from any
+     *     registered schema. Reported, not repaired — deleting an engine rule is not this
+     *     suite's business, and top-level enum props (`grid.layout`, `hero.layout`, …) are
+     *     unaffected and still validated elsewhere.
+     *
+     * (4) THE PIN. This census fails the moment a schema declares a nested enum again,
+     *     which is exactly when the provider row should return.
+     */
+    public function testNoSchemaDeclaresANestedEnumFieldAnyMore(): void
+    {
+        $nested_enums  = [];
+        $nested_fields = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $prop => $definition) {
+                if (!is_array($definition) || !isset($definition['items']) || !is_array($definition['items'])) {
+                    continue;
+                }
+                foreach ($definition['items'] as $field => $field_def) {
+                    if (!is_array($field_def)) {
+                        continue;
+                    }
+                    $nested_fields++;
+                    if (($field_def['type'] ?? null) === 'enum') {
+                        $nested_enums[] = "{$component}.{$prop}[].{$field}";
+                    }
+                }
+            }
+        }
+
+        // NOT VACUOUS: the walk has to have seen nested field declarations at all, or an
+        // engine that stopped reading them would satisfy the emptiness below for free.
+        $this->assertGreaterThan(0, $nested_fields, 'no nested item fields are declared at all — this census proves nothing');
+        $this->assertSame(
+            [],
+            $nested_enums,
+            'A schema declares a nested enum field again. The nested-enum row of '
+            . 'objectKeyedNestedRuleProvider() retired at #1101 because none did; restore it against '
+            . 'this field — RULE 4 (lib/admin.php:4091) has had no live surface since.'
+        );
     }
 
     /**

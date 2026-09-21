@@ -1816,18 +1816,37 @@ describe('#805 against the real shipped schemas', () => {
     it('classifies the shipped container sub-keys as display-only', () => {
         // Not stand-ins: these are the declarations the issue measured.
         const grid = REAL.find((c) => c.name === 'grid').schema.props.items.items;
-        // `section.panel_items[].style` was the second measured declaration and it is
-        // gone (#1023): per-item style maps went with section's slot system, and v2 has
-        // no address for one — roles are band-grain. The contract question is staged as
-        // BUILD-SPEC Addendum B and gated on #1024. grid's two remain, so the pin still
-        // measures real shipped declarations rather than stand-ins.
+        // `section.panel_items[].style` was the second measured declaration and it went
+        // at #1023; grid's `items[].style` and `items[].text_role` were the last two and
+        // they went at #1101. Addendum B answered the question that retirement left open:
+        // a single card's design is an `items[].udc` map now, which is ENGINE-OWNED and
+        // deliberately not a declared sub-field (see the `items` prop description), so it
+        // is not a subject for this classifier at all.
+        // `bullets` IS STILL A REAL SHIPPED DECLARATION, which is what keeps this pin
+        // measuring the thing #805 measured rather than a stand-in — it is the last
+        // declared container sub-key in the theme, and that is asserted below so the
+        // shrinkage is a decision rather than a drift.
         expect(subFieldIsDisplayOnly(grid.bullets)).toBe(true);
-        expect(subFieldIsDisplayOnly(grid.style)).toBe(true);
         expect(subFieldIsTypedScalar(grid.image_id)).toBe(true);
         expect(subFieldIsDisplayOnly(grid.title)).toBe(false);
-        // The nested enum stays exactly where it was — #646's, not this change's.
-        expect(subFieldIsDisplayOnly(grid.text_role)).toBe(false);
-        expect(subFieldIsTypedScalar(grid.text_role)).toBe(false);
+        expect(grid.style, 'items[].style retired at #1101').toBeUndefined();
+        expect(grid.text_role, 'items[].text_role retired at #1101').toBeUndefined();
+    });
+
+    it('bullets is the last declared container sub-key in the theme', () => {
+        // ANTI-VACUITY FOR THE ROSTER ABOVE (#1101). Two of the three measured
+        // declarations retired in this change; if the third ever goes the same way, the
+        // test above would keep passing on `image_id` and `title` alone while the
+        // container classifier it exists to exercise stopped being exercised at all.
+        const containers = [];
+        REAL.forEach(({ name, schema }) => {
+            Object.entries(schema.props || {}).forEach(([prop, def]) => {
+                Object.entries((def && def.items) || {}).forEach(([sub, subDef]) => {
+                    if (subFieldIsDisplayOnly(subDef)) containers.push(`${name}.${prop}[].${sub}`);
+                });
+            });
+        });
+        expect(containers.sort()).toEqual(['grid.items[].bullets']);
     });
 
     it('keeps the accordion for the shipped bullets and style shapes', () => {
@@ -1839,7 +1858,14 @@ describe('#805 against the real shipped schemas', () => {
                         title: 'Card A',
                         bullets: ['Fast', 'Cheap'],
                         image_id: 42,
-                        style: { '--grid-item-bg': '#fff' },
+                        // THE v2 SHAPE, replacing the `style` map this fixture carried
+                        // until #1101: an engine-owned `id` plus that card's own `udc`
+                        // map (Addendum B). Neither is a declared sub-field, and the
+                        // editor must carry both through a round-trip untouched — a
+                        // dropped `udc` here is one card's design destroyed, which is
+                        // the #1088 class this fixture now stands guard over.
+                        id: 'it-7b2c91d4',
+                        udc: { card: { background: { fill: '#14141F' } } },
                     }],
                 },
             },
@@ -1852,12 +1878,13 @@ describe('#805 against the real shipped schemas', () => {
         const json = JSON.stringify([
             {
                 component: 'grid',
-                props: { items: [{ bullets: 'Fast,Cheap', style: '[object Object]' }] },
+                props: { items: [{ bullets: 'Fast,Cheap' }] },
             },
         ]);
         const paths = nonContainerValueDiffs(json, REAL).map((d) => d.path).sort();
-        expect(paths).toEqual([
-            '[0].props.items[0].bullets', '[0].props.items[0].style',
-        ]);
+        // `[0].props.items[0].style` left this list at #1101 with the declaration it
+        // named: a flattened value is only detectable against a DECLARED container type,
+        // and `style` is not declared any more. `bullets` is the shape that still is.
+        expect(paths).toEqual(['[0].props.items[0].bullets']);
     });
 });

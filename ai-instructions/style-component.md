@@ -4,11 +4,11 @@ Styling one band on one page. Two systems exist, they do not overlap, and the fi
 establish is which one the component you are looking at is on.
 
 **Almost everything is on the Universal Design Contract (v2).** You style it by putting a `udc`
-map on the band, beside `props`. Nine composable components and both chrome components work this
-way: `cta`, `embed`, `faq`, `hero`, `logos`, `section`, `stats`, `table`, `testimonials`, plus
-`nav` and `footer`.
+map on the band, beside `props`. Ten composable components and both chrome components work this
+way: `cta`, `embed`, `faq`, `grid`, `hero`, `logos`, `section`, `stats`, `table`, `testimonials`,
+plus `nav` and `footer`.
 
-**One component is still on style slots (v1):** `grid`. You style it with the `style_component`
+**NO component is on style slots any more (#1101).** `grid` was the last one; the v1 paragraphs below describe `style_component`
 action, setting CSS custom properties. Everything about that path is in the last section of this
 file.
 
@@ -394,55 +394,47 @@ across bands is doing its job; one that differs on every band is noise.
 
 ---
 
-## The one component still on style slots: **`grid` (38 slots)**
+## The v1 style-slot surface: **`grid` (0 slots)** — retired at #1101
 
-`grid` is the last component on the v1 styling system. It is styled with `style_component`, setting
-CSS custom properties rather than roles:
+**There is no v1 style-slot surface any more.** `grid` was the last component declaring one, and
+its rebuild retired all 38 slots and all 3 named recipes. `style_component` now refuses **every**
+component with `no_style_slots`, and the refusal names the `udc` route for the one you aimed at.
 
-```bash
-wp pp action execute style_component --run-id=<uuid> --params='{
-  "post_id": 42,
-  "component_id": "pp-a1b2c3d4",
-  "style": { "--grid-bg": "#101828", "--grid-item-text-align": "center" }
-}'
-```
+Everything the slots did is a role parameter on grid's band map, which is the same surface as every
+other band in this file. `wp pp schema grid` lists its eighteen roles and the groups each permits.
 
-Read the available slots with `wp pp schema grid`. Each carries its `type`, its **effective**
-`default`, and a description. The type list that still has a carrier is `color`, `length`,
-`gradient`, `shadow`, `align` and `text-transform` — the same unit set and the same colour grammar
-as above, because one grammar owns both systems.
+Three routes worth knowing, because they are the ones people look for by their old names:
 
-Three slot behaviours worth knowing before you write one:
+- the heading's **text measure**, whose retired slot name ended `-heading-measure`; it is
+  `heading` → `sizing.max-width`, defaulting to `@measure-heading`. Prefer leaving it unset and
+  tuning the `--measure-*` design tokens, unless this band must differ — a literal here opts the
+  band out of a later site-wide retune.
+- the eyebrow's **casing**, whose retired slot name ended `-eyebrow-text-transform`; it is
+  `eyebrow` → `typography.transform`. The pill defaults to `uppercase`; set `none` when a
+  reference shows the kicker in sentence case.
+- **per-card overrides** were `items[].style`; they are `items[].udc`, a map on the entry itself
+  addressing the same roles the component declares (BUILD-SPEC Addendum B). That is the one thing
+  grid can do that no other band can, and it is what the owner's dark-card design is written in.
 
-- `--grid-heading-measure` is a **text measure**. A literal there is accepted but opts this band out
-  of any later site-wide measure retune, so prefer leaving it unset and tuning the `--measure-*`
-  design tokens unless this band must differ.
-- `--grid-eyebrow-text-transform` takes one `text-transform` keyword. The pill defaults to
-  `uppercase`; set it to `none` when a reference shows the kicker in sentence case.
-- Per-item overrides go in the composition, not in `style_component`: a `grid.items[].style` map
-  accepts only the card-scoped slots, and container or heading slots are rejected there.
+A stored `style` map on a page built before the rebuild is not migrated and not healed: it is
+reported, and the way to remove it is to write the band without it.
 
-**Slot names you may meet on an aged page, all retired**, because the components that carried them
-are on the design contract now: `--stats-max-width`, `--stats-bg-position`, `--stats-number-font`,
-`--faq-body-measure`, `--logos-image-size`, `--cta-body-measure`, `--hero-heading-measure` and
-`--section-heading-measure` are gone, along with every other `--<component>-*` name on a rebuilt
-component. Writing any of them is refused with `no_style_slots`. The replacements are `udc` values:
-a width cap is a role's `sizing.max-width`, an image cap its `sizing.max-height`, a band
-background's focal point `_band` → `background.position`, and a text colour that role's
-`typography.color`.
+---
 
-### Recipes
+### Recipes — none ship
 
-A recipe is a named bundle of slot values. There is no `apply_recipe` action: a recipe is applied through `style_component`'s optional `recipe` parameter, which expands into slot values before any explicit `style` map you send alongside it is merged on top. Only `grid` ships any:
+A recipe was a named bundle of slot values, applied through `style_component`'s optional
+`recipe` parameter. `grid` declared the last three (`dark-showcase`, `dense-cards`,
+`uniform-cards`) and they retired with its slot map at #1101; `cta`'s two went at #1026 and
+`section`'s at #1023. **No composable component ships one**, so the table below is all dashes
+and asking for a recipe by name is refused with `invalid_recipe`.
 
 | component | recipe |
 |---|---|
-| grid | `dark-showcase` |
-| grid | `dense-cards` |
-| grid | `uniform-cards` |
 | cta | — |
 | embed | — |
 | faq | — |
+| grid | — |
 | hero | — |
 | logos | — |
 | section | — |
@@ -450,8 +442,10 @@ A recipe is a named bundle of slot values. There is no `apply_recipe` action: a 
 | table | — |
 | testimonials | — |
 
-A `—` means the component ships no named recipe, so stop looking for one. On the design contract
-the equivalent is a saved preset, which you can create yourself.
+The v2 equivalent is a **preset**, and it is better in the way that matters: `save_preset`
+(#1016) stores a named `udc` fragment for the whole SITE, any band or chrome role can apply it
+with `"_preset"`, and editing it moves every reference with no band write. A recipe could only
+ever bundle one component's slots.
 
 ---
 

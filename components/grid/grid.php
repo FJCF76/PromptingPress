@@ -6,6 +6,13 @@
  * NOT for icon-in-circle decoration. Every card must represent real content.
  * Props: see schema.json
  *
+ * THE LAST COMPONENT OFF THE v1 STYLE-SLOT SYSTEM (#1101). What left this file
+ * is as much of the story as what stayed: two inline `style` sinks, a theme
+ * class, an alignment class, an emphasis class, an image-treatment class and a
+ * per-card text-role class. Every one of them was a way of saying "paint this
+ * differently", and v2 has exactly one way of saying that — a `udc` map, band
+ * grain or item grain, emitted as scoped rules in the document head.
+ *
  * @var array $props
  */
 
@@ -31,12 +38,17 @@ $raw_title_accent  = $props['title_accent']  ?? '';
 $title_accent      = is_scalar($raw_title_accent) ? (string) $raw_title_accent : '';
 $eyebrow       = $props['eyebrow']       ?? '';
 $subheading    = $props['subheading']    ?? '';
-$title_align = $props['title_align'] ?? 'start';
 // ── #708: the raw-value guard for count($items) ────────────────────────────
 //
-// THE CANONICAL EXPLANATION FOR BOTH #708 AXES LIVES IN THIS FILE — this block for
-// `items`, and the `__pp_style` block further down. grid is the only component that
-// carries both, which is why the reasoning is kept here rather than split.
+// THE CANONICAL EXPLANATION FOR THE `items` AXIS LIVES IN THIS FILE. The file used
+// to carry BOTH #708 axes — this one and a `__pp_style` map guard — and it was the
+// only component that did. The second axis RETIRED WITH THE SLOT SYSTEM at #1101:
+// there is no `__pp_style` read here any more, so there is no raw value to guard and
+// no call to the typed style-vars helper left in this file. (Its name is deliberately
+// not spelled out: UdcEngineTest scans the RAW template for that identifier to prove a
+// v2 component emits no inline style attribute, and a comment naming it would fail the
+// guard while the file is in fact clean.) The canonical reasoning for that axis lives
+// with the components still holding the v1 story; nothing was deleted from the record.
 //
 // `count()` is typed by PHP itself:
 //   count(Countable|array $value, int $mode = COUNT_NORMAL): int
@@ -63,13 +75,13 @@ $title_align = $props['title_align'] ?? 'start';
 // GUARDED AT THE READ, because the read is upstream of the `!empty($items)` gate.
 // A guarded-away value therefore closes that gate, so the band renders no `<ul>`,
 // no `data-pp-count` and no cards, and falls through to the existing empty state
-// (`<p class="grid__empty text-muted">`) — byte-identical to a grid authored with no
+// (`<p class="grid__empty">`) — byte-identical to a grid authored with no
 // items at all, which is the coherent degradation the ruling asks for. Widening the
 // count() call (`is_array($items) ? count($items) : 0`) would instead emit an empty
 // list element carrying `data-pp-count="0"`, a shape no valid composition produces.
 //
 // WHAT THIS GUARD DOES NOT MAKE SAFE, stated precisely rather than as a general
-// "arrays are fine" — every claim below was measured, and two of them are open bugs:
+// "arrays are fine" — every claim below was measured:
 //
 //   - An ASSOCIATIVE array passes through THIS guard untouched, because count()
 //     accepts one and rejecting it here would change behaviour for data this ruling
@@ -89,8 +101,8 @@ $title_align = $props['title_align'] ?? 'start';
 //     E_WARNING — the warn-not-fatal class, #736. But a card's `link_url` reaches
 //     core's esc_url(), which DOES fatal: measured, a stored `link_url` of `["x"]`
 //     raises "ltrim(): Argument #1 ($string) must be of type string, array given" and
-//     500s the page. That is #730, still open. So the residual risk on a well-formed
-//     items list includes a fatal, not merely a stray `Array`.
+//     500s the page. That is #730, guarded at its own read below. So the residual risk
+//     on a well-formed items list includes a fatal, not merely a stray `Array`.
 //   - The admitting criterion for this family is the same TYPED CALL, not the same
 //     prop. `items` reaches a DIFFERENT typed parameter in faq
 //     (pp_render_faq_schema(array $items)), which still fatals, and on falsy shapes
@@ -100,30 +112,18 @@ $title_align = $props['title_align'] ?? 'start';
 $raw_items = $props['items'] ?? [];
 $items     = is_array($raw_items) ? $raw_items : [];
 $layout  = $props['layout']  ?? 'cards';
-$theme   = $props['theme']   ?? 'default';
-$card_emphasis = $props['card_emphasis'] ?? 'featured';
 
 $allowed_layouts = ['cards', 'steps'];
 if (!in_array($layout, $allowed_layouts, true)) {
     $layout = 'cards';
 }
 
-$allowed_card_emphasis = ['featured', 'uniform'];
-if (!in_array($card_emphasis, $allowed_card_emphasis, true)) {
-    $card_emphasis = 'featured';
-}
-
-$allowed_title_aligns = ['start', 'center'];
-if (!in_array($title_align, $allowed_title_aligns, true)) {
-    $title_align = 'start';
-}
-
 // Explicit desktop column-count override (issue 379). Write-time validation
 // (pp_validate_composition_errors) already rejects out-of-range/non-integer
 // values, so this is a defensive coercion for raw-written state (mirroring the
-// layout/card_emphasis in_array guards above; theme via pp_theme_class, #442): only an integer 1-4 emits
-// the data-pp-columns attribute the CSS reads; anything else falls through to
-// the auto-by-count grain, so unset output stays byte-identical.
+// layout in_array guard above): only an integer 1-4 emits the data-pp-columns
+// attribute the CSS reads; anything else falls through to the auto-by-count
+// grain, so unset output stays byte-identical.
 // $is_steps is computed below; forward-declare the steps check here so a forced
 // column count is inert on steps at the RENDER layer too, not only via the CSS
 // :not(.grid--steps) scope — steps keeps its fixed process grain, so its markup
@@ -136,122 +136,37 @@ $columns = (is_int($columns_raw) || (is_string($columns_raw) && preg_match('/^\d
 $columns_attr = (!$columns_is_steps && $columns >= 1 && $columns <= 4)
     ? ' data-pp-columns="' . esc_attr((string) $columns) . '"'
     : '';
-$header_align_class = $title_align === 'center' ? ' grid__header--center' : '';
 
 $is_steps      = $layout === 'steps';
 $layout_class  = $is_steps ? ' grid--steps' : '';
-// theme coercion lives in pp_theme_class(); `muted` emits the legacy `--dark` class (#570 DG-4).
-$theme_class   = pp_theme_class($theme, 'grid');
-// 'uniform' opts the first card out of the featured emphasis so every card
-// renders identically (issue 226). Default 'featured' emits no class, keeping
-// existing pages byte-identical. The featured CSS selectors carry a
-// :not(.grid--uniform) guard, so this class makes the first card fall through
-// to the shared all-cards rules.
-$emphasis_class = $card_emphasis === 'uniform' ? ' grid--uniform' : '';
 
-// Item image treatment (issue 380). 'icon' renders each card image at a small
-// fixed icon size (--grid-item-icon-size) above the title instead of the default
-// 16:9 cover banner. Write-time validation (pp_validate_composition_errors) rejects
-// invalid values via the schema strict-enum check; this in_array guard mirrors the
-// layout/theme/card_emphasis guards above for raw-written state, so an invalid value
-// falls through to 'banner' and output stays byte-identical. Icon treatment is a
-// cards concept: steps renders no item images, so it is inert on steps (no dead
-// class leaks onto steps markup), keeping steps byte-identical too. Default 'banner'
-// emits no class, so existing pages render identically.
-$image_treatment = $props['image_treatment'] ?? 'banner';
-$allowed_image_treatments = ['banner', 'icon'];
-if (!in_array($image_treatment, $allowed_image_treatments, true)) {
-    $image_treatment = 'banner';
-}
-$image_treatment_class = ($image_treatment === 'icon' && !$is_steps) ? ' grid--image-icon' : '';
-
-// Style slot overrides (per-instance visual customization). The card link/button
-// follows the card's --grid-item-text-align via the derived --pp-grid-link-align
-// plumbing property (issue 361), so a centered card centers its link too; it is
-// appended here at grid level and per card below so cascade proximity holds.
-// ── #708: the raw-value guard for the __pp_style map ───────────────────────
+// ── v2: the band's styling identity ─────────────────────────────────────────
 //
-// THE CANONICAL EXPLANATION FOR `__pp_style` LIVES HERE. hero, section, cta, stats,
-// faq, testimonials, logos, table and embed carry the same two-line guard with a
-// pointer back to this block; keep the reasoning in one place so a correction lands
-// once. Same family and same ruling as #641 (image_url), #705 (background_image)
-// and #706 (title/title_accent), with the shape-appropriate predicate.
+// Where v1 read a `__pp_style` map and painted it into an inline `style`
+// attribute, this emits one attribute and nothing else: `data-pp-band`. Every
+// designable value for this band is in a scoped block in the document head,
+// keyed on that attribute (lib/udc.php). No inline style means no specificity
+// cliff — a band's rules and the stylesheet's structural rules sit at
+// comparable weight and resolve in source order, which is what makes the
+// cascade a cascade. Same guard, same reasoning, same shape as testimonials'.
 //
-// The typed boundary:
-//   pp_render_style_vars(array $style, string $component_name, bool $item_scope = false)
-// Ten components read `__pp_style` from stored props and hand it straight in.
-// Measured on current main, one render per component: a stored string `__pp_style`
-// raises "Argument #1 ($style) must be of type array, string given" on ALL TEN —
-// hero, grid, section, cta, stats, faq, testimonials, logos, table and embed. The
-// filed issue said "all five image-bearing components"; re-deriving the call set
-// from source shows it is every component that declares a style slot.
-//
-// THE ISSUE'S STATED MECHANISM IS NOT THE REACHABLE ONE, and the distinction
-// decides where the guard goes. #708 says templates/composition.php "promotes a
-// stored `style` map to the `__pp_style` prop" unchecked. It does not: all four
-// promotion sites already read
-//   $style = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
-// (templates/composition.php:21, templates/front-page.php:75,
-// lib/post-apply-validate.php:68, lib/admin.php:3520), so a non-array TOP-LEVEL
-// `style` is dropped before any component sees it. A guard added at the promotion
-// would fix nothing. The value that actually arrives is `__pp_style` stored INSIDE
-// `props`: the promotion only OVERWRITES that key when a valid array-valued
-// top-level `style` exists, so a stored item {"props":{"__pp_style":"red"}} walks
-// straight through. That is also why the findings engine already reports this shape
-// as `unknown_prop` — inside props, `__pp_style` is an undeclared prop — while the
-// page still 500s. So the READ inside each component is the only boundary that both
-// exists and is reachable, and that is where the guard sits.
-//
-// is_array, NOT is_scalar: an ARRAY is the contract at this parameter, exactly as
-// for count($items) above. Degradation is total and silent by construction —
-// pp_render_style_vars() returns '' for an empty map at its own `if (empty($style))`
-// guard, and every one of the ten call sites emits its `style` attribute only when
-// that return value is non-empty. So a malformed map renders the band with NO
-// inline custom properties and NO style attribute: byte-identical to a band that
-// stored no style at all (pinned by rendering both and comparing).
-//
-// ONE READ, TWO TYPED BOUNDARIES — the local reason this file matters. The same raw
-// value was read a second time below for pp_grid_link_align_decl(array $style),
-// which is typed identically and fatals identically; it is unreachable today only
-// because the call above throws first. Both now consume the guarded local, so the
-// second boundary cannot be reopened by deleting the first. Reading once is also
-// what the drift catcher in tests/InvariantTest.php enforces, so a future third
-// consumer cannot quietly reintroduce a raw read.
-//
-// An array-valued `__pp_style` inside props still renders, unchanged. It is an
-// undeclared prop the write path rejects, but pp_render_style_vars() already gates
-// every declaration through the #330 render boundary and the declared-slot filter:
-// a slot NAME must match the component's own schema exactly, and the VALUE must pass
-// _pp_forbidden_css_construct plus the slot's declared grammar. So it cannot paint
-// anything a valid style map could not (measured against an adversarial map, and
-// pinned in tests/StoredStyleAndItemsRenderGuardTest.php rather than only argued
-// here). Blocking it would extend this ruling rather than apply it.
-//
-// The guard checks the CONTAINER, not its elements, and one element shape is still
-// fatal: pp_style_declaration_renders() does `(string) $value` on a declared slot's
-// stored value, so an OBJECT value raises "Object of class stdClass could not be
-// converted to string". Array values are safe (warning, then dropped). Filed as #740
-// — a different boundary inside a well-formed map, not the map itself.
-$raw_style = $props['__pp_style'] ?? null;
-$style     = is_array($raw_style) ? $raw_style : [];
-
-$grid_style_parts = [];
-$slot_style       = pp_render_style_vars($style, 'grid');
-if ($slot_style !== '') {
-    $grid_style_parts[] = $slot_style;
-}
-$grid_link_align = pp_grid_link_align_decl($style);
-if ($grid_link_align !== '') {
-    $grid_style_parts[] = $grid_link_align;
-}
-$style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) . ';"' : '';
+// An absent or malformed id emits NO attribute. That is the whole guard: the
+// engine mints ids on WRITE only, so a band that reached storage without one
+// (raw meta, data written before the rule, or restore_composition, which reports
+// without blocking per #233) must render structurally rather than be handed a
+// fabricated id here. An EMPTY attribute would be worse than none — it would
+// make `[data-pp-band=""]` match every other id-less band on the page and paint
+// one band's design onto another.
+$raw_band  = $props['__pp_udc_band'] ?? '';
+$band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
+$band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
 ?>
-<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?><?php echo esc_attr($theme_class); ?><?php echo esc_attr($emphasis_class); ?><?php echo esc_attr($image_treatment_class); ?>" data-pp-component="grid"<?php echo $style_attr; ?>>
+<section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="grid<?php echo esc_attr($layout_class); ?>" data-pp-component="grid"<?php echo $band_attr; ?>>
     <div class="container">
 
         <?php if ($title || $eyebrow || $subheading) : ?>
-            <div class="grid__header<?php echo esc_attr($header_align_class); ?>">
+            <div class="grid__header">
                 <?php if ($eyebrow) : ?>
                     <span class="grid__eyebrow"><?php echo esc_html($eyebrow); ?></span>
                 <?php endif; ?>
@@ -370,36 +285,52 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                     $raw_link_url = $item['link_url'] ?? '';
                     $link_url     = is_scalar($raw_link_url) ? (string) $raw_link_url : '';
                     $link_text   = $item['link_text'] ?? 'Read more';
-                    $text_role   = $item['text_role'] ?? '';
-                    $allowed_text_roles = ['mono', 'meta', 'label', 'kicker'];
-                    $text_role_class = in_array($text_role, $allowed_text_roles, true) ? ' text-' . $text_role : '';
 
-                    // Per-item style overrides (issue 306): render this card's `style`
-                    // map as inline custom properties on the .grid__item element,
-                    // validated against the SAME grid style slots as grid-level style.
-                    // The consuming CSS reads var(--slot, fallback), so a per-item slot
-                    // set here overrides the grid-level value by cascade proximity.
-                    // A per-card --grid-item-text-align also derives the card's
-                    // --pp-grid-link-align companion (issue 361); appended on the
-                    // .grid__item so it overrides any grid-level companion by
-                    // cascade proximity, exactly like the text-align slot itself.
-                    $item_style       = is_array($item['style'] ?? null) ? $item['style'] : [];
-                    // Item scope (#579): only the card-scoped (item_eligible) slots
-                    // may be emitted here, matching what the write path accepts.
-                    $item_style_vars  = pp_render_style_vars($item_style, 'grid', true);
-                    $item_link_align  = pp_grid_link_align_decl($item_style);
-                    $item_style_parts = [];
-                    if ($item_style_vars !== '') {
-                        $item_style_parts[] = $item_style_vars;
-                    }
-                    if ($item_link_align !== '') {
-                        $item_style_parts[] = $item_link_align;
-                    }
-                    $item_style_attr = $item_style_parts ? ' style="' . implode('; ', $item_style_parts) . ';"' : '';
+                    // ── v2: THIS CARD's styling identity (Addendum B2/B3) ───────
+                    //
+                    // The item tier's `data-pp-band` — one level down, on the element
+                    // the component declares as `item_roles.root` (`card`, i.e. this
+                    // `<li>`). It replaces the per-card inline `style` attribute v1
+                    // painted here from `items[].style`, which §3.4 forbids outright.
+                    //
+                    // THE GUARD IS THE BAND GUARD, and it has to be, for a sharper
+                    // version of the same reason. Ids are minted on WRITE only and
+                    // only for entries that carry a `udc` map, so an entry reaching
+                    // this loop without a valid one is either plain content (the
+                    // common case — most cards are never styled individually) or
+                    // stored data no write gate saw. Both render structurally. An
+                    // EMPTY attribute would be strictly worse than none here than it
+                    // is at band grain: `[data-pp-item=""]` inside a band scope would
+                    // match every OTHER unstyled card in the same band and paint one
+                    // card's design onto all of them.
+                    //
+                    // pp_udc_valid_item_id() is stricter than its band counterpart on
+                    // purpose (`it-` + exactly eight lowercase hex digits, `\z`-
+                    // anchored): a band id may have been authored, an item id never
+                    // was. Nothing else in this file may relax that — the same string
+                    // is interpolated into a CSS attribute selector by the emitter.
+                    $raw_item_id = $item['id'] ?? '';
+                    $item_id     = (is_scalar($raw_item_id) && pp_udc_valid_item_id((string) $raw_item_id))
+                        ? (string) $raw_item_id
+                        : '';
+                    $item_attr   = $item_id !== '' ? ' data-pp-item="' . esc_attr($item_id) . '"' : '';
                 ?>
-                    <li class="grid__item"<?php echo $item_style_attr; ?>>
-                        <?php if ($is_steps) : ?>
-                            <span class="grid__step-number"><?php echo esc_html($item_number); ?></span>
+                    <li class="grid__item"<?php echo $item_attr; ?>>
+                        <?php // The card top bar (#1101, ruling D5). A REAL ELEMENT in v2 where
+                              // v1 painted it as `.grid__item::before`, and the change is what
+                              // saved the capability: ruling A3 defers pseudo-elements, so no
+                              // role could have addressed a `::before`, and the brand signature
+                              // measured on 10 of 11 production bands would have retired with
+                              // the slots. As a span it is the `card-bar` role, addressable at
+                              // band grain and at item grain through ordinary `background.fill`
+                              // and `sizing.height` — no grammar widening, no contract change.
+                              // Decorative and empty, so it is hidden from assistive technology
+                              // rather than announced as a blank list item child.
+                              // Not rendered on steps: v1's bar rule carried a
+                              // `:not(.grid--steps)` scope, and a steps card leads with its
+                              // number badge. ?>
+                        <?php if (!$is_steps) : ?>
+                            <span class="grid__item-bar" aria-hidden="true"></span>
                         <?php endif; ?>
 
                         <?php if ($image_url && !$is_steps) : ?>
@@ -419,15 +350,50 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                         <?php endif; ?>
 
                         <div class="grid__item-body">
+                            <?php // THE STEP BADGE MOVED INSIDE THE BODY (#1101), and it is a
+                                  // forced move rather than a tidy-up. v1 rendered it as a direct
+                                  // child of `.grid__item` and relied on a steps-only outer
+                                  // padding — `.grid--steps .grid__item { padding: 2rem 1rem 1rem }`
+                                  // — to keep it off the card edge. That padding has no v2 home:
+                                  // the boundary admits no non-zero padding in this stylesheet,
+                                  // and a role's `defaults` carry a breakpoint and a state
+                                  // dimension but NO variant dimension, so "padding, but only on
+                                  // steps" is unspellable (the conditionality gap filed at #1102).
+                                  // Left outside the body with that padding gone, the badge would
+                                  // sit flush against the card's border.
+                                  //
+                                  // Inside the body it is inset by `card-body` -> `spacing.padding`
+                                  // like every other card child, which also makes the desktop
+                                  // steps connector land EXACTLY on the badge's centre-line for
+                                  // the first time: the connector's `calc(var(--space-lg) +
+                                  // 1.375rem)` is 32px + half a 44px badge = 54px, and the badge's
+                                  // centre is now the body's 2rem padding plus the same 22px.
+                                  // Under v1 it was approximating.
+                                  //
+                                  // WHAT CHANGED VISUALLY, stated rather than discovered: a steps
+                                  // card's content inset goes from 48px to 32px at the sides (the
+                                  // outer padding no longer stacks with the body's), the badge's
+                                  // own inset goes from 16px to 32px, and the gap under the badge
+                                  // goes from 16px to 24px because `card-body`'s flex `gap` now
+                                  // applies between the badge and the title as well. The
+                                  // `step-number` role's measured `margin-bottom` default is kept
+                                  // as measured rather than shaved to hide the difference. ?>
+                            <?php if ($is_steps) : ?>
+                                <span class="grid__step-number"><?php echo esc_html($item_number); ?></span>
+                            <?php endif; ?>
+
                             <?php if ($item_title) : ?>
                                 <h3 class="grid__item-title"><?php echo esc_html($item_title); ?></h3>
                             <?php endif; ?>
 
                             <?php if ($item_text) : ?>
                                 <?php // Inline-HTML supporting-text prop (#439): a/strong/em/br
-                                      // allowed and sanitized; block/script tags stripped. The
-                                      // link sits inside the LIGHT card, so it keeps --color-accent. ?>
-                                <p class="grid__item-text<?php echo esc_attr($text_role_class); ?>"><?php echo pp_kses_inline($item_text); ?></p>
+                                      // allowed and sanitized; block/script tags stripped.
+                                      // The v1 `text_role` preset class is gone (#1101): its
+                                      // four values were mono/meta/label/kicker, two of which
+                                      // measured byte-identical to the default above 767px, and
+                                      // per-card typography is what an item `udc` map expresses. ?>
+                                <p class="grid__item-text"><?php echo pp_kses_inline($item_text); ?></p>
                             <?php endif; ?>
 
                             <?php if (!empty($bullets)) : ?>
@@ -452,7 +418,17 @@ $style_attr = $grid_style_parts ? ' style="' . implode('; ', $grid_style_parts) 
                 <?php endforeach; ?>
             </ul>
         <?php else : ?>
-            <p class="grid__empty text-muted">Nothing here yet.</p>
+            <?php // THE `text-muted` UTILITY IS GONE (#1101), so the `empty` role owns
+                  // this line's colour instead of a utility class — the same call faq
+                  // made at #1046, table at #1066 and footer at #994. The measured grey
+                  // is the role's `typography.color` default now.
+                  //
+                  // IT IS NOT A TIDY-UP. `utilities.css` sits in `@layer pp-v1` and a
+                  // role's DEFAULT tier emits into `@layer pp-zero`, strictly below it,
+                  // so a surviving `.text-muted` would outrank the `empty` role's own
+                  // default outright — layer rank beats specificity, and the role would
+                  // have been declared and dead on the one element it names. ?>
+            <p class="grid__empty">Nothing here yet.</p>
         <?php endif; ?>
 
     </div>

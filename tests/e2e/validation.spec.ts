@@ -120,13 +120,22 @@ test.describe('Post-Apply Validation', () => {
     page,
   }) => {
     // 1. Create a page with a band whose image URL is unresolvable.
-    //    `grid` since #1066 PR2. This fixture needs BOTH halves from ONE band: an
-    //    unresolvable image so `missing_local_media` fires, and a `style_component` write
-    //    that succeeds. `style_component` refuses a v2 component outright, so each rebuild
-    //    evicts this fixture from its host — hero (#986), then section (#1023), then stats,
-    //    and stats rebuilt in #1066's second half. GRID IS THE LAST SHIPPED COMPONENT WITH
-    //    STYLE SLOTS, so this is the final move: when grid rebuilds there is no host left
-    //    and this test retires with the slot engine rather than moving a fifth time.
+    //    `grid` since #1066 PR2, and it stays on grid at #1101 — but the WRITE changed.
+    //
+    //    THE PREDICTION IN THIS COMMENT WAS THAT THE TEST WOULD RETIRE WITH THE SLOT
+    //    ENGINE. That was wrong, and it is worth saying so rather than quietly acting on
+    //    it. The fixture needs an unresolvable image so `missing_local_media` fires, and
+    //    ANY accepted write over that page to carry the finding back. It was the write
+    //    being `style_component` that kept evicting it from host to host — hero (#986),
+    //    section (#1023), then stats (#1066 PR2) — because `style_component` refuses a v2
+    //    component outright with `no_style_slots`.
+    //
+    //    The CLAIM was never about slots. It is that validation runs on the whole stored
+    //    composition and reports a problem the write itself did not cause, which is the
+    //    #233 shared-engine contract. So the write moves to `update_component` with an
+    //    ordinary live prop, and the fixture stops needing a host with style slots at all
+    //    — which means it cannot be evicted again by the next rebuild. Retiring it would
+    //    have taken a cross-layer claim off the board because its VEHICLE retired.
     //
     //    NOTE the #1025 fixture component is NOT usable here. It is registered by
     //    repointing get_template_directory() inside the PHP test process; the e2e suite
@@ -173,10 +182,12 @@ test.describe('Post-Apply Validation', () => {
       data.append('action', 'pp_ai_execute');
       data.append('nonce', config.executeNonce);
       data.append('type', 'action');
-      data.append('name', 'style_component');
+      // An ordinary live prop rather than a style write: the point is that an ACCEPTED
+      // write carries the page's unrelated media problem back in its envelope.
+      data.append('name', 'update_component');
       data.append('params[post_id]', String(pid));
       data.append('params[component_index]', '0');
-      data.append('params[style]', JSON.stringify({ '--grid-padding-top': '4rem' }));
+      data.append('params[props]', JSON.stringify({ title: 'Band With A Bad Image' }));
       if (baseline && baseline.success && baseline.data) {
         data.append('params[expected_version]', String(baseline.data.version));
       }
@@ -427,17 +438,44 @@ test.describe('Post-Apply Validation', () => {
   // a PROP through update_component and a STYLE SLOT through style_component, both
   // asserted on the rendered page.
   //
-  // REPRICED ONTO grid AT #1026, not deleted. It was written on cta (`button_variant`
-  // plus the then-new `--cta-shadow` slot), and cta's rebuild retired the prop AND all
-  // 40 slots — so every step became unconstructable: update_component refuses
-  // `button_variant` with `retired_prop`, style_component refuses the slot with
-  // `no_style_slots`, cta emits no `btn--outline` class and no inline style attribute
-  // at all. The CAPABILITY under test is not cta's, though; it is the generic
-  // prop-and-slot authoring path, so the fixture moves to a component that still has
-  // both. grid is the widest one left: `card_emphasis` is a prop that emits a root
-  // variant class, and `--grid-item-shadow` is a shadow-typed slot that lands as an
-  // inline custom property.
-  test('@smoke style apply: a prop + a shadow slot render on the page', async ({
+  // REPRICED ONTO grid AT #1026, AND REPRICED AGAIN AT #1101 — the second time onto the
+  // v2 path rather than onto another component, because there is no other component.
+  //
+  // It was written on cta (`button_variant` plus the then-new `--cta-shadow` slot), and
+  // cta's rebuild retired the prop AND all 40 slots. It moved to grid because grid was
+  // "the widest one left": `card_emphasis` emitted a root variant class and
+  // `--grid-item-shadow` landed as an inline custom property. Grid's own rebuild retired
+  // BOTH of those — `card_emphasis` under ruling D9, and all 38 slots with it — so the
+  // fixture has run out of components to move to. Every shipped component is v2 now.
+  //
+  // THE CAPABILITY UNDER TEST WAS NEVER "props and slots", it was "a structural PROP and
+  // a DESIGN VALUE both reach the DOM through the real write path, and you can see both
+  // on the rendered page". On v2 that is one `update_composition` call carrying `props`
+  // and `udc` together, so the test asserts the same two things at their new addresses:
+  //
+  //   the PROP          `layout: 'steps'` -> the `grid--steps` root class. It is the ONE
+  //                     surviving variant class in the theme, and it is a prop rather
+  //                     than a design value precisely because it changes which elements
+  //                     exist (a numbered badge, no card images).
+  //   the DESIGN VALUE  one card's own `udc` map -> `card` -> `shadow.box` -> a computed
+  //                     box-shadow on that card. It arrives through a band-scoped
+  //                     `[data-pp-band] [data-pp-item]` rule instead of an inline custom
+  //                     property, which is what §3.4 required and what the absence
+  //                     assertion below pins.
+  //
+  // THE DESIGN VALUE IS WRITTEN AT ITEM GRAIN BECAUSE THAT IS THE ONLY GRAIN THIS ACTION
+  // REACCHES, and the asymmetry is the whole of ruling D6. A BAND `udc` map is a SIBLING of
+  // `props`, and no action can write one at all (#1088) — `update_component` accepts
+  // `props` and nothing else. An ITEM map rides INSIDE `props`, so it arrives on an
+  // ordinary prop patch, which is exactly why the surface that accepts it had to become
+  // the surface that validates it and why a wholesale `items` replace had to stop eating
+  // it. This test is the rendered end of that path.
+  //
+  // The inline-style assertion INVERTS rather than disappearing: it used to prove the
+  // slot reached the DOM, and it now proves no inline style attribute is emitted at all.
+  // That is the stronger statement, and it is the one that would catch a regression
+  // reintroducing the v1 sink.
+  test('@smoke style apply: a prop + a design value render on the page', async ({
     page,
   }) => {
     // 1. Page with a single grid component.
@@ -495,28 +533,47 @@ test.describe('Post-Apply Validation', () => {
         { pid, name, key, value },
       );
 
-    // 3a. update_component sets the card_emphasis PROP.
-    const r1 = await dispatch(pageId, 'update_component', 'props', {
-      card_emphasis: 'uniform',
-    });
-    expect(r1.success).toBe(true);
+    // 3a. update_component sets the `layout` PROP, which emits the root variant class.
+    const r1 = await dispatch(pageId, 'update_component', 'props', { layout: 'steps' });
+    expect(r1.success, `prop write: ${JSON.stringify(r1)}`).toBe(true);
 
-    // 3b. style_component sets the --grid-item-shadow STYLE SLOT (shadow type).
-    const r2 = await dispatch(pageId, 'style_component', 'style', {
-      '--grid-item-shadow': 'var(--shadow-md)',
+    // 3b. update_component sets ONE card's shadow through that card's own `udc` map —
+    //     the v2 design path, on the only grain this action reaches. A distinctive
+    //     literal, so a default leaking through would be unmistakable.
+    const r2 = await dispatch(pageId, 'update_component', 'props', {
+      items: [
+        { title: 'One', text: 'First card.', udc: { card: { shadow: { box: '0 4px 6px rgba(1, 2, 3, 0.5)' } } } },
+        { title: 'Two', text: 'Second card.' },
+      ],
     });
-    expect(r2.success).toBe(true);
+    expect(r2.success, `design write: ${JSON.stringify(r2)}`).toBe(true);
 
-    // 4. Front-end render: the root carries .grid--uniform from the prop and the inline
-    //    --grid-item-shadow custom property from the slot, proving both reached the DOM.
+    // 4. Front-end render: the root carries .grid--steps from the prop, the card carries
+    //    the authored shadow from the role, and NOTHING carries an inline style attribute.
     await page.goto(`/?page_id=${pageId}`);
     const grid = page.locator('.grid[data-pp-component="grid"]');
     await expect(grid).toBeVisible({ timeout: 10000 });
 
-    await expect(page.locator('.grid.grid--uniform')).toBeVisible();
+    await expect(page.locator('.grid.grid--steps')).toBeVisible();
 
-    const styleAttr = (await grid.getAttribute('style')) || '';
-    expect(styleAttr).toContain('--grid-item-shadow');
-    expect(styleAttr).toContain('var(--shadow-md)');
+    const cards = page.locator('.grid__item');
+    expect(
+      await cards.nth(0).evaluate((el) => getComputedStyle(el).boxShadow),
+      'the authored shadow reached the card it was written on',
+    ).toContain('1, 2, 3');
+    expect(
+      await cards.nth(1).evaluate((el) => getComputedStyle(el).boxShadow),
+      'and reached NO other card — an unscoped selector would paint both',
+    ).not.toContain('1, 2, 3');
+
+    // Both halves of the addressing that replaced the inline sink: the band's own scope,
+    // and the minted handle for the one card inside it that asked for a design.
+    expect(await grid.getAttribute('data-pp-band')).toMatch(/^pp-[0-9a-f]{8}$/);
+    expect(await cards.nth(0).getAttribute('data-pp-item')).toMatch(/^it-[0-9a-f]{8}$/);
+    expect(await cards.nth(1).getAttribute('data-pp-item')).toBeNull();
+    expect(
+      await grid.getAttribute('style'),
+      '§3.4 forbids inline style emission anywhere in v2 — grid was the last component emitting one',
+    ).toBeNull();
   });
 });

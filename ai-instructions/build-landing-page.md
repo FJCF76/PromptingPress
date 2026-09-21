@@ -58,7 +58,7 @@ style.
 ## Step 3 — Write the composition
 
 Content is `props`; appearance is `udc`. The two never mix: there is no `theme` prop on
-any of the nine v2 components, and no style slots on any of them either.
+any of the ten v2 components, and no style slots on any of them either.
 
 **On images, before you write one into this example.** A site-relative
 `/wp-content/uploads/…` value is EXISTENCE-CHECKED against the Media Library at write, and
@@ -181,8 +181,9 @@ opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
 `@color-accent-on-inverted` exists because the plain `@color-accent` drops to about
 3.2:1 on the default inverted background and fails AA.
 
-Note that `grid` carries no `udc` — it is the one component not on the design contract.
-Style it with `style_component` and its style slots instead — read them with `wp pp schema grid`.
+`grid` joined the design contract at #1101 and is styled exactly like every other band —
+and it is the only component that can also style ONE CARD, through an `items[]` entry's own
+`udc` map (BUILD-SPEC Addendum B). Read its roles with `wp pp schema grid`.
 
 ---
 

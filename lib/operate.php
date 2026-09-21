@@ -2844,9 +2844,10 @@ function pp_component_schema_report(string $component): array|WP_Error {
     // cannot use.
     //
     // Emitted only when declared, so its absence is not mistaken for "declared empty":
-    // `grid` — the ONE component still on style slots — carries no `roles` key and says
-    // nothing. The other eleven (the nine v2 body components plus nav and footer) all
-    // declare roles.
+    // EVERY shipped component declares roles since #1101 put `grid` — the last one on
+    // style slots — onto the contract. So this gate has no shipped subject: it exists
+    // for a FUTURE component that declares none, and for stored bytes naming a
+    // component the registry no longer has.
     $roles = pp_udc_component_roles($component);
     if ($roles !== []) {
         $report['roles'] = [];
@@ -2912,6 +2913,30 @@ function pp_component_schema_report(string $component): array|WP_Error {
             }
             $report['roles'][] = $entry;
         }
+        // THE ITEM-GRAIN DECLARATION, for the same reason `udc_raw_css` is here (#1101).
+        //
+        // A CLI operator or an SSH-only agent — the audience this function's docblock
+        // names — had no discovery route to the item tier at all: `roles` lists all
+        // eighteen of grid's roles and says nothing about which ten a single card may
+        // set. DERIVED from pp_udc_item_roles() and pp_udc_item_reserved_keys(), the same
+        // way the AI-context surface derives its copy, so the two cannot drift.
+        //
+        // OMITTED, NOT EMPTIED, when a component declares none — absence has to keep
+        // meaning "this component has no item grain" rather than "it has one and it is
+        // empty", which is the distinction the roles block above makes the same way.
+        $item_declaration = pp_udc_item_roles($component);
+        if ($item_declaration !== null) {
+            $report['item_roles'] = [
+                'prop'      => $item_declaration['prop'],
+                'root'      => $item_declaration['root'],
+                'roles'     => $item_declaration['roles'],
+                'grain'     => 'A `udc` map on ONE entry of `props.' . $item_declaration['prop']
+                    . '[]`, in the same shape a band map takes.',
+                'id'        => 'Minted by the engine on write, shape `it-<hex8>`. Never authored.',
+                'excluded'  => array_keys(pp_udc_item_reserved_keys()),
+            ];
+        }
+
         $report['udc_groups'] = pp_udc_group_summary();
         // RAW DECLARATIONS ARE PART OF THE AUTHORING SURFACE, so they belong in the
         // report that documents it (#1079). `_css` is not a group and cannot appear in

@@ -140,10 +140,17 @@ class StoredCompositionAliasRenderTest extends TestCase
         $id = pp_create_page('Legacy slot page', 'draft');
         // Thin writer, no validation — persists the legacy shape exactly as a
         // pre-1.13.0 install holds it (and as restore_composition can replay it).
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 — the legacy-slot family's last
+        // available move. These tests need a component that DECLARES slots, so a
+        // stale name can be shown to be dropped while a canonical one still paints;
+        // grid was the last shipped one, and the fixture exists for exactly this
+        // (#1025). `--ppfixture-text` plays the retired legacy name and
+        // `--ppfixture-heading-color` the canonical twin — the same pairing
+        // `--grid-text` / `--grid-heading-color` carried.
         pp_update_composition($id, [[
-            'component' => 'grid',
-            'props'     => ['title' => 'Unstyled', 'items' => [['title' => 'Card', 'text' => 'B']]],
-            'style'     => ['--grid-text' => '#f0f0f0'],
+            'component' => 'ppfixture',
+            'props'     => ['title' => 'Unstyled', 'items' => [['number' => '1', 'label' => 'Card']]],
+            'style'     => ['--ppfixture-text' => '#f0f0f0'],
         ]]);
 
         $html = $this->renderStored($id);
@@ -151,7 +158,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringNotContainsString('#f0f0f0', $html, 'the legacy declaration does not paint');
         $this->assertStringNotContainsString('--grid-text', $html, 'and its own name is never emitted');
         $this->assertStringNotContainsString(
-            '--grid-heading-color',
+            '--ppfixture-heading-color',
             $html,
             'nothing canonicalizes it on the way through — the read path has no slot map any more'
         );
@@ -173,17 +180,17 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot write', 'draft');
         pp_update_composition($id, [
-            ['component' => 'grid', 'props' => ['title' => 'Canonical', 'items' => [['title' => 'Card', 'text' => 'B']]]],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Canonical', 'items' => [['number' => '1', 'label' => 'Card']]]],
         ]);
 
         $result = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--grid-text' => '#f0f0f0'],
+            'style'           => ['--ppfixture-text' => '#f0f0f0'],
         ]);
 
         $this->assertFalse($result['ok'], 'a legacy slot name is not authorable');
-        $this->assertStringContainsString('--grid-text', (string) ($result['error'] ?? ''));
+        $this->assertStringContainsString('--ppfixture-text', (string) ($result['error'] ?? ''));
         $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
     }
 
@@ -211,7 +218,7 @@ class StoredCompositionAliasRenderTest extends TestCase
     {
         $id = pp_create_page('Legacy slot blocks edits', 'draft');
         pp_update_composition($id, [
-            ['component' => 'grid', 'props' => ['title' => 'Legacy', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-text' => '#f0f0f0']],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-text' => '#f0f0f0']],
             ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
         ]);
 
@@ -233,7 +240,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ));
         $this->assertNotEmpty($reported, 'the stale declaration is still visible to validation');
         $this->assertStringContainsString(
-            '--grid-text',
+            '--ppfixture-text',
             $reported[0]['message'],
             'the disclosure names the dead slot on the band the operator never touched'
         );
@@ -247,11 +254,11 @@ class StoredCompositionAliasRenderTest extends TestCase
         $merge = pp_execute_action('style_component', [
             'post_id'         => $id,
             'component_index' => 0,
-            'style'           => ['--grid-heading-color' => '#f0f0f0'],
+            'style'           => ['--ppfixture-heading-color' => '#f0f0f0'],
         ]);
         $this->assertTrue($merge['ok'], (string) ($merge['error'] ?? ''));
         $this->assertArrayHasKey(
-            '--grid-text',
+            '--ppfixture-text',
             pp_get_composition($id)[0]['style'],
             'the merge did not evict the dead key'
         );
@@ -266,7 +273,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ]);
         $this->assertTrue($stillReported['ok'], (string) ($stillReported['error'] ?? ''));
         $this->assertStringContainsString(
-            '--grid-text',
+            '--ppfixture-text',
             implode(' ', array_column($stillReported['findings'], 'message')),
             'the dead key is still diagnosed after the merge that failed to evict it'
         );
@@ -274,7 +281,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         $repaired = pp_execute_action('update_composition', [
             'post_id'     => $id,
             'composition' => [
-                ['component' => 'grid', 'props' => ['title' => 'Legacy', 'items' => [['title' => 'Card', 'text' => 'B']]], 'style' => ['--grid-heading-color' => '#f0f0f0']],
+                ['component' => 'ppfixture', 'props' => ['title' => 'Legacy', 'items' => [['number' => '1', 'label' => 'Card']]], 'style' => ['--ppfixture-heading-color' => '#f0f0f0']],
                 ['component' => 'section', 'props' => ['title' => 'Band', 'body' => 'Copy.']],
             ],
         ]);
@@ -289,7 +296,7 @@ class StoredCompositionAliasRenderTest extends TestCase
         ]);
         $this->assertTrue($after['ok'], (string) ($after['error'] ?? ''));
         $this->assertSame([], $after['findings'], 'the page is clean once the dead key is gone');
-        $this->assertStringContainsString('--grid-heading-color: #f0f0f0', $this->renderStored($id));
+        $this->assertStringContainsString('--ppfixture-heading-color: #f0f0f0', $this->renderStored($id));
     }
 
     /**
@@ -301,15 +308,22 @@ class StoredCompositionAliasRenderTest extends TestCase
     public function testACanonicalDeclarationStillPaintsBesideAStaleLegacyTwin(): void
     {
         $id = pp_create_page('Both slot names', 'draft');
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 — the legacy-slot family's last
+        // available move. These tests need a component that DECLARES slots, so a
+        // stale name can be shown to be dropped while a canonical one still paints;
+        // grid was the last shipped one, and the fixture exists for exactly this
+        // (#1025). `--ppfixture-text` plays the retired legacy name and
+        // `--ppfixture-heading-color` the canonical twin — the same pairing
+        // `--grid-text` / `--grid-heading-color` carried.
         pp_update_composition($id, [[
-            'component' => 'grid',
-            'props'     => ['title' => 'Both', 'items' => [['title' => 'Card', 'text' => 'B']]],
-            'style'     => ['--grid-text' => '#111111', '--grid-heading-color' => '#222222'],
+            'component' => 'ppfixture',
+            'props'     => ['title' => 'Both', 'items' => [['number' => '1', 'label' => 'Card']]],
+            'style'     => ['--ppfixture-text' => '#111111', '--ppfixture-heading-color' => '#222222'],
         ]]);
 
         $html = $this->renderStored($id);
 
-        $this->assertStringContainsString('--grid-heading-color: #222222', $html, 'the canonical value paints');
+        $this->assertStringContainsString('--ppfixture-heading-color: #222222', $html, 'the canonical value paints');
         $this->assertStringNotContainsString('#111111', $html, 'the stale legacy value is simply gone');
     }
 
@@ -358,8 +372,14 @@ class StoredCompositionAliasRenderTest extends TestCase
             // have quietly narrowed the test to slot-bearing components only.
             ['component' => 'faq', 'props' => ['title' => 'Fresh', 'items' => [['question' => 'Q', 'answer' => 'A']]], 'udc' => [
                 'heading' => ['typography' => ['color' => '#f0f0f0', 'size' => '4rem']]]],
+            // grid's band carries a `udc` map at BOTH GRAINS since #1101, which is what
+            // makes it the most valuable band in this fixture: it is the only component
+            // that can round-trip a band map AND a per-ITEM map, so the byte-identity
+            // claim now covers the item tier Addendum B added. The two values are the same
+            // two the v1 fixture carried, addressed as role parameters.
             ['component' => 'grid', 'props' => ['title' => 'Cards', 'items' => [
-                ['title' => 'One', 'text' => 'a', 'style' => ['--grid-item-bg' => '#101014']]]], 'style' => ['--grid-heading-measure' => '40rem']],
+                ['title' => 'One', 'text' => 'a', 'udc' => ['card' => ['background' => ['fill' => '#101014']]]]]],
+             'udc' => ['heading' => ['sizing' => ['max-width' => '40rem']]]],
             ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'], 'style' => [
                 '--ppfixture-label-color' => '#334455']]];
 
@@ -372,11 +392,19 @@ class StoredCompositionAliasRenderTest extends TestCase
         // Read back: every authored style map survives the round trip untouched.
         $stored = pp_get_composition($id);
         $this->assertSame($authored[0]['udc'], $stored[0]['udc'], 'the faq udc map is byte-identical');
-        $this->assertSame($authored[1]['style'], $stored[1]['style'], 'grid style map is byte-identical');
+        $this->assertSame($authored[1]['udc'], $stored[1]['udc'], 'the grid band udc map is byte-identical');
         $this->assertSame(
-            $authored[1]['props']['items'][0]['style'],
-            $stored[1]['props']['items'][0]['style'],
-            'the per-item style map is byte-identical'
+            $authored[1]['props']['items'][0]['udc'],
+            $stored[1]['props']['items'][0]['udc'],
+            'the per-ITEM udc map is byte-identical — the Addendum B tier this fixture now covers'
+        );
+        // AND THE ENGINE MINTED THE ITEM ITS HANDLE, which is the half a byte-identity
+        // check cannot see: the author writes no `id`, the write path adds one, and
+        // without it the map above would validate, store, and emit under no selector.
+        $this->assertMatchesRegularExpression(
+            '/^it-[0-9a-f]{8}\z/',
+            (string) ($stored[1]['props']['items'][0]['id'] ?? ''),
+            'an item carrying a udc map is minted an it-<hex8> handle on write'
         );
         $this->assertSame($authored[2]['style'], $stored[2]['style'], 'section style map is byte-identical');
 
@@ -396,9 +424,11 @@ class StoredCompositionAliasRenderTest extends TestCase
             . 'component-defaults tier), which is what makes them this band\'s design'
         );
         $this->assertStringNotContainsString('--faq-heading-color', $html);
-        // Scoped to faq's own <section>: the grid and stats bands on this same page are
-        // still v1 and still emit their style attributes, which is the point of keeping
-        // all three in one fixture.
+        // Scoped to each band's own <section>. THE POINT OF THE FIXTURE INVERTED AT #1101:
+        // it used to be that faq was v2 while grid and the fixture band were still v1, so
+        // one page carried both emission shapes. Now only the test FIXTURE component is on
+        // the v1 shape, and the interesting contrast is between the two v2 GRAINS — faq's
+        // band-scoped block and grid's band-AND-item-scoped blocks on the same page.
         preg_match('/<section[^>]*data-pp-component="faq"[^>]*>/', $html, $faqTag);
         $this->assertNotEmpty($faqTag, 'the faq band must render');
         $this->assertStringNotContainsString(
@@ -407,8 +437,35 @@ class StoredCompositionAliasRenderTest extends TestCase
             'a v2 band emits data-pp-band and no inline style attribute'
         );
         $this->assertStringContainsString('data-pp-band="', $faqTag[0]);
-        $this->assertStringContainsString('--grid-heading-measure: 40rem', $html);
-        $this->assertStringContainsString('--grid-item-bg: #101014', $html);
+
+        // GRID'S TWO GRAINS, which is what this fixture gained at #1101 and what nothing
+        // else on the page can show. The band map emits under the band selector; the ITEM
+        // map emits under a `[data-pp-item]` selector nested inside it, and the item's
+        // handle in the emitted CSS must be the one the engine minted into storage —
+        // otherwise the map would validate, store, and paint under a selector matching
+        // nothing.
+        $itemId = $stored[1]['props']['items'][0]['id'];
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-band="pp-[0-9a-f]{8}"\] \.grid__heading\{[^}]*max-width:40rem/',
+            $bandCss,
+            'the grid band map reaches the band-scoped block'
+        );
+        $this->assertMatchesRegularExpression(
+            '/\[data-pp-band="pp-[0-9a-f]{8}"\] \[data-pp-item="' . preg_quote($itemId, '/') . '"\][^{]*\{[^}]*#101014/',
+            $bandCss,
+            'the per-item map reaches an ITEM-scoped rule keyed on the minted handle'
+        );
+        // And the card carries that handle in the markup, or the rule above matches nothing.
+        $this->assertStringContainsString('data-pp-item="' . $itemId . '"', $html);
+        // Neither grain emits an inline style attribute — §3.4, theme-wide since #1101.
+        preg_match('/<section[^>]*data-pp-component="grid"[^>]*>/', $html, $gridTag);
+        $this->assertNotEmpty($gridTag, 'the grid band must render');
+        $this->assertStringNotContainsString('style=', $gridTag[0]);
+        $this->assertStringNotContainsString('--grid-', $html, 'no grid custom property is emitted anywhere');
+
+        // The FIXTURE band is the only v1 shape left on the page, and it still paints its
+        // slot inline — which is what keeps the contrast in this test real rather than
+        // asserted about a surface that no longer exists.
         $this->assertStringContainsString('--ppfixture-label-color: #334455', $html);
 
         // And validation is clean — no findings on a canonically authored document.
@@ -565,7 +622,11 @@ class StoredCompositionAliasRenderTest extends TestCase
             // that is the point of it — just without the two styling props.
             ['component' => 'section',      'props' => ['title' => 'Section title', 'body' => 'Section copy.']],
             ['component' => 'cta',          'props' => ['title' => 'CTA title', 'body' => 'CTA copy.', 'button_text' => 'Join', 'button_url' => '/join', 'layout' => 'inline']],
-            ['component' => 'grid',         'props' => ['title' => 'Grid title', 'title_align' => 'center', 'layout' => 'cards', 'items' => [['title' => 'One', 'text' => 'a']]]],
+            // grid carries content props only now: `title_align`, `theme`,
+            // `card_emphasis` and `image_treatment` all retired at #1101. The band still
+            // renders in this every-component sweep — that is the point of it — just
+            // without the four styling props.
+            ['component' => 'grid',         'props' => ['title' => 'Grid title', 'layout' => 'cards', 'items' => [['title' => 'One', 'text' => 'a']]]],
             // testimonials carries neither `title_align` nor `theme` now: it is the first
             // v2 component, and both props' entire effect was value-styling that the
             // structural-CSS boundary removed. It stays in this roster because the
@@ -822,28 +883,74 @@ class StoredCompositionAliasRenderTest extends TestCase
         // Re-homed to `grid` at #1023: section retired `theme` and with it the one
         // component whose modifier prefix differed from its name. The DG-4 guarantee this
         // pins is the emitted class NAME, which is a property of the theme prop rather
-        // than of any component, so grid proves it just as well — and grid is one of the
-        // four that still declare the prop.
+        // than of any component — so the host moved a third time at #1101, to `ppfixture`,
+        // which is the only component left declaring a `theme` prop at all. The fixture
+        // exists for exactly this (#1025) and keeps the legacy `--dark` output name
+        // deliberately; it goes with this test in the v1 machinery sweep.
         $id = pp_create_page('Canonical muted band', 'draft');
         pp_update_composition($id, [
-            ['component' => 'grid', 'props' => ['title' => 'Muted', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'muted']],
+            ['component' => 'ppfixture', 'props' => ['title' => 'Muted', 'items' => [['number' => '1', 'label' => 'a']], 'theme' => 'muted']],
         ]);
 
-        $this->assertStringContainsString('grid--dark', $this->renderStored($id));
+        $this->assertStringContainsString('ppfixture--dark', $this->renderStored($id));
     }
 
     public function testANewWriteOfTheRemovedThemeValueIsRejected(): void
     {
-        // `grid` since #1023: the removed INPUT value (`dark`, replaced by `muted` at
-        // #605) is what this refusal is about, and it is the prop's contract rather than
-        // section's — so it moves to a component that still declares the prop.
-        $composition = [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']], 'theme' => 'dark']]];
+        // THE HOST COULD NOT FOLLOW THE PROP THIS TIME, and that is worth stating because
+        // every other re-homing in this file did. The claim is STRICTNESS: a `strict` enum
+        // refuses an unadvertised value outright rather than coercing it, which is what
+        // #605 established when `dark` was removed from `theme`. `ppfixture` declares a
+        // `theme` prop but declares it NON-strict on purpose — its schema says it is kept
+        // "because the theme-variant and friendly-error suites exercise enum COERCION" —
+        // so hosting the strictness claim there would have asserted the opposite of what
+        // the fixture is for. And after #1101 no shipped component declares `theme` at all.
+        //
+        // So the claim follows the PROPERTY rather than the prop: `layout` is `strict` on
+        // five shipped components, including grid, and an unadvertised value there is
+        // refused by the same rule with the same code and the same advertised-set message.
+        // The `theme` half of the record — that `dark` was removed rather than aliased —
+        // lives in grid's `retired_props` route, which names what replaced the whole prop.
+        $composition = [['component' => 'grid', 'props' => ['title' => 'A', 'items' => [['title' => 'One', 'text' => 'a']], 'layout' => 'masonry']]];
 
-        $result = pp_validate_action('create_page', ['title' => 'Removed theme value', 'composition' => $composition]);
+        $result = pp_validate_action('create_page', ['title' => 'Removed enum value', 'composition' => $composition]);
 
         $this->assertInstanceOf(\WP_Error::class, $result);
         $this->assertSame('invalid_prop_value', $result->get_error_code());
-        $this->assertStringContainsString('default, muted, inverted', $result->get_error_message());
+        $this->assertStringContainsString('cards, steps', $result->get_error_message());
+        // AND NOT COERCED: a strict enum names the set rather than silently clamping to a
+        // default, which is the half #605 was actually about.
+        //
+        // THIS ASSERTION WAS VACUOUS AND IS THE REASON THE SUITE GAINED A WARNING (#1101).
+        // It read:
+        //
+        //     assertStringNotContainsString('masonry', strtolower((string) $result->get_error_data()['coerced'] ?? ''))
+        //
+        // Three things were wrong with it and they compounded. `get_error_data()` returns
+        // `['index' => 0]` on this refusal and has never carried a `coerced` key, so the
+        // subscript raised "Undefined array key" on every run — the one warning separating
+        // this branch's count from main's, which an earlier handoff recorded as
+        // fixture-loader noise. The `??` could not suppress it either: `??` binds looser
+        // than the cast, so it guards the already-cast `''` rather than the array access.
+        // And the value it compared was therefore ALWAYS the empty string, which contains
+        // no substring at all — so the assertion could not fail for any input.
+        //
+        // WHAT NON-COERCION ACTUALLY LOOKS LIKE HERE, asserted instead. A coercing enum
+        // returns SUCCESS having silently substituted its default; a strict one refuses
+        // and REPORTS THE VALUE YOU SENT, so the author can see what was rejected rather
+        // than discovering a default later on a rendered page. The refusal above is the
+        // first half; the message naming `masonry` is the second, and it is the half that
+        // distinguishes "refused" from "refused with a useless message".
+        $this->assertStringContainsString(
+            'masonry',
+            $result->get_error_message(),
+            'a strict enum reports the value it rejected — a message that named only the '
+            . 'accepted set would leave an author guessing which of their values was wrong'
+        );
+        // And the refusal carries no coercion channel at all: the data shape is the band
+        // locator and nothing else, so there is no key through which a clamped value could
+        // reach a caller that did not read the message.
+        $this->assertSame(['index' => 0], $result->get_error_data());
     }
 
     // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
@@ -862,7 +969,12 @@ class StoredCompositionAliasRenderTest extends TestCase
         // class — `muted` under the legacy `--dark` name, `inverted` under its own,
         // `default` under none.
         $bands = [
-            'grid'         => ['title' => 'G', 'items' => [['title' => 'One', 'text' => 'a']]],
+            // grid left this roster at #1101 and `ppfixture` took its place — the roster's
+            // THIRD re-homing, and the last one available: no shipped component declares a
+            // `theme` prop any more. The fixture exists for exactly this (#1025); it keeps
+            // the legacy `--dark` output name and the same three canonical values, so the
+            // claim is unchanged and the class names move with the host.
+            'ppfixture'    => ['title' => 'G', 'items' => [['number' => '1', 'label' => 'a']]],
             // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
             // entire effect was value-styling the structural-CSS boundary forbids.
             // section is absent since #1023 for the same reason, and it took the one
@@ -944,9 +1056,18 @@ class StoredCompositionAliasRenderTest extends TestCase
         // REPORTS, on both channels, so the operator sees it before and after.
         foreach ([['preview', $preview], ['result', $result]] as [$label, $envelope]) {
             $encoded = json_encode($envelope['findings'] ?? []);
-            $this->assertStringContainsString('invalid_prop_value', $encoded,
+            // THE FINDING CHANGED CLASS AT #1101, and it changed for the better. The stored
+            // `dark` used to be an out-of-set VALUE on a live enum (`invalid_prop_value`,
+            // naming "default, muted, inverted"). grid's rebuild retired the whole PROP, so
+            // the same snapshot now reports `retired_prop` — which tells the operator where
+            // the value WENT (`_band` -> `background`) instead of offering three values that
+            // no longer exist either. The claim this test makes is unchanged: restore is not
+            // blocked (#233), the stored bytes are not rewritten, and the problem is
+            // REPORTED rather than swallowed.
+            $this->assertStringContainsString('retired_prop', $encoded,
                 "{$label}: the removed value must be reported, not silently swallowed");
-            $this->assertStringContainsString('default, muted, inverted', $encoded, $label);
+            $this->assertStringContainsString('no longer has a prop \"theme\"', $encoded, $label);
+            $this->assertStringContainsString('`_band`', $encoded, $label . ' — and it names the route');
         }
 
         // Restored VERBATIM — restore is not a rewrite — and the band renders default.

@@ -4,7 +4,7 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, and the authoring model told what it has to pair (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087)
+## [Unreleased — v2.0.0-alpha.2] — v2 Sprint 2: the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling (#994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -91,6 +91,78 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - Chrome joins the structural-CSS boundary lint; the carve-out is removed and its lapse pinned.
 - The #992 characterization test is inverted rather than deleted: same fixture, same authored input, opposite expectations.
 - New pins: role defaults frozen value-for-value, breakpoint maps refused when they name only `d`, every role's defaults proved to reach the page, every shipped selector proved well-formed, and the chevron's negative margin pinned to the token it mirrors.
+
+### `grid` is on the design contract, and one card can be dark (#1101)
+
+**The last component on the old style-slot system is rebuilt, so the system has no consumer left.** `grid` declared 38 style slots, 3 named recipes, a `theme` prop and a per-card `style` map; it declares 18 roles and an `item_roles` block now. With it, `style_component` refuses every component, every band in the theme is styled the same way, and BUILD-SPEC §3.4's "no inline style emission anywhere in v2 components" is true theme-wide for the first time — grid was the last component emitting a `style` attribute, and it emitted two.
+
+**A single card can carry its own design.** This is BUILD-SPEC **Addendum B**, ratified for this rebuild, and it exists because roles are BAND grain: before it, the v2 contract had no way to say "this one card". An `items[]` entry may now hold its own `udc` map, addressing the same roles the component declares, validated by the same engine, refused with the same codes:
+
+```json
+{"title": "AI-safe structure", "text": "…",
+ "udc": {"card": {"background": {"fill": "#14141F"}},
+         "card-title": {"typography": {"color": "#F2EEE5"}},
+         "card-text": {"typography": {"color": "#E8E2D4"}}}}
+```
+
+The engine mints that entry a handle (`it-<hex8>`) on write and emits `[data-pp-band="…"] [data-pp-item="…"]` rules. **The handle is the point:** a design written against `items[1]` moved when someone reordered the list; a design written against a minted id travels with its card. Seven things are refused rather than ignored — per-item chrome, `_band` inside an item map, ordinal selectors (`nth-child`, `first`, `last`, `even`/`odd`), nesting beyond one level, defining a preset inside an item, pseudo-elements, and `_css` at item grain.
+
+**Every ported default was measured in a browser, not read off a fallback.** A v1 slot's fallback tells you what that DECLARATION resolves to, not what the ELEMENT rendered, and the two differ whenever an ancestor constrains it or a media query scopes it. Some of what that found: the card text's colour is a BREAKPOINT MAP (`@color-muted` below 768px, `@color-text-secondary` above), because the premium typography tier overrode the base rule; the band heading follows `currentColor` rather than pinning a token, which is what made a dark band's heading light without a theme class; and THREE of `text_role`'s four values genuinely rendered — `mono` set a monospace family at every tier, `label` and `kicker` set tracking and casing — while only `meta` was inert, the premium typography tier having out-ranked it at every desktop width.
+
+### ⚠️ Breaking: six `grid` props are retired, and one class of card styling changes
+
+`theme`, `title_align`, `card_emphasis`, `image_treatment`, `items[].text_role` and `items[].style` are refused at write with `retired_prop`, and the refusal names the role that replaced each one. **Nothing is migrated and nothing is healed:** a page written before this release keeps its stored keys, still renders, and reports them on every accepted write.
+
+**Migration** — clear each stale key by sending it as `null`, one band at a time:
+
+```bash
+wp pp action execute update_component --run-id=<uuid> \
+  --params='{"post_id":42,"component_index":0,"props":{"theme":null,"card_emphasis":null}}'
+```
+
+Send EVERY stale key on a band in the same call: the validator reports the first problem per band, so clearing one just surfaces the next.
+
+**Four measured narrowings, stated rather than discovered.** Each was checked against the owner's production site before the prop went:
+
+- **`card_emphasis` is retired rather than ported.** Its `featured` treatment was `:first-child` — ordinal styling — which contradicts Addendum B's rule that a card is addressed by its minted id. Measured: all 11 production grid bands already rendered `uniform`. One special card is an item `udc` map now.
+- **`--grid-item-bullet-color` has no replacement.** It coloured a `::before` check-mark glyph, and pseudo-elements are deferred (#1028), so the marker takes the shared accent. A band that authored it (the starter homepage did, in orange) renders the accent instead.
+- **`image_treatment: "icon"` loses its un-cropped fit.** The box is `card-media` → `sizing`; `object-fit` has no typed parameter, so `contain` is reachable only through `_css`. Zero production bands used the treatment.
+- **The steps layout shifts.** Its badge moved inside the card body, because the steps-only outer padding it sat in has no v2 home — role defaults carry a breakpoint and a state dimension and no VARIANT dimension. Content insets go from 48px to 32px at the sides, and the steps card title loses its own type scale: 1.04rem at weight 680 capped to a 17rem measure becomes the shared 1.14rem at 670, uncapped. Set `card-title` -> `sizing.max-width` on a steps band to restore the cap. That conditionality gap is filed as #1102.
+
+- **A card that ends with its paragraph is 16px taller.** `card-text` defaults a bottom margin, which v1's `p:last-child` reset zeroed when nothing followed it; a role has no way to say "unless last". Same #1102 gap, reached through spacing instead of a variant. Set `card-text` -> `spacing.margin-bottom` to `"0"` on a band where it shows. Everything else measured byte-identical: a card with text, bullets and a link is the same height it always was.
+
+**The card top bar SURVIVED, and it is why it is a real element now.** v1 painted it as `.grid__item::before`, which no role can address, so ported literally it would have retired with the slots. Measured first: 10 of the 11 production bands author it, all with the same purple→orange→teal 3px rule. It is an empty `<span>` and the `card-bar` role now — one element per card for a capability the Sprint-3 reconstruction depends on.
+
+### Upgrading
+
+Nothing to do on a site with no stored `grid` styling. If you have grid bands built before this release, `wp pp check page --post_id=<id>` lists every retired key by band; clear them with the migration above. A stored `style` map on a grid band no longer paints — it is reported, not migrated.
+
+### Itemized changes
+
+#### Fixed
+- **A card you had styled could not be deleted.** A per-breakpoint value on a card mints a token onto the band, and deleting the card left the token behind — so the next write was refused permanently, on a name you never typed, telling you to rename it from a surface that cannot reach it. The documented "send an empty map to clear it" route hit the same wall. Orphaned mints are reaped on the next write, and an orphan can no longer be mistaken for a name-collision.
+- **Reordering or deleting a card moved its design onto a different card.** Designs were carried by POSITION, so a delete slid one card's design onto its neighbour and a reorder left it on the slot. Re-sending each entry's `id` now carries the design with the CARD — and re-sending it used to be refused outright as a duplicate id. A patch that changes the array length preserves nothing rather than guessing, and a patch that relies on position says so (#1088).
+- The card link's focus ring painted across its own label. It is drawn inside the card because the card clips anything outside it, and the link had no room for it — measured at 1280, the stroke crossed the "R" of "Read" and split the arrow (#1056).
+- Two cards sharing an id from storage silently discarded one design and painted the other on both. It is reported now.
+- A card background image whose attachment is deleted is reported. It was dropped at render on no channel at all.
+- An item map naming a bad token said which band but not which card — the same sentence a band-level mistake produced.
+- The step badge regained the line height v1 shipped, so a larger numeral cannot outgrow its circle.
+
+#### Changed
+- `style_component` refuses every component with `no_style_slots`. Nothing declares a slot map.
+- The authoring model is told about item-grain styling: which roles a card may set, the exclusions, the engine-owned handle, and that `update_component` is the action that reaches it. It had none of that.
+- `wp pp schema <component>` reports an `item_roles` block for a component that declares one.
+- Disclosure volume is bounded across the composition rather than per band, on every item-grain channel.
+
+#### Docs
+- `docs/howto-migrate-a-grid-band-to-v2.md` — the migration guide, the last of eight. Every `udc` snippet in it is validated against the live engine by the test suite.
+- The README's migration index lists all eight components; it had listed five since #1066.
+- Every AI-facing surface corrected: `AI_CONTEXT.md` advertised six retired props as live and claimed grid "is the one component with style slots (38)" in a file whose own census read zero; `validate-site.md` taught that a `udc` map on grid is an error, which is this change's headline capability.
+
+#### Tests
+- `GridRoleDefaultsEmitTest` and `GridItemUdcTest`: grid's 76 shipped defaults asserted as CSS rather than JSON, and the item tier pinned at the grain an author writes at — the write path, the seven exclusions, the id lifecycle, emission order, provenance and all four disclosure families.
+- Every negative control carries a planted-defect proof. Two shipped vacuous and were caught by mutation: an inline-style check defeated by attribute order, and a reduced-motion guard satisfied by a prefix collision.
+- The full local Playwright suite runs green; 27 blocks that seeded grid with retired props were repriced or retired with their subject.
 
 ---
 

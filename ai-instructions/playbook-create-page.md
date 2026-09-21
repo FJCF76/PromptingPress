@@ -26,7 +26,7 @@ Map the brief to PromptingPress components:
   rejected with `template_owned_component`
 - Choose layouts from the `layout` prop where the component has one (`hero`, `section`,
   `grid`, `cta`, `testimonials` — those five), and plan the band's TONE as its `udc` map,
-  not as a `theme` prop: only `grid` still has one
+  not as a `theme` prop: no component has one since #1101
 - Plan the composition array (component order, props)
 - Note any design token changes needed (stored in database, not file-based)
 

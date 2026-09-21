@@ -76,10 +76,18 @@ final class AppliesWhenTest extends TestCase
     }
 
     /**
-     * DEFAULT RESOLUTION — the single most load-bearing behaviour here. `card_emphasis`
-     * defaults to "featured", so a grid that simply omits the prop IS featured. Without
-     * the fallback, `--grid-featured-*` would be reported inert on most grids on the
-     * internet, which is a false positive that halts `wp pp validate site`.
+     * DEFAULT RESOLUTION — the single most load-bearing behaviour here. The worked
+     * example was grid's `card_emphasis`, which defaulted to "featured": a grid that
+     * simply omitted the prop WAS featured, and without the fallback `--grid-featured-*`
+     * would have been reported inert on most grids on the internet — a false positive
+     * that halts `wp pp validate site`.
+     *
+     * THE EXAMPLE RETIRED WITH grid's SLOT MAP AT #1101; the BEHAVIOUR did not. The
+     * defaults here are synthetic on purpose (see propDefs above), so this pin never
+     * depended on that prop shipping — only the prose did, and it is kept as history
+     * because it is still the clearest statement of what a missing fallback costs.
+     * Every conditional slot left in the theme (ppfixture's nine) uses `present`, whose
+     * default resolution is pinned by testPresentUsesTheSchemaDefaultToo below.
      */
     public function testAnAbsentPropTakesItsSchemaDefault(): void
     {
@@ -155,16 +163,25 @@ final class AppliesWhenTest extends TestCase
         $this->assertTrue(pp_applies_when_clause_met(['prop' => 'proof', 'present' => true], [], $defs, []));
     }
 
-    /** The sibling-slot form reads the authored STYLE map, not the props. */
+    /**
+     * The sibling-slot form reads the authored STYLE map, not the props.
+     *
+     * THE SLOT NAME MOVED FROM `--grid-item-bar-color` TO `--ppfixture-bg` AT #1101,
+     * and nothing else changed: this predicate never looks a slot up in any schema, it
+     * only asks whether the key carries a scalar value in the map it was handed. The
+     * old name was grid's, and grid's slot map retired with its v2 rebuild — a dead
+     * name here would still have passed, which is precisely why it is worth replacing
+     * with a live one rather than leaving as a fossil a reader has to decode.
+     */
     public function testSlotPresentReadsTheStyleMap(): void
     {
-        $clause = ['slot' => '--grid-item-bar-color', 'present' => true];
+        $clause = ['slot' => '--ppfixture-bg', 'present' => true];
 
-        $this->assertTrue(pp_applies_when_clause_met($clause, [], [], ['--grid-item-bar-color' => '#f00']));
+        $this->assertTrue(pp_applies_when_clause_met($clause, [], [], ['--ppfixture-bg' => '#f00']));
         $this->assertFalse(pp_applies_when_clause_met($clause, [], [], []));
-        $this->assertFalse(pp_applies_when_clause_met($clause, [], [], ['--grid-item-bar-color' => '']));
+        $this->assertFalse(pp_applies_when_clause_met($clause, [], [], ['--ppfixture-bg' => '']));
         $this->assertFalse(
-            pp_applies_when_clause_met($clause, [], [], ['--grid-item-bar-color' => ['not', 'scalar']]),
+            pp_applies_when_clause_met($clause, [], [], ['--ppfixture-bg' => ['not', 'scalar']]),
             'a non-scalar slot value is not a set value'
         );
     }
@@ -269,30 +286,81 @@ final class AppliesWhenTest extends TestCase
         $this->assertStringContainsString('applies when background_image is set', $smells[0]['message']);
     }
 
-    /** ONE warning per slot, listing EVERY unmet clause — not one warning per clause. */
-    public function testOneWarningPerSlotListsEveryUnmetClause(): void
+    /**
+     * THE MULTI-CLAUSE ADVISORY TEST RETIRED AT #1101, and this is its replacement.
+     *
+     * (1) WHAT IT PROVED. A slot whose `applies_when` lists TWO clauses, both unmet,
+     *     produces exactly ONE advisory naming BOTH — not one warning per clause, and
+     *     not one warning naming only the first miss. It drove that through
+     *     `grid.--grid-featured-shadow` ("layout = cards" AND "card_emphasis =
+     *     featured"), a band satisfying neither.
+     *
+     * (2) WHY THE SUBJECT IS GONE. It had already been re-homed twice — hero's
+     *     equivalent left at #986, cta's two-button family at #1026 — and the note it
+     *     carried said plainly that grid was the only component whose conditional slots
+     *     spanned both the one-clause and the two-clause shape. grid's whole slot map
+     *     retired with its v2 rebuild, and the census below is the measurement: NO
+     *     DEFINITION ANYWHERE — no shipped prop, no shipped slot, not even the
+     *     slot-engine fixture — DECLARES MORE THAN ONE `applies_when` CLAUSE. Driving
+     *     this through the advisory now would require inventing a fixture slot that
+     *     does not ship, which is the vacuous-pin shape this suite exists to refuse.
+     *
+     * (3) WHERE THE CLAIM WENT. It splits in two, and both halves are pinned on real
+     *     code rather than on a schema that would have to be invented:
+     *       - the LISTER still reports every failing clause in declaration order, on a
+     *         synthetic two-clause list — testUnmetReportsEveryFailingClauseInDeclarationOrder
+     *         above, unchanged and still green; and
+     *       - the CONJUNCTION RENDERING is pinned directly on pp_ai_definition_suffix()
+     *         below, which joins clauses with " AND " through the same
+     *         pp_ai_format_applies_when_clause() the advisory calls per clause.
+     *     What has NO pin left is the guardrails-side `implode(' AND ', $phrases)` that
+     *     glues the advisory's own sentence together. Stated rather than papered over:
+     *     that line is unreachable until some schema declares a second clause, and the
+     *     census below fails the moment one does — which is the moment to restore the
+     *     end-to-end test.
+     *
+     * (4) THE PIN. The census is the retirement's guard. It is deliberately a MAXIMUM
+     *     assertion, not a "zero multi-clause slots" assertion, so it reads as what it
+     *     is: a statement about today's surface that a single new clause list breaks.
+     */
+    public function testNoDefinitionDeclaresATwoClauseConditionAnyMoreAndTheConjunctionStillRenders(): void
     {
-        $smells = $this->inertSmells([
-            // grid since #1026; cta's two-button family carried this two-clause condition
-            // until its slots retired, and hero's equivalent left at #986. The fixture has
-            // to carry a slot with TWO unmet clauses or the test degenerates into the
-            // GRID, NOT STATS, AND DELIBERATELY SO. The #1023 rule sends a re-homed slot
-            // fixture to `stats` (furthest down the rebuild queue), and every other one in
-            // this sprint went there. This pair cannot: the subject is the SHAPE of an
-            // applies_when clause list — a two-clause slot beside a one-clause sibling — and
-            // grid is the only component whose 20 conditional slots span both. Moving it to
-            // stats would change what the test tests. It will need revisiting when grid
-            // rebuilds (#1024); #1025 is the durable fix for the whole pattern.
-            // one-clause case its sibling below already covers — `--grid-featured-shadow`
-            // applies when `layout = "cards"` AND `card_emphasis = "featured"`, and this
-            // band satisfies neither. See #1025 on why this keeps re-homing.
-            ['component' => 'grid', 'props' => ['title' => 'T', 'layout' => 'list', 'card_emphasis' => 'uniform', 'items' => [['title' => 'Card', 'text' => 'B']]],
-             'style' => ['--grid-featured-shadow' => '0 1px 2px #000']],
-        ]);
+        $counts = [];
+        foreach (pp_get_registered_components() as $component => $schema) {
+            $definitions = array_merge(
+                array_values($schema['props'] ?? []),
+                array_values($schema['styling']['style_slots'] ?? [])
+            );
+            foreach ($definitions as $definition) {
+                if (!is_array($definition) || empty($definition['applies_when']) || !is_array($definition['applies_when'])) {
+                    continue;
+                }
+                $counts[] = count($definition['applies_when']);
+            }
+        }
 
-        $this->assertCount(1, $smells);
-        $this->assertStringContainsString('layout = "cards"', $smells[0]['message']);
-        $this->assertStringContainsString('card_emphasis = "featured"', $smells[0]['message']);
+        // NOT VACUOUS: the census has to find conditional definitions at all, or a
+        // registry that declared none would satisfy the maximum below trivially.
+        $this->assertNotSame([], $counts, 'no definition anywhere declares applies_when — the advisory has no subject at all');
+        $this->assertSame(
+            1,
+            max($counts),
+            'A definition now declares more than one applies_when clause. The end-to-end multi-clause '
+            . 'advisory test retired at #1101 because no such definition existed; restore it against '
+            . 'this one — the guardrails-side clause join has had no coverage since.'
+        );
+
+        // The conjunction RENDERING, pinned where it is still reachable. This is the
+        // same joiner the advisory relies on, one layer up from it.
+        $this->assertSame(
+            '; applies when layout = "cards" AND card_emphasis = "featured"',
+            pp_ai_definition_suffix(['applies_when' => [
+                ['prop' => 'layout', 'equals' => 'cards'],
+                ['prop' => 'card_emphasis', 'equals' => 'featured'],
+            ]]),
+            'the two clauses render as ONE condition, ANDed — two "applies when" phrases would read '
+            . 'as two competing conditions'
+        );
     }
 
     /** ...and one warning PER SLOT, so a band that defeats six slots reports six. */
@@ -346,38 +414,74 @@ final class AppliesWhenTest extends TestCase
     }
 
     /**
-     * A `conditionality_note`-only definition stays silent, and that is the KNOWN BOUND,
-     * not an oversight: the prose classes (disjunction, `main >` scope) are unevaluable by
-     * construction. They reach the author through the AI catalog before the write, never
-     * through this channel after it.
+     * THE PROSE-ONLY SILENCE TEST RETIRED AT #1101, after a third re-home would have been
+     * its third vacuous pass in three rebuilds.
      *
-     * RE-HOMED TWICE, AND THE SECOND TIME BECAUSE THIS TEST HAD GONE VACUOUS. #1023 pointed
-     * it at faq's `--faq-question-open-color` to represent the interaction-state class;
-     * #1046 retired every faq slot, and an UNDECLARED slot name raises no inert advisory
-     * whatever its condition — so the assertion passed for the same reason an invented name
-     * would. Measured at #1046's red-team pass: `['--faq-total-nonsense-zzz' => '#09f']`
-     * returns `[]` identically. That is the vacuous-pin shape the note below this test says
-     * this suite exists to refuse, and #1046 had already re-pointed the CATALOG half of the
-     * same claim while leaving this half on the retired slot.
+     * (1) WHAT IT PROVED. A slot carrying a `conditionality_note` — prose the four-form
+     *     clause grammar cannot express (disjunction, composed-page `main >` scope,
+     *     interaction state, an item-level condition) — produces NO `inert_slot`
+     *     advisory. That is the KNOWN BOUND, not an oversight: such a condition is
+     *     unevaluable by construction, so guessing at it after the write would put
+     *     unactionable text on the channel that halts `wp pp validate site`. It reaches
+     *     the author through the AI catalog BEFORE the write instead.
      *
-     * The interaction-state example went with faq's slots; the subject now is
-     * `--grid-item-icon-size`, the slot the catalog half pins. BOTH of its evaluable clauses
-     * must be MET here (`layout: cards` AND `image_treatment: icon`) or the advisory fires
-     * for the ordinary evaluable reason and proves nothing about prose. Its unevaluable half
-     * is `at least one item declares an image_url`. Non-vacuity measured: breaking either
-     * evaluable clause produces `inert_slot`, so this assertion can still fail.
+     * (2) WHY THE SUBJECT IS GONE. This test has a history of passing for the wrong
+     *     reason, because an UNDECLARED slot name raises no advisory whatever its
+     *     condition — the same `[]` an honest silence returns. #1023 pointed it at faq's
+     *     `--faq-question-open-color`; #1046 retired faq's slots and re-pointed it at
+     *     grid's `--grid-item-icon-size`, whose unevaluable half was "at least one item
+     *     declares an image_url". grid's slot map retired at #1101, and the census below
+     *     is the measurement: NO STYLE SLOT ANYWHERE — shipped or fixture — DECLARES
+     *     `conditionality_note` at all. The advisory channel has no prose-bearing
+     *     subject left, so the silence is unreachable rather than merely unexercised.
+     *
+     * (3) WHERE THE CLAIM WENT. The prose classes did NOT retire with the slots — they
+     *     moved wholesale to PROPS (logos' item-level height cap; nav's and footer's
+     *     negations and WordPress-state preconditions). The advisory only ever read
+     *     style slots, so on today's surface the whole prose population reaches the
+     *     author exclusively through the catalog, which is what the second and third
+     *     assertions pin. Stated rather than papered over: if a v2-era component ever
+     *     declares a prose-conditional SLOT again, the silence is reachable once more
+     *     and the first assertion here fails, which is the moment to restore the
+     *     end-to-end test.
      */
-    public function testAProseOnlyConditionIsSilent(): void
+    public function testNoStyleSlotCarriesProseConditionalityAnyMoreAndThePropSurfaceCarriesItInstead(): void
     {
-        $this->assertSame([], $this->inertSmells([
-            ['component' => 'grid',
-             'props'     => [
-                 'layout'          => 'cards',
-                 'image_treatment' => 'icon',
-                 'items'           => [['title' => 'One', 'image_url' => 'https://example.com/a.png']],
-             ],
-             'style'     => ['--grid-item-icon-size' => '3rem']],
-        ]));
+        $slots_with_prose = [];
+        $slots_seen       = 0;
+        $props_with_prose = [];
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['styling']['style_slots'] ?? []) as $slot => $definition) {
+                $slots_seen++;
+                if (is_array($definition) && !empty($definition['conditionality_note'])) {
+                    $slots_with_prose[] = "{$component}{$slot}";
+                }
+            }
+            foreach (($schema['props'] ?? []) as $prop => $definition) {
+                if (is_array($definition) && !empty($definition['conditionality_note'])) {
+                    $props_with_prose[] = "{$component}.{$prop}";
+                }
+            }
+        }
+
+        // NOT VACUOUS: a registry with no style slots left at all would satisfy the
+        // emptiness below for the wrong reason, so the walk has to have seen slots.
+        $this->assertGreaterThan(0, $slots_seen, 'no style slots remain to inspect — this census proves nothing');
+        $this->assertSame(
+            [],
+            $slots_with_prose,
+            'A style slot declares conditionality_note again. The prose-silence test retired at #1101 '
+            . 'because no slot did; restore it against this slot — the advisory must stay SILENT on it.'
+        );
+
+        // The prose classes themselves are alive, on the prop surface.
+        $this->assertNotSame([], $props_with_prose, 'the prose conditionality classes have left the theme entirely');
+        $this->assertContains('logos.items', $props_with_prose, 'the item-level class is the one grid used to carry');
+
+        // And the catalog — the channel prose was always meant to travel on — renders it
+        // verbatim, with no fabricated evaluable clause in front of it.
+        $suffix = pp_ai_definition_suffix(pp_get_registered_components()['logos']['props']['items']);
+        $this->assertStringContainsString('applies when the height cap applied to a logo image', $suffix);
     }
 
     // RETIRED (#1026) — AND THE RETIREMENT CARRIES A DISCLOSURE, not just a re-home.
@@ -411,31 +515,37 @@ final class AppliesWhenTest extends TestCase
      */
     public function testOnlyThePaintedDeclarationWarnsRegardlessOfStoredKeyOrder(): void
     {
-        // FIXTURE RETARGETED from testimonials to grid. testimonials was rebuilt on the
-        // Universal Design Contract and declares no style slots at all, so every case
-        // here would pass VACUOUSLY against it — an undeclared name raises no inert
-        // advisory, which is the wrong reason for a green test. grid carries the same
-        // shape the fixture needs: --grid-item-bar-* is gated on `layout = "cards"`,
-        // so the `steps` layout leaves it declared-but-unmet, which is exactly the
-        // state this advisory reports.
-        $props = ['layout' => 'steps', 'items' => [['title' => 'One']]];
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, and this is the SECOND retarget:
+        // it went testimonials -> grid at #1026 for exactly the reason it now leaves grid.
+        // grid was rebuilt on the Universal Design Contract and declares no style slots at
+        // all, so BOTH names in each pair below would now be undeclared and every case
+        // would pass VACUOUSLY — an undeclared name raises no inert advisory, which is the
+        // wrong reason for a green test. `ppfixture` is the registered test-only component
+        // that keeps a slot map across rebuilds precisely so the slot-engine suites do not
+        // have to chase the last shipped v1 component (#1025), and it carries the shape
+        // this fixture needs: `--ppfixture-overlay-bg` is gated on `background_image is
+        // set`, so a band with no background image leaves it declared-but-unmet, which is
+        // exactly the state this advisory reports. `--ppfixture-scrim-bg` stands in for the
+        // retired twin — a name no schema declares, which is all the arbitration needs.
+        // The fixture dies with the slot engine itself, in this task's PR2.
+        $props = ['items' => [['number' => '10', 'label' => 'Sites']]];
 
         foreach ([
-            ['--grid-card-bar-color' => '#fff', '--grid-item-bar-color' => '#eee'],
-            ['--grid-item-bar-color' => '#eee', '--grid-card-bar-color' => '#fff'],
+            ['--ppfixture-scrim-bg' => '#fff', '--ppfixture-overlay-bg' => '#eee'],
+            ['--ppfixture-overlay-bg' => '#eee', '--ppfixture-scrim-bg' => '#fff'],
         ] as $style) {
             $smells = $this->inertSmells([
-                ['component' => 'grid', 'props' => $props, 'style' => $style],
+                ['component' => 'ppfixture', 'props' => $props, 'style' => $style],
             ]);
 
             $this->assertCount(1, $smells, 'one painted declaration, one warning');
             $this->assertStringContainsString(
-                '--grid-item-bar-color',
+                '--ppfixture-overlay-bg',
                 $smells[0]['message'],
                 'the declared slot is the one that paints, whichever key was stored first'
             );
             $this->assertStringNotContainsString(
-                '--grid-card-bar-color',
+                '--ppfixture-scrim-bg',
                 $smells[0]['message'],
                 'the retired name is undeclared: it paints nothing and is named nowhere'
             );
@@ -453,20 +563,40 @@ final class AppliesWhenTest extends TestCase
      */
     public function testADeclarationThatCannotPaintIsNotReportedInert(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid was the LAST shipped
+        // component declaring style slots, and its v2 rebuild retired every one of them —
+        // so all three rows below would have collapsed into the SECOND row ("undeclared
+        // slot") and passed for one reason instead of three. `ppfixture` is the registered
+        // test-only slot host (#1025) and dies with the slot engine in this task's PR2.
+        // This band sets neither `title` nor `background_image`, so both conditional slots
+        // used here are genuinely unmet: each row is silent because the RENDERER drops the
+        // declaration, not because the condition happens to hold.
+        $props = ['items' => [['number' => '10', 'label' => 'Sites']]];
+
         foreach ([
-            'empty value'        => ['--grid-item-bar-color' => ''],
-            'undeclared slot'    => ['--grid-not-a-slot' => '#fff'],
-            'rejected by render' => ['--grid-item-bar-height' => 'not-a-length'],
+            'empty value'        => ['--ppfixture-overlay-bg' => ''],
+            'undeclared slot'    => ['--ppfixture-not-a-slot' => '#fff'],
+            'rejected by render' => ['--ppfixture-heading-size' => 'not-a-length'],
         ] as $label => $style) {
             $this->assertSame(
                 [],
                 $this->inertSmells([
-                    ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
-                     'style' => $style],
+                    ['component' => 'ppfixture', 'props' => $props, 'style' => $style],
                 ]),
                 "{$label}: the renderer drops this declaration, so the advisory must not report it"
             );
         }
+
+        // POSITIVE CONTROL, added with the re-home. Without it the three silences above
+        // could all be the silence of a band that simply has nothing inert on it, which is
+        // the failure mode that sent this suite's prose-condition test through two vacuous
+        // re-homes. The SAME slot on the SAME band, with a value the renderer accepts, is
+        // reported — so each row above is measuring the renderer gate and nothing else.
+        $painting = $this->inertSmells([
+            ['component' => 'ppfixture', 'props' => $props, 'style' => ['--ppfixture-overlay-bg' => '#fff']],
+        ]);
+        $this->assertCount(1, $painting, 'the same slot, painting, IS reported — the silences above are the gate, not the band');
+        $this->assertStringContainsString('--ppfixture-overlay-bg', $painting[0]['message']);
     }
 
     /**
@@ -481,9 +611,15 @@ final class AppliesWhenTest extends TestCase
      */
     public function testARetiredLegacySlotNameRaisesNoInertAdvisory(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. The shape this test needs is a
+        // component that DOES declare slots, carrying a name that is not one of them —
+        // "declared neighbours, dead key". grid's v2 rebuild left it with no slot map at
+        // all, which turns the case into "a component with no slot surface rejects every
+        // name", a different and weaker claim. `ppfixture` keeps the slot map (#1025) and
+        // dies with the slot engine in this task's PR2.
         $items = [
-            ['component' => 'grid', 'props' => ['layout' => 'steps', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
-             'style' => ['--grid-card-bar-color' => '#ffffff']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-scrim-bg' => '#ffffff']],
         ];
 
         $this->assertSame([], $this->inertSmells($items));
@@ -491,7 +627,7 @@ final class AppliesWhenTest extends TestCase
         $errors = pp_validate_composition_errors($items);
         $this->assertNotSame([], $errors, 'the dead slot is an error, not a silent no-op');
         $this->assertStringContainsString(
-            '--grid-card-bar-color',
+            '--ppfixture-scrim-bg',
             implode(' | ', array_map(static fn ($e) => $e->get_error_message(), $errors)),
             'reported somewhere in the findings, not necessarily first'
         );
@@ -504,12 +640,15 @@ final class AppliesWhenTest extends TestCase
      */
     public function testTheSiblingSlotFormSeesTheWholeCanonicalStyleMap(): void
     {
-        $clauses = [['slot' => '--grid-item-bar-color', 'present' => true]];
+        // Slot name and host both moved to `ppfixture` at #1101, for the reason given on
+        // testSlotPresentReadsTheStyleMap above: grid's slot map retired with its v2
+        // rebuild, and a dead name here would have gone on passing.
+        $clauses = [['slot' => '--ppfixture-bg', 'present' => true]];
         $this->assertSame(
             [],
-            pp_applies_when_unmet_clauses($clauses, 'grid', [], ['--grid-item-bar-color' => '#f00'])
+            pp_applies_when_unmet_clauses($clauses, 'ppfixture', [], ['--ppfixture-bg' => '#f00'])
         );
-        $this->assertSame($clauses, pp_applies_when_unmet_clauses($clauses, 'grid', [], []));
+        $this->assertSame($clauses, pp_applies_when_unmet_clauses($clauses, 'ppfixture', [], []));
     }
 
     /**
@@ -556,15 +695,19 @@ final class AppliesWhenTest extends TestCase
      */
     public function testCreatePageWithAnInertSlotSucceedsAndReportsTheSmell(): void
     {
-        // Fixture retargeted from testimonials to grid: testimonials is a v2 component
-        // with no style slots, so this write would now be REJECTED (invalid_style_slot)
-        // rather than accepted-with-an-advisory — the opposite of what the test is about.
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101, and it is the second retarget for
+        // the identical reason: it moved testimonials -> grid at #1026 because a v2
+        // component with no style slots REJECTS this write (invalid_style_slot) instead of
+        // accepting it with an advisory — the opposite of what the test is about — and
+        // grid is now itself such a component. `ppfixture` is the registered test-only
+        // slot host (#1025); it dies with the slot engine in this task's PR2.
+        // `--ppfixture-overlay-bg` applies when `background_image` is set, and this band
+        // sets no background image, so the stored value is well-formed and dead.
         $composition = [
-            ['component' => 'grid', 'props' => [
-                'id'     => 'cards',
-                'layout' => 'cards',
-                'items'  => [['title' => 'One']],
-            ], 'style' => ['--grid-step-bg' => '#ffffff']],
+            ['component' => 'ppfixture', 'props' => [
+                'id'    => 'cards',
+                'items' => [['number' => '10', 'label' => 'Sites']],
+            ], 'style' => ['--ppfixture-overlay-bg' => '#ffffff']],
         ];
 
         $this->assertTrue(
@@ -579,36 +722,44 @@ final class AppliesWhenTest extends TestCase
         $this->assertTrue($result['ok']);
 
         $stored = pp_get_composition((int) $result['target']['post_id']);
-        $this->assertSame('#ffffff', $stored[0]['style']['--grid-step-bg'], 'stored as authored');
+        $this->assertSame('#ffffff', $stored[0]['style']['--ppfixture-overlay-bg'], 'stored as authored');
 
         $smells = $this->inertSmells($stored);
         $this->assertCount(1, $smells);
-        $this->assertStringContainsString('--grid-step-bg', $smells[0]['message']);
-        $this->assertStringContainsString('applies when layout = "steps"', $smells[0]['message']);
+        $this->assertStringContainsString('--ppfixture-overlay-bg', $smells[0]['message']);
+        $this->assertStringContainsString('applies when background_image is set', $smells[0]['message']);
     }
 
     /** update_component onto a configuration that defeats a set slot: same posture. */
     public function testUpdateComponentIntoAnInertConfigurationSucceedsAndReportsIt(): void
     {
-        $post_id = pp_create_page('Grid emphasis', 'draft');
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. The prop edit that used to defeat
+        // the slot was `card_emphasis: featured -> uniform`, and both the prop and the
+        // `--grid-featured-shadow` it gated retired with grid's v2 rebuild. The shape is
+        // preserved exactly — a band that is CLEAN, then one legal prop patch away from
+        // carrying a dead slot — with `title` as the condition and its removal (a null
+        // patch, update_component's documented prop-removal form) as the edit.
+        // `ppfixture` is the registered test-only slot host (#1025), dead in this PR2.
+        $post_id = pp_create_page('Fixture heading', 'draft');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => [
+            ['component' => 'ppfixture', 'props' => [
                 'title' => 'Cards',
-                'items' => [['title' => 'A'], ['title' => 'B']],
-            ], 'style' => ['--grid-featured-shadow' => '0 2px 4px rgba(0,0,0,0.2)']],
+                'items' => [['number' => '10', 'label' => 'Sites']],
+            ], 'style' => ['--ppfixture-heading-color' => '#ffffff']],
         ]);
-        $this->assertSame([], $this->inertSmells(pp_get_composition($post_id)), 'card_emphasis defaults to featured');
+        $this->assertSame([], $this->inertSmells(pp_get_composition($post_id)), 'the title is set, so the heading slot applies');
 
         $result = pp_execute_action('update_component', [
             'post_id'         => $post_id,
             'component_index' => 0,
-            'props'           => ['card_emphasis' => 'uniform'],
+            'props'           => ['title' => null],
         ]);
-        $this->assertTrue($result['ok'], 'switching to uniform is a legal edit, not a rejected one');
+        $this->assertTrue($result['ok'], 'dropping the title is a legal edit, not a rejected one');
 
         $smells = $this->inertSmells(pp_get_composition($post_id));
         $this->assertCount(1, $smells);
-        $this->assertStringContainsString('card_emphasis = "featured"', $smells[0]['message']);
+        $this->assertStringContainsString('--ppfixture-heading-color', $smells[0]['message']);
+        $this->assertStringContainsString('applies when title is set', $smells[0]['message']);
     }
 
     /**
@@ -617,13 +768,18 @@ final class AppliesWhenTest extends TestCase
      */
     public function testRestoreIsNotBlockedByAnInertSlotAndReportsItAsAFinding(): void
     {
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid's v2 rebuild left it with no
+        // style slots, so the snapshot below would have been REFUSED at the write that
+        // seeds the history ring rather than restored-with-a-finding — there would be
+        // nothing to restore. `ppfixture` keeps the slot map across rebuilds (#1025) and
+        // dies with the slot engine in this task's PR2.
         $post_id = pp_create_page('Inert snapshot');
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'T', 'layout' => 'list', 'items' => [['title' => 'Card', 'text' => 'B']]],
-             'style' => ['--grid-item-bar-color' => '#111111']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-overlay-bg' => '#111111']],
         ]);
         pp_update_composition($post_id, [
-            ['component' => 'grid', 'props' => ['title' => 'B', 'items' => [['title' => 'Card', 'text' => 'B']]]],
+            ['component' => 'ppfixture', 'props' => ['title' => 'B', 'items' => [['number' => '10', 'label' => 'Sites']]]],
         ]);
 
         $result = pp_execute_action('restore_composition', ['post_id' => $post_id, 'steps_back' => 1]);
@@ -632,10 +788,10 @@ final class AppliesWhenTest extends TestCase
         $inert = array_values(array_filter($result['findings'], static fn ($f) => $f['type'] === 'inert_slot'));
         $this->assertCount(1, $inert);
         $this->assertSame('warning', $inert[0]['severity'], 'advisory severity, never an error');
-        $this->assertStringContainsString('--grid-item-bar-color', $inert[0]['message']);
+        $this->assertStringContainsString('--ppfixture-overlay-bg', $inert[0]['message']);
 
         $restored = pp_get_composition($post_id);
-        $this->assertSame('#111111', $restored[0]['style']['--grid-item-bar-color'], 'the snapshot came back intact');
+        $this->assertSame('#111111', $restored[0]['style']['--ppfixture-overlay-bg'], 'the snapshot came back intact');
     }
 
     // ── The `wp pp validate site` gate (the #610 failure mode) ───────────────
@@ -652,11 +808,30 @@ final class AppliesWhenTest extends TestCase
     {
         $smells = pp_validate_composition_smells(pp_default_homepage_composition());
 
+        // THE SEED CARRIES NO `style` MAP AT ALL SINCE #1101 — its last one went with
+        // grid's rebuild, and every band now designs itself through `udc`. Stated plainly
+        // because it changes what this assertion is: it was a live measurement over 60+
+        // seeded slots across six components, and it is now a STANDING GATE that goes live
+        // again the moment any seeded band carries a slot. It is kept rather than retired
+        // because the failure mode it guards is unchanged and unforgiving — an advisory
+        // firing on the theme's own homepage exits a fresh install 1 with no authorable
+        // fix — and because the sibling test below still measures the seed end-to-end
+        // across every smell type, which is the half that is still live.
         $this->assertSame(
             [],
             array_values(array_filter($smells, static fn ($s) => $s['type'] === 'inert_slot')),
-            'The starter seed sets 60+ slots across six components. If this fails, `wp pp validate site` '
-            . 'now exits 1 on a fresh install — fix the CONDITION or the seed, never the gate.'
+            'If this fails, `wp pp validate site` now exits 1 on a fresh install against the theme\'s '
+            . 'own seeded homepage — fix the CONDITION or the seed, never the gate.'
+        );
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                pp_default_homepage_composition(),
+                static fn ($band) => !empty($band['style'])
+            )),
+            'A seeded band carries a `style` map again. The pin above stopped being a live '
+            . 'measurement at #1101 and became a standing gate; it is a measurement again now, '
+            . 'so check that slot\'s applies_when against the band that seeds it.'
         );
     }
 
@@ -689,23 +864,27 @@ final class AppliesWhenTest extends TestCase
             $prompt,
             'a background-conditional slot must advertise its condition to the agent BEFORE the write'
         );
-        // Prose-only conditionality. Re-pointed TWICE now, and the moves are the point:
-        // the DISJUNCTION example was section's link-colour pair and left with its slot
-        // map at #1023; the INTERACTION-STATE example was faq's open question and left at
-        // #1046, when the open state became a ROLE (`question-open`) whose selector states
-        // the condition instead of prose describing it. The class pinned here is
-        // ITEM-LEVEL — grid's icon box, whose size applies only when an item declares an
-        // image — which the clause grammar cannot reach because it addresses the BAND's
-        // props, not an item's. See SchemaValidationTest's prose-class census for the
-        // full live set and for what each retirement cost.
-        $this->assertStringContainsString('at least one item declares an image_url', $prompt);
-        // A clause list AND a note, joined as ONE condition.
-        $this->assertStringContainsString(
-            'applies when layout = "cards" AND card_emphasis = "featured" AND the component sits at the top level',
-            $prompt
-        );
-        // The condensed PROP catalog carries it too, not only the slot catalog.
+        // Prose-only conditionality. Re-pointed THREE times now, and the moves are the
+        // point: the DISJUNCTION example was section's link-colour pair and left with its
+        // slot map at #1023; the INTERACTION-STATE example was faq's open question and left
+        // at #1046, when the open state became a ROLE (`question-open`) whose selector
+        // states the condition instead of prose describing it; the ITEM-LEVEL example was
+        // grid's icon box ("at least one item declares an image_url") and left at #1101
+        // with the last slot map in the theme.
+        //
+        // THE CLASS SURVIVED THE LOSS OF EVERY SLOT THAT CARRIED IT, on the PROP surface —
+        // logos' height cap is the same item-level shape grid's icon box was, and the
+        // clause grammar cannot reach it for the same reason: clauses address the BAND's
+        // props, never an item's. So the two separate assertions this test used to carry —
+        // one for the slot catalog's prose, one for the condensed prop catalog's — are now
+        // ONE assertion, because there is one surviving producer and it is a prop. See
+        // testNoStyleSlotCarriesProseConditionalityAnyMore... above for the census, and
+        // SchemaValidationTest's prose-class census for what each retirement cost.
         $this->assertStringContainsString('the height cap applied to a logo image is chosen by that item', $prompt);
+        // A clause list AND a note joined as ONE condition used to be pinned here on grid's
+        // top-level-scoped featured slot. No definition in the theme declares both fields
+        // any more; the claim moved, with its census, to
+        // testTheClauseAndNoteConjunctionStillRendersThoughNothingDeclaresBoth below.
     }
 
     /**
@@ -751,6 +930,80 @@ final class AppliesWhenTest extends TestCase
     }
 
     /**
+     * RETIREMENT NOTE (#1101), replacing the clause-list-AND-note assertion the catalog
+     * test above carried, and modelled on the `in`-set split directly above it.
+     *
+     * (1) WHAT IT PROVED. A definition declaring BOTH `applies_when` clauses and a
+     *     `conditionality_note` renders them as ONE condition — "applies when A AND B AND
+     *     <the prose>" — rather than two competing "applies when" phrases. It read that
+     *     off the live prompt, through grid's featured slot, whose two clauses were joined
+     *     to the note "the component sits at the top level".
+     *
+     * (2) WHY THE SUBJECT IS GONE. grid's slot map retired with its v2 rebuild, and it
+     *     held the theme's only definition declaring both fields. The census below is the
+     *     measurement: every surviving `applies_when` is note-free (ppfixture's nine slots
+     *     and footer's `contact_label`) and every surviving note is clause-free (logos,
+     *     nav, footer). Reading the conjunction off the live prompt now would assert
+     *     against a string no producer emits.
+     *
+     * (3) WHERE THE CLAIM WENT. Here, split the same way the `in` set was: the RENDERER is
+     *     pinned directly, and the census pins the reason it has to be. The two populations
+     *     are asserted non-empty separately, so "nothing declares both" can never be
+     *     satisfied by a registry that declares neither.
+     *
+     * (4) THE PIN. The disjointness assertion fails the moment one definition declares both
+     *     again — which is the moment to put the end-to-end prompt assertion back.
+     */
+    public function testTheClauseAndNoteConjunctionStillRendersThoughNothingDeclaresBoth(): void
+    {
+        $with_clauses = [];
+        $with_notes   = [];
+        $with_both    = [];
+        foreach (pp_get_registered_components() as $component => $schema) {
+            $definitions = ($schema['props'] ?? []) + ($schema['styling']['style_slots'] ?? []);
+            foreach ($definitions as $key => $definition) {
+                if (!is_array($definition)) {
+                    continue;
+                }
+                $has_clauses = !empty($definition['applies_when']) && is_array($definition['applies_when']);
+                $has_note    = !empty($definition['conditionality_note']) && is_string($definition['conditionality_note']);
+                if ($has_clauses) {
+                    $with_clauses[] = "{$component}.{$key}";
+                }
+                if ($has_note) {
+                    $with_notes[] = "{$component}.{$key}";
+                }
+                if ($has_clauses && $has_note) {
+                    $with_both[] = "{$component}.{$key}";
+                }
+            }
+        }
+
+        // Both populations are alive — the disjointness below is a real separation, not
+        // the emptiness of a registry that stopped declaring conditions at all.
+        $this->assertNotSame([], $with_clauses, 'no definition declares applies_when any more');
+        $this->assertNotSame([], $with_notes, 'no definition declares conditionality_note any more');
+        $this->assertSame(
+            [],
+            $with_both,
+            'A definition declares applies_when AND conditionality_note again. The end-to-end prompt '
+            . 'assertion retired at #1101 because none did; restore it against this definition — the '
+            . 'catalog must render ONE ANDed condition, never two "applies when" phrases.'
+        );
+
+        // The renderer, pinned where it is still reachable: one clause, one note, one
+        // condition. The note rides in VERBATIM (bar its trailing period) and behind the
+        // same single "applies when" prefix the clause got.
+        $this->assertSame(
+            '; applies when background_image is set AND the component sits at the top level',
+            pp_ai_definition_suffix([
+                'applies_when'        => [['prop' => 'background_image', 'present' => true]],
+                'conditionality_note' => 'the component sits at the top level.',
+            ])
+        );
+    }
+
+    /**
      * The nav/footer chrome preconditions are the ONE populated set the chat catalog does
      * not carry — and that is a pre-existing, deliberate boundary, not a #580 regression:
      * pp_ai_system_prompt() lists pp_composable_components() only, because listing
@@ -789,16 +1042,25 @@ final class AppliesWhenTest extends TestCase
         // advisory deliberately names only the clauses that MISSED — see
         // testUnmetReportsEveryFailingClauseInDeclarationOrder — so they diverge by
         // design there, not by phrasing.)
+        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101. `--grid-step-bg` retired with
+        // grid's v2 rebuild, and an undeclared slot raises no advisory at all — the
+        // assertCount(1) below would have failed rather than gone quietly vacuous, but the
+        // fix is the same one every slot-engine test in this file took: `ppfixture` is the
+        // registered test-only host kept across rebuilds (#1025), and it dies with the
+        // slot engine in this task's PR2. `--ppfixture-overlay-bg` has the property this
+        // test needs and grid's step slot had: exactly one clause and no
+        // `conditionality_note`, so the catalog's whole condition IS the advisory's whole
+        // condition and comparing them as strings is meaningful.
         $smells = $this->inertSmells([
-            ['component' => 'grid', 'props' => ['layout' => 'cards', 'items' => [['title' => 'One', 'body' => '<p>x</p>']]],
-             'style' => ['--grid-step-bg' => '#eeeeee']],
+            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '10', 'label' => 'Sites']]],
+             'style' => ['--ppfixture-overlay-bg' => '#eeeeee']],
         ]);
         $this->assertCount(1, $smells);
 
-        $suffix    = pp_ai_definition_suffix(pp_get_style_slots('grid')['--grid-step-bg']);
+        $suffix    = pp_ai_definition_suffix(pp_get_style_slots('ppfixture')['--ppfixture-overlay-bg']);
         $condition = substr($suffix, strpos($suffix, 'applies when'));
 
-        $this->assertSame('applies when layout = "steps"', $condition);
+        $this->assertSame('applies when background_image is set', $condition);
         $this->assertStringContainsString($condition, $smells[0]['message']);
     }
 }

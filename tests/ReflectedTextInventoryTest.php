@@ -1524,103 +1524,167 @@ class ReflectedTextInventoryTest extends TestCase
         }
     }
 
-    // ── E4. _pp_build_friendly_error()'s hinted branch ────────────────────────
+    // ── E4. _pp_build_friendly_error()'s slot-rejection sentence ──────────────
 
     /**
-     * Two branches of one switch arm, one answer (#864).
+     * THE HINTED BRANCH CANNOT BE REACHED BY ANY SHIPPED COMPONENT (#1101), WHICH IS WHY
+     * THE FOUR TESTS BELOW IT MOVED TO THE BRANCH THAT CAN.
      *
-     * The no-hint branch has routed `$component_name` through the owner since #661,
-     * inside _pp_no_hint_slot_message(); the HINTED branch interpolated the identical
-     * value raw. Which one a caller got depended on whether a cross-component hint
-     * happened to match — so the guarantee could not be stated at all.
+     * WHAT THEY PROVED. #864 found two branches of one switch arm giving one value two
+     * answers. `_pp_build_friendly_error()`'s `invalid_style_slot` arm reads the component
+     * name out of STORED composition, which is reflected text; the no-hint branch had
+     * routed it through the cleaning owner since #661, inside `_pp_no_hint_slot_message()`,
+     * while the HINTED branch interpolated the identical value raw. Which one a caller got
+     * depended on whether a cross-component slot hint happened to match, so the guarantee
+     * could not be stated at all. The four tests pinned the fix at that branch: a hostile
+     * stored name is cleaned, an ordinary one is byte-identical, an ALL-INVISIBLE one (the
+     * only case where cleaning changes anything — non-empty going in, empty coming out)
+     * falls back rather than printing "on the  component" with a hole in it, and an
+     * already-empty one takes the same fallback.
      *
-     * The fixture asks for `--hero-bg` on a component that does not declare it, which
-     * suffix-matches `--cta-bg` on cta and therefore lands on the hinted branch.
+     * WHY THE BRANCH IS UNREACHABLE. It fires only when the rejected key exactly matches,
+     * or shares a normalized suffix with, a style slot DECLARED BY ANOTHER COMPONENT. Both
+     * comparisons run against `pp_get_style_slots($other)`, and since #1101 — grid being
+     * the last declarer in the theme — that returns `[]` for every registered component.
+     * No key of any shape can produce a hint, so `$has_hints` is false on every call and
+     * the raw interpolation is dead code rather than a live second answer.
+     *
+     * WHAT IS PINNED NOW. The unreachability itself, derived (below), so this is a fact
+     * about the registry rather than about three fixtures that stopped matching. Then the
+     * three surviving claims, re-asserted at the no-hint branch — which is not a
+     * consolation prize: it is the branch #661 hardened first and the one every rejection
+     * now takes, so the guarantee that was unstatable in #864 is finally a single
+     * unconditional sentence. The one claim that genuinely CHANGED is recorded on its own
+     * test: an unnameable component no longer reads as "the selected component", because
+     * `_pp_no_hint_slot_message()` refuses to make any claim about a component it could
+     * not name at all.
      */
-    public function testTheHintedFriendlyErrorCleansTheStoredComponentName(): void
+    public function testNoShippedComponentCanProduceACrossComponentSlotHint(): void
     {
-        $id = $this->makePage('Hinted', [['component' => self::HOSTILE, 'props' => ['title' => 'A']]]);
+        $declarers = [];
+        foreach (array_keys(pp_get_registered_components()) as $component) {
+            if (pp_get_style_slots($component) !== []) {
+                $declarers[] = $component;
+            }
+        }
+        sort($declarers);
+
+        // ANTI-VACUITY FIRST: the registry must be non-empty, or "nobody declares a slot"
+        // is a statement about a broken registry and the three tests below are re-pointed
+        // at the wrong branch on false evidence.
+        $this->assertNotEmpty(pp_get_registered_components(), 'the component registry is empty');
+        $this->assertSame(
+            [],
+            $declarers,
+            'a component declares style slots again, so _pp_build_friendly_error()\'s hinted '
+            . 'branch is reachable — and its raw `?:` interpolation of a STORED component '
+            . 'name is live code again. Restore the four hinted-branch reflected-text pins '
+            . 'this test replaced before trusting a green run.'
+        );
+
+        // And the observable consequence, through the real builder rather than by
+        // inference: the fixture that used to suffix-match `--cta-bg` produces no hint.
+        $id       = $this->makePage('Unhinted', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $friendly = _pp_build_friendly_error(
+            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
+            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
+        );
+        $this->assertSame([], (array) $friendly['cross_component_hints'],
+            'a hint was produced with no declared slot anywhere to hint about');
+    }
+
+    /**
+     * #864's CLAIM, AT THE BRANCH EVERY REJECTION TAKES: a stored component name reaches
+     * the sentence cleaned, never raw.
+     *
+     * The value is read from `$composition[$idx]['component']` — stored bytes, which on an
+     * aged or hostile document can carry an ANSI escape, a newline that fakes a second line
+     * of output, or a bidi override that reverses everything printed after it.
+     */
+    public function testTheFriendlyErrorCleansTheStoredComponentName(): void
+    {
+        $id = $this->makePage('Rejected', [['component' => self::HOSTILE, 'props' => ['title' => 'A']]]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
             ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
         );
 
-        $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'premise: this is the HINTED branch');
-        $this->assertDefanged($friendly['user_message'], 'friendly error hinted branch');
-        $this->assertStringContainsString('on the aa', $friendly['user_message'], 'and the component is still named');
+        $this->assertSame([], (array) $friendly['cross_component_hints'], 'premise: the no-hint branch');
+        $this->assertDefanged($friendly['user_message'], 'friendly error slot rejection');
+        $this->assertStringContainsString('the aa', $friendly['user_message'], 'and the component is still named');
     }
 
     /** An ordinary stored name is byte-identical through the same wrap. */
-    public function testAnOrdinaryComponentNameIsByteIdenticalInTheHintedBranch(): void
+    public function testAnOrdinaryComponentNameIsByteIdenticalInTheFriendlyError(): void
     {
-        $id = $this->makePage('Hinted plain', [['component' => 'hero', 'props' => ['title' => 'A']]]);
+        $id = $this->makePage('Rejected plain', [['component' => 'hero', 'props' => ['title' => 'A']]]);
 
         $friendly = _pp_build_friendly_error(
             new WP_Error('invalid_style_slot', 'Component has no style slot "--nope-bg".'),
             ['post_id' => $id, 'component_index' => 0, 'style' => ['--nope-bg' => 'red']]
         );
 
-        $this->assertNotSame(
-            [],
-            (array) $friendly['cross_component_hints'],
-            'premise: this must reach the HINTED branch — a skip here would delete the assertion silently'
-        );
-        $this->assertStringContainsString('on the hero component', $friendly['user_message']);
+        $this->assertSame([], (array) $friendly['cross_component_hints'], 'premise: the no-hint branch');
+        $this->assertStringContainsString('the hero component', $friendly['user_message']);
     }
 
     /**
-     * The case the wrap actually CHANGES: a name that is non-empty going in and empty
-     * coming out.
+     * THE ONE CLAIM THAT CHANGED, AND IT CHANGED FOR THE BETTER — stated rather than
+     * quietly dropped, because "the answer is different now" is exactly what a retirement
+     * is most tempted to leave out.
      *
-     * A stored component name made entirely of format characters is invisible but not
-     * absent, so before #864 the hinted branch printed it and the sentence read "on the
-     *  component" with a hole in it. Cleaning collapses it to '', and the `?:` kept in
-     * this branch is the only thing that turns that into "selected". This is why the `?:`
-     * was NOT swapped for the sibling's `=== ''` test: the fallback has to survive the
-     * wrap, and nothing else in the section exercises the empty-after-cleaning path —
-     * the neighbouring test feeds a name that was already empty before cleaning, which
-     * is the branch the pre-#864 code took too.
+     * The two retired tests asserted that a name which is EMPTY AFTER CLEANING (a stored
+     * name made entirely of format characters) and a name that was empty to begin with both
+     * read as "on the selected component" — the hinted branch's `?:` fallback, kept rather
+     * than swapped for the sibling's `=== ''` test precisely so it survived the #864 wrap.
      *
-     * Built with mb_chr() rather than a string escape, deliberately: authoring tools
-     * silently turn escape TEXT into the character it names, so a fixture that must
-     * contain specific invisible code points is safer constructed than quoted.
+     * `_pp_no_hint_slot_message()` makes a stricter judgement, and it is the right one: if
+     * NOTHING resolved — no usable name AND no declared slots to list — every sentence it
+     * could write would be a claim about a component that was never found, so it writes the
+     * only claim the evidence supports and names no component at all. An out-of-range
+     * `component_index` lands here too. Both fixtures are kept, because the guarantee that
+     * matters is unchanged and is asserted below: the sentence is defanged, and it never
+     * contains the hole ("the  component") the fallback existed to prevent.
+     *
+     * The invisible fixture is built with mb_chr() rather than a string escape,
+     * deliberately: authoring tools silently turn escape TEXT into the character it names,
+     * so a fixture that must contain specific invisible code points is safer constructed
+     * than quoted.
      */
-    public function testAnAllInvisibleComponentNameFallsBackToSelectedInTheHintedBranch(): void
+    public function testAnUnnameableComponentIsNotDescribedAtAllRatherThanGuessedAt(): void
     {
         $invisible = mb_chr(0x202E, 'UTF-8') . mb_chr(0x200B, 'UTF-8');
-        $this->assertNotSame('', $invisible, 'premise: the fixture is non-empty going in');
+        $this->assertNotSame('', $invisible, 'premise: the invisible fixture is non-empty going in');
 
-        $id = $this->makePage('Hinted invisible', [['component' => $invisible, 'props' => ['title' => 'A']]]);
+        foreach ([
+            'empty after cleaning' => $invisible,
+            'empty to begin with'  => '',
+        ] as $label => $name) {
+            $id = $this->makePage("Rejected {$label}", [['component' => $name, 'props' => ['title' => 'A']]]);
 
-        $friendly = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
-            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
-        );
+            $friendly = _pp_build_friendly_error(
+                new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
+                ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
+            );
 
-        $this->assertNotSame([], (array) $friendly['cross_component_hints'], 'premise: this is the HINTED branch');
-        $this->assertStringContainsString('on the selected component', $friendly['user_message']);
-        $this->assertDefanged($friendly['user_message'], 'friendly error hinted branch, all-invisible name');
-    }
+            $this->assertSame([], (array) $friendly['cross_component_hints'], "premise: the no-hint branch ({$label})");
+            $this->assertDefanged($friendly['user_message'], "friendly error slot rejection, {$label}");
 
-    /**
-     * The empty name still reads as "selected", which is why the `?:` was KEPT rather
-     * than swapped for the sibling's `=== ''` test. Cleaning an empty string returns an
-     * empty string, so the fallback has to survive the wrap or every hint-bearing
-     * rejection on a nameless target would say "on the  component".
-     */
-    public function testAnUnresolvedComponentStillReadsAsSelectedInTheHintedBranch(): void
-    {
-        $id = $this->makePage('Hinted nameless', [['component' => '', 'props' => ['title' => 'A']]]);
-
-        $friendly = _pp_build_friendly_error(
-            new WP_Error('invalid_style_slot', 'Component has no style slot "--hero-bg".'),
-            ['post_id' => $id, 'component_index' => 0, 'style' => ['--hero-bg' => 'red']]
-        );
-
-        if ((array) $friendly['cross_component_hints'] === []) {
-            $this->markTestSkipped('no hint for this key on the shipped registry');
+            // THE HOLE IS THE DEFECT, and it is what both retired tests were really about.
+            $this->assertStringNotContainsString(
+                'the  component',
+                $friendly['user_message'],
+                "{$label}: an unnameable component printed as a gap in the sentence"
+            );
+            $this->assertStringContainsString(
+                "couldn't tell which component",
+                $friendly['user_message'],
+                "{$label}: with no usable name AND no declared slots, the only claim the "
+                . 'evidence supports is that the target could not be identified — naming it '
+                . '"the selected component" would be a confident falsehood about a component '
+                . 'that was never found'
+            );
         }
-        $this->assertStringContainsString('on the selected component', $friendly['user_message']);
     }
 }

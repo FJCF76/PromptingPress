@@ -400,14 +400,24 @@ describe('CSS lint: style slot fallback patterns', () => {
         // renamed or relocated — they are GONE, replaced by 13 roles in its schema.
         // 125 -> 78 (#1023): section left it too, the same way — its 47 slots are gone,
         // replaced by 17 roles.
-        // 78 -> 38 (#1026): cta left, its 40 slots replaced by 11 roles. ONE of this
-        // group's four components is still on slots, so the name says "this group" rather
-        // than naming them — the roster above is the fact. The count stays a count rather
-        // than being deleted with each rebuild, because drift in the components STILL on
-        // slots is exactly what this pin catches; keeping the v2 members in
-        // SCHEMA_COMPONENTS is deliberate, so a rebuilt component that quietly re-grew a
-        // slot map would push this number up and fail here.
-        expect(allSlots.length).toBe(38);
+        // 78 -> 38 (#1026): cta left, its 40 slots replaced by 11 roles.
+        // 38 -> 0 (#1101): GRID LEFT, AND IT WAS THE LAST ONE. Its 38 slots are replaced
+        // by 18 roles plus an `item_roles` declaration, and with it the v1 style-slot
+        // system has no shipped consumer anywhere in the theme.
+        //
+        // ZERO IS NOT A REASON TO DELETE THIS PIN — it is the reason to keep it, and the
+        // assertion is deliberately an EQUALITY to zero rather than a removed test. Every
+        // component in SCHEMA_COMPONENTS is a v2 component now, so this line says exactly
+        // one thing: no rebuilt component has quietly re-grown a slot map. That is the
+        // drift this block has always caught; the subject changed from "the stragglers"
+        // to "all of them" without the claim changing at all.
+        //
+        // NOT VACUOUS, and it cannot become so: the roster is derived from the schemas on
+        // disk (SCHEMA_COMPONENTS above), and the `allSlots.forEach` loop below degrades
+        // to zero tests rather than to zero coverage — a re-added slot re-creates both
+        // this failure and its own per-slot test. Probed by adding one slot back to
+        // grid's schema in a scratch copy: this assertion read 1 and failed.
+        expect(allSlots.length).toBe(0);
     });
 
     allSlots.forEach(({ component, slotName }) => {
@@ -832,7 +842,7 @@ describe('CSS lint: filled premium button snaps fill + ring, keeps bevel/ink/lif
  * components.css, where a future edit to longhands would break it.
  */
 
-describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (#56)', () => {
+describe('CSS lint: grid--steps is declared in exactly one place (#56)', () => {
     // Regression guard: before #56, `.grid--steps .grid__item` and
     // `.grid--steps .grid__step-number` were each declared a SECOND time,
     // scattered elsewhere in the file as undocumented, unscoped "rescue"
@@ -840,16 +850,26 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
     // `overflow: hidden` and silently clipped the arrow connector. The
     // canonical block stayed weak while real page defaults quietly diverged
     // from it. Every declaration of these selectors must live inside the
-    // COMPONENT: grid block (responsive variants of the SAME rule, e.g. a
+    // component's own banner block (responsive variants of the SAME rule, e.g. a
     // max-width media query tweak, are fine) — none may leak outside it.
+    //
+    // THE ROSTER LOST ONE ENTRY AT #1101, AND IT IS THE ANTI-VACUITY ARM THAT SAID SO.
+    // `.grid--steps .grid__item` is no longer declared ANYWHERE: its `position: relative`
+    // moved to the unscoped `.grid__item` rule with the steps connector it is the
+    // containing block for, and its steps-only `padding` has no v2 home at all — a role's
+    // defaults carry a breakpoint and a state dimension and NO variant dimension, so
+    // "padding, but only on steps" is unspellable (the conditionality gap filed at #1102,
+    // and the reason the step badge moved inside the card body). The selector is dropped
+    // from the roster rather than the rule being kept alive for the test's sake; the
+    // `toBeGreaterThan(0)` floor below is what refused to let that pass silently.
     const stripped = stripComments(COMPONENTS_CSS);
     // Locate the block against the RAW css — the "COMPONENT: grid" marker
     // lives inside a comment, so it would vanish if matched post-strip.
     const blockMatch = COMPONENTS_CSS.match(/COMPONENT:\s*grid\b([\s\S]*?)(?=\/\*\s*={5,}[\s\S]*?COMPONENT:|$)/);
     const gridBlock = stripComments(blockMatch ? blockMatch[1] : '');
 
-    test.each(['.grid--steps .grid__item', '.grid--steps .grid__step-number'])(
-        '%s is never declared outside the COMPONENT: grid block',
+    test.each(['.grid--steps .grid__step-number'])(
+        '%s is never declared outside the component block',
         (selector) => {
             const pattern = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{', 'g');
             const totalCount = (stripped.match(pattern) || []).length;
@@ -858,6 +878,14 @@ describe('CSS lint: grid--steps only declared inside the COMPONENT: grid block (
             expect(totalCount).toBe(inBlockCount);
         }
     );
+
+    // THE SELECTOR THAT LEFT, PINNED AS ABSENT. Dropping a row from a `test.each` roster
+    // is invisible; this makes the departure a claim the file has to keep. If a
+    // `.grid--steps .grid__item` rule ever comes back it belongs in the component block
+    // with a reason, and this test is where that decision gets made rather than drifted.
+    test('.grid--steps .grid__item is declared nowhere at all', () => {
+        expect(stripped).not.toMatch(/\.grid--steps \.grid__item\s*\{/);
+    });
 });
 
 describe('CSS lint: grid steps numeral color routes through --grid-step-text-color (#473)', () => {
@@ -940,199 +968,19 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
 // SEPARATOR takes currentColor and follows its row, the two list MARKERS take
 // var(--color-accent) — the exact value their slots defaulted to.
 // Nothing replaced this block: there is no slot left to route.
-describe('CSS lint: theme variants survive the desktop typography cascade (#222)', () => {
-    // Regression guard for the inverted dark-on-dark bug. The "Premium body-section
-    // typography" media block declares `color` on `main > .grid .grid__heading` etc.
-    // Those selectors are [0,2,1]; every theme variant (`.grid--inverted ...`) is at
-    // most [0,2,0], so the theme can NEVER win this by specificity. Before #222 the
-    // desktop rules fell back straight to a global token (var(--color-text)), which
-    // silently overrode the theme's own fallback and painted dark text on the theme's
-    // dark background above 768px — while mobile, which has no such rule, rendered
-    // correctly. A screenshot-only mobile check would pass.
-    //
-    // The fix is cascade-independent: the theme variant sets an inheritable
-    // *-theme-color default, and every non-variant color declaration resolves
-    //     slot -> theme default -> global token
-    // so whichever selector wins, the theme still supplies the right default and the
-    // per-instance style slot still takes precedence over both (#86's contract).
-    //
-    // Asserting the theme var merely APPEARS is not enough — a malformed chain
-    // (theme var first, or global token before the theme var) would still contain the
-    // string. So pin the ORDER.
-    const stripped = stripComments(COMPONENTS_CSS);
-
-    const THEMED = [
-        // `desktop` = the element also carries a color declaration inside the >=768px
-        // typography block, i.e. it is exposed to the cascade defect. .grid__subheading
-        // has no desktop color rule; it was broken at every viewport for a different
-        // reason (no inverted rule existed at all), so it is pinned at the base rule only.
-        { el: '.grid__heading', slot: '--grid-heading-color', themeVar: '--pp-grid-heading-theme-color', desktop: true },
-        { el: '.grid__subheading', slot: '--grid-subheading-color', themeVar: '--pp-grid-subheading-theme-color', desktop: false },
-        // Section's two entries left this list at #1023 and cta's at #1026, each with the
-        // `theme` prop itself. The three-tier slot -> theme-var -> token chain has no v2
-        // analogue: a band's text colour is `typography.color` on the `heading` / `body`
-        // roles, and a dark band is the `_band` role's `background`, so there is no variant
-        // rule for a desktop rule to lose to. The cascade defect this guard exists for
-        // cannot recur on a v2 component — role defaults emit unlayered, above every rule in
-        // this file. cta's departure also took the last `main > .cta` premium-typography
-        // rules with it; their VALUES survive as the `body` role's breakpoint maps, which is
-        // the only reason the phone tier still differs from the two wider ones.
-        // faq (issue 581): it implements the identical three-tier chain — the base and the
-        // >=768px premium rule both read
-        // var(--faq-heading-color, var(--pp-faq-heading-theme-color, var(--color-text)))
-        // with the plumbing declared on .faq--inverted — but it was never listed here, so
-        // the one mechanism most likely to regress was the one nothing pinned.
-        // faq's row left at #1046 with its rebuild. The three-tier chain has no v2
-        // analogue for the same reason section's and cta's did not: a role default is
-        // emitted UNLAYERED, above every rule in this stylesheet, so nothing here can
-        // outrank it and there is no theme variable left to sit between the slot and the
-        // token. grid keeps the row because grid keeps the chain.
-    ];
-
-    // Theme-variant rules (`.grid--inverted .grid__heading`) and page-specific ID
-    // overrides declare a color for one specific theme on purpose — they are not
-    // the general-purpose declaration this guard governs.
-    const isVariantOrIdRule = (selector) =>
-        /--inverted|--dark|--has-bg-image|#/.test(selector);
-
-    // Brace-match every `@media (min-width: 768px)` block so a declaration can be
-    // located as inside-desktop or not. Pinning "the chain appears somewhere in the
-    // file" is not enough: the bug lives specifically in the desktop rule, and if that
-    // rule's selector were reshaped so the element filter stopped matching it, the
-    // base-rule declaration alone would keep the suite green while the bug returned.
-    const desktopRanges = [];
-    const mediaRe = /@media\s*\(min-width:\s*768px\)\s*\{/g;
-    let mm;
-    while ((mm = mediaRe.exec(stripped)) !== null) {
-        let depth = 1;
-        let i = mm.index + mm[0].length;
-        while (i < stripped.length && depth > 0) {
-            if (stripped[i] === '{') depth++;
-            else if (stripped[i] === '}') depth--;
-            i++;
-        }
-        desktopRanges.push([mm.index, i]);
-    }
-    const inDesktopBlock = (index) =>
-        desktopRanges.some(([start, end]) => index > start && index < end);
-
-    // Collect innermost rules: `selector { body-without-braces }`. Rules nested in a
-    // media query still match, with the @media prelude left outside the capture.
-    const rules = [];
-    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-    let m;
-    while ((m = ruleRe.exec(stripped)) !== null) {
-        rules.push({ selector: m[1].trim(), body: m[2], index: m.index });
-    }
-
-    // Match the element as a whole token anywhere in a comma-part, not just at the end:
-    // `main > .section .section__content p` and `.grid__heading:hover` target the same
-    // element and must be held to the same chain. `endsWith` would silently skip them.
-    const targetsElement = (selector, el) =>
-        selector.split(',').some(s => new RegExp(`\\${el}(?![-\\w])`).test(s.trim()));
-
-    // Every `color:` in the body, not just the first — a later duplicate is what wins.
-    const colorValues = (body) =>
-        [...body.matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/g)].map(c => c[1].trim());
-
-    THEMED.forEach(({ el, slot, themeVar, desktop }) => {
-        // Every general-purpose `color:` declaration for this element — the base rule
-        // AND the desktop typography rule — must resolve slot -> theme -> global.
-        const chainRe = new RegExp(
-            `^var\\(${slot},\\s*var\\(${themeVar},\\s*var\\(--color-[a-z0-9-]+\\)\\)\\)$`
-        );
-
-        const declarations = rules
-            .filter(r => !isVariantOrIdRule(r.selector))
-            .filter(r => targetsElement(r.selector, el))
-            .flatMap(r => colorValues(r.body).map(value => ({
-                selector: r.selector,
-                value,
-                desktop: inDesktopBlock(r.index),
-            })));
-
-        test(`${el} has at least one themed color declaration`, () => {
-            // If this fails the element was renamed or its color rule dropped — the
-            // chain assertions below would then vacuously pass.
-            expect(declarations.length).toBeGreaterThan(0);
-        });
-
-        if (desktop) {
-            test(`${el} is still colored inside the >=768px typography block`, () => {
-                // The exact rule that caused #222. If it stops matching, the guard below
-                // is no longer guarding anything.
-                expect(declarations.filter(d => d.desktop).length).toBeGreaterThan(0);
-            });
-        }
-
-        test(`${el} color always resolves ${slot} -> ${themeVar} -> global token`, () => {
-            const offenders = declarations
-                .filter(d => !chainRe.test(d.value))
-                .map(d => `${d.selector.split('\n').pop().trim()} { color: ${d.value} }`);
-            expect(offenders).toEqual([]);
-        });
-    });
-
-    // The other half of the contract: every variant that paints a DARK surface must
-    // actually SET the defaults, or the chains above silently fall through to the
-    // light-theme global token and the dark-on-dark bug returns.
-    //
-    // The --has-bg-image variants are dark surfaces too: they lay a dark overlay
-    // (var(--overlay-bg)) over the image, and they lose to the very same desktop
-    // typography rules. They shipped the identical defect (issue 248) and are fixed
-    // by the same mechanism, so they are pinned here alongside the inverted variants.
-    // The --dark variants are deliberately absent: they use a light surface
-    // (--color-surface) with dark text, so they must NOT set a theme text default.
-    const VARIANT_DECLARES = [
-        { variant: '.grid--inverted', vars: ['--pp-grid-heading-theme-color', '--pp-grid-subheading-theme-color'] },
-        // Section's two variants are gone (#1023), the way hero's row went at #986: the
-        // `theme` prop and the `background_image` prop both retired, so neither
-        // `.pp-section--inverted` nor `.section--has-bg-image` is emitted any more. A dark
-        // or image-backed section band is the `_band` role's `background` group, and its
-        // text colours are `typography.color` on the text roles.
-        // `.faq--inverted` left at #1046 with the `theme` prop that emitted it.
-    ];
-
-    VARIANT_DECLARES.forEach(({ variant, vars }) => {
-        vars.forEach(v => {
-            test(`${variant} declares ${v}`, () => {
-                const block = rules.find(r =>
-                    r.selector.split(',').some(s => s.trim() === variant)
-                );
-                expect(block).toBeDefined();
-                expect(block.body).toMatch(new RegExp(`${v}\\s*:`));
-            });
-        });
-    });
-
-    // Inverted grid CARDS keep a light background (`--grid-item-bg: var(--color-bg)`),
-    // so their text must stay DARK. Theming it would be the inverse of #222: an
-    // inverted grid would render light-on-light card text. Pin both halves of that.
-    // The fallback must be a FIXED global token (never a theme-swapped var): a bare
-    // `--color-*`, OR the `--text-meta-color` / `--text-kicker-color` role tokens used
-    // by the #349 role-vs-slot companion rules (`.grid__item-text.text-meta/.text-kicker`).
-    // Those two are aliases defined once in base.css :root (→ --color-muted / --color-accent)
-    // and are never redefined under any inverted/bg-image/theme scope, so they stay dark
-    // on a light card exactly like a bare --color-* fallback.
-    test('inverted grid card text resolves to a global token, never a theme var', () => {
-        const cardDecls = rules
-            .filter(r => targetsElement(r.selector, '.grid__item-title') ||
-                         targetsElement(r.selector, '.grid__item-text'))
-            .flatMap(r => colorValues(r.body).map(value => ({ selector: r.selector, value })));
-
-        expect(cardDecls.length).toBeGreaterThan(0);
-        const offenders = cardDecls
-            .filter(d => !/^var\(--grid-item-(title|text)-color,\s*var\(--(color-[a-z0-9-]+|text-(meta|kicker)-color)\)\)$/.test(d.value))
-            .map(d => `${d.selector.split('\n').pop().trim()} { color: ${d.value} }`);
-        expect(offenders).toEqual([]);
-    });
-
-    test('.grid--inverted declares no --grid-item-* default (cards must not be themed)', () => {
-        const block = rules.find(r => r.selector.split(',').some(s => s.trim() === '.grid--inverted'));
-        expect(block).toBeDefined();
-        expect(block.body).not.toMatch(/--grid-item-[a-z-]*\s*:/);
-    });
-});
+// The #222 theme-variant cascade block was DELETED at #1101 with grid's `theme` prop —
+// the last row it had. It guarded a three-tier `slot -> theme-var -> token` chain that
+// existed only because a `.grid--inverted` variant rule at (0,2,0) could never outrank a
+// premium-typography rule at (0,2,1), so the theme had to win by supplying an inheritable
+// DEFAULT instead of by selector. Section's rows left at #1023, cta's at #1026 and faq's
+// at #1046, each with its own `theme` prop; grid's departure empties the list.
+// THE DEFECT CANNOT RECUR, which is why nothing replaces this. A role default emits
+// UNLAYERED while components.css sits in `@layer pp-zero`'s superior, `pp-v1` — so there
+// is no premium rule left for a band's colour to lose to, and no theme variable left to
+// sit between a slot and a token. A dark band is `_band` -> `background.fill` plus
+// `typography.color`, and the roles that pin their own colour instead of following the
+// band carry an `outranked_by_default` obligation saying so, which is the v2 shape of the
+// same warning this guard used to enforce from the stylesheet side.
 
 // The #424 dark-band heading carve-out block was deleted at #1023. Its two variants
 // (`.pp-section--inverted`, `.section--has-bg-image`) and its `--section-panel-text`
@@ -1140,74 +988,16 @@ describe('CSS lint: theme variants survive the desktop typography cascade (#222)
 // `panel` role with its own `typography.color`, and it is no longer at risk of being
 // repainted by a band-wide heading rule, because there is no band-wide heading rule:
 // the `heading` role paints `.section__title` and nothing else.
-describe('CSS lint: featured grid card honors --grid-item-border-color (#226)', () => {
-    // The featured first-card rules carry a :not(.grid--uniform) guard so the
-    // `card_emphasis: uniform` prop can opt out of the whole treatment (#226).
-    const SELECTOR = 'main > .grid:not(.grid--steps):not(.grid--uniform) .grid__item:first-child';
-
-    // Brace-matched extraction of every rule whose selector is EXACTLY this
-    // (whitespace-normalized). `::before` / descendant rules share the prefix
-    // but have more text before `{`, so `\s*\{` never matches them.
-    function bodiesForExactSelector(selector) {
-        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
-        const re = new RegExp(
-            selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
-            'g'
-        );
-        const bodies = [];
-        let match;
-        while ((match = re.exec(css)) !== null) {
-            let i = re.lastIndex;
-            let depth = 1;
-            const start = i;
-            while (i < css.length && depth > 0) {
-                if (css[i] === '{') depth++;
-                else if (css[i] === '}') depth--;
-                i++;
-            }
-            bodies.push(css.slice(start, i - 1));
-        }
-        return bodies;
-    }
-
-    const bodies = bodiesForExactSelector(SELECTOR);
-    const borderBodies = bodies.filter(b => /border-color\s*:/.test(b));
-
-    // Guard against the selector silently drifting: a zero-match scan would make
-    // every assertion below vacuously pass.
-    test('finds the featured first-card rules that set border-color', () => {
-        expect(borderBodies.length).toBeGreaterThanOrEqual(2);
-    });
-
-    test('every border-color on the featured first card routes through --grid-item-border-color', () => {
-        const offenders = [];
-        borderBodies.forEach(body => {
-            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
-            decls.forEach(d => {
-                if (!/border-color\s*:\s*var\(\s*--grid-item-border-color\b/.test(d)) {
-                    offenders.push(d.trim());
-                }
-            });
-        });
-        expect(offenders).toEqual([]);
-    });
-
-    // Fallback integrity: the slot must fall back to an accent token, never to a
-    // neutral border, or unset compositions would lose the featured look. Both
-    // accent tokens the two rules historically used are acceptable fallbacks.
-    test('--grid-item-border-color falls back to an accent token, preserving the default look', () => {
-        const bad = [];
-        borderBodies.forEach(body => {
-            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
-            decls.forEach(d => {
-                if (!/var\(\s*--grid-item-border-color\s*,\s*var\(\s*--color-(?:border-accent|accent-strong)\s*\)\s*\)/.test(d)) {
-                    bad.push(d.trim());
-                }
-            });
-        });
-        expect(bad).toEqual([]);
-    });
-});
+// The #226 featured-card border block was DELETED at #1101 with `card_emphasis` itself
+// (ruling D9). Every pin in it was about the `:not(.grid--uniform) … :first-child` rules:
+// that they existed, that they carried the uniform guard, and that they routed the border
+// colour through a slot. The whole featured treatment is gone — ORDINAL styling contradicts
+// Addendum B exclusion 3, which rules that an item is addressed by its minted id so that
+// reordering carries the styling WITH the item, and keeping an ordinal treatment beside an
+// id-addressed one would leave two systems disagreeing about which card is special.
+// MEASURED BEFORE RETIRING IT, per ruling D2: all 11 of the owner's production grid bands
+// already rendered `grid--uniform`, i.e. the featured treatment was switched off everywhere
+// it could have applied. One card being special is an item `udc` map now.
 
 /**
  * Non-featured grid cards honor the --grid-item-border-color style slot (#292).
@@ -1228,73 +1018,14 @@ describe('CSS lint: featured grid card honors --grid-item-border-color (#226)', 
  * in the grid block (the base `.grid__item` rule satisfies it), so it cannot catch
  * this all-cards-specific gap — hence this targeted pin.
  */
-describe('CSS lint: non-featured grid cards honor --grid-item-border-color (#292)', () => {
-    const SELECTOR = 'main > .grid .grid__item';
-
-    // Brace-matched extraction of every rule whose selector is EXACTLY this
-    // (whitespace-normalized). `:not(.grid--steps)` / `:first-child` / `::before`
-    // and comma-group rules share the prefix but have more text before `{`, so
-    // `\s*\{` never matches them.
-    function bodiesForExactSelector(selector) {
-        const css = stripComments(COMPONENTS_CSS).replace(/\s+/g, ' ');
-        const re = new RegExp(
-            selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{',
-            'g'
-        );
-        const bodies = [];
-        let match;
-        while ((match = re.exec(css)) !== null) {
-            let i = re.lastIndex;
-            let depth = 1;
-            const start = i;
-            while (i < css.length && depth > 0) {
-                if (css[i] === '{') depth++;
-                else if (css[i] === '}') depth--;
-                i++;
-            }
-            bodies.push(css.slice(start, i - 1));
-        }
-        return bodies;
-    }
-
-    const bodies = bodiesForExactSelector(SELECTOR);
-    const borderBodies = bodies.filter(b => /border-color\s*:/.test(b));
-
-    // Guard against the selector silently drifting: a zero-match scan would make
-    // every assertion below vacuously pass.
-    test('finds the all-cards grid rules that set border-color', () => {
-        expect(borderBodies.length).toBeGreaterThanOrEqual(2);
-    });
-
-    test('every border-color on the all-cards rule routes through --grid-item-border-color', () => {
-        const offenders = [];
-        borderBodies.forEach(body => {
-            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
-            decls.forEach(d => {
-                if (!/border-color\s*:\s*var\(\s*--grid-item-border-color\b/.test(d)) {
-                    offenders.push(d.trim());
-                }
-            });
-        });
-        expect(offenders).toEqual([]);
-    });
-
-    // Fallback integrity: the non-featured card border falls back to the NEUTRAL
-    // --color-border, never an accent token — cards 2..N must not adopt the
-    // featured accent look when --grid-item-border-color is unset.
-    test('--grid-item-border-color falls back to the neutral --color-border on all cards', () => {
-        const bad = [];
-        borderBodies.forEach(body => {
-            const decls = body.match(/border-color\s*:[^;}]+/g) || [];
-            decls.forEach(d => {
-                if (!/var\(\s*--grid-item-border-color\s*,\s*var\(\s*--color-border\s*\)\s*\)/.test(d)) {
-                    bad.push(d.trim());
-                }
-            });
-        });
-        expect(bad).toEqual([]);
-    });
-});
+// The #292 non-featured-card border block was DELETED at #1101 with the slot it guarded.
+// It proved that every `main > .grid … .grid__item` rule declaring `border-color` routed
+// it through `--grid-item-border-color`, so a per-instance colour was honoured on cards
+// 2..N and not only on the featured first card. There is no slot, no routing and no
+// final-cascade grid block left: the card's border colour is `card` -> `border.color`,
+// emitted unlayered, so it wins over every rule in components.css at any specificity
+// without a restatement to audit. The defect class this guarded — a late rule quietly
+// out-ranking an authored value — is closed by the layer split rather than by a lint.
 
 /**
  * Grid desktop column layout (#224).
@@ -1635,69 +1366,19 @@ describe('CSS lint: grid explicit column-count override (#379)', () => {
  * icon stays icon-sized on phones too. The default `.grid__item-image-wrap` must
  * keep its 16:9 banner untouched.
  */
-describe('CSS lint: grid item image icon treatment (#380)', () => {
-    const stripped = stripComments(COMPONENTS_CSS);
-
-    // Body of the first rule matching `selector { ... }` at top level (no nested braces).
-    function bodyFor(selector) {
-        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = new RegExp(`(?:^|[}{])\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(stripped);
-        return m ? m[1] : null;
-    }
-
-    test('default .grid__item-image-wrap keeps the 16:9 banner (unset = byte-identical)', () => {
-        const body = bodyFor('.grid__item-image-wrap');
-        expect(body).not.toBeNull();
-        expect(/aspect-ratio\s*:\s*16\s*\/\s*9/.test(body)).toBe(true);
-    });
-
-    test('grid--image-icon sizes the wrap via --grid-item-icon-size and drops the crop', () => {
-        const body = bodyFor('.grid--image-icon .grid__item-image-wrap');
-        expect(body).not.toBeNull();
-        expect(/aspect-ratio\s*:\s*auto/.test(body)).toBe(true);
-        // width AND height both route through the slot (length-typed, default 48px).
-        expect(/width\s*:\s*var\(--grid-item-icon-size,\s*48px\)/.test(body)).toBe(true);
-        expect(/height\s*:\s*var\(--grid-item-icon-size,\s*48px\)/.test(body)).toBe(true);
-    });
-
-    test('grid--image-icon image is contained, not cover-cropped', () => {
-        const body = bodyFor('.grid--image-icon .grid__item-image');
-        expect(body).not.toBeNull();
-        expect(/object-fit\s*:\s*contain/.test(body)).toBe(true);
-    });
-
-    test('the icon box follows --grid-item-text-align via the shared #361 companion', () => {
-        // The fixed-width icon is a flex child; it reuses the SAME derived
-        // --pp-grid-link-align companion the card link follows, so a centered card
-        // centers its icon too. Fallback flex-start keeps unset cards left (#380 7A).
-        const body = bodyFor('.grid--image-icon .grid__item-image-wrap');
-        expect(body).not.toBeNull();
-        expect(/align-self\s*:\s*var\(--pp-grid-link-align,\s*flex-start\)/.test(body)).toBe(true);
-    });
-
-    test('the icon rules apply at all breakpoints (not nested in a min-width block)', () => {
-        // Find every @media (min-width: ...) block body by brace matching, and assert
-        // no grid--image-icon rule lives inside one — otherwise mobile would keep the
-        // banner-sized image below the breakpoint.
-        const opener = /@media\s*\(min-width:[^)]*\)\s*\{/g;
-        let match;
-        let insideCount = 0;
-        while ((match = opener.exec(stripped)) !== null) {
-            let depth = 1;
-            let i = opener.lastIndex;
-            while (i < stripped.length && depth > 0) {
-                if (stripped[i] === '{') depth++;
-                else if (stripped[i] === '}') depth--;
-                i++;
-            }
-            const block = stripped.slice(opener.lastIndex, i - 1);
-            if (block.includes('.grid--image-icon')) insideCount++;
-        }
-        expect(insideCount).toBe(0);
-        // Guard against a vacuous pass: the rule must exist somewhere in the file.
-        expect(stripped.includes('.grid--image-icon .grid__item-image-wrap')).toBe(true);
-    });
-});
+// The #380 image-icon-treatment block was DELETED at #1101 with the `image_treatment`
+// prop it guarded. Its five pins were all about one variant class — `.grid--image-icon`
+// sizing the wrap through `--grid-item-icon-size`, dropping the 16:9 crop, containing
+// rather than cropping the image, following the #361 alignment companion, and doing all
+// of it at every breakpoint. None of that surface exists: the prop retired with a route
+// (`card-media` -> `sizing.aspect-ratio` plus `width`/`height`), the companion retired
+// with `--grid-item-text-align`, and the variant class is gone from the stylesheet.
+// MEASURED BEFORE RETIRING IT, per ruling D2: zero of the owner's 11 production grid
+// bands and zero card images used the icon treatment.
+// THE ONE THING IT GUARDED THAT HAS NO ROUTE is `object-fit: contain`, and the schema
+// says so rather than this comment burying it: the Sizing group has no `object-fit`
+// param, so the un-cropped half of the treatment is reachable only through the raw-CSS
+// valve. That is a stated narrowing in `retired_props`, not a silent loss.
 
 /**
  * Hero eyebrow stays a pill (#225).
@@ -1978,9 +1659,15 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
 
     // ---- Heading font-size slots (title-size / heading-size) ----
 
-    test('grid heading premium rule routes font-size through --grid-heading-size', () => {
-        assertPropRoutesThroughSlot('main > .grid .grid__heading', 'font-size', '--grid-heading-size', 1);
-    });
+    // ---- GRID'S HEADING ROW LEFT THIS BLOCK AT #1101, AND EMPTIED IT ----
+    //
+    // It pinned that the >=768px premium rule for `main > .grid .grid__heading` routed
+    // its font-size through `--grid-heading-size`, so a declared slot was not silently
+    // out-ranked down there. There is no slot and no premium rule: the size is the
+    // `heading` role's `typography.size`, defaulting to the shared `@pp-band-heading-size`
+    // exactly as the slot's fallback did, and a role default cannot be out-ranked by this
+    // stylesheet at any specificity because it emits into a layer this file sits above.
+    // With grid gone this sub-block has no heading rows left at all.
 
     // ---- SECTION'S FIVE ROWS LEFT THIS BLOCK AT #1023 ----
     //
@@ -2000,22 +1687,32 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
     // slot cta owns; section has no body-size slot and no rule in this file at all now,
     // so there is no chain left to sever. The grid/faq half is below and still live.
 
-    // The other half of the same severance: grid cards and faq answers took their mobile
-    // body size from --cta-body-size too. They now carry the literal.
-    // THE "cta KEEPS THE SLOT IT OWNS" HALF WENT AT #1026, and its absence is the point of
-    // the severance rather than a hole in it. cta's own rules are gone with its slot map,
-    // so there is no longer any reader of `--cta-body-size` anywhere in this file — which
-    // is what makes the grid/faq assertion below unconditional now. #578 severed a borrowed
-    // slot; the rebuild removed the lender.
-    test('#578 grid/faq mobile body size no longer reads the cta body-size slot', () => {
-        const gridBodies = bodiesForExactSelector('main > .grid .grid__item-text');
-        const faqBodies = bodiesForExactSelector('main > .faq .faq__answer');
-        expect(gridBodies.length + faqBodies.length).toBeGreaterThanOrEqual(2);
-        [...gridBodies, ...faqBodies]
-            .flatMap(b => b.match(/font-size\s*:[^;}]+/g) || [])
-            .forEach(d => expect(d).not.toMatch(/--cta-body-size/));
-        // And nothing anywhere in the sheet reads it, which a stricter check can now make.
-        expect(stripComments(COMPONENTS_CSS)).not.toMatch(/--cta-body-size/);
+    // #578 IS FULLY CLOSED AT #1101, and the borrowing it severed can no longer be
+    // expressed. The defect was that grid cards and faq answers took their mobile body
+    // size from `--cta-body-size` — a slot another component owned, which grid could
+    // neither set (the write path rejects a foreign slot) nor resolve (inline slot
+    // properties land on the owning root). #578 severed both readers to a literal, #1026
+    // removed the LENDER with cta's slot map, #1046 took faq's reader, and #1101 takes
+    // grid's: the value is the `card-text` role's `typography.size` map now.
+    //
+    // THE ONE CLAIM WORTH KEEPING IS THE STRICT ONE, so it is kept rather than deleted
+    // with its two per-component arms — and it is no longer about cta in particular.
+    // A v2 stylesheet may reference no component's slot at all, because there are none.
+    test('#578 is closed by construction: no component slot is read anywhere', () => {
+        const css = stripComments(COMPONENTS_CSS);
+        expect(css).not.toMatch(/--cta-body-size/);
+        // THE GENERAL FORM IS NARROWED TO WHAT IS ACTUALLY TRUE, because the wider claim
+        // was written first and the file disproved it. Nine of the twelve components read
+        // no slot here; `--stats-padding-top` and `--logos-padding-top` are still read by
+        // the adjacent-sibling rhythm rules even though neither schema declares a slot map
+        // any more, so those two reads resolve to their fallbacks and can never be set.
+        // That is a separate pre-existing defect with its own issue, not something this
+        // change may quietly delete, and stating it here is what keeps it from being
+        // rediscovered as new. What #1101 makes true is grid's half.
+        const slotReads = css.match(
+            /var\(\s*--(hero|section|cta|faq|grid|embed|testimonials|table|nav|footer)-[a-z0-9-]+/g,
+        ) || [];
+        expect(slotReads).toEqual([]);
     });
 
     // ---- Stats contained-card capability (issue 383), REPRICED AT #1066 PR2 ----
@@ -2054,10 +1751,12 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
 
     // ---- Own section/grid/cta padding (desktop + mobile) ----
 
-    test('every .grid padding declaration routes through --grid-padding-*', () => {
-        assertPropRoutesThroughSlot('.grid', 'padding-top', '--grid-padding-top', 2);
-        assertPropRoutesThroughSlot('.grid', 'padding-bottom', '--grid-padding-bottom', 2);
-    });
+    // grid's own-padding pin left at #1101 with its slot map, the last of the four. Its
+    // band padding is the `_band` role's `spacing.padding-top` / `padding-bottom`,
+    // defaulting to the same shared `@pp-band-padding` this guard used to pin, and the
+    // adjacent-sibling rhythm reaches it through the zero-specificity baseline rather
+    // than a per-component rule, because `_band` defaults emit into `pp-zero`, below this
+    // stylesheet. Identical to section's departure at #1023 and faq's at #1046.
 
     // cta's padding pin left at #1026 with its slot map. Its band padding is the `_band`
     // role's `spacing.padding-top` / `padding-bottom`, defaulting to the same shared
@@ -2094,7 +1793,9 @@ describe('CSS lint: premium layer honors padding/type/width slots (#302)', () =>
         // testimonials is: its CSS block is structural only, so it routes nothing
         // through a slot. Its adjacent top edge comes from the zero-specificity
         // baseline rule above, which its `pp-zero` band default yields to by design.
-        ['main > [data-pp-component] + .grid', '--grid-padding-top'],
+        // grid's adjacent row left at #1101 with its slot map: with no slot to keep
+        // live, both breakpoint rules were deleted and the zero-specificity baseline
+        // serves the edge directly, exactly as it does for every other v2 band.
         ['main > [data-pp-component] + .stats', '--stats-padding-top'],
         // faq's adjacent row left at #1046: with no slot to keep live, the rule was
         // deleted and the zero-specificity baseline serves the edge directly.
@@ -2168,7 +1869,18 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
         // pins for every component still on slots — and the adjacent-sibling rhythm
         // reaches it through the zero-specificity baseline rather than a per-component
         // rule, because `_band` defaults emit into `pp-zero`, below this stylesheet.
-        { comp: 'grid', cls: '.grid', slot: '--grid' },
+        // GRID LEFT AT #1101, AND IT WAS THE LAST MEMBER — this table is empty now, which
+        // is a milestone rather than a gap: every band in the theme is v2, so no band
+        // routes its rhythm through a slot and there is nothing left for pins 1 and 2 to
+        // walk. Its band padding is the `_band` role's spacing default, resolving to the
+        // same shared `@pp-band-padding`, and both per-component adjacent rules went with
+        // the slot they existed to keep alive.
+        // PINS 1 AND 2 THEREFORE RUN ZERO TIMES, and that is asserted immediately below
+        // rather than left to be noticed — a `test.each([])` is silent, and silence is
+        // how a roster that emptied by ACCIDENT would look identical to one that emptied
+        // by design. Pins 3, 3b, 3b-ii and 3c do not iterate this table and still carry
+        // the claim that matters: one rhythm definition, consumed by everything, with the
+        // former literals appearing nowhere.
         // stats left this table at #1066 PR2 — its band rhythm is the `_band` role's
         // spacing default, resolving to the same shared `@pp-band-padding`. The behavioural
         // pin that replaces it is the e2e #431 nine-band equality test, where stats is
@@ -2207,6 +1919,16 @@ describe('CSS lint: section-level bands share one rhythm definition (#431)', () 
 
     /** Pin 1 applies only to the bands that consume the SHARED rhythm definition. */
     const OWN_RHYTHM_COMPONENTS = BAND_COMPONENTS.filter(b => b.ownRhythm !== false);
+
+    // THE EMPTY ROSTER IS A CLAIM, NOT AN ABSENCE (#1101). Pins 1 and 2 below are
+    // `test.each` over this table, so an empty table makes both of them vanish without a
+    // word. Asserting the emptiness turns "no band routes rhythm through a slot any more"
+    // into something the file has to keep being true, and makes re-adding a row a
+    // deliberate edit that has to argue with this line first.
+    test('every band is v2, so no band routes its rhythm through a slot', () => {
+        expect(BAND_COMPONENTS).toEqual([]);
+        expect(OWN_RHYTHM_COMPONENTS).toEqual([]);
+    });
 
     // Brace-matched extraction of every rule whose selector is EXACTLY `selector`
     // (whitespace-normalized), across all media contexts. Same technique as the
@@ -2460,7 +2182,14 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         // section's row is gone (#1023) and cta's at #1026: the shared band-heading scale reaches each as the
         // `heading` role's `typography.size` default (@pp-band-heading-size), which is
         // the same token this guard pins for every component still on slots.
-        { selectors: ['.grid__heading', 'main > .grid .grid__heading'], slot: '--grid-heading-size' },
+        // GRID'S ROW LEFT AT #1101 AND EMPTIED THIS ROSTER. Its heading size is the
+        // `heading` role's `typography.size` default, referencing the same shared
+        // `@pp-band-heading-size` this guard pinned, and it is pinned against the EMITTED
+        // declaration in GridRoleDefaultsEmitTest rather than against this stylesheet's
+        // text — which is the stronger pin, because it reads what the browser gets.
+        // PIN 1 NOW RUNS ZERO TIMES and pin 2 lost its input, so both are handled
+        // explicitly below rather than left to disappear: the emptiness is asserted, and
+        // pin 2 is rewritten to scan for the defect SHAPE instead of a slot roster.
         // faq's row left at #1046: the heading size is the `heading` role's
         // `typography.size`, referencing the same shared `@pp-band-heading-size`.
         // stats' row left at #1066 PR2 with its slot; the size is the `heading` role's
@@ -2498,17 +2227,29 @@ describe('CSS lint: band-level headings share one responsive scale (#436)', () =
         });
     });
 
+    // 1b. THE EMPTY ROSTER IS A CLAIM (#1101). Pin 1 is a `test.each` over this table, so
+    //     an empty table makes it vanish in silence — and silence is how a roster that
+    //     emptied by ACCIDENT would look identical to one that emptied by design. Every
+    //     band heading in the theme is a `heading` role now, pinned per component in its
+    //     own *RoleDefaultsEmitTest against the emitted CSS.
+    test('every band heading is a role, so none routes its size through a slot', () => {
+        expect(BAND_HEADINGS).toEqual([]);
+    });
+
     // 2. `inherit` never appears as a heading font-size fallback anywhere in
-    //    components.css — this is the exact regression that shipped the 16px
-    //    collapse. Body-copy slots (e.g. --cta-body-size) may still inherit;
-    //    this pin is scoped to the band-heading slots above.
-    test('no band-heading font-size falls back to inherit', () => {
+    //    components.css — this is the exact regression that shipped the 16px collapse.
+    //    SCOPED TO A SHAPE RATHER THAN A ROSTER SINCE #1101, because the roster is empty
+    //    and a loop over it would assert nothing at all. The shape is what the defect
+    //    actually was: a heading-size custom property falling back to `inherit`, which
+    //    resolves to the parent's body size instead of the band scale. Matching any
+    //    `--*-heading-size` keeps the pin alive with no members to enumerate, and keeps
+    //    it honest if a slot-shaped name is ever reintroduced.
+    test('no heading font-size falls back to inherit', () => {
         const stripped = stripComments(COMPONENTS_CSS);
-        const headingSlots = BAND_HEADINGS.map(h => h.slot);
-        headingSlots.forEach(slot => {
-            const re = new RegExp('font-size\\s*:\\s*var\\(\\s*' + slot + '\\s*,\\s*inherit\\s*\\)');
-            expect(stripped).not.toMatch(re);
-        });
+        expect(stripped).not.toMatch(/font-size\s*:\s*var\(\s*--[a-z0-9-]*heading-size\s*,\s*inherit\s*\)/);
+        // Detection proof: the regex must actually catch the shipped-and-fixed spelling.
+        expect('font-size: var(--grid-heading-size, inherit)')
+            .toMatch(/font-size\s*:\s*var\(\s*--[a-z0-9-]*heading-size\s*,\s*inherit\s*\)/);
     });
 
     // 3. The shared scale is actually defined in base.css as a fluid clamp with a
@@ -3142,6 +2883,21 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
                 hero: 35, section: 13, faq: 11, table: 6, cta: 9,
                 nav: 18, footer: 16, testimonials: 10,
                 stats: 2, logos: 4,
+                // grid's count arrived at #1101 and is the largest of any v2 component
+                // except hero's, for a reason that is layout rather than drift: the
+                // `data-pp-count` auto-derivation and the `data-pp-columns` override are
+                // nine rules of pure `grid-template-columns`, and they moved INTO this
+                // block from the final cascade in the same change, because track
+                // geometry is structure and the cascade block they lived in was grid's
+                // alone.
+                //
+                // IT STAYED 29 THROUGH #1101's DESIGN REVIEW, and this lint is why. The
+                // first cut of the inset-focus-ring fix put `padding-inline` on
+                // `.grid__item-link` here and tripped the fail-closed arm — correctly:
+                // spacing on a v2 component is a role's value, not this stylesheet's.
+                // The clearance moved to `card-link` -> `spacing` in schema.json and the
+                // block went back to 29 rules.
+                grid: 29,
             };
             const expected = STRUCTURAL_RULE_COUNT[component];
             expect(
@@ -4801,11 +4557,14 @@ describe('CSS lint: the Layout group is exposed by box fact, not by judgement', 
         section: ['columns', 'inline-items', 'panel-row'],
         stats: ['list', 'item'],
         table: [],
-        // grid ships a schema and declares NO roles yet (its rebuild is #1024,
-        // gated on the item-grain ruling). It is listed with an empty roster rather
-        // than omitted, so the coverage check above stays exact and the day grid
-        // declares roles this test demands a decision instead of ignoring it.
-        grid: [],
+        // grid's roster arrived at #1101, and the tripwire above did exactly what it was
+        // written for: the empty roster failed the moment the rebuilt schema declared
+        // `layout` on `header`, whose `.grid__header` is an ordinary block. The decision
+        // it demanded was taken in the schema rather than here — `header` dropped the
+        // group (a justify-content on a block box is the #1006 inert class) and `card`
+        // gained it, because `.grid__item { display: flex }` makes the card a real
+        // container. These five are the boxes this stylesheet actually switches.
+        grid: ['card', 'card-body', 'card-bullets', 'card-link', 'list'],
         testimonials: ['list', 'card', 'attribution'],
         embed: [],
     };

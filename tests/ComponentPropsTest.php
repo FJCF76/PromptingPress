@@ -125,21 +125,39 @@ class ComponentPropsTest extends TestCase
             'layout' => 'centered',
         ]);
         $this->assertStringContainsString('class="section section--centered"', $html);
-    }
-
-    // ── Grid card_emphasis opt-out (issue 226) ─────────────────────────────
-    // 'uniform' emits .grid--uniform, which the featured :first-child selectors
-    // guard with :not(.grid--uniform) so a symmetric card row renders equal
-    // cards. Default 'featured' emits NO class (byte-identical existing pages).
-
-    public function testGridUniformEmphasisEmitsClass(): void
-    {
-        $html = $this->render('grid', [
-            'card_emphasis' => 'uniform',
-            'items' => [['title' => 'One', 'text' => 'a']],
-        ]);
-        $this->assertStringContainsString('grid--uniform', $html);
-    }
+    }    /**
+     * THE ELEVEN GRID v1-PROP RENDER TESTS RETIRED AT #1101, with the props they rendered.
+     *
+     * Each asserted a CLASS on the rendered `<section>`: `grid--uniform` from
+     * `card_emphasis`, `grid--dark` from `theme: "muted"` (the legacy output name #570
+     * DG-4 kept), `grid--inverted`, `grid--image-icon` from `image_treatment`,
+     * `grid__header--center` from `title_align`, `text-mono`/`text-meta`/… on a card from
+     * `items[].text_role`, and the two compositions that proved those classes stacked
+     * without clobbering each other or `data-pp-columns`. Two more read the inline
+     * `style` attribute: the grid-level slot map and a per-card gradient surviving
+     * unmangled through pp_render_style_vars().
+     *
+     * NONE OF THOSE CLASSES OR ATTRIBUTES IS EMITTED ANY MORE. `styling.variant_classes`
+     * is `["grid--steps"]` and nothing else; `grid.php` emits `data-pp-band` and
+     * `data-pp-item` and NO `style` attribute at all, which is what makes BUILD-SPEC
+     * §3.4's "no inline style emission anywhere in v2 components" true theme-wide for the
+     * first time. Four schema tests went with them — the declarations they read
+     * (`--grid-item-bullet-color`, `--grid-step-text-color`, the header slots, the
+     * title-accent slot) are role defaults now, or retired with a stated narrowing.
+     *
+     * WHERE THE RENDER CLAIMS WENT, because they did not all evaporate:
+     *   - the band's design identity is pinned by the `data-pp-band` guard tests, which
+     *     grid joined in this change (absent/malformed id emits NO attribute);
+     *   - one card's design is pinned at item grain in tests/GridItemUdcTest.php, which
+     *     is the direct successor to the per-card style-map tests;
+     *   - the byte-for-byte "unset output is unchanged" claim these tests carried for
+     *     each prop is carried by the retirement routes in `retired_props`, each of which
+     *     records what the prop MEASURED before it went rather than what it declared.
+     *
+     * THE ONE SURVIVING VARIANT CLASS IS STILL PINNED: `grid--steps` is structure, not
+     * styling, and testGridStepsLayoutEmitsVariantClass (below, untouched) still proves
+     * it — so this retirement cannot be read as "grid stopped emitting classes".
+     */
 
     public function testGridFeaturedEmphasisEmitsNoClassAndStaysByteIdentical(): void
     {
@@ -169,32 +187,6 @@ class ComponentPropsTest extends TestCase
             'items' => [['title' => 'One', 'text' => 'a']],
         ]);
         $this->assertStringNotContainsString('grid--uniform', $html);
-    }
-
-    public function testGridUniformComposesWithThemeAndLayoutClasses(): void
-    {
-        $html = $this->render('grid', [
-            'card_emphasis' => 'uniform',
-            'theme' => 'muted',
-            'items' => [['title' => 'One', 'text' => 'a']],
-        ]);
-        $this->assertStringContainsString('grid--dark', $html);
-        $this->assertStringContainsString('grid--uniform', $html);
-    }
-
-    public function testGridUniformClassIsEmittedEvenOnStepsLayout(): void
-    {
-        // 'uniform' is a cards-layout concept and inert on steps (the featured
-        // CSS rules already carry :not(.grid--steps)). The class is still emitted
-        // so that if a future steps-specific first-card emphasis rule is ever
-        // added, it can be guarded with the same :not(.grid--uniform) hook.
-        $html = $this->render('grid', [
-            'card_emphasis' => 'uniform',
-            'layout' => 'steps',
-            'items' => [['number' => '1', 'title' => 'One', 'text' => 'a']],
-        ]);
-        $this->assertStringContainsString('grid--steps', $html);
-        $this->assertStringContainsString('grid--uniform', $html);
     }
 
     // ── Grid explicit column-count control (issue 379) ─────────────────────
@@ -272,38 +264,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('grid--steps', $html);
     }
 
-    public function testGridColumnsComposesWithThemeAndEmphasis(): void
-    {
-        $html = $this->render('grid', [
-            'columns' => 2,
-            'theme' => 'muted',
-            'card_emphasis' => 'uniform',
-            'items' => [['title' => 'One'], ['title' => 'Two']],
-        ]);
-        $this->assertStringContainsString('data-pp-columns="2"', $html);
-        $this->assertStringContainsString('grid--dark', $html);
-        $this->assertStringContainsString('grid--uniform', $html);
-    }
-
-    // ── Grid item image treatment (issue 380) ─────────────────────────────
-    // `image_treatment: "icon"` emits the grid--image-icon variant class on the
-    // section; the CSS reads it to render each card image at icon scale instead of
-    // the 16:9 cover banner. Default/unset ("banner") emits NO class, so existing
-    // pages stay byte-identical. Write-time validation rejects out-of-set values;
-    // the renderer additionally coerces raw-written invalid state to "no class"
-    // (defensive, like layout/theme). Icon is a cards concept: inert on steps.
-
-    public function testGridImageTreatmentIconEmitsVariantClass(): void
-    {
-        $html = $this->render('grid', [
-            'image_treatment' => 'icon',
-            'items' => [['title' => 'One', 'image_url' => 'a.png', 'image_alt' => 'A']],
-        ]);
-        $this->assertStringContainsString('grid--image-icon', $html);
-        // The image still renders inside its wrap; only the treatment class changes.
-        $this->assertStringContainsString('grid__item-image-wrap', $html);
-    }
-
     public function testGridImageTreatmentBannerAndUnsetEmitNoClassByteIdentical(): void
     {
         $withUnset = $this->render('grid', [
@@ -351,23 +311,6 @@ class ComponentPropsTest extends TestCase
         ]);
         $this->assertStringNotContainsString('grid--image-icon', $html);
         $this->assertStringContainsString('grid--steps', $html);
-    }
-
-    public function testGridImageTreatmentComposesWithThemeEmphasisAndBullets(): void
-    {
-        $html = $this->render('grid', [
-            'image_treatment' => 'icon',
-            'theme' => 'muted',
-            'card_emphasis' => 'uniform',
-            'items' => [
-                ['title' => 'One', 'image_url' => 'a.png', 'bullets' => ['Fast', 'Cheap']],
-            ],
-        ]);
-        $this->assertStringContainsString('grid--image-icon', $html);
-        $this->assertStringContainsString('grid--dark', $html);
-        $this->assertStringContainsString('grid--uniform', $html);
-        // Works alongside bullets on the same card.
-        $this->assertStringContainsString('grid__item-bullet', $html);
     }
 
     public function testSectionCenteredSuppressesImageEvenWhenProvided(): void
@@ -525,47 +468,6 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('', $result);
     }
 
-    // RETIRED (#1026): cta's per-instance styling tests, together, because their subject is
-    // one thing — the forty `--cta-*` style slots and the four `*_variant` / `theme` /
-    // `background_image` props that selected bundles of them. The rebuild moved every one of
-    // those values onto a named ROLE in components/cta/schema.json, so there is no slot to
-    // declare, no variant class to map, and no inline custom property to render.
-    //
-    //   testCtaSchemaDeclaresAllSixButtonSlots      testCtaSchemaDeclaresEyebrowSlots
-    //   testCtaButtonVariantOutline / Ghost / Secondary
-    //   testCtaButton2DefaultsToOutline             testCtaButton2VariantMapsToModifier
-    //   testCtaButton2VariantInvalidFallsBackToOutline
-    //   testCtaButtonOverrideRenders                testCtaBgPositionOverrideRenders
-    //   testCtaAccentOnlyCompositionStillRendersAccentCustomProperty
-    //   testCtaAccentFillExcludesOutlineGhostSecondary
-    //   testCtaBtnCssStillConsumesCtaAccentAfterEnrichment
-    //   testCtaButtonVariantsAllRouteThroughOverrideSlotsInCss
-    //   testCtaMutedEmitsDarkAndInvertedStaysInverted
-    //   testRenderStyleVarsGradientSurvivesUnmangledForCta
-    //
-    // WHAT REPLACES THE COVERAGE, named so this is not read as a hole. The emitted values are
-    // asserted at the CSS level in tests/CtaRoleDefaultsEmitTest.php, one assertion per
-    // claim; the write path's acceptance of a `udc` map is ActionsTest's UDC contract tests;
-    // the refusal of every retired name is SchemaValidationTest's registry-iterating
-    // `retired_props` / slot guards, which cover cta automatically because they iterate
-    // rather than enumerate. The rendered half is tests/e2e/style-render.spec.ts.
-    //
-    // THE BUTTON-VARIANT TESTS ARE A DELIBERATE LOSS OF ONE THING, stated rather than
-    // buried: v1 had four named button treatments and v2 ships two presets (`button`,
-    // `button-secondary`). `outline` and `ghost` have no preset and are written out on the
-    // role — the migration how-to gives both maps verbatim. What the rebuild keeps is the
-    // DEFAULT pair reading as one filled action beside one outlined action, which is the
-    // `button-secondary` role's own defaults and is pinned in CtaRoleDefaultsEmitTest.
-
-    public function testRenderStyleVarsGradientSurvivesUnmangledForGrid(): void
-    {
-        $result = pp_render_style_vars(
-            ['--grid-item-bg' => 'linear-gradient(180deg, #fff, #eee)'],
-            'grid'
-        );
-        $this->assertStringContainsString('--grid-item-bg: linear-gradient(180deg, #fff, #eee)', $result);
-    }
-
     public function testRenderStyleVarsGradientSurvivesUnmangledForSection(): void
     {
         // PER-TEST OPT-IN (#1025): the gradient type needs a slot-bearing host, and stats
@@ -622,8 +524,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('class="cta__button cta__button--primary btn"', $html);
         $this->assertStringNotContainsString('btn--', $html);
     }
-
-
 
 
     public function testCtaButtonVariantInvalidFallsBackToPrimary(): void
@@ -856,7 +756,6 @@ class ComponentPropsTest extends TestCase
     // emitted by any renderer.
 
 
-
     public function testCtaButton2TextAndUrlAreEscaped(): void
     {
         $html = $this->render('cta', $this->ctaProps([
@@ -975,11 +874,7 @@ class ComponentPropsTest extends TestCase
     // renders as an inline custom property AND the CSS still consumes it.
 
 
-
     // ── Secondary/outline button cascade bug + per-instance slots (#111) ────
-
-
-
 
 
     // ── pp_esc_image_src (#36) ───────────────────────────────────────────────
@@ -1759,31 +1654,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringNotContainsString('faq__list', $html);
     }
 
-    // ── theme `muted` emits the legacy `--dark` class (#570 DG-4, render layer) ──
-    // The canonical value `muted` emits the legacy `--dark` surface-band class. That
-    // is an OUTPUT NAME the #605 input-alias removal deliberately kept, so these are
-    // the DG-4 regression proof: they must stay green, unchanged, forever. Proven at
-    // the render layer (not just the helper) so the template wiring is pinned.
-
-    // faq's DG-4 row retired at #1046 with its `theme` prop, and the note that first
-    // replaced it OVERSTATED what remains — it claimed the rule was "still proven below on
-    // grid, and on stats/logos/embed further down". Grepped: `grid--dark` is asserted here
-    // and `stats--dark` appears only in a NEGATIVE assertion in SchemaValidationTest;
-    // `logos--dark` and `embed--dark` are ASSERTED nowhere (they do appear — in both
-    // schemas' `variant_classes`, in components.css, in both READMEs and in a
-    // StyleSlotContractTest docblock — but nothing TESTS them). The rule keeps exactly two carriers —
-    // grid's render-layer row below, and the helper's own unit tests in
-    // tests/ThemeClassHelperTest.php — so no coverage was lost, but the count was wrong by
-    // four and would have told the next rebuild that grid's row was safe to delete.
-    // testAStoredFaqThemeEmitsNoVariantClassAtAll asserts the other half: that faq now
-    // renders no class for that input at all.
-
-    public function testGridMutedThemeEmitsLegacyDarkClass(): void
-    {
-        $muted = $this->render('grid', ['theme' => 'muted', 'items' => [['title' => 'One', 'text' => 'a']]]);
-        $this->assertStringContainsString('grid--dark', $muted);
-    }
-
     public function testGridStoredLegacyDarkRendersTheDefaultBandNotMuted(): void
     {
         // #605 at the RENDER layer, on the stored-bytes route: a band still holding
@@ -1883,19 +1753,14 @@ class ComponentPropsTest extends TestCase
      */
     public function testEveryComponentWithTitleAccentCanStyleIt(): void
     {
-        // stats' row left at #1066 PR2 with its slot map. Its capability did NOT leave:
-        // the accent is the `heading-accent` role's `typography.color`, asserted against
-        // the EMITTED declaration in StatsRoleDefaultsEmitTest and covered by the v2 half
-        // of this same test below. GRID IS THE LAST v1 DECLARER.
-        $v1 = [
-            'grid'  => '--grid-heading-accent-color',
-        ];
-        foreach ($v1 as $component => $slot) {
-            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
-            $this->assertArrayHasKey('title_accent', $schema['props'], "{$component} must declare title_accent prop.");
-            $this->assertArrayHasKey($slot, $schema['styling']['style_slots'], "{$component} must declare {$slot}.");
-            $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
-        }
+        // THE v1 HALF IS EMPTY SINCE #1101, and it is asserted empty rather than deleted.
+        // stats' row left at #1066 PR2 with its slot map and grid — the last declarer —
+        // left at #1101. Every component answers this question through a ROLE now, which
+        // is the v2 half below. An empty `foreach` asserts nothing, so the emptiness gets
+        // its own claim here and its own test
+        // (testNoComponentStillColoursItsTitleAccentThroughASlot).
+        $v1 = [];
+        $this->assertSame([], $v1, 'no component colours its title accent through a slot');
 
         // The v2 components keep the PROP and answer the same question through a ROLE.
         // The role NAME differs between them and that is deliberate, not drift: hero's
@@ -2104,20 +1969,6 @@ class ComponentPropsTest extends TestCase
         $this->assertStringContainsString('data-pp-count="1"', $html);
     }
 
-    public function testGridEyebrowSubheadingAndCenterAlignRender(): void
-    {
-        $html = $this->render('grid', $this->gridProps([
-            'title' => 'Heading',
-            'eyebrow' => 'KICKER',
-            'subheading' => 'Supporting line',
-            'title_align' => 'center',
-        ]));
-        $this->assertStringContainsString('class="grid__header grid__header--center"', $html);
-        $this->assertStringContainsString('class="grid__eyebrow">KICKER<', $html);
-        $this->assertStringContainsString('class="grid__heading">Heading<', $html);
-        $this->assertStringContainsString('class="grid__subheading">Supporting line<', $html);
-    }
-
     public function testGridHeaderAlignDefaultsToStartAndOmitsCenterClass(): void
     {
         $html = $this->render('grid', $this->gridProps(['title' => 'Heading']));
@@ -2202,15 +2053,6 @@ class ComponentPropsTest extends TestCase
                 $html,
                 "cta__eyebrow must be a direct child of cta__text (layout: {$layout})"
             );
-        }
-    }
-
-    public function testGridSchemaDeclaresHeaderSlots(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        foreach (['--grid-eyebrow-color', '--grid-eyebrow-bg', '--grid-subheading-color'] as $name) {
-            $this->assertArrayHasKey($name, $slots, "grid must declare {$name}.");
         }
     }
 
@@ -2539,31 +2381,47 @@ class ComponentPropsTest extends TestCase
             $html = $this->render($component, array_merge($props, ['title' => ['en' => 'Our services']]));
             $this->assertStringNotContainsString($wrapperClass, $html, "{$component}: no header wrapper for a heading that is not there");
         }
-    }
-
-    /**
-     * FIVE components now, not six (#986): hero's `--hero-heading-accent-color` is the
-     * `title-accent` ROLE's `typography.color`, pinned in its schema rather than here.
+    }    /**
+     * testAllFiveSlotComponentsDeclareTitleAccentSlot RETIRED AT #1101 — its roster is
+     * empty, and an empty `foreach` asserts nothing at all.
+     *
+     * It walked the components declaring BOTH a `title_accent` prop and a colour-typed
+     * `--*-heading-accent-color` style slot. The roster shrank component by component as
+     * each rebuilt (hero #986, section #1023, cta #1026, faq #1046, stats #1066) and grid
+     * was the last declarer; its slot map went at #1101, so the walk now runs zero times.
+     *
+     * THE CAPABILITY AUDIT IT WAS THE v1 HALF OF IS STILL LIVE, and that is why this can
+     * retire rather than being re-homed: testEveryComponentWithTitleAccentCanStyleIt
+     * follows each component ACROSS the move and asserts the real invariant — every
+     * component offering a `title_accent` prop must offer a way to colour it — which is
+     * now answered for all of them by a `heading-accent` (or `title-accent`) role.
+     *
+     * The emptiness is asserted below rather than left implicit, so a component
+     * re-growing an accent SLOT is a decision that has to argue with a test.
      */
-    public function testAllFiveSlotComponentsDeclareTitleAccentSlot(): void
+    public function testNoComponentStillColoursItsTitleAccentThroughASlot(): void
     {
-        $expected = [
-            // hero's accent colour is the `title-accent` role's `typography.color` (#986),
-            // section's is the `heading-accent` role's (#1023), cta's is the same role's at
-            // #1026 and faq's at #1046. None of the four declares a slot, so none belongs
-            // in this roster — two still do. The name says "five" from when five did; the
-            // roster is the fact and the name is not worth a rename that would break a
-            // `--filter`. The capability audit that DOES follow each component across the
-            // move is testEveryComponentWithTitleAccentCanStyleIt.
-            'grid'  => '--grid-heading-accent-color',
-            // stats' row left at #1066 PR2 with its slot map; grid is the last declarer.
-        ];
-        foreach ($expected as $component => $slot) {
-            $schema = json_decode(file_get_contents(dirname(__DIR__) . "/components/{$component}/schema.json"), true);
-            $this->assertArrayHasKey('title_accent', $schema['props'], "{$component} must declare title_accent prop.");
-            $this->assertArrayHasKey($slot, $schema['styling']['style_slots'], "{$component} must declare {$slot}.");
-            $this->assertSame('color', $schema['styling']['style_slots'][$slot]['type']);
+        $slotDeclarers = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $schema = json_decode((string) file_get_contents($file), true);
+            foreach (array_keys($schema['styling']['style_slots'] ?? []) as $slot) {
+                if (str_ends_with($slot, '-heading-accent-color') || str_ends_with($slot, '-title-accent-color')) {
+                    $slotDeclarers[] = basename(dirname($file));
+                }
+            }
         }
+        $this->assertSame(
+            [],
+            $slotDeclarers,
+            'an accent colour is back on a style slot — restore the v1 half of the '
+            . 'title-accent audit in the same commit.'
+        );
+        // Anti-vacuity: the glob must still be finding schemas, and the capability must
+        // still be OFFERED somewhere, or this proves nothing.
+        $this->assertGreaterThanOrEqual(10, count(glob(dirname(__DIR__) . '/components/*/schema.json')));
+        $grid = json_decode((string) file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
+        $this->assertArrayHasKey('title_accent', $grid['props']);
+        $this->assertSame('@color-accent', $grid['roles']['heading-accent']['defaults']['typography']['color']);
     }
 
     // ── Grid card checklist bullets (#103) ──────────────────────────────
@@ -2633,27 +2491,6 @@ class ComponentPropsTest extends TestCase
         ]));
         $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
         $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
-    }
-
-    public function testGridSchemaDeclaresBulletColorSlot(): void
-    {
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--grid-item-bullet-color', $slots);
-        $this->assertSame('color', $slots['--grid-item-bullet-color']['type']);
-    }
-
-    public function testGridSchemaDeclaresStepTextColorSlot(): void
-    {
-        // #473: the step numeral color is its own slot (default var(--color-bg) so
-        // unset is byte-identical), separate from --grid-step-bg (the fill), so a
-        // light-fill steps badge can pair a light fill with ink numerals.
-        $schema = json_decode(file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'), true);
-        $slots = $schema['styling']['style_slots'];
-        $this->assertArrayHasKey('--grid-step-text-color', $slots);
-        $this->assertSame('color', $slots['--grid-step-text-color']['type']);
-        $this->assertSame('var(--color-bg)', $slots['--grid-step-text-color']['default']);
-        $this->assertTrue($slots['--grid-step-text-color']['item_eligible'], 'The numeral color is consumed on the .grid__step-number child of .grid__item, so it is card-scoped like --grid-step-bg.');
     }
 
     // ── Testimonials component (#1) ─────────────────────────────────────

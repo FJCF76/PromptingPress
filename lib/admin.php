@@ -403,7 +403,7 @@ const PP_CONDITIONALITY_NOTE_MAX = 400;
  *
  *   - DISJUNCTION — e.g. a slot that applies on dark bands only, i.e.
  *     `theme: inverted` OR `background_image` present.
- *   - COMPOSED-PAGE CONTEXT — `--grid-item-bar-*` / `--grid-featured-*` apply only
+ *   - COMPOSED-PAGE CONTEXT — `--grid-item-bar-*` / `--grid-featured-*` (RETIRED #1101; no shipped declaration left) applied only
  *     under a `main >` scope, which is not a prop, not a slot and not a value.
  *   - INTERACTION STATE — a question's open state.
  *
@@ -553,7 +553,7 @@ function pp_applies_when_clause_errors($clause, string $label): array {
  * nothing" is the whole point of the field.
  *
  * DEFAULT RESOLUTION. An absent prop takes its schema `default`, never null. Without
- * this, `{"prop":"card_emphasis","equals":"featured"}` would report every grid that
+ * this, `{"prop":"card_emphasis","equals":"featured"}` would have reported every grid that
  * omits the prop — i.e. most of them — as inert, since `featured` is the default.
  *
  * @param  mixed  $clause      One clause from an `applies_when` array.
@@ -1300,7 +1300,7 @@ function _pp_no_style_slots_clause(string $component_name): string {
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
- * per-item card style (issue 306, `props.items[].style`). Both surfaces run the
+ * per-item card style (issue 306, `props.items[].style` — retired at #1101; the per-card surface is `props.items[].udc` now). Both surfaces run the
  * SAME injection guard + typed validators (_pp_validate_token_value) — there is
  * deliberately no second validator. Skips the `__recipe` tracking key (not a CSS
  * property). Returns the first violation so callers keep first-error-wins order.
@@ -1805,7 +1805,7 @@ function _pp_schema_list_value_is_valid($declared_type, $value): bool {
  * 0..n-1 in order, so pp_is_list() says list and this REFUSES it, even though the author
  * wrote an object. Separating the two would mean inspecting raw JSON TEXT, and every caller
  * reaches pp_execute_action() with an already-decoded PHP array. It costs nothing on the
- * shipped fields — a style map's keys are slot names like `--grid-item-bg`, never `0` — and
+ * shipped fields — a style map's keys were slot names like `--grid-item-bg` (no schema declares one since #1101), never `0` — and
  * a field that genuinely wants numeric string keys should start them at something other
  * than 0 or declare `array`.
  *
@@ -3487,7 +3487,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     // decided here; see the predicate's docblock.
                     //
                     // NO SHIPPED SCHEMA DECLARES A TOP-LEVEL `object` PROP TODAY. Both
-                    // `object` declarations in the registry (grid.items[].style and
+                    // `object` declarations the registry USED to carry (grid.items[].style, retired #1101, and
                     // section.panel_items[].style) are NESTED fields, handled by RULE 6
                     // below. This arm is deliberately built anyway, and #744 is the
                     // argument for building it: that issue exists because one depth
@@ -3590,7 +3590,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //   3. the field's own scalar `type` — `string` or `number` (#614). See the
         //      RULE 3 comment inline below for the defect it closes.
         //   4. a nested `enum` field's STRICT membership (#600) — declared on
-        //      grid.items[].text_role, the only nested enum in the shipped schemas
+        //      grid.items[].text_role, the LAST nested enum in the shipped schemas, retired at #1101 (the rule is prospective now)
         //      today. Same rule the top-level block above applies, sharing the same
         //      predicate; see the RULE 4 comment inline below.
         //   5. a key the field map does NOT declare (#643) — the #147 top-level
@@ -3599,7 +3599,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //   6. the field's own CONTAINER `type` — `array` or `object` (#744), the
         //      other half of the declared-type job RULE 3 does for scalars, which is
         //      why it sits beside RULE 3 rather than at the end. Declared on THREE
-        //      fields today: grid.items[].bullets (`array`), grid.items[].style and
+        //      fields today: grid.items[].bullets (`array`); the `object` instances, grid.items[].style and
         //      section.panel_items[].style (`object`). Until #744 a scalar in any of
         //      them was accepted by all five rules above — rule 2 walks a bullets
         //      array's ENTRIES and a scalar never enters the loop, and rule 3's fence
@@ -3726,6 +3726,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     )
                     : [];
                 $available_fields = implode(', ', array_keys($declared_fields));
+                // Which prop, if any, carries this component's item grain — resolved
+                // once per prop rather than once per entry, for the same reason
+                // $available_fields is hoisted. Empty string when the component
+                // declares none, which can never equal a real prop name.
+                $item_grain_declaration = pp_udc_item_roles($name);
+                $item_grain_prop        = $item_grain_declaration === null
+                    ? ''
+                    : $item_grain_declaration['prop'];
                 foreach ($entries as $entry_index => $entry) {
                     if (!is_array($entry)) {
                         continue; // non-object entry — item_type: "object" owns that error
@@ -3987,7 +3995,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                         //
                         // Only ONE shipped field is in its scope today — `grid.items[]
                         // .bullets` is the single nested `type: "array"` declaration in
-                        // the registry. The `object` fields beside it (grid.items[].style,
+                        // the registry. The `object` fields that used to sit beside it (grid.items[].style,
                         // section.panel_items[].style) are NOT this rule's: since #883
                         // they are owned by RULE 6c below, which asks the mirror question
                         // through the mirror predicate. That is not an
@@ -4281,8 +4289,86 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     if (!_pp_entry_is_object_shape($entry)) {
                         continue; // a populated list is a SHAPE defect, not an unknown key
                     }
+                    // THE TWO ENGINE-OWNED KEYS (BUILD-SPEC Addendum B), computed
+                    // once per prop rather than per entry.
+                    //
+                    // NOT DECLARED AS FIELDS, DELIBERATELY. `id` and `udc` on an
+                    // entry are the same kind of thing as `id` and `udc` on a BAND:
+                    // engine-owned keys that sit beside the author's content and are
+                    // not props. Declaring them in `props.items.items` would make
+                    // them content — they would appear in the AI catalog's entry-field
+                    // line, inviting a model to mint its own ids, which is exactly
+                    // what B2's mint-on-write rule exists to keep the engine's job.
+                    //
+                    // The capability still reaches the model, but through the
+                    // `item_roles` declaration rather than through a field list, for
+                    // the reason T10 settled: declaration is the source of truth, and
+                    // a roster derived from it cannot drift.
+                    //
+                    // GATED ON THE COMPONENT DECLARING ITEM GRAIN, so a component that
+                    // declares none rejects both keys exactly as it does today.
+                    $engine_owned = $item_grain_prop === $prop_name
+                        ? [PP_UDC_ITEM_ID_KEY => true, PP_UDC_ITEM_MAP_KEY => true]
+                        : [];
+                    // A RETIRED ITEM FIELD GETS A ROUTE TOO (#1101), the band-prop rule
+                    // one level down. `retired_props` addresses an item-level key as
+                    // `<prop>[].<field>` — grid declares `items[].style` and
+                    // `items[].text_role`, the first component whose retirements reach
+                    // inside an entry — and without this lookup both fell through to the
+                    // typo gate below and answered a deliberate v1 authoring shape with a
+                    // list of live field names.
+                    //
+                    // THAT IS THE ONE THING §3.1 SAYS A REFUSAL MUST NOT DO: "every
+                    // retirement lands in `retired_props` naming the v2 surface that
+                    // replaced it, so a refusal offers a route instead of a list of live
+                    // prop names". It also made the model-facing prompt untrue in the same
+                    // change that wrote it — lib/ai-context.php tells the model a stale
+                    // `style` or `text_role` on ONE card "refuses the band like any other
+                    // retired key", and it did not.
+                    //
+                    // Measured before the fix, through the real write path:
+                    //   items[].style     -> unknown_prop, "has no field \"style\""
+                    //   items[].text_role -> unknown_prop, "has no field \"text_role\""
+                    // Both are keys an author had on every pre-rebuild page, and the
+                    // replacement for one of them is the headline capability of this task.
+                    //
+                    // SAME CODE, SAME CURE SENTENCE as the band-prop arm, because it is
+                    // the same fact at a different depth: a caller that cannot tell
+                    // "you typo'd" from "this moved, and here is where" has to
+                    // string-match prose to know whether to re-read the schema or rewrite
+                    // the value.
+                    // Looked up here rather than reused from the band-prop arm: that
+                    // local is bound in a different branch of this function, and a
+                    // by-accident reach across it would break the moment either moved.
+                    $retired_fields = function_exists('pp_component_retired_props')
+                        ? pp_component_retired_props($name)
+                        : [];
                     foreach ($entry as $entry_key => $ignored) {
-                        if (array_key_exists($entry_key, $declared_fields)) {
+                        if (array_key_exists($entry_key, $declared_fields)
+                            || isset($engine_owned[$entry_key])) {
+                            continue;
+                        }
+                        $retired_field = $retired_fields[$prop_name . '[].' . (string) $entry_key] ?? null;
+                        if ($retired_field !== null
+                            && _pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'retired_prop',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s no longer has a field "%s": it was '
+                                    . 'retired when %s moved to the v2 styling system. The replacement is '
+                                    . '%s. To clear the stored key, re-send this item without it — '
+                                    . 'update_component replaces the "%s" array, and every other field on '
+                                    . 'the entry is kept as you send it. Available fields: %s',
+                                    $name,
+                                    $prop_name,
+                                    _pp_item_index_label($entry_index, $entries),
+                                    _pp_render_undeclared_prop_keys([(string) $entry_key]),
+                                    $name,
+                                    $retired_field,
+                                    $prop_name,
+                                    $available_fields
+                                )
+                            );
                             continue;
                         }
                         if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {
@@ -4492,11 +4578,107 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         }
 
         if (array_key_exists('udc', $item)) {
-            $udc_error = pp_udc_validate_map($item['udc'], $name);
+            // ITEM MAPS ARE PASSED IN so the band's own reserved-name gate can
+            // recognise a token the ENGINE minted for an item. Without them
+            // _pp_udc_name_is_the_engines_own_mint() searches the band map
+            // alone, answers false for a name it wrote itself, and the band is
+            // refused permanently. See that function's docblock.
+            $udc_error = pp_udc_validate_map($item['udc'], $name, pp_udc_item_maps($item));
             if ($udc_error !== null) {
                 if (_pp_claim_item_finding($sink, 'udc')) {
                     $errors[] = _pp_composition_item_error($i, $udc_error->get_error_code(), $udc_error->get_error_message());
                     continue;
+                }
+            }
+        }
+
+        // ── ITEM-GRAIN MAPS (BUILD-SPEC Addendum B) ─────────────────────────
+        //
+        // VALIDATED HERE RATHER THAN BESIDE THE BAND MAP ABOVE, because an item
+        // map does not live beside `udc` — it lives INSIDE `props`, which is
+        // what makes it reachable by `update_component` and therefore what
+        // makes validating it non-optional. A band map is a sibling of `props`
+        // and no action can write one at all (#1088); an item map rides in on
+        // an ordinary prop patch, so the surface that accepts it has to be the
+        // surface that checks it.
+        //
+        // A DUPLICATE ID INSIDE ONE BAND REFUSES, mirroring
+        // `duplicate_component_id` one level down. Two entries sharing an id
+        // share a selector, so one card's design paints on the other — the same
+        // cross-apply failure, and the reason B2 scopes uniqueness to the band
+        // rather than leaving it to chance.
+        $item_declaration = pp_udc_item_roles($name);
+        if ($item_declaration !== null) {
+            $entries = $item['props'][$item_declaration['prop']] ?? null;
+            if (is_array($entries)) {
+                $band_tokens = [];
+                if (isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])) {
+                    $band_tokens = $item['udc']['_tokens'];
+                }
+                $seen_item_ids = [];
+                // THE LOCATOR ROUTES THROUGH THE SHARED RENDERER, and each
+                // message spells `item %s` itself rather than interpolating a
+                // pre-built string. Both halves matter: the renderer is what
+                // makes an object-keyed container report its real key instead of
+                // `item 0` (#634/#652), and the literal fragment is what keeps
+                // every depth naming an entry in one set of words. The pairing
+                // is drift-guarded in DiagnosticReachTest, which is how the
+                // first cut of this block — a precomputed `$where` that
+                // sidestepped both — was caught.
+                foreach ($entries as $k => $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+
+                    if (array_key_exists(PP_UDC_ITEM_ID_KEY, $entry)) {
+                        $raw_id = $entry[PP_UDC_ITEM_ID_KEY];
+                        $id     = is_scalar($raw_id) ? (string) $raw_id : '';
+                        if ($id === '' || !pp_udc_valid_item_id($id)) {
+                            if (_pp_claim_item_finding($sink, 'udc')) {
+                                $errors[] = _pp_composition_item_error($i, 'invalid_prop_value', sprintf(
+                                    'Component "%s" item %s: "%s" must be an id this engine minted — "it-" '
+                                    . 'followed by eight lowercase hex digits; got %s. Leave it out and one '
+                                    . 'is minted for you.',
+                                    $name,
+                                    _pp_item_index_label($k, $entries),
+                                    PP_UDC_ITEM_ID_KEY,
+                                    _pp_schema_value_for_message($raw_id)
+                                ));
+                            }
+                            continue;
+                        }
+                        if (isset($seen_item_ids[$id])) {
+                            if (_pp_claim_item_finding($sink, 'udc')) {
+                                $errors[] = _pp_composition_item_error($i, 'duplicate_component_id', sprintf(
+                                    'Component "%s": item %s and item %s both claim the id "%s" in "%s". '
+                                    . 'An item id scopes that item\'s styling rules, so sharing one would '
+                                    . 'paint each design on both.',
+                                    $name,
+                                    _pp_item_index_label($seen_item_ids[$id], $entries),
+                                    _pp_item_index_label($k, $entries),
+                                    $id,
+                                    $item_declaration['prop']
+                                ));
+                            }
+                            continue;
+                        }
+                        $seen_item_ids[$id] = $k;
+                    }
+
+                    if (array_key_exists(PP_UDC_ITEM_MAP_KEY, $entry)) {
+                        $item_error = pp_udc_validate_item_map(
+                            $entry[PP_UDC_ITEM_MAP_KEY],
+                            $name,
+                            $item_declaration,
+                            $band_tokens,
+                            sprintf('item %s', _pp_item_index_label($k, $entries))
+                        );
+                        if ($item_error !== null && _pp_claim_item_finding($sink, 'udc')) {
+                            $errors[] = _pp_composition_item_error(
+                                $i, $item_error->get_error_code(), $item_error->get_error_message()
+                            );
+                        }
+                    }
                 }
             }
         }

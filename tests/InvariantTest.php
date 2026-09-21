@@ -1556,20 +1556,35 @@ class InvariantTest extends TestCase
             }
         }
 
-        // The second typed boundary on the SAME read. It fatals identically and is
-        // unreachable today only because the style-vars call above throws first — an
-        // ordering accident, not a guarantee.
+        // THE SECOND TYPED BOUNDARY RETIRED AT #1101, and it is pinned as ABSENT rather
+        // than deleted, because absence is the whole claim.
+        //
+        // It was `pp_grid_link_align_decl(array $style)`, read from the same `__pp_style`
+        // map, typed identically and fataling identically — unreachable only because the
+        // style-vars call threw first, an ordering accident rather than a guarantee. grid
+        // was the only file that ever carried it. The rebuild removed BOTH reads: a v2
+        // component emits no inline style attribute at all, and the alignment that
+        // companion derived is the `card-body` role's `typography.align` plus the
+        // `card-link` role's `sizing.align-self`, authored directly instead of derived.
+        //
+        // Asserted absent so the guard cannot come back unguarded: a reintroduced call
+        // with a raw argument would be exactly the #708 defect, and this line is where a
+        // reader finds out the boundary is meant to be gone.
         $grid = $this->stripPhpComments(file_get_contents($this->themeRoot . '/components/grid/grid.php'));
-        preg_match_all('/pp_grid_link_align_decl\(([^)]*)\)/', $grid, $align);
-        $this->assertNotEmpty($align[1], 'grid.php matched no pp_grid_link_align_decl call (#708 checker drift).');
-        foreach ($align[1] as $args) {
-            $this->assertMatchesRegularExpression(
-                '/^\s*(\$style|\$item_style)\s*$/',
-                $args,
-                'grid.php calls pp_grid_link_align_decl() with something other than a guarded'
-                . ' local (#708): "' . trim($args) . '". It is typed `array $style` too.'
-            );
-        }
+        $this->assertStringNotContainsString(
+            'pp_grid_link_align_decl',
+            $grid,
+            'grid.php reads the retired link-align companion again — it is typed '
+            . '`array $style` and takes a raw stored value straight into a typed parameter '
+            . '(#708). If it is genuinely wanted back, restore the guarded-local check '
+            . 'this assertion replaced in the same commit.'
+        );
+        $this->assertStringNotContainsString(
+            '__pp_style',
+            $grid,
+            'grid.php reads `__pp_style` again — a v2 component emits no inline style '
+            . 'attribute (BUILD-SPEC §3.4), so there is no map to read'
+        );
 
         // Non-vacuity: if this ever finds nothing, every assertion above is silently passing.
         sort($callers);
@@ -1590,10 +1605,17 @@ class InvariantTest extends TestCase
             // and which is pinned in StoredLinkAndRichTextRenderGuardTest.
             // stats and logos left at #1066 PR2, for the reason every other rebuild left:
             // a v2 component emits no inline style attribute, so it has no guarded-local
-            // contract here. GRID IS THE LAST CALLER in shipped code. (The fixture
-            // component carries the same call and the same guard, deliberately — but it is
-            // not shipped, and this roster is about what ships.)
-            ['grid'],
+            // contract here. GRID WAS THE LAST CALLER and it left at #1101, so THE ROSTER
+            // IS EMPTY — which means BUILD-SPEC §3.4's "no inline style emission anywhere
+            // in v2 components" is true theme-wide for the first time, and this list is
+            // where that becomes a fact a test keeps rather than a sentence in a spec.
+            // (The fixture component still carries the call and the guard, deliberately —
+            // but it is not shipped, and this roster is about what ships. It goes with the
+            // fixture in the v1 machinery sweep.)
+            // THE LOOP ABOVE THEREFORE RUNS ZERO TIMES, and that is the point of asserting
+            // the roster rather than only iterating it: an empty roster is silent, an
+            // empty roster ASSERTED is a claim a new caller has to argue with.
+            [],
             $callers,
             'the set of components calling pp_render_style_vars() changed — a new caller must'
             . ' carry the #708 guard (add it, then update this list)'

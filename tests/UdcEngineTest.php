@@ -1206,14 +1206,19 @@ final class UdcEngineTest extends TestCase
         // the opposite of what its name promises (I40). It was hero until #986, section
         // until #1023, and is `grid` now — the largest component still on the v1 slot
         // system, and the next one due to move, so expect to re-point this again.
-        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'grid');
+        // THE HOST HAS MOVED THREE TIMES NOW and this is the last move available: hero
+        // until #986, section until #1023, grid until #1101, and `ppfixture` from here —
+        // the only component left that is not on the UDC. When the fixture goes in the v1
+        // machinery sweep, this test goes with it, because the question it asks will have
+        // no subject at all.
+        $error = pp_udc_validate_map(['quote' => ['typography' => ['size' => '1rem']]], 'ppfixture');
         $this->assertInstanceOf(WP_Error::class, $error);
         $this->assertSame('unknown_udc_role', $error->get_error_code());
         $this->assertStringContainsString('not on the UDC styling system', $error->get_error_message());
 
         // …and a legacy component emits no band block, whatever it stores.
         $this->assertSame('', pp_udc_band_css([
-            'component' => 'grid',
+            'component' => 'ppfixture',
             'id'        => 'pp-aabbccdd',
             'udc'       => ['quote' => ['typography' => ['size' => '1rem']]],
         ]));
@@ -1403,8 +1408,20 @@ final class UdcEngineTest extends TestCase
 
         // A legacy component says NOTHING, so an absent key is never mistaken for
         // "declared empty".
-        $this->assertArrayNotHasKey('roles', pp_component_schema_report('grid'));
-        $this->assertArrayNotHasKey('udc_groups', pp_component_schema_report('grid'));
+        // THE v1 CONTRAST HAS NO SHIPPED SUBJECT SINCE #1101, and it is not re-homed onto
+        // `ppfixture`: this test runs without the fixture theme registered, so
+        // pp_component_schema_report('ppfixture') answers WP_Error rather than a report
+        // without a `roles` key — which would assert the wrong thing for the right reason.
+        // The contrast is kept where it still holds, in testALegacyComponentAcceptsNoUdcMapAtAll,
+        // which registers the fixture and asks the question of the engine directly.
+        //
+        // GRID TAKES THE POSITIVE HALF INSTEAD, and it is the stronger assertion: the
+        // component that was the v1 example is now the proof that the report surfaces a
+        // full role set, all eighteen of them, for the last component to arrive.
+        $gridReport = pp_component_schema_report('grid');
+        $this->assertArrayHasKey('roles', $gridReport);
+        $this->assertSame(count(pp_udc_component_roles('grid')), count($gridReport['roles']));
+        $this->assertArrayHasKey('udc_groups', $gridReport);
     }
 
     // ── The schema side of the contract ─────────────────────────────────────
@@ -1722,6 +1739,44 @@ final class UdcEngineTest extends TestCase
             // section does — `item-labeled` and `image-labeled` only exist on an item that
             // carries a label, and `item` / `image` only on one that does not, so no single
             // strip renders all four. The sweep checks the union.
+            // GRID NEEDS THREE FIXTURES (#1101), for the reason hero needs three: some of
+            // its roles cannot coexist in one render.
+            //   1. the CARDS layout — `card-bar`, `card-media` and every card role. A
+            //      steps card renders neither a bar nor an image, so they live here.
+            //   2. the STEPS layout — `step-number`, which renders nowhere else.
+            //   3. the EMPTY band — `empty`, which renders only when there are NO items,
+            //      and is therefore mutually exclusive with `list`, `card` and all eight
+            //      card roles at once. It is the one role in this component that cannot
+            //      share a fixture with any other, and the sweep checks the UNION, so it
+            //      needs its own entry rather than being assumed covered elsewhere.
+            'grid' => [
+                [
+                    'title'        => 'Why teams adopt it',
+                    'title_accent' => 'teams',
+                    'eyebrow'      => 'KICKER',
+                    'subheading'   => 'A supporting line',
+                    'layout'       => 'cards',
+                    'items'        => [[
+                        'title'     => 'Lightweight by default',
+                        'text'      => 'Client sites should not carry a heavy runtime.',
+                        'bullets'   => ['Plain WordPress', 'No builder lock-in'],
+                        'image_url' => '/wp-content/uploads/card.png',
+                        'image_alt' => 'A card image',
+                        'link_url'  => '/how-it-works/',
+                        'link_text' => 'Read more',
+                    ]],
+                ],
+                [
+                    'title'  => 'How it works',
+                    'layout' => 'steps',
+                    'items'  => [[
+                        'number' => '01',
+                        'title'  => 'Inspect',
+                        'text'   => 'Read the page before changing it.',
+                    ]],
+                ],
+                ['title' => 'Nothing yet', 'items' => []],
+            ],
             'stats' => [
                 [
                     'title'        => 'By the numbers',
@@ -1988,10 +2043,16 @@ final class UdcEngineTest extends TestCase
         $this->assertSame('pp-33333333', $out[0]['id']);
         $this->assertNotSame('pp-33333333', $out[1]['id'], 'a claimed id must not be carried onto a second band');
 
-        // 5. A legacy component is never minted one at all. (`grid` since #1023 — section
+        // 5. A legacy component is never minted one at all. (`ppfixture` since #1101 —
+        //    `grid` from #1023 until its own rebuild, section
         // joined the engine, so asking it this would assert the opposite of the clause.)
-        $out = pp_udc_assign_band_ids([$band('grid')]);
+        $out = pp_udc_assign_band_ids([$band('ppfixture')]);
         $this->assertArrayNotHasKey('id', $out[0]);
+        // And the positive half, so the negative one cannot pass because minting broke:
+        // grid is v2 now and MUST be minted an id.
+        $minted = pp_udc_assign_band_ids([$band('grid')]);
+        $this->assertArrayHasKey('id', $minted[0], 'a v2 band is minted an id');
+        $this->assertTrue(pp_udc_valid_band_id($minted[0]['id']));
 
         // 6. THE POST-CONDITION, which is what all of the above is for.
         //
@@ -2109,17 +2170,24 @@ final class UdcEngineTest extends TestCase
                 $legacy[] = $name;
             }
         }
-        // ONE now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
+        // ZERO now: testimonials was rebuilt in Sprint 0, nav and footer joined as the
         // CHROME container in Sprint 1 (ruling A1), hero in Sprint 1 (#986), section in
         // Sprint 2 (#1023), cta in Sprint 2 (#1026), faq in Sprint 2 (#1046), table and
-        // embed in Sprint 2 (#1066), and stats and logos in that issue's second half.
-        // ONLY GRID REMAINS — when it rebuilds, the legacy system has no shipped component
-        // at all and this test retires with the branch it guards rather than asserting an
-        // empty set. The
-        // number is asserted rather than loosened so that a component quietly falling OFF
-        // the engine still trips this — and so that each rebuild has to come here and say
-        // which one moved.
-        $this->assertCount(1, $legacy, 'three components stay on the legacy system');
+        // embed in Sprint 2 (#1066), stats and logos in that issue's second half, and
+        // GRID — the last one — at #1101.
+        //
+        // THE PREDICTION ABOVE SAID THIS TEST SHOULD RETIRE WHEN THE COUNT REACHED ZERO,
+        // "with the branch it guards rather than asserting an empty set". It is kept for
+        // ONE more release, and the distinction is that the BRANCH IS STILL THERE: the
+        // inert-engine path in pp_udc_validate_map() and pp_udc_band_css() is live
+        // production code until the v1 machinery sweep removes it, and `ppfixture` still
+        // exercises it (see testALegacyComponentAcceptsNoUdcMapAtAll above, re-homed in
+        // this same change). Retiring the test one release before the branch would leave
+        // that path unguarded in between. The count assertion stays an EQUALITY so a
+        // component quietly falling OFF the engine still trips it.
+        $this->assertCount(0, $legacy, 'every shipped component is on the UDC since #1101');
+        // ANTI-VACUITY: zero is only meaningful while the walk can still see components.
+        $this->assertGreaterThanOrEqual(10, count(glob(dirname(__DIR__) . '/components/*/schema.json')));
         $this->assertNotContains('embed', $legacy);
         $this->assertNotContains('table', $legacy);
         $this->assertNotContains('faq', $legacy);

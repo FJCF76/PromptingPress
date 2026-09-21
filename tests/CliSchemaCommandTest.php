@@ -392,9 +392,10 @@ class CliSchemaCommandTest extends TestCase
         // condition with no exemptions: a declaration carrying both `applies_when` and
         // `conditionality_note` must render the SAME conjunction the catalog renders, or
         // the CLI would report a strictly looser condition that reads as complete.
-        $checked     = 0;
-        $withNote    = 0;
-        $noteOnly    = 0;
+        $checked       = 0;
+        $clauseOnly    = 0;
+        $clausePlusNote = 0;
+        $noteOnly      = 0;
 
         foreach ($this->shippedComponents() as $name) {
             $report = pp_component_schema_report($name);
@@ -420,22 +421,50 @@ class CliSchemaCommandTest extends TestCase
                     );
                     $checked++;
 
-                    if (isset($declaration['conditionality_note'])) {
-                        $withNote++;
-                        if (empty($declaration['applies_when'])) {
-                            $noteOnly++;
-                        }
+                    $hasNote   = isset($declaration['conditionality_note']);
+                    $hasClause = !empty($declaration['applies_when']);
+                    if ($hasNote && $hasClause) {
+                        $clausePlusNote++;
+                    } elseif ($hasNote) {
+                        $noteOnly++;
+                    } elseif ($hasClause) {
+                        $clauseOnly++;
                     }
                 }
             }
         }
 
-        // Not vacuous, and specifically not vacuous on the branch that used to be
-        // exempt: the shipped set really does exercise clause-only, clause-plus-note,
-        // and note-only declarations, so all three compositions are measured.
-        $this->assertGreaterThan(20, $checked, 'the shipped schemas declare many conditions');
-        $this->assertGreaterThan(10, $withNote, 'and many of them conjoin a prose note');
-        $this->assertGreaterThan(0, $noteOnly, 'and some are prose-only');
+        // THE POPULATION CHANGED SHAPE AT #1101, and the counters below are rewritten to
+        // say so rather than lowered. This used to measure 20+ conditions of which 10+
+        // conjoined a prose note, because grid's slot map declared 20 conditional slots —
+        // the theme's last. It retired with grid's v2 rebuild, and what is left is the
+        // PROP surface: footer's five notes and one clause, nav's two notes, logos' one.
+        //
+        // So the floors are stated as the three COMPOSITIONS rather than as a total, which
+        // is what the test was always about. Two of the three still ship and are asserted
+        // non-empty. The third — a declaration carrying BOTH clauses and a note, the branch
+        // this pin exists for, because a renderer dropping the note half is invisible
+        // otherwise — has no declaring surface left anywhere in the theme. Asserted as
+        // EXACTLY ZERO, not silently unmeasured: a shipped schema declaring both again must
+        // fail here, because on that day this pin starts covering its own hardest case and
+        // the reader needs to know the branch went from unreachable back to live.
+        // AppliesWhenTest::testTheClauseAndNoteConjunctionStillRendersThoughNothingDeclaresBoth
+        // carries the same census and the direct renderer pin that replaced it.
+        $this->assertGreaterThan(0, $clauseOnly, 'no clause-only condition ships any more');
+        $this->assertGreaterThan(0, $noteOnly, 'no prose-only condition ships any more');
+        $this->assertSame(
+            0,
+            $clausePlusNote,
+            'A shipped declaration conjoins clauses AND a note again. That branch has been '
+            . 'unreachable since #1101; it is live now, so this test covers its hardest case '
+            . 'again — say so here rather than letting the count drift.'
+        );
+        $this->assertSame(
+            $clauseOnly + $noteOnly,
+            $checked,
+            'every rendered condition falls in one of the three compositions counted above'
+        );
+        $this->assertGreaterThan(5, $checked, 'the shipped schemas still declare conditions to check');
     }
 
     public function testAProseOnlyConditionStillRendersTheCatalogPhrase(): void
@@ -729,75 +758,132 @@ class CliSchemaCommandTest extends TestCase
             }
         }
 
-        $this->assertGreaterThan(100, $seen, 'discovery is not vacuous');
+        // 98 shipped props today. The floor was 100 until #1101 took grid's six styling
+        // props (`theme`, `title_align`, `card_emphasis`, `image_treatment`,
+        // `items[].text_role`, `items[].style`) out of the registry with its v2 rebuild.
+        // It stays a FLOOR rather than an exact count so adding a prop does not fail this,
+        // while a walk that stops discovering props still does — and unlike the slot walk
+        // below, this surface is in no danger of emptying: every component declares props
+        // whatever styling system it is on.
+        $this->assertGreaterThan(90, $seen, 'discovery is not vacuous');
     }
 
-    public function testEverySlotEntryIsTheDeclaredDefinitionVerbatim(): void
+    /**
+     * THE SHIPPED SLOT AND RECIPE WALKS RETIRED AT #1101, EXACTLY AS THEIR OWN NOTES SAID
+     * THEY WOULD, and this is the replacement the notes prescribed.
+     *
+     * (1) WHAT THEY PROVED. testEverySlotEntryIsTheDeclaredDefinitionVerbatim and
+     *     testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim walked every shipped schema
+     *     and asserted that stripping the promoted identity key and the one derived field
+     *     off a report entry leaves the declaration EXACTLY — not a subset, same keys,
+     *     same order. That is the drift guard this whole file is founded on: a projection
+     *     that starts curating keys becomes a second view of the schema.
+     *
+     * (2) WHY THE SUBJECT IS GONE. The slot floor was lowered deliberately at each v2
+     *     rebuild with the measured number in hand — 150 -> 130 (#1023, section's 47) ->
+     *     90 (#1026, cta's 40) -> 63 (#1066, table's six and embed's eight, after #1046
+     *     took faq's twenty-one) -> 38, at which point grid's slot map WAS the theme's
+     *     entire slot surface. Its own note set the terms for today: "when grid rebuilds,
+     *     the slot walk has no subject and THIS assertion retires — it does not get
+     *     lowered to zero." grid rebuilt. Recipes went with it for the reason that note
+     *     also gave: a recipe IS a bundle of style slots, so a component declaring no
+     *     slots can declare no recipe. Both shipped surfaces are now empty.
+     *
+     * (3) WHERE THE CLAIM WENT. Onto a FIXTURE theme, which is this file's own idiom for
+     *     exactly this situation (see testAnUnregisteredDeclarationKeyStillReachesTheReport
+     *     below, which has always needed a fixture because the shipped twelve declare only
+     *     closed-registry keys). The fixture goes through the canonical loader from a real
+     *     on-disk theme root, so nothing here encodes a schema shape the loader would not
+     *     produce — the constraint stated in this file's header. The projection is
+     *     therefore still asserted byte-for-byte; what is no longer asserted is that it
+     *     holds across a POPULATION of real declarations, because there is no population.
+     *
+     * (4) THE PIN. The emptiness is asserted first, over the shipped twelve, so this
+     *     retirement cannot silently reverse: the day a shipped component declares a slot
+     *     or a recipe again, this fails and the population walks come back.
+     */
+    public function testNoShippedComponentDeclaresSlotsOrRecipesAndTheProjectionIsPinnedOnAFixture(): void
     {
-        $seen = 0;
+        $withSlots   = [];
+        $withRecipes = [];
+        $components  = 0;
+        $props       = 0;
 
         foreach ($this->shippedComponents() as $name) {
-            $declared = $this->shippedSchema($name)['styling']['style_slots'] ?? [];
-            foreach (pp_component_schema_report($name)['style_slots'] as $entry) {
-                $stripped = $entry;
-                unset($stripped['slot'], $stripped['applies_when_rendered']);
-
-                $this->assertSame(
-                    $declared[$entry['slot']],
-                    $stripped,
-                    "{$name} {$entry['slot']} is the declaration verbatim"
-                );
-                $seen++;
+            $components++;
+            $schema = $this->shippedSchema($name);
+            $props += count($schema['props'] ?? []);
+            if (!empty($schema['styling']['style_slots'])) {
+                $withSlots[] = $name;
             }
+            if (!empty($schema['styling']['recipes'])) {
+                $withRecipes[] = $name;
+            }
+            // The REPORT agrees with the declaration about the emptiness, which is the
+            // half a census of schema.json alone would miss: a projection inventing slot
+            // entries out of the role surface would pass a file-level census and fail here.
+            $report = pp_component_schema_report($name);
+            $this->assertSame([], $report['style_slots'], "{$name} reports no style slots");
+            $this->assertSame([], $report['recipes'], "{$name} reports no recipes");
         }
 
-        // 150 -> 130 at #1023 (section's 47 slots) and 130 -> 90 at #1026 (cta's 40): each
-        // rebuild takes its component's whole slot surface out of the registry, so the shipped total
-        // dropped below the old floor. The floor stays a FLOOR rather than an exact count
-        // so a component adding a slot does not fail this, while a walk that stops
-        // discovering them still does.
-        // 63 shipped slots today, down from 77 when table's six and embed's eight left at
-        // #1066 (and from 98 when faq's twenty-one left at #1046). The floor moves with the
-        // registry rather than being loosened: a walk that stops discovering slots must
-        // still fail, and each rebuild has to come here and lower it deliberately with the
-        // measured number in hand.
-        //
-        // THE ENDGAME THIS NOTE PREDICTED ARRIVED AT #1066 PR2: stats (17) and logos (8)
-        // both went, leaving grid's 38 as the entire slot surface. The note said the file
-        // would then be worth re-founding on the role surface rather than lowered again,
-        // and the answer on inspection is NARROWER than that: `wp pp schema` reports slots
-        // AND roles already, and the role half is covered by its own assertions in this
-        // file. What this particular floor guards is the SLOT walk, which still has exactly
-        // one real subject. So it is lowered to grid's measured count, with the retirement
-        // condition stated rather than deferred again: when grid rebuilds, the slot walk has
-        // no subject and THIS assertion retires — it does not get lowered to zero.
-        $this->assertSame(38, $seen, 'discovery is not vacuous: grid is the whole slot surface now');
-    }
+        // NOT VACUOUS: the walk has to have visited the shipped twelve and found real
+        // declarations in them, or an empty registry would satisfy everything above.
+        $this->assertSame(12, $components, 'the twelve shipped components');
+        $this->assertGreaterThan(90, $props, 'the walk is reading real schemas');
+        $this->assertSame([], $withSlots, 'a shipped component declares style slots again — restore the population walk');
+        $this->assertSame([], $withRecipes, 'a shipped component declares recipes again — restore the population walk');
 
-    public function testEveryRecipeEntryIsTheDeclaredDefinitionVerbatim(): void
-    {
-        $seen = 0;
+        // THE PROJECTION ITSELF, on a loader-built fixture. Two slots (one unconditional,
+        // one conditional, so the derived field is exercised on both of its branches) and
+        // two recipes, all declaring the full shape a real declaration carries.
+        $slots = [
+            '--widget-bg' => [
+                'type'        => 'gradient',
+                'default'     => 'transparent',
+                'description' => 'Band background.',
+            ],
+            '--widget-heading-color' => [
+                'type'         => 'color',
+                'default'      => 'var(--color-text)',
+                'description'  => 'Heading ink.',
+                'applies_when' => [['prop' => 'title', 'present' => true]],
+            ],
+        ];
+        $recipes = [
+            'calm' => ['description' => 'Quiet band.', 'slots' => ['--widget-bg' => '#ffffff']],
+            'loud' => ['description' => 'Shouty band.', 'slots' => ['--widget-bg' => '#000000']],
+        ];
+        $this->useFixtureTheme(['widget' => json_encode([
+            'component'   => 'widget',
+            'description' => 'fixture',
+            'props'       => ['title' => ['type' => 'string', 'required' => false, 'default' => '', 'description' => 'Heading.']],
+            'styling'     => ['style_slots' => $slots, 'recipes' => $recipes],
+        ])]);
 
-        foreach ($this->shippedComponents() as $name) {
-            $declared = $this->shippedSchema($name)['styling']['recipes'] ?? [];
-            foreach (pp_component_schema_report($name)['recipes'] as $entry) {
-                $stripped = $entry;
-                unset($stripped['name']);
+        $report = pp_component_schema_report('widget');
 
-                $this->assertSame(
-                    $declared[$entry['name']],
-                    $stripped,
-                    "{$name} recipe {$entry['name']} is the declaration verbatim"
-                );
-                $seen++;
-            }
+        $this->assertCount(2, $report['style_slots'], 'both slots reach the report');
+        foreach ($report['style_slots'] as $entry) {
+            $stripped = $entry;
+            unset($stripped['slot'], $stripped['applies_when_rendered']);
+            // === , not a subset check: nothing added, nothing dropped, order kept.
+            $this->assertSame($slots[$entry['slot']], $stripped, "{$entry['slot']} is the declaration verbatim");
         }
+        // The one derived field, on both branches.
+        $rendered = array_column($report['style_slots'], 'applies_when_rendered', 'slot');
+        $this->assertSame(
+            ['--widget-bg' => null, '--widget-heading-color' => 'title is set'],
+            $rendered,
+            'the derived field states the condition, and states nothing when there is none'
+        );
 
-        // 5 -> 4 at #1023 (section's two recipes went with its slot map) -> 3 at #1026
-        // (cta's two went with its slot map), leaving grid's three. A recipe IS a bundle of
-        // style slots, so a component that declares no slots can declare no recipe — the
-        // floor tracks the last slot-bearing components rather than a fixed number.
-        $this->assertGreaterThan(2, $seen, 'discovery is not vacuous');
+        $this->assertCount(2, $report['recipes'], 'both recipes reach the report');
+        foreach ($report['recipes'] as $entry) {
+            $stripped = $entry;
+            unset($stripped['name']);
+            $this->assertSame($recipes[$entry['name']], $stripped, "recipe {$entry['name']} is the declaration verbatim");
+        }
     }
 
     public function testAnUnregisteredDeclarationKeyStillReachesTheReport(): void
@@ -887,23 +973,30 @@ class CliSchemaCommandTest extends TestCase
             array_diff_key($declaredProps, $reportedProps),
             'every prop key the shipped schemas declare reaches the report'
         );
-        $this->assertSame(
-            [],
-            array_diff_key($declaredSlots, $reportedSlots),
-            'every slot key the shipped schemas declare reaches the report'
-        );
+        // THE SLOT HALF OF THIS TEST WENT EMPTY AT #1101, and the emptiness is asserted
+        // rather than left to pass silently. No shipped component declares a style slot
+        // any more (grid's map was the last — see the retirement note on
+        // testNoShippedComponentDeclaresSlotsOrRecipesAndTheProjectionIsPinnedOnAFixture),
+        // so `$declaredSlots` and `$reportedSlots` are both `[]` and every set operation
+        // over them is trivially satisfied. The assertion above is kept because it is the
+        // gate that fires the day a slot is declared again; these two make sure a reader
+        // is not misled into thinking it measured something today, and that the
+        // slot-reporting projection really is reporting nothing rather than quietly
+        // dropping keys off a non-empty surface.
+        $this->assertSame([], $declaredSlots, 'no shipped schema declares a style-slot key any more');
+        $this->assertSame([], $reportedSlots, 'and the report invents none — the slot half of this pin is dormant, not broken');
 
         // Not vacuous, and bounded by the closed sets: the report adds exactly the
         // promoted identity key and the one derived field, and invents nothing else.
+        // PROPS ONLY since #1101 — the slot arm of this pair moved onto the loader-built
+        // fixture in testNoShippedComponentDeclaresSlotsOrRecipesAndTheProjectionIsPinnedOnAFixture,
+        // which asserts the same `slot` + `applies_when_rendered` delta against a schema
+        // that actually declares slots.
+        $this->assertNotSame([], $declaredProps, 'the prop half must still measure a real population');
         $this->assertSame([], array_diff(array_keys($declaredProps), pp_prop_definition_keys()));
-        $this->assertSame([], array_diff(array_keys($declaredSlots), pp_slot_definition_keys()));
         $this->assertSame(
             ['name', 'applies_when_rendered'],
             array_values(array_diff(array_keys($reportedProps), array_keys($declaredProps)))
-        );
-        $this->assertSame(
-            ['slot', 'applies_when_rendered'],
-            array_values(array_diff(array_keys($reportedSlots), array_keys($declaredSlots)))
         );
     }
 

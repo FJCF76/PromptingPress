@@ -2487,18 +2487,49 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
                 if (count($dangling) >= $budget) {
                     break;
                 }
-                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+                if (!is_array($item)) {
                     continue;
                 }
                 $component = isset($item['component']) && is_scalar($item['component'])
                     ? (string) $item['component'] : '?';
-                foreach (_pp_udc_dangling_background_images($item['udc']) as $row) {
+                $band_udc = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
+                foreach (_pp_udc_dangling_background_images($band_udc) as $row) {
                     $dangling[] = _pp_udc_background_image_row(
                         'band ' . ((int) $i + 1) . ' ("%s")',
                         $component,
                         $row['role'],
                         $row['id']
                     );
+                }
+                // THE ITEM TIER GETS THE SAME CHANNEL, because otherwise it had NONE
+                // (#1101, Addendum B). `_pp_udc_place()` deliberately suppresses its own
+                // drop-ledger entry for an `attachment_id` value on the premise that THIS
+                // check owns the report — and this check walked the band map only, so an
+                // item's background image whose attachment was deleted after a valid
+                // write vanished at render with no ledger row, no advisory and no finding.
+                //
+                // That is the shape the carve-out's own comment calls unacceptable in as
+                // many words: a carve-out whose reason has lapsed is not a carve-out, it
+                // is a drop on no channel at all. `background` is permitted on eight of
+                // grid's ten item-settable roles, so the surface is real rather than
+                // theoretical.
+                //
+                // The band walk above is unchanged, and the entry-guard moved up one line
+                // so a band with NO map of its own still reaches this — the same early
+                // exit pp_udc_normalize_band() and pp_udc_composition_findings() both had
+                // to correct, for the same reason: the owner's live design styles CARDS
+                // and leaves the band alone.
+                if (function_exists('pp_udc_item_maps')) {
+                    foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
+                        foreach (_pp_udc_dangling_background_images($item_map) as $row) {
+                            $dangling[] = _pp_udc_background_image_row(
+                                'band ' . ((int) $i + 1) . ' ("%s") item "' . _pp_udc_reflect((string) $item_id) . '"',
+                                $component,
+                                $row['role'],
+                                $row['id']
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -4675,6 +4706,58 @@ function _pp_take_history_push_skipped(int $post_id): bool {
 }
 
 /**
+ * The write-time slot for "an item design was carried by POSITION" (#1101).
+ *
+ * THE SIBLING OF _pp_history_push_skip_state(), and a separate slot rather than a second
+ * flag on that one because the two notices are about different things: that one says the
+ * write kept no undo point, this one says the write made an assumption the caller can
+ * remove. Both share the shape for the same reason — the fact is about the WRITE, and
+ * once the merge has run nothing in the stored bytes distinguishes a design the engine
+ * carried from one the caller sent.
+ *
+ * @param int  $post_id  WordPress post ID.
+ * @param int  $count    Entries carried, or 0 to clear/consume.
+ * @param bool $write    true to record, false to read-and-clear.
+ * @return int  The count BEFORE this call.
+ */
+function _pp_item_design_position_state(int $post_id, int $count, bool $write): int {
+    static $carried = [];
+
+    $had = $carried[$post_id] ?? 0;
+    if ($write) {
+        $carried[$post_id] = $count;
+    } else {
+        unset($carried[$post_id]);
+    }
+    return $had;
+}
+
+/** Records that N item designs were carried by position on this write (#1101). */
+function _pp_record_item_design_carried_by_position(int $post_id, int $count): void {
+    _pp_item_design_position_state($post_id, $count, true);
+}
+
+/**
+ * Clears the slot (#1101).
+ *
+ * NOT CALLED AT WRITE START, which is where its history sibling is called and is the one
+ * place this slot must NOT be cleared. The history notice is recorded INSIDE the write;
+ * this one is recorded by the MERGE, which runs before the write — so clearing at write
+ * start would wipe the record the same call stack had just made. The MERGE owns this
+ * slot instead: `_pp_preserve_item_design()` writes the count on every run, zero
+ * included, so a merge that carries nothing clears whatever a refused earlier write left
+ * behind.
+ */
+function _pp_forget_item_design_carried_by_position(int $post_id): void {
+    _pp_item_design_position_state($post_id, 0, false);
+}
+
+/** Reads AND clears the slot: draining is what stops one write being reported twice. */
+function _pp_take_item_design_carried_by_position(int $post_id): int {
+    return _pp_item_design_position_state($post_id, 0, false);
+}
+
+/**
  * Reads the freshness content-hash straight from the DB inside the composition lock (#828).
  * The fourth sibling of the three readers above, and the last of pp_update_composition()'s
  * four in-lock reads to stop asking the object cache.
@@ -4827,6 +4910,54 @@ function pp_composition_content_hash(array $composition): string {
         // operator could predict.
         if (is_array($item)) {
             unset($item['id']);
+        }
+        // AND THE ITEM IDS, for exactly the same reason one level down
+        // (Addendum B2). A minted `it-<hex8>` is injected by the writer when
+        // absent, so a caller that reads a composition back and re-sends it
+        // would hash ids it never wrote and false-conflict against itself on
+        // every write — the precise failure the band-id strip above exists to
+        // prevent, reached through `props.items[].id` instead of `item.id`.
+        //
+        // WIDER THAN THE DECLARED ITEM GRAIN, AND THAT IS A CONSEQUENCE RATHER THAN A
+        // DECISION — stated here so the next reader does not assume it is scoped.
+        //
+        // This walks EVERY array-shaped prop, not just the one `item_roles` names, so an
+        // entry-level `id` on any repeater is stripped when it happens to match
+        // `it-<hex8>`. No shipped or fixture schema declares an entry-level `id` field
+        // (checked across components/*/schema.json and the test fixtures), and the
+        // validated write path only accepts the key where the component declares item
+        // grain — so the only way in is a raw `_pp_composition` meta write or stored
+        // data written before this tier. On that data a write changing ONLY such a field
+        // would not move the digest, so a concurrent editor's CAS check would not fire.
+        //
+        // Left wide on purpose: narrowing it means calling pp_udc_item_roles() here, and
+        // the paragraph below is exactly the registry dependency this function declines
+        // to grow on the write path.
+        //
+        // IDENTIFIED BY THE ENGINE'S OWN SHAPE, not by consulting the registry.
+        // This function has no component-registry dependency and should not
+        // grow one on the write path; pp_udc_valid_item_id() answers "did this
+        // engine mint this?" precisely enough, because `it-` plus eight lowercase
+        // hex digits is a shape no author writes as content. An `id` that is
+        // anything else is left alone — it is not ours, so it is data, and
+        // hashing data is the whole job.
+        //
+        // The inherited property the band-id note states applies here too: an
+        // id-only edit does not move this digest, so a concurrent editor's CAS
+        // check will not see one. Two ids behaving two ways would be the
+        // unpredictable split that note already argues against.
+        if (is_array($item) && isset($item['props']) && is_array($item['props'])) {
+            foreach ($item['props'] as $prop_name => $prop_value) {
+                if (!is_array($prop_value)) {
+                    continue;
+                }
+                foreach ($prop_value as $k => $entry) {
+                    if (is_array($entry) && isset($entry['id']) && is_scalar($entry['id'])
+                        && pp_udc_valid_item_id((string) $entry['id'])) {
+                        unset($item['props'][$prop_name][$k]['id']);
+                    }
+                }
+            }
         }
         return $item;
     }, $composition);
@@ -6562,6 +6693,18 @@ function pp_resolve_logo(array $props): array {
  */
 function pp_generate_component_id(): string {
     return 'pp-' . bin2hex(random_bytes(4)); // 4 bytes → exactly 8 hex chars
+}
+
+/**
+ * Mints an ITEM styling handle (BUILD-SPEC Addendum B2).
+ *
+ * A DISTINCT PREFIX FROM A BAND'S, and B2 asks for it in as many words: `it-`
+ * against `pp-` so the two can never be confused in a selector, a message or a
+ * test. Same entropy, same shape, same mint-on-write-only rule — the band id's
+ * lifecycle one level down rather than a second lifecycle.
+ */
+function pp_generate_item_id(): string {
+    return 'it-' . bin2hex(random_bytes(4)); // 4 bytes → exactly 8 hex chars
 }
 
 /**
@@ -8793,7 +8936,6 @@ function pp_default_homepage_composition(): array {
             'title_accent'  => 'speed and trust',
             'subheading'    => 'Speed gets the first draft moving. Trust keeps the next revision safe to review.',
             'layout'        => 'cards',
-            'card_emphasis' => 'uniform',
             'columns'       => 2,
             'items'         => [
                 ['title' => 'Lightweight by default', 'text' => 'Client sites should not carry a heavy visual-builder runtime just because AI helped write the page.', 'bullets' => ['Plain WordPress, PHP, and CSS', 'No builder lock-in', 'Fast front-end']],
@@ -8801,27 +8943,45 @@ function pp_default_homepage_composition(): array {
                 ['title' => 'Readable handoff', 'text' => 'Teams can explain what was built and where the content lives.', 'bullets' => ['A clear section map', 'Content in WordPress', 'No opaque AI artifact']],
                 ['title' => 'Safer revisions', 'text' => 'AI-assisted updates on live sites stay easy to trust.', 'bullets' => ['Preflight checks', 'Screenshots before apply', 'Rollback-aware actions']],
             ],
-        ], 'style' => [
-            '--grid-bg'                  => '#0A0A12',
-            '--grid-heading-color'       => '#F2EEE5',
-            '--grid-heading-accent-color' => '#FF5C2E',
-            '--grid-heading-size'        => 'clamp(1.9rem, 3vw, 2.9rem)',
-            '--grid-heading-measure'   => '44rem',
-            '--grid-subheading-color'    => '#E8E2D4',
-            '--grid-eyebrow-color'       => '#FF5C2E',
-            '--grid-eyebrow-bg'          => '#14141F',
-            '--grid-eyebrow-border-color' => '#3A2A1E',
-            '--grid-eyebrow-border-width' => '1px',
-            '--grid-item-bg'             => '#F2EEE5',
-            '--grid-item-border-color'         => '#E8E2D4',
-            '--grid-item-border-width'   => '1px',
-            '--grid-item-radius'         => '4px',
-            '--grid-item-bar-color'      => '#FF5C2E',
-            '--grid-item-bar-height'     => '3px',
-            '--grid-item-shadow'         => '0 18px 38px rgba(0, 0, 0, 0.18)',
-            '--grid-item-title-color'    => '#0A0A12',
-            '--grid-item-text-color'     => '#3A3A44',
-            '--grid-item-bullet-color'        => '#FF5C2E',
+        // GRID IS A v2 COMPONENT SINCE #1101 — the last band in this seed to convert, and
+        // the last `style` map anywhere in the theme. Twenty slot names become nine role
+        // entries, and the `card_emphasis: uniform` prop above went with the conversion
+        // rather than being ported: the featured treatment it opted OUT of no longer
+        // exists (ruling D9), so a band that used to ask for peer cards now simply gets
+        // them. The rendered design is unchanged in every respect but the two noted below.
+        //
+        // TWO SLOTS HAVE NO ROLE, and both are stated rather than quietly dropped:
+        //   - `--grid-item-bullet-color` painted a `::before` check-mark glyph, and ruling
+        //     A3 defers pseudo-elements, so the marker takes the shared accent default.
+        //     This seed was setting it to `#FF5C2E`, so the bullets go from the starter's
+        //     orange to the theme accent on this one band.
+        //   - `--grid-heading-measure` is `heading` -> `sizing.max-width` below, which DOES
+        //     have a role — it is listed here only because the slot name does not look
+        //     like one.
+        // THE CARD BAR SURVIVED, and it is the reason the bar is a real <span> in v2: its
+        // two slots are ordinary `background.fill` and `sizing.height` on the `card-bar`
+        // role, so this seed's orange 3px rule carries across untouched.
+        ], 'udc' => [
+            '_band'          => ['background' => ['fill' => '#0A0A12']],
+            'heading'        => [
+                'typography' => ['color' => '#F2EEE5', 'size' => 'clamp(1.9rem, 3vw, 2.9rem)'],
+                'sizing'     => ['max-width' => '44rem'],
+            ],
+            'heading-accent' => ['typography' => ['color' => '#FF5C2E']],
+            'subheading'     => ['typography' => ['color' => '#E8E2D4']],
+            'eyebrow'        => [
+                'typography' => ['color' => '#FF5C2E'],
+                'background' => ['fill' => '#14141F'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#3A2A1E'],
+            ],
+            'card'           => [
+                'background' => ['fill' => '#F2EEE5'],
+                'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4', 'radius' => '4px'],
+                'shadow'     => ['box' => '0 18px 38px rgba(0, 0, 0, 0.18)'],
+            ],
+            'card-bar'       => ['background' => ['fill' => '#FF5C2E'], 'sizing' => ['height' => '3px']],
+            'card-title'     => ['typography' => ['color' => '#0A0A12']],
+            'card-text'      => ['typography' => ['color' => '#3A3A44']],
         ]],
 
         // 5 — Maintainability / proof band (warm cream), prose + workflow strip.

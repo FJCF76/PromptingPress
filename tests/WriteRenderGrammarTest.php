@@ -362,69 +362,105 @@ class WriteRenderGrammarTest extends TestCase
     // ── A-19 — item scope is enforced at RENDER too ──────────────────────────
 
     /**
-     * The raw-meta seed the acceptance criteria call for, for GRID — by far the
-     * larger surface (20 of 37 slots are item-eligible against section's 1).
+     * THE A-19 ITEM-SCOPE RENDER TEST RETIRED AT #1101, and this is its replacement.
      *
-     * `--grid-gap` is container-scoped: it is read on the list, so setting it on one
-     * card does nothing but still landed in the card's inline style attribute. The
-     * write path has rejected it since #323; a raw meta write or a restore
-     * (which never blocks, by ruling) is exactly how it reaches storage anyway.
+     * (1) WHAT IT PROVED. testContainerScopedSlotIsNotEmittedOnAGridCard seeded a card
+     *     carrying two slots through raw meta — `--grid-gap`, read on the LIST, and
+     *     `--grid-item-bg`, read on the card — and asserted the renderer narrowed the
+     *     card's inline style to the item-eligible one. The write path has rejected the
+     *     container-scoped slot on a card since #323; a raw meta write or a
+     *     restore_composition (which by ruling never blocks) is how it reaches storage
+     *     anyway, so the RENDERER had to enforce the same fence.
+     *
+     * (2) WHY THE SUBJECT IS GONE — TWICE OVER, which is why this retires rather than
+     *     re-homes. The section half of the pair was already deleted at #1023 when
+     *     section's slot map went. What is left needs two things that no longer exist
+     *     anywhere: a schema declaring `item_eligible` (grid's twenty were the last, and
+     *     they retired with its v2 rebuild), and a component template that renders a
+     *     per-item style map at all. Measured: `ppfixture.php` is now the ONLY caller of
+     *     pp_render_style_vars() left in any component, and it renders the BAND's map —
+     *     there is no item call site in the theme. Item-grain design is the `udc` map's
+     *     job now (BUILD-SPEC Addendum B), with its own emission and its own tests.
+     *
+     * (3) WHERE THE CLAIM WENT. The narrowing FUNCTION is unchanged and still has the
+     *     no-op pin below, re-homed onto the fixture. What has no successor is the
+     *     end-to-end proof that a render call site narrows, because there is no such
+     *     call site. Reported rather than repaired: pp_item_eligible_slots() and
+     *     pp_render_style_vars()'s `$item_scope` parameter are now dead code reachable
+     *     only from tests, and the slot engine they belong to goes in this task's PR2.
+     *
+     * (4) THE PIN. The census below fails the moment a schema declares `item_eligible`
+     *     again, which is when the end-to-end test should come back.
      */
-    public function testContainerScopedSlotIsNotEmittedOnAGridCard(): void
+    public function testNoSchemaDeclaresItemEligibleSlotsSoTheRenderNarrowingHasNoCallSite(): void
     {
-        $id = pp_create_page('Grid item scope');
-        $this->seedRaw($id, [[
-            'component' => 'grid',
-            'props'     => ['items' => [
-                ['title' => 'Card', 'style' => [
-                    '--grid-gap'             => '4rem',   // container-scoped
-                    '--grid-item-bg'         => '#ff0000', // item-eligible
-                ]],
-            ]],
-        ]]);
+        $eligible = [];
+        $slots    = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            $declared = $schema['styling']['style_slots'] ?? [];
+            $slots   += count($declared);
+            foreach (pp_item_eligible_slots($declared) as $slot => $definition) {
+                $eligible[] = "{$component}{$slot}";
+            }
+        }
 
-        $html = $this->renderStored($id);
-
-        $this->assertStringNotContainsString('--grid-gap', $html, 'a container-scoped slot must not reach the <li>');
-        $this->assertStringContainsString('--grid-item-bg: #ff0000', $html, 'the item-eligible sibling still paints');
+        // NOT VACUOUS: the registry still has to declare slots for the narrowing to have
+        // had anything to narrow, or this would be the emptiness of an empty registry.
+        $this->assertGreaterThan(0, $slots, 'no style slots remain at all — this census proves nothing');
+        $this->assertSame(
+            [],
+            $eligible,
+            'A schema declares item_eligible slots again. The A-19 end-to-end render test retired at '
+            . '#1101 because none did, and because no component renders a per-item style map any more '
+            . '— restore it against this component if it also renders one.'
+        );
     }
 
-    /** The same seed for SECTION's panel row, the other render call site. */
-    // The SECTION half of this A-19 pair was deleted at #1023. It proved the same
-    // container-vs-item boundary on section's single item-eligible slot; section
-    // declares none now, so pp_item_eligible_slots() returns nothing and the fixture
-    // premise fails. The grid case above is the surface that matters anyway (20 of its
-    // slots are item-eligible), and it is what BUILD-SPEC Addendum B (#1024) has to
-    // preserve when item-grain addressing is ruled.
-
     /**
-     * Byte-identity for the COMPONENT-level map: narrowing must apply to item scope
-     * only. A container-scoped slot on the component's own style still renders,
-     * which is the whole point of it being container-scoped.
+     * Byte-identity for the COMPONENT-level map: the narrowing must apply to item scope
+     * only, so a component's own style map still renders in full.
+     *
+     * RE-HOMED FROM `grid` TO `ppfixture` AT #1101. grid's v2 rebuild retired its slot
+     * map, so this band would now render nothing at all and the assertion would fail —
+     * and `ppfixture.php` is the only component template left that renders a style map,
+     * which makes it the only host this claim has. The slot it uses is deliberately
+     * `--ppfixture-gap`, the fixture's strip-rhythm slot: a slot whose job is read on the
+     * CONTAINER is exactly what the retired half of this pair proved is stripped from a
+     * card and kept here.
      */
     public function testComponentLevelStyleStillRendersContainerScopedSlots(): void
     {
-        $id = pp_create_page('Grid container scope');
+        $id = pp_create_page('Fixture container scope');
         $this->seedRaw($id, [[
-            'component' => 'grid',
-            'props'     => ['items' => [['title' => 'Card']]],
-            'style'     => ['--grid-gap' => '4rem'],
+            'component' => 'ppfixture',
+            'props'     => ['items' => [['number' => '10', 'label' => 'Sites']]],
+            'style'     => ['--ppfixture-gap' => '4rem'],
         ]]);
 
-        $this->assertStringContainsString('--grid-gap: 4rem', $this->renderStored($id));
+        $this->assertStringContainsString('--ppfixture-gap: 4rem', $this->renderStored($id));
     }
 
     /**
      * Opt-in by presence, mirroring the write path: a component whose slots carry no
      * item_eligible flag keeps the FULL set, so an un-annotated component that gains
      * a per-item style is not wholesale stripped by this shared renderer.
+     *
+     * RE-HOMED FROM `hero` TO `ppfixture` AT #1101, AND IT HAD GONE VACUOUS. hero went v2
+     * at #986 and has declared no slots since, so BOTH sides of the byte-identity were the
+     * empty string — the assertion held because there was nothing to render, not because
+     * the narrowing was a no-op. `ppfixture` declares sixteen slots and none of them
+     * `item_eligible`, which is the exact shape this test is about; the non-emptiness is
+     * asserted below so it cannot rot the same way again.
      */
     public function testItemScopeIsANoOpForAComponentWithNoEligibleSlots(): void
     {
-        $this->assertSame([], pp_item_eligible_slots(pp_get_style_slots('hero')), 'fixture assumption');
+        $this->assertSame([], pp_item_eligible_slots(pp_get_style_slots('ppfixture')), 'fixture assumption');
+
+        $rendered = pp_render_style_vars(['--ppfixture-bg' => '#ff0000'], 'ppfixture');
+        $this->assertNotSame('', $rendered, 'the un-narrowed render must produce something to compare');
         $this->assertSame(
-            pp_render_style_vars(['--hero-bg' => '#ff0000'], 'hero'),
-            pp_render_style_vars(['--hero-bg' => '#ff0000'], 'hero', true)
+            $rendered,
+            pp_render_style_vars(['--ppfixture-bg' => '#ff0000'], 'ppfixture', true)
         );
     }
 
@@ -446,27 +482,63 @@ class WriteRenderGrammarTest extends TestCase
         );
     }
 
-    /** Write and render read the SAME predicate, not two that can drift. */
+    /**
+     * Write and render read the SAME predicate, not two that can drift.
+     *
+     * RE-FOUNDED ON A SYNTHETIC SLOT MAP AT #1101, AND IT WAS SILENTLY RISKY BEFORE THE
+     * CHANGE THAT FORCED THIS. The old body walked `['grid', 'section']` and asserted once
+     * per declared slot; section's map retired at #1023 and grid's at #1101, so BOTH inner
+     * loops ran zero times and the test performed no assertions at all — PHPUnit reported
+     * it risky rather than failed, which is exactly how a fence stops being a fence
+     * quietly. Written to `$slots` counters here so the same rot cannot recur.
+     *
+     * WHAT THIS CAN AND CANNOT STILL REACH, stated plainly. The WRITE half takes its
+     * available-slot map as a PARAMETER, so it can be driven against a hand-built map that
+     * declares both eligibilities — which is what runs below, and it is a stronger
+     * exercise than the shipped schemas ever gave it (grid declared 20 eligible slots but
+     * they all agreed, so a predicate that inverted would have failed on the container
+     * ones only). The RENDER half resolves slots from a component NAME, so it cannot be
+     * driven synthetically; no schema declares `item_eligible` and no component template
+     * renders a per-item style map any more, so the render side of the convergence has no
+     * subject. See testNoSchemaDeclaresItemEligibleSlotsSoTheRenderNarrowingHasNoCallSite
+     * above for that census, and restore the paired walk when either comes back.
+     */
     public function testWriteAndRenderShareTheItemEligibilityPredicate(): void
     {
-        foreach (['grid', 'section'] as $component) {
-            $eligible = pp_item_eligible_slots(pp_get_style_slots($component));
-            foreach (pp_get_style_slots($component) as $slot => $def) {
-                $accepted_at_write = _pp_validate_style_slot_map(
-                    [$slot => $def['type'] === 'color' ? '#ff0000' : ($def['default'] ?: '0')],
-                    pp_get_style_slots($component),
-                    $component,
-                    0
-                );
-                $scoped_out_at_write = is_wp_error($accepted_at_write)
-                    && str_contains($accepted_at_write->get_error_message(), 'container-scoped');
-                $this->assertSame(
-                    !isset($eligible[$slot]),
-                    $scoped_out_at_write,
-                    "{$component} {$slot}: write scope must follow the shared predicate"
-                );
-            }
+        $available = [
+            '--fence-gap'      => ['type' => 'length', 'default' => '1rem', 'description' => 'Container-scoped.'],
+            '--fence-item-bg'  => ['type' => 'color', 'default' => '#ffffff', 'description' => 'Item-scoped.', 'item_eligible' => true],
+            '--fence-padding'  => ['type' => 'length', 'default' => '2rem', 'description' => 'Container-scoped.'],
+            '--fence-item-ink' => ['type' => 'color', 'default' => '#000000', 'description' => 'Item-scoped.', 'item_eligible' => true],
+        ];
+
+        $eligible = pp_item_eligible_slots($available);
+        $this->assertSame(
+            ['--fence-item-bg', '--fence-item-ink'],
+            array_keys($eligible),
+            'premise: the shared predicate splits this map two and two'
+        );
+
+        $checked = 0;
+        foreach ($available as $slot => $def) {
+            $written = _pp_validate_style_slot_map(
+                [$slot => $def['type'] === 'color' ? '#ff0000' : $def['default']],
+                $available,
+                'fencebox',
+                0
+            );
+            $scoped_out_at_write = is_wp_error($written)
+                && str_contains($written->get_error_message(), 'container-scoped');
+
+            $this->assertSame(
+                !isset($eligible[$slot]),
+                $scoped_out_at_write,
+                "{$slot}: write scope must follow the shared predicate"
+            );
+            $checked++;
         }
+
+        $this->assertSame(count($available), $checked, 'every slot in the map was actually judged');
     }
 
     // ── A-27 — nested item-field contracts ───────────────────────────────────
@@ -911,57 +983,110 @@ class WriteRenderGrammarTest extends TestCase
     }
 
     /**
-     * The scope fence, asserted rather than described — and #600 moved one of its two
-     * posts. The nested `enum` half USED to assert that an out-of-set text_role still
-     * validated (#614's fence: scalar types only, enums deferred); it now asserts the
-     * opposite, because RULE 4 landed on this same traversal. The nested `object` half
-     * is unchanged and is what is left of the fence: nothing has decided what an item
-     * style object may contain, and neither the scalar rule nor the enum rule may
-     * sweep it up on the way past.
-     */
-    public function testNestedEnumsAreEnforcedAndObjectFieldsAreNot(): void
-    {
-        $enum = pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
-            ['title' => 'Card', 'text_role' => 'not-a-declared-role'],
-        ]]]]);
-        $this->assertInstanceOf(
-            \WP_Error::class,
-            $enum,
-            'a nested enum is strict since #600 — the accept-and-coerce gap is closed'
-        );
-        $this->assertSame('invalid_prop_value', $enum->get_error_code());
-
-        $this->assertTrue(
-            pp_validate_composition([['component' => 'grid', 'props' => ['items' => [
-                ['title' => 'Card', 'style' => ['--grid-item-bg' => '#fff']],
-            ]]]]),
-            'a nested object field must not be swept up by a scalar-type or enum rule'
-        );
-    }
-
-    /**
-     * WRITE/RENDER CONVERGENCE for the nested enum, which is the gate's whole claim
-     * and the reason #600 belongs in this file. Before it, the write path accepted
-     * `text_role: "terminal"` and the renderer acted on nothing — the two sets
-     * disagreed by exactly the set of unknown strings. Now the write path rejects
-     * precisely what the renderer would have ignored.
+     * THE NESTED SCOPE-FENCE PAIR RETIRED AT #1101 — TWO TESTS, replaced by one claim
+     * plus the successor truth about the field they drove.
      *
-     * The RENDER side is proved through a RAW META SEED, deliberately: that is the
-     * only way an out-of-set role can still reach the renderer once the write path
-     * refuses it (a raw database write, or a restore_composition of an old snapshot,
-     * which by rule never blocks). It proves the grid.php allowlist is still load-
-     * bearing rather than redundant with the new gate — an arbitrary authored string
-     * never becomes a CSS class.
+     * (1) WHAT THEY PROVED.
+     *       - testNestedEnumsAreEnforcedAndObjectFieldsAreNot held both posts of #614's
+     *         scope fence at once: a nested `enum` field is STRICT (RULE 4, #600 — the
+     *         accept-and-coerce gap closed), while a nested `object` field is NOT swept
+     *         up by the scalar-type or enum rules on the way past, because nothing had
+     *         decided what an item style object may contain.
+     *       - testTheNestedEnumWriteRejectionMatchesWhatTheRendererIgnores proved the two
+     *         sides CONVERGE: the write path rejects precisely the roles the renderer
+     *         would have ignored, with the render half seeded through raw meta because
+     *         that (or a restore_composition, which never blocks) is the only way an
+     *         out-of-set role can still reach a template.
+     *
+     * (2) WHY THE SUBJECTS ARE GONE. Both posts of the fence were `grid.items[]` fields
+     *     and both retired with grid's v2 rebuild: `text_role` was the THEME'S LAST NESTED
+     *     ENUM, and `style` its LAST NESTED OBJECT FIELD. The census below measures both.
+     *     Neither can be re-homed onto the slot-engine fixture: `ppfixture` declares its
+     *     nested fields under `item_fields`, a documentary key no engine path reads (the
+     *     nested rules walk `props.<name>.items`), so a fixture field there would be
+     *     ignored and the tests would pass or fail for unrelated reasons.
+     *
+     * (3) WHERE THE CLAIMS WENT. RULE 4's code (lib/admin.php) is untouched and simply has
+     *     no declaring surface — reported, not repaired. The CONVERGENCE claim has a
+     *     successor and it is asserted below, because the outcome for an author is what
+     *     matters and it got stricter rather than weaker: `text_role` is no longer an
+     *     out-of-set VALUE on a known field, it is an unknown FIELD, so the write is
+     *     refused by name and the renderer — which has no role classes left at all — emits
+     *     nothing for it. That is the same write/render convergence one level up.
+     *
+     * (4) THE PIN. The census fails the moment a schema declares a nested enum or a nested
+     *     object field again, which is when the fence needs both its posts back.
      */
-    public function testTheNestedEnumWriteRejectionMatchesWhatTheRendererIgnores(): void
+    public function testNoNestedEnumOrObjectFieldRemainsAndTheRetiredRoleIsRefusedByName(): void
     {
-        $this->assertInstanceOf(\WP_Error::class, pp_validate_composition([
+        $nested_enums   = [];
+        $nested_objects = [];
+        $nested_fields  = 0;
+        foreach (pp_get_registered_components() as $component => $schema) {
+            foreach (($schema['props'] ?? []) as $prop => $definition) {
+                if (!is_array($definition) || !isset($definition['items']) || !is_array($definition['items'])) {
+                    continue;
+                }
+                foreach ($definition['items'] as $field => $field_def) {
+                    if (!is_array($field_def)) {
+                        continue;
+                    }
+                    $nested_fields++;
+                    if (($field_def['type'] ?? null) === 'enum') {
+                        $nested_enums[] = "{$component}.{$prop}[].{$field}";
+                    }
+                    if (($field_def['type'] ?? null) === 'object') {
+                        $nested_objects[] = "{$component}.{$prop}[].{$field}";
+                    }
+                }
+            }
+        }
+
+        // NOT VACUOUS: nested field declarations still have to exist for the emptiness to
+        // be a statement about their TYPES rather than about their absence.
+        $this->assertGreaterThan(0, $nested_fields, 'no nested item fields are declared at all — this census proves nothing');
+        $this->assertSame([], $nested_enums, 'a nested enum field is declared again — restore the strict-enum half of the fence');
+        $this->assertSame([], $nested_objects, 'a nested object field is declared again — restore the object half of the fence');
+
+        // THE SUCCESSOR TRUTH, end to end, on the same field the retired pair drove.
+        // WRITE: refused, and refused BY NAME — a silent accept is what #600 closed, and
+        // an unknown-field refusal that did not name the field would send an agent hunting.
+        $rejected = pp_validate_composition([
             ['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Card', 'text' => 'Body', 'text_role' => 'terminal'],
             ]]],
-        ]), 'the write path rejects the role the renderer would ignore');
+        ]);
+        $this->assertInstanceOf(\WP_Error::class, $rejected, 'the retired role must not be quietly accepted');
+        // `retired_prop`, NOT `unknown_prop`, AND THE CHANGE IS AN UPGRADE ON THIS TEST'S
+        // OWN TERMS (#1101). This asserted `unknown_prop` while grid's rebuild was being
+        // written, because the item-FIELD gate did not consult `retired_props` and every
+        // retired item key fell through to the typo arm — so a field that had moved
+        // answered with a list of live field names, which is the one thing §3.1 says a
+        // refusal must not do. The gate consults it now.
+        //
+        // The claim this test makes is "refused, and refused BY NAME, because an
+        // unknown-field refusal that did not name the field would send an agent hunting".
+        // `retired_prop` still names the field and additionally names WHERE THE VALUE
+        // WENT, so the agent does not have to hunt at all — it is the same claim, better
+        // served. The out-of-set-value distinction the old message carried is preserved:
+        // a `text_role` of `terminal` is not reported as an invalid enum value, because
+        // there is no enum left to be out of.
+        $this->assertSame(
+            'retired_prop',
+            $rejected->get_error_code(),
+            'it is a RETIRED field now — not an out-of-set value, and not a typo either'
+        );
+        $this->assertStringContainsString('text_role', $rejected->get_error_message());
+        $this->assertStringContainsString(
+            'card-text',
+            $rejected->get_error_message(),
+            'and the refusal names the role that replaced it, which is what stops the hunt'
+        );
 
-        $post_id = pp_create_page('Nested enum render convergence', 'draft');
+        // RENDER: the raw-meta seed, for the population the write path can no longer
+        // create — aged storage and restore_composition. The card still renders, and the
+        // dead role reaches no class attribute.
+        $post_id = pp_create_page('Retired nested role', 'draft');
         $this->seedRaw($post_id, [
             ['component' => 'grid', 'props' => ['items' => [
                 ['title' => 'Card', 'text' => 'Body', 'text_role' => 'terminal'],
@@ -969,9 +1094,9 @@ class WriteRenderGrammarTest extends TestCase
         ]);
         $html = $this->renderStored($post_id);
 
-        $this->assertStringContainsString('class="grid__item-text"', $html, 'the unknown role renders as plain body text');
-        $this->assertStringNotContainsString('text-terminal', $html, 'an unadvertised role never reaches a class attribute');
         $this->assertStringContainsString('Body', $html, 'the card itself still renders');
+        $this->assertStringNotContainsString('text-terminal', $html, 'an unadvertised role never reaches a class attribute');
+        $this->assertStringNotContainsString('text_role', $html, 'nor does the stored field name itself');
     }
 
     /**
