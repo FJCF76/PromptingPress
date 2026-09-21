@@ -52,6 +52,23 @@ Two slot values genuinely retired with no route, and both are named here rather 
 
 **The card top bar SURVIVED, and it is why it is a real element now.** v1 painted it as `.grid__item::before`, which no role can address. Ten of the owner's eleven production bands author it — the same purple→orange→teal 3px rule on every one — so the honest port was to give the thing its own selector: an empty `<span class="grid__item-bar">`, styled by the `card-bar` role through ordinary `background.fill` and `sizing.height`. No grammar changed.
 
+### One geometry narrowing: a card that ends with its paragraph is 16px taller (#1102)
+
+Measured in Chromium at 375/768/1280, v1 against the rebuild, on the same scenes:
+
+| card shape | v1 `.grid__item-body` | v2 |
+|---|---|---|
+| title + text + bullets + link | 260.562px | **260.562px** — byte-identical |
+| title + text, nothing after | 126.797px | **138.328px** |
+
+`card-text` defaults `spacing.margin-bottom: @space-md`, and that value is correct — v1 rendered 16px between the paragraph and whatever followed it. But v1 **also** rendered 0px when nothing followed, because base.css's `p:last-child { margin-bottom: 0 }` reset caught it. A v2 element-tier role default emits **unlayered**, so nothing in `@layer pp-v1` can take it back: a structural `.grid__item-text:last-child { margin-bottom: 0 }` was prototyped and measured **inert**.
+
+The condition is *"is this the last child"* — a structural fact about the markup — and **v2 roles have no conditionality concept at all**. That is [#1102](https://github.com/FJCF76/PromptingPress/issues/1102), and this is its first concrete case rather than a defect in these defaults.
+
+**Kept rather than worked around, and the alternatives are why.** Dropping the default fixes the text-last card and collapses text→bullets and text→link from 24px to 8px on every ordinary card. Moving the 16px onto `card-bullets`/`card-link` as a `margin-top` keeps those two right and makes bullets→link 24px where v1 measured 8px. Each trades an uncommon shape's error for a common one's; this one errs toward *more* space rather than cramped.
+
+**To remove it on a band where it shows**, set `card-text` → `spacing.margin-bottom` to `"0"` and put the rhythm on `card-body` → `spacing.gap` instead. An authored value emits unlayered above the default, so it wins.
+
 ## Roles
 
 | Role | Selector | What it owns |
