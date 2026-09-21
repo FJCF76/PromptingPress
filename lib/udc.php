@@ -7798,6 +7798,118 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
 
+        // ── THE TWO ITEM-GRAIN SHADOWING DISCLOSURES (Addendum B4) ──────────
+        //
+        // The clause asks for both directions: an ITEM value cancelled by a role
+        // default, and a BAND value cancelled by an ITEM value.
+        $item_declaration = pp_udc_item_roles($component);
+        if ($item_declaration !== null) {
+            $all_item_maps = pp_udc_item_maps($item);
+
+            // (a) AN ITEM'S INHERITED VALUE, CANCELLED BY A PART'S OWN DEFAULT.
+            //
+            // The `_band` disclosure one level down, and the same mechanism
+            // exactly: the item's ROOT role is a container, so a typography
+            // value on it reaches the card's parts by INHERITANCE, and a part
+            // that declares the property directly beats inheritance at any
+            // specificity and in any source order. Darkening one card's fill
+            // and setting its text colour on the card ROLE is the obvious
+            // authoring move and the one that silently half-works — which is
+            // precisely the #1059 shape that shipped a 3.21:1 row on faq.
+            //
+            // Scoped to the roles the item can actually address: telling an
+            // author to "set it on that role directly" is only actionable if
+            // they are allowed to.
+            foreach ($all_item_maps as $item_id => $item_map) {
+                $cancelled = _pp_udc_inherited_values_cancelled_by_role_defaults(
+                    $item_map, $component, $item_declaration['root'], $item_declaration['roles']
+                );
+                foreach ($cancelled as $property => $names) {
+                    $findings[] = [
+                        'type'    => 'udc_item_value_shadowed_by_role_default',
+                        'message' => sprintf(
+                            'Component "%s" item "%s": the "%s" you set on "%s" does not reach %s, because %s '
+                            . 'own default for it wins over inheritance. Set it on %s for this item too.',
+                            $component,
+                            _pp_udc_reflect((string) $item_id),
+                            (string) $property,
+                            $item_declaration['root'],
+                            implode(', ', $names),
+                            count($names) === 1 ? 'that role\'s' : 'those roles\'',
+                            count($names) === 1 ? 'that role' : 'those roles'
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
+                }
+            }
+
+            // (b) A BAND VALUE EVERY ITEM OVERRIDES, so it paints nowhere.
+            //
+            // THE LITERAL READING OF B4 WOULD BE NOISE THAT READS AS A LIE, and
+            // the measurement is what settles it. B4 says "a BAND value shadowed
+            // by an ITEM value" is disclosed; taken literally that fires whenever
+            // any item overrides anything — which is the headline capability
+            // working, and is exactly what the owner's live design does on 10 of
+            // 11 production bands (set the card fill on the band, override it on
+            // one card). A finding on every correct write trains an operator to
+            // stop reading findings, which costs more than the disclosure buys.
+            //
+            // The honest subject is the one the band tier's own disclosures share:
+            // a declared value that cannot take effect ANYWHERE. A band value is
+            // that only when EVERY entry overrides the same role and parameter —
+            // then the author has written something no pixel will ever show, and
+            // saying so is actionable. With even one entry not overriding, the
+            // band value paints there and the cascade is doing its job.
+            $entries = $item['props'][$item_declaration['prop']] ?? null;
+            $entry_count = is_array($entries) ? count($entries) : 0;
+            if ($entry_count > 0 && is_array($item['udc'])) {
+                $groups_registry = pp_udc_groups();
+                foreach ($item['udc'] as $role_name => $role_map) {
+                    $role_name = (string) $role_name;
+                    if (!is_array($role_map)
+                        || !in_array($role_name, $item_declaration['roles'], true)) {
+                        continue;
+                    }
+                    foreach ($role_map as $group_name => $group_map) {
+                        $group_name = (string) $group_name;
+                        if ($group_name === PP_UDC_PRESET_KEY || !is_array($group_map)
+                            || !isset($groups_registry[$group_name]['params'])) {
+                            continue;
+                        }
+                        foreach (array_keys($group_map) as $param_name) {
+                            $param_name = (string) $param_name;
+                            if (!isset($groups_registry[$group_name]['params'][$param_name])) {
+                                continue;
+                            }
+                            $overriding = 0;
+                            foreach ($all_item_maps as $item_map) {
+                                if (isset($item_map[$role_name][$group_name][$param_name])) {
+                                    $overriding++;
+                                }
+                            }
+                            if ($overriding < $entry_count) {
+                                continue;
+                            }
+                            $findings[] = [
+                                'type'    => 'udc_band_value_shadowed_by_item_value',
+                                'message' => sprintf(
+                                    'Component "%s": the "%s.%s" you set on "%s" for the whole band is '
+                                    . 'overridden by every one of the %d items, so it paints nowhere. '
+                                    . 'Change the items, or drop the band-level value.',
+                                    $component,
+                                    $group_name,
+                                    $param_name,
+                                    $role_name,
+                                    $entry_count
+                                ),
+                                'index'   => is_int($i) ? $i : null,
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
         // ── LAYER 2 DISCLOSURES (contract §2′.3, §2′.4) ─────────────────────
         //
         // R2′ made both of these real by removing the two rules that had made them
@@ -8118,16 +8230,44 @@ function _pp_udc_inherited_properties(): array {
  * @return array<string,string[]> property => role names that shadow it
  */
 function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $component): array {
-    if (!isset($udc['_band']) || !is_array($udc['_band'])) {
+    return _pp_udc_inherited_values_cancelled_by_role_defaults($udc, $component, '_band', null);
+}
+
+/**
+ * The generalized form: which roles' own defaults cancel an inherited value
+ * declared on `$source_role` (invariant I35).
+ *
+ * TWO CALLERS, ONE RULE. `_band` is the band's root and the original subject;
+ * an item's ROOT role is the same shape one level down — a container whose
+ * inherited values reach its parts only by inheritance, and lose to any part
+ * that declares the property directly. The mechanism is identical, so a second
+ * implementation would be a second chance to get the `currentColor` carve-out
+ * or the already-authored exemption wrong on only one of them.
+ *
+ * @param array       $map         The map declaring the inherited values.
+ * @param string      $source_role The role those values sit on.
+ * @param array|null  $limit_roles Candidate roles to consider cancelled, or
+ *                                 null for every role the component declares.
+ *                                 The item tier passes its addressable set,
+ *                                 because a role an item cannot address cannot
+ *                                 be the place it is told to set the value.
+ */
+function _pp_udc_inherited_values_cancelled_by_role_defaults(
+    array $udc,
+    string $component,
+    string $source_role,
+    ?array $limit_roles
+): array {
+    if (!isset($udc[$source_role]) || !is_array($udc[$source_role])) {
         return [];
     }
     $groups    = pp_udc_groups();
     $roles     = pp_udc_component_roles($component);
     $inherited = _pp_udc_inherited_properties();
 
-    // What `_band` declares, as CSS properties.
+    // What the source role declares, as CSS properties.
     $declared = [];
-    foreach ($udc['_band'] as $group_name => $group_map) {
+    foreach ($udc[$source_role] as $group_name => $group_map) {
         if ($group_name === PP_UDC_PRESET_KEY || !is_array($group_map)
             || !isset($groups[(string) $group_name]['params'])) {
             continue;
@@ -8160,7 +8300,10 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
     // untyped raw value HAS no grammar, so there is nothing to be invalid against, and
     // refusing to disclose it would mean the least-checked values are also the least
     // reported. A typed one keeps its check through pp_udc_css_param().
-    $band_css = $udc['_band'][PP_UDC_CSS_KEY] ?? null;
+    // BAND ONLY. An item map refuses `_css` outright (Addendum B6 exclusion 7),
+    // so there is nothing to walk at item grain and walking anyway would imply
+    // the key is reachable there.
+    $band_css = $source_role === '_band' ? ($udc[$source_role][PP_UDC_CSS_KEY] ?? null) : null;
     if (is_array($band_css)) {
         $states = pp_udc_states();
         foreach ($band_css as $property => $value) {
@@ -8192,7 +8335,10 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
     // Which roles declare a DEFAULT for the same property.
     $cancelled = [];
     foreach ($roles as $role_name => $role_def) {
-        if ((string) $role_name === '_band') {
+        if ((string) $role_name === $source_role) {
+            continue;
+        }
+        if ($limit_roles !== null && !in_array((string) $role_name, $limit_roles, true)) {
             continue;
         }
         // A ROLE THE AUTHOR ALREADY SET IS NOT CANCELLED. The authored value beats
