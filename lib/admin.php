@@ -3726,6 +3726,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     )
                     : [];
                 $available_fields = implode(', ', array_keys($declared_fields));
+                // Which prop, if any, carries this component's item grain — resolved
+                // once per prop rather than once per entry, for the same reason
+                // $available_fields is hoisted. Empty string when the component
+                // declares none, which can never equal a real prop name.
+                $item_grain_declaration = pp_udc_item_roles($name);
+                $item_grain_prop        = $item_grain_declaration === null
+                    ? ''
+                    : $item_grain_declaration['prop'];
                 foreach ($entries as $entry_index => $entry) {
                     if (!is_array($entry)) {
                         continue; // non-object entry — item_type: "object" owns that error
@@ -4281,8 +4289,30 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     if (!_pp_entry_is_object_shape($entry)) {
                         continue; // a populated list is a SHAPE defect, not an unknown key
                     }
+                    // THE TWO ENGINE-OWNED KEYS (BUILD-SPEC Addendum B), computed
+                    // once per prop rather than per entry.
+                    //
+                    // NOT DECLARED AS FIELDS, DELIBERATELY. `id` and `udc` on an
+                    // entry are the same kind of thing as `id` and `udc` on a BAND:
+                    // engine-owned keys that sit beside the author's content and are
+                    // not props. Declaring them in `props.items.items` would make
+                    // them content — they would appear in the AI catalog's entry-field
+                    // line, inviting a model to mint its own ids, which is exactly
+                    // what B2's mint-on-write rule exists to keep the engine's job.
+                    //
+                    // The capability still reaches the model, but through the
+                    // `item_roles` declaration rather than through a field list, for
+                    // the reason T10 settled: declaration is the source of truth, and
+                    // a roster derived from it cannot drift.
+                    //
+                    // GATED ON THE COMPONENT DECLARING ITEM GRAIN, so a component that
+                    // declares none rejects both keys exactly as it does today.
+                    $engine_owned = $item_grain_prop === $prop_name
+                        ? [PP_UDC_ITEM_ID_KEY => true, PP_UDC_ITEM_MAP_KEY => true]
+                        : [];
                     foreach ($entry as $entry_key => $ignored) {
-                        if (array_key_exists($entry_key, $declared_fields)) {
+                        if (array_key_exists($entry_key, $declared_fields)
+                            || isset($engine_owned[$entry_key])) {
                             continue;
                         }
                         if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {
@@ -4492,11 +4522,107 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         }
 
         if (array_key_exists('udc', $item)) {
-            $udc_error = pp_udc_validate_map($item['udc'], $name);
+            // ITEM MAPS ARE PASSED IN so the band's own reserved-name gate can
+            // recognise a token the ENGINE minted for an item. Without them
+            // _pp_udc_name_is_the_engines_own_mint() searches the band map
+            // alone, answers false for a name it wrote itself, and the band is
+            // refused permanently. See that function's docblock.
+            $udc_error = pp_udc_validate_map($item['udc'], $name, pp_udc_item_maps($item));
             if ($udc_error !== null) {
                 if (_pp_claim_item_finding($sink, 'udc')) {
                     $errors[] = _pp_composition_item_error($i, $udc_error->get_error_code(), $udc_error->get_error_message());
                     continue;
+                }
+            }
+        }
+
+        // ── ITEM-GRAIN MAPS (BUILD-SPEC Addendum B) ─────────────────────────
+        //
+        // VALIDATED HERE RATHER THAN BESIDE THE BAND MAP ABOVE, because an item
+        // map does not live beside `udc` — it lives INSIDE `props`, which is
+        // what makes it reachable by `update_component` and therefore what
+        // makes validating it non-optional. A band map is a sibling of `props`
+        // and no action can write one at all (#1088); an item map rides in on
+        // an ordinary prop patch, so the surface that accepts it has to be the
+        // surface that checks it.
+        //
+        // A DUPLICATE ID INSIDE ONE BAND REFUSES, mirroring
+        // `duplicate_component_id` one level down. Two entries sharing an id
+        // share a selector, so one card's design paints on the other — the same
+        // cross-apply failure, and the reason B2 scopes uniqueness to the band
+        // rather than leaving it to chance.
+        $item_declaration = pp_udc_item_roles($name);
+        if ($item_declaration !== null) {
+            $entries = $item['props'][$item_declaration['prop']] ?? null;
+            if (is_array($entries)) {
+                $band_tokens = [];
+                if (isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens'])) {
+                    $band_tokens = $item['udc']['_tokens'];
+                }
+                $seen_item_ids = [];
+                // THE LOCATOR ROUTES THROUGH THE SHARED RENDERER, and each
+                // message spells `item %s` itself rather than interpolating a
+                // pre-built string. Both halves matter: the renderer is what
+                // makes an object-keyed container report its real key instead of
+                // `item 0` (#634/#652), and the literal fragment is what keeps
+                // every depth naming an entry in one set of words. The pairing
+                // is drift-guarded in DiagnosticReachTest, which is how the
+                // first cut of this block — a precomputed `$where` that
+                // sidestepped both — was caught.
+                foreach ($entries as $k => $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+
+                    if (array_key_exists(PP_UDC_ITEM_ID_KEY, $entry)) {
+                        $raw_id = $entry[PP_UDC_ITEM_ID_KEY];
+                        $id     = is_scalar($raw_id) ? (string) $raw_id : '';
+                        if ($id === '' || !pp_udc_valid_item_id($id)) {
+                            if (_pp_claim_item_finding($sink, 'udc')) {
+                                $errors[] = _pp_composition_item_error($i, 'invalid_prop_value', sprintf(
+                                    'Component "%s" item %s: "%s" must be an id this engine minted — "it-" '
+                                    . 'followed by eight lowercase hex digits; got %s. Leave it out and one '
+                                    . 'is minted for you.',
+                                    $name,
+                                    _pp_item_index_label($k, $entries),
+                                    PP_UDC_ITEM_ID_KEY,
+                                    _pp_schema_value_for_message($raw_id)
+                                ));
+                            }
+                            continue;
+                        }
+                        if (isset($seen_item_ids[$id])) {
+                            if (_pp_claim_item_finding($sink, 'udc')) {
+                                $errors[] = _pp_composition_item_error($i, 'duplicate_component_id', sprintf(
+                                    'Component "%s": item %s and item %s both claim the id "%s" in "%s". '
+                                    . 'An item id scopes that item\'s styling rules, so sharing one would '
+                                    . 'paint each design on both.',
+                                    $name,
+                                    _pp_item_index_label($seen_item_ids[$id], $entries),
+                                    _pp_item_index_label($k, $entries),
+                                    $id,
+                                    $item_declaration['prop']
+                                ));
+                            }
+                            continue;
+                        }
+                        $seen_item_ids[$id] = $k;
+                    }
+
+                    if (array_key_exists(PP_UDC_ITEM_MAP_KEY, $entry)) {
+                        $item_error = pp_udc_validate_item_map(
+                            $entry[PP_UDC_ITEM_MAP_KEY],
+                            $name,
+                            $item_declaration,
+                            $band_tokens,
+                            sprintf('item %s', _pp_item_index_label($k, $entries))
+                        );
+                        if ($item_error !== null && _pp_claim_item_finding($sink, 'udc')) {
+                            $errors[] = _pp_composition_item_error(
+                                $i, $item_error->get_error_code(), $item_error->get_error_message()
+                            );
+                        }
+                    }
                 }
             }
         }

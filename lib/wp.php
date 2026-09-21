@@ -4828,6 +4828,38 @@ function pp_composition_content_hash(array $composition): string {
         if (is_array($item)) {
             unset($item['id']);
         }
+        // AND THE ITEM IDS, for exactly the same reason one level down
+        // (Addendum B2). A minted `it-<hex8>` is injected by the writer when
+        // absent, so a caller that reads a composition back and re-sends it
+        // would hash ids it never wrote and false-conflict against itself on
+        // every write — the precise failure the band-id strip above exists to
+        // prevent, reached through `props.items[].id` instead of `item.id`.
+        //
+        // IDENTIFIED BY THE ENGINE'S OWN SHAPE, not by consulting the registry.
+        // This function has no component-registry dependency and should not
+        // grow one on the write path; pp_udc_valid_item_id() answers "did this
+        // engine mint this?" precisely enough, because `it-` plus eight lowercase
+        // hex digits is a shape no author writes as content. An `id` that is
+        // anything else is left alone — it is not ours, so it is data, and
+        // hashing data is the whole job.
+        //
+        // The inherited property the band-id note states applies here too: an
+        // id-only edit does not move this digest, so a concurrent editor's CAS
+        // check will not see one. Two ids behaving two ways would be the
+        // unpredictable split that note already argues against.
+        if (is_array($item) && isset($item['props']) && is_array($item['props'])) {
+            foreach ($item['props'] as $prop_name => $prop_value) {
+                if (!is_array($prop_value)) {
+                    continue;
+                }
+                foreach ($prop_value as $k => $entry) {
+                    if (is_array($entry) && isset($entry['id']) && is_scalar($entry['id'])
+                        && pp_udc_valid_item_id((string) $entry['id'])) {
+                        unset($item['props'][$prop_name][$k]['id']);
+                    }
+                }
+            }
+        }
         return $item;
     }, $composition);
     // THE `(string)` CAST HIDES AN ENCODE FAILURE, and the return type is why it is still
@@ -6562,6 +6594,18 @@ function pp_resolve_logo(array $props): array {
  */
 function pp_generate_component_id(): string {
     return 'pp-' . bin2hex(random_bytes(4)); // 4 bytes → exactly 8 hex chars
+}
+
+/**
+ * Mints an ITEM styling handle (BUILD-SPEC Addendum B2).
+ *
+ * A DISTINCT PREFIX FROM A BAND'S, and B2 asks for it in as many words: `it-`
+ * against `pp-` so the two can never be confused in a selector, a message or a
+ * test. Same entropy, same shape, same mint-on-write-only rule — the band id's
+ * lifecycle one level down rather than a second lifecycle.
+ */
+function pp_generate_item_id(): string {
+    return 'it-' . bin2hex(random_bytes(4)); // 4 bytes → exactly 8 hex chars
 }
 
 /**

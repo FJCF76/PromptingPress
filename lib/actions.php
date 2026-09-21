@@ -6410,7 +6410,8 @@ pp_register_action('update_component', [
         // Merge and validate the result
         $merged = _pp_merge_component_props(
             $composition[$params['component_index']]['props'] ?? [],
-            $params['props']
+            $params['props'],
+            (string) ($composition[$params['component_index']]['component'] ?? '')
         );
         $test_composition = $composition;
         $test_composition[$params['component_index']]['props'] = $merged;
@@ -6453,7 +6454,11 @@ pp_register_action('update_component', [
         // Mirror execute (#604): the incoming patch is merged verbatim. No prop-key
         // rewriting happens on either side, so the preview's reported "after" and
         // `changes` are the exact shape that will be stored.
-        $after_props  = _pp_merge_component_props($before_props, $params['props']);
+        $after_props  = _pp_merge_component_props(
+            $before_props,
+            $params['props'],
+            (string) ($composition[$params['component_index']]['component'] ?? '')
+        );
 
         $changes = _pp_diff_props($before_props, $after_props, $params['component_index']);
 
@@ -6479,7 +6484,11 @@ pp_register_action('update_component', [
         // validator's unknown_prop gate rather than being silently redirected onto its
         // canonical prop, so `changes` is a truthful record of the write and stored
         // bytes always match what the caller asked for.
-        $after_props = _pp_merge_component_props($before_props, $params['props']);
+        $after_props = _pp_merge_component_props(
+            $before_props,
+            $params['props'],
+            (string) ($composition[$params['component_index']]['component'] ?? '')
+        );
 
         $composition[$params['component_index']]['props'] = $after_props;
 
@@ -7368,17 +7377,87 @@ function _pp_resolve_id_param(array &$params, int $post_id) {
 /**
  * Shallow-merges new props into existing props.
  * null values remove the key.
+ *
+ * SHALLOW IS RIGHT FOR PROPS AND WRONG FOR ONE THING INSIDE THEM (#1101,
+ * Addendum B). A prop patch replaces the prop, which is what a caller means by
+ * sending it — including an `items` array, where "replace the list" is the only
+ * sane reading of a new list. But two keys inside an items[] entry are not the
+ * caller's content: `id` is a handle this engine mints, and `udc` is the design
+ * the engine emits CSS from. Neither is something a caller re-sends, so a
+ * wholesale replace silently destroyed both.
+ *
+ * MEASURED ON THE SHIPPED TREE BEFORE THIS GUARD, on the v1 shape that has the
+ * same anatomy:
+ *
+ *   before: card 2 style = {"--grid-item-bg":"#14141F"}
+ *   update_component props={items: [...three cards, one word edited...]}
+ *   action ok  : true
+ *   findings   : []
+ *   after : card 2 style = null
+ *
+ * So fixing one card's copy destroyed every card's design on the band, and the
+ * envelope reported success with no finding — the reported-success-without-
+ * effect class inverted into reported-success-with-DAMAGE. Band `udc` is
+ * structurally immune to this because it is a SIBLING of `props`; item `udc`
+ * sits inside `props`, so it needed the guard the band never did.
+ *
+ * PRESERVED BY INDEX, matching the id lifecycle. pp_udc_assign_band_ids()
+ * carries an item id forward by index + component match, so preserving by index
+ * here keeps the two halves of the same lifecycle telling one story. An entry
+ * the caller genuinely wants restyled still wins: an explicit `udc` (or an
+ * explicit `id`) in the incoming entry is taken as sent, and only an ABSENT key
+ * is filled back in.
+ *
+ * SCOPED TO DECLARED ITEM-GRAIN COMPONENTS, so nothing else changes shape. A
+ * component that declares no `item_roles` merges exactly as it did.
+ *
+ * @param string $component The band's component, for the item-grain lookup.
  */
-function _pp_merge_component_props(array $existing, array $new): array {
+function _pp_merge_component_props(array $existing, array $new, string $component = ''): array {
     $merged = $existing;
+    $declaration = $component !== '' && function_exists('pp_udc_item_roles')
+        ? pp_udc_item_roles($component)
+        : null;
+
     foreach ($new as $key => $value) {
         if ($value === null) {
             unset($merged[$key]);
-        } else {
-            $merged[$key] = $value;
+            continue;
         }
+        if ($declaration !== null && $key === $declaration['prop']
+            && is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
+            $value = _pp_preserve_item_design($existing[$key], $value);
+        }
+        $merged[$key] = $value;
     }
     return $merged;
+}
+
+/**
+ * Carries an items[] entry's engine-owned keys across a wholesale replace.
+ *
+ * THE TWO KEYS AND NOTHING ELSE. `id` and `udc` are the engine's; every other
+ * key in the entry is the caller's content and a patch that omits one means to
+ * clear it. Widening this to "preserve anything the caller left out" would turn
+ * a replace into a merge and make it impossible to delete a field.
+ *
+ * ABSENT, NOT EMPTY. `{"udc": {}}` sent explicitly is a caller clearing the
+ * design and is honoured; only a MISSING key is filled back in. That keeps the
+ * clear-it route open, which matters because there is otherwise no way to
+ * remove an item's design once minted.
+ */
+function _pp_preserve_item_design(array $existing_entries, array $incoming_entries): array {
+    foreach ($incoming_entries as $k => $entry) {
+        if (!is_array($entry) || !isset($existing_entries[$k]) || !is_array($existing_entries[$k])) {
+            continue;
+        }
+        foreach ([PP_UDC_ITEM_ID_KEY, PP_UDC_ITEM_MAP_KEY] as $owned) {
+            if (!array_key_exists($owned, $entry) && array_key_exists($owned, $existing_entries[$k])) {
+                $incoming_entries[$k][$owned] = $existing_entries[$k][$owned];
+            }
+        }
+    }
+    return $incoming_entries;
 }
 
 /**

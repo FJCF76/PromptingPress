@@ -6907,6 +6907,108 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = []): array {
         $incoming[$i]['id'] = $assigned;
     }
 
+    // ── ITEM IDS (Addendum B2) — the band rule, one level down ──────────────
+    //
+    // Run as its own pass, after every band id is settled, because the two
+    // lifecycles are independent: an item id is scoped to its band, so it does
+    // not care which id its band ended up with, and interleaving them would
+    // make that independence hard to see.
+    foreach ($incoming as $i => $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $component = isset($item['component']) && is_scalar($item['component'])
+            ? (string) $item['component']
+            : '';
+        if ($component === '') {
+            continue;
+        }
+        $declaration = pp_udc_item_roles($component);
+        if ($declaration === null) {
+            continue; // Declares no item grain: stored shape untouched, per B2.
+        }
+        $prop    = $declaration['prop'];
+        $entries = $item['props'][$prop] ?? null;
+        if (!is_array($entries)) {
+            continue;
+        }
+
+        // UNIQUENESS IS WITHIN THE BAND, NOT GLOBAL, and that is B2's own
+        // ruling rather than a shortcut: the emitted selector is always
+        // band-scoped (`[data-pp-band] [data-pp-item]`), so two bands may each
+        // hold an item called `it-7b2c91d4` without either one reaching the
+        // other. Scoping the claim set per band is what makes that true in the
+        // minter as well as in the emitter.
+        $claimed_items = [];
+        foreach ($entries as $entry) {
+            if (is_array($entry) && isset($entry[PP_UDC_ITEM_ID_KEY])
+                && is_scalar($entry[PP_UDC_ITEM_ID_KEY])) {
+                $id = (string) $entry[PP_UDC_ITEM_ID_KEY];
+                if (pp_udc_valid_item_id($id)) {
+                    $claimed_items[$id] = true;
+                }
+            }
+        }
+
+        $stored_entries = [];
+        if (isset($stored[$i]) && is_array($stored[$i])
+            && isset($stored[$i]['component']) && is_scalar($stored[$i]['component'])
+            && (string) $stored[$i]['component'] === $component
+            && isset($stored[$i]['props'][$prop]) && is_array($stored[$i]['props'][$prop])) {
+            $stored_entries = $stored[$i]['props'][$prop];
+        }
+
+        foreach ($entries as $k => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $map     = $entry[PP_UDC_ITEM_MAP_KEY] ?? null;
+            $has_map = is_array($map) && $map !== [];
+
+            // AN ITEM WITH NO MAP CARRIES NO ID, AND THE CLEARING HALF IS NOT
+            // OPTIONAL. B2 says items with no `udc` map get no id and no
+            // attribute; honouring that only at MINT time would let an id
+            // outlive the map that justified it, so a card whose design was
+            // deleted would keep emitting a `data-pp-item` attribute with no
+            // rules behind it — a handle to nothing, and a contradiction of the
+            // clause in the same paragraph that states it.
+            if (!$has_map) {
+                if (isset($entry[PP_UDC_ITEM_ID_KEY])) {
+                    unset($incoming[$i]['props'][$prop][$k][PP_UDC_ITEM_ID_KEY]);
+                }
+                continue;
+            }
+
+            $current = isset($entry[PP_UDC_ITEM_ID_KEY]) && is_scalar($entry[PP_UDC_ITEM_ID_KEY])
+                ? (string) $entry[PP_UDC_ITEM_ID_KEY]
+                : '';
+            if ($current !== '' && pp_udc_valid_item_id($current)) {
+                continue; // Honoured, never overwritten.
+            }
+
+            // Carried forward by INDEX, the band rule one level down. The
+            // component match the band rule also demands is already satisfied:
+            // this loop only runs when the stored band at this index is the
+            // same component.
+            $carried_item = '';
+            if (isset($stored_entries[$k]) && is_array($stored_entries[$k])
+                && isset($stored_entries[$k][PP_UDC_ITEM_ID_KEY])
+                && is_scalar($stored_entries[$k][PP_UDC_ITEM_ID_KEY])) {
+                $candidate = (string) $stored_entries[$k][PP_UDC_ITEM_ID_KEY];
+                if (pp_udc_valid_item_id($candidate) && !isset($claimed_items[$candidate])) {
+                    $carried_item = $candidate;
+                }
+            }
+
+            $assigned = $carried_item !== '' ? $carried_item : pp_generate_item_id();
+            while (isset($claimed_items[$assigned])) {
+                $assigned = pp_generate_item_id();
+            }
+            $claimed_items[$assigned] = true;
+            $incoming[$i]['props'][$prop][$k][PP_UDC_ITEM_ID_KEY] = $assigned;
+        }
+    }
+
     return $incoming;
 }
 
