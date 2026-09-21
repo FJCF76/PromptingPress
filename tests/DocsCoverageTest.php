@@ -131,7 +131,9 @@ class DocsCoverageTest extends TestCase
         $path = $this->themeRoot . '/' . $relative;
         $this->assertFileExists($path, "a docs guard reads {$relative}, which no longer exists");
         return (string) file_get_contents($path);
-    }    /**
+    }
+
+    /**
      * THE TWO SLOT-README GUARDS RETIRED AT #1101, AND THE CLAIM THEY MADE IS KEPT.
      *
      * They walked `slotStyledComponentProvider()` — every component declaring

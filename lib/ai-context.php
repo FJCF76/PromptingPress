@@ -299,7 +299,7 @@ function pp_ai_system_prompt(): string {
     $parts[] = '';
     // THE WHOLE v1 SECTION IS CONDITIONAL ON A SLOT EXISTING (#1087).
     //
-    // `grid` is the last component on style slots. When its rebuild lands there is no
+    // `grid` WAS the last component on style slots, and its rebuild landed at #1101. There is no
     // surface `style_component` can reach, and every sentence from here to the end of the
     // "Before proposing a style_component action" block becomes instructions for an action
     // that refuses every component with `no_style_slots`. Gating on the registry means the
@@ -318,8 +318,11 @@ function pp_ai_system_prompt(): string {
     // latent trap rather than a live defect — and splitting a 7 KB reviewed paragraph is a
     // change that wants its own diff. Filed so the rebuild that trips it finds this note
     // first.
-    // The rescued design-token grammar, bound before the gate so the gated block and the
-    // ungated paragraph below cannot drift into two copies of the same sentences.
+    // The rescued design-token grammar. These sentences were MOVED out of the gated
+    // block below, not shared with it: they describe DESIGN TOKENS, a live surface, and
+    // would have retired with the slot grammar they used to be mixed into. The local
+    // exists for readability at the one place it is composed — there is no second
+    // consumer, so editing it changes exactly one paragraph.
     $token_value_grammar = 'A `color`-typed slot or design token accepts hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, the keywords `transparent` and `currentColor`, or a single bare reference to a registered color-typed design token — `var(--color-accent)` exactly, with no fallback, no nesting, and no whitespace inside (`var(--x, #fff)` is rejected); named colors are rejected. Use a `var()` reference when a value should FOLLOW another token (e.g. "the kicker follows the brand accent") instead of duplicating a literal hex; a reference chain that loops back to the token being set is rejected as a cycle. A `font-family` VALUE — on a design token today, and on any slot that ever declares the type — accepts a comma-separated list in which EVERY name is one of exactly three shapes: an unquoted name of letters, digits, spaces, hyphens or underscores (`Helvetica`, `-apple-system`, `ui-monospace`, `sans-serif`, `Font Awesome 5 Free`); a fully quoted name whose quote character does not recur inside it (`"Helvetica Neue"`, `\'Cascadia Code\'`); or a single bare token reference (`var(--font-mono)`, no fallback and no nesting — note this one is NOT checked against the token registry the way a `color` reference is, so a misspelled or non-font token is accepted at write and simply paints nothing). QUOTE any name carrying anything else, a non-ASCII face name included — but quoting is not a licence for anything: the shared reject set still applies to the WHOLE value on every surface, so `{`, `}`, `;`, `<`, `>`, a backslash, `/*`, `url(` and `@import` are refused even inside a quoted name. TWO FURTHER LIMITS APPLY WHEREVER THE VALUE REACHES RAW CSS SOURCE TEXT — that is EVERY v2 `udc` parameter, not just `typography.family`, plus the `:root` block the theme emits for design-token overrides: brackets must come in closed, properly nested pairs, `(` with `)` and `[` with `]` (`"Foo (Display)"` is fine, `"Foo (Display"` is refused, and so is `([)]`), and each of `\'` and `"` must appear an EVEN number of times across the whole value — so `"Foo\'s Font"` is refused however it is written, and so is `\'Foo "Display Font\'`, while `\'Foo "Display" Font\'` is fine. WHERE EACH LIMIT BITES DIFFERS BY SURFACE, and this is the part to plan around: a `udc` value breaking either limit is REFUSED at write, so you find out immediately; a design-token override breaking either is ACCEPTED at write and then DROPPED at render, so the token silently falls back to its default and the only report is `wp pp readiness status`, as a `token_override_validity` finding. On both surfaces pick a name whose marks pair up, or another face.';
 
     $live_slot_types = pp_ai_live_slot_types();

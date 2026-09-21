@@ -207,7 +207,7 @@ No blocks. No shortcodes. No visual-builder serialization. AI can read, write, d
 |-----------|---------|-----------|
 | hero | Full-width headline with optional CTA, image, overlay | `title` |
 | section | Text + optional image or content panel; 5 `layout`s (text-only, image-left, image-right, centered, text-panel) + `theme` (default, muted, inverted) | one of `body` / `body_items` / panel content |
-| grid | Responsive card grid; `layout` (cards, steps) + `theme` (default, muted, inverted) + `card_emphasis` (featured, uniform) + `columns` (1-4, force desktop column count) + `image_treatment` (banner, icon) | `items[]` |
+| grid | Responsive card grid; `layout` (cards, steps) + `columns` (1-4, force desktop column count). Everything designable is the band's `udc` map — or, for ONE card, that entry's own `udc` (Addendum B) | `items[]` |
 | faq | Native `details/summary` accordion, zero JavaScript | `items[]` |
 | cta | Call-to-action block with layout, color axis, and background image; `title` optional (omit for a standalone button row); optional second button for a primary + secondary pair | `button_text`, `button_url` |
 | stats | Large-number metrics with labels; band tone and background image through its `_band` role | `items[]` |

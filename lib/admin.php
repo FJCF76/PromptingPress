@@ -403,7 +403,7 @@ const PP_CONDITIONALITY_NOTE_MAX = 400;
  *
  *   - DISJUNCTION — e.g. a slot that applies on dark bands only, i.e.
  *     `theme: inverted` OR `background_image` present.
- *   - COMPOSED-PAGE CONTEXT — `--grid-item-bar-*` / `--grid-featured-*` apply only
+ *   - COMPOSED-PAGE CONTEXT — `--grid-item-bar-*` / `--grid-featured-*` (RETIRED #1101; no shipped declaration left) applied only
  *     under a `main >` scope, which is not a prop, not a slot and not a value.
  *   - INTERACTION STATE — a question's open state.
  *
@@ -553,7 +553,7 @@ function pp_applies_when_clause_errors($clause, string $label): array {
  * nothing" is the whole point of the field.
  *
  * DEFAULT RESOLUTION. An absent prop takes its schema `default`, never null. Without
- * this, `{"prop":"card_emphasis","equals":"featured"}` would report every grid that
+ * this, `{"prop":"card_emphasis","equals":"featured"}` would have reported every grid that
  * omits the prop — i.e. most of them — as inert, since `featured` is the default.
  *
  * @param  mixed  $clause      One clause from an `applies_when` array.
@@ -1300,7 +1300,7 @@ function _pp_no_style_slots_clause(string $component_name): string {
  * Validates a style-slot override map against a component's declared style slots.
  *
  * The single shared gate for BOTH grid-level component style (`item['style']`) and
- * per-item card style (issue 306, `props.items[].style`). Both surfaces run the
+ * per-item card style (issue 306, `props.items[].style` — retired at #1101; the per-card surface is `props.items[].udc` now). Both surfaces run the
  * SAME injection guard + typed validators (_pp_validate_token_value) — there is
  * deliberately no second validator. Skips the `__recipe` tracking key (not a CSS
  * property). Returns the first violation so callers keep first-error-wins order.
@@ -1805,7 +1805,7 @@ function _pp_schema_list_value_is_valid($declared_type, $value): bool {
  * 0..n-1 in order, so pp_is_list() says list and this REFUSES it, even though the author
  * wrote an object. Separating the two would mean inspecting raw JSON TEXT, and every caller
  * reaches pp_execute_action() with an already-decoded PHP array. It costs nothing on the
- * shipped fields — a style map's keys are slot names like `--grid-item-bg`, never `0` — and
+ * shipped fields — a style map's keys were slot names like `--grid-item-bg` (no schema declares one since #1101), never `0` — and
  * a field that genuinely wants numeric string keys should start them at something other
  * than 0 or declare `array`.
  *
@@ -3487,7 +3487,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     // decided here; see the predicate's docblock.
                     //
                     // NO SHIPPED SCHEMA DECLARES A TOP-LEVEL `object` PROP TODAY. Both
-                    // `object` declarations in the registry (grid.items[].style and
+                    // `object` declarations the registry USED to carry (grid.items[].style, retired #1101, and
                     // section.panel_items[].style) are NESTED fields, handled by RULE 6
                     // below. This arm is deliberately built anyway, and #744 is the
                     // argument for building it: that issue exists because one depth
@@ -3590,7 +3590,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //   3. the field's own scalar `type` — `string` or `number` (#614). See the
         //      RULE 3 comment inline below for the defect it closes.
         //   4. a nested `enum` field's STRICT membership (#600) — declared on
-        //      grid.items[].text_role, the only nested enum in the shipped schemas
+        //      grid.items[].text_role, the LAST nested enum in the shipped schemas, retired at #1101 (the rule is prospective now)
         //      today. Same rule the top-level block above applies, sharing the same
         //      predicate; see the RULE 4 comment inline below.
         //   5. a key the field map does NOT declare (#643) — the #147 top-level
@@ -3599,7 +3599,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         //   6. the field's own CONTAINER `type` — `array` or `object` (#744), the
         //      other half of the declared-type job RULE 3 does for scalars, which is
         //      why it sits beside RULE 3 rather than at the end. Declared on THREE
-        //      fields today: grid.items[].bullets (`array`), grid.items[].style and
+        //      fields today: grid.items[].bullets (`array`); the `object` instances, grid.items[].style and
         //      section.panel_items[].style (`object`). Until #744 a scalar in any of
         //      them was accepted by all five rules above — rule 2 walks a bullets
         //      array's ENTRIES and a scalar never enters the loop, and rule 3's fence
@@ -3995,7 +3995,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                         //
                         // Only ONE shipped field is in its scope today — `grid.items[]
                         // .bullets` is the single nested `type: "array"` declaration in
-                        // the registry. The `object` fields beside it (grid.items[].style,
+                        // the registry. The `object` fields that used to sit beside it (grid.items[].style,
                         // section.panel_items[].style) are NOT this rule's: since #883
                         // they are owned by RULE 6c below, which asks the mirror question
                         // through the mirror predicate. That is not an

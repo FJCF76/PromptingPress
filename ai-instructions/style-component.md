@@ -417,6 +417,9 @@ Three routes worth knowing, because they are the ones people look for by their o
   grid can do that no other band can, and it is what the owner's dark-card design is written in.
 
 A stored `style` map on a page built before the rebuild is not migrated and not healed: it is
+reported, and the way to remove it is to write the band without it.
+
+---
 
 ### Recipes — none ship
 
@@ -444,8 +447,7 @@ The v2 equivalent is a **preset**, and it is better in the way that matters: `sa
 with `"_preset"`, and editing it moves every reference with no band write. A recipe could only
 ever bundle one component's slots.
 
-reported, and the way to remove it is to write the band without it.
-
+---
 
 ## Step 3 — Verify
 

@@ -1790,7 +1790,8 @@ function pp_udc_is_v2_component(string $component): bool {
  * FAILS CLOSED ON A MALFORMED DECLARATION, and that is the #1090 lesson applied
  * before it can bite: a declaration this cannot read returns null, so the
  * component simply has no item grain rather than half of one. A schema that
- * reaches that branch is a repo bug, and SchemaValidationTest fails on it in CI
+ * reaches that branch is a repo bug, and GridItemUdcTest's declaration test
+ * fails on it in CI
  * rather than leaving it to be discovered as missing CSS.
  *
  * EVERY NAMED ROLE MUST EXIST, and `root` must be among them. A role named here
@@ -1903,9 +1904,17 @@ function pp_udc_item_reserved_keys(): array {
  *
  * SKIPS WHAT CANNOT BE ADDRESSED, silently and deliberately: an entry with no
  * usable id has no selector to emit under, and an entry with no map has nothing
- * to emit. Neither is an error HERE — the write gate is where a malformed id or
- * a map on an unaddressable entry is refused, and reporting it twice from two
- * layers would give an operator two findings for one fact.
+ * to emit. A MALFORMED id is not an error HERE — the write gate refuses that,
+ * and reporting it twice from two layers would give an operator two findings for
+ * one fact.
+ *
+ * THE OTHER HALF IS NARROWER THAN IT LOOKS, stated so the silence is not read as
+ * a guarantee: an entry carrying a map with NO id is refused NOWHERE.
+ * pp_udc_assign_band_ids() mints one on the write path, so the shape can only
+ * arrive off it — a raw meta write, a composition written before this tier,
+ * restore_composition (#233) — and there this skips it with no drop-ledger entry
+ * and no finding. That is the accepted-stored-ignored shape the item `_css` arm a
+ * few hundred lines down deliberately ledgers instead.
  *
  * @return array<string, array> item id => that item's `udc` map
  */
@@ -1930,7 +1939,9 @@ function pp_udc_item_maps(array $item): array {
         if (!is_array($entry)) {
             continue;
         }
-        $id = isset($entry['id']) && is_scalar($entry['id']) ? (string) $entry['id'] : '';
+        $id = isset($entry[PP_UDC_ITEM_ID_KEY]) && is_scalar($entry[PP_UDC_ITEM_ID_KEY])
+            ? (string) $entry[PP_UDC_ITEM_ID_KEY]
+            : '';
         if ($id === '' || !pp_udc_valid_item_id($id)) {
             continue;
         }
@@ -3717,8 +3728,7 @@ function _pp_udc_validate_scalar(string $where, $value, array $param, array $ban
  * random: pp_composition_content_hash() would otherwise see a different value on
  * every write and make the composition false-conflict against itself, which is
  * the defect that put the props.id strip in the hash in the first place.
- */
-/**
+ *
  * @param string $item The minting item's id, or '' for a band-grain value.
  *                     Addendum B4 widens the name to
  *                     `<item>-<role>-<group>-<param>[-<state>]-<bp>` so two
@@ -4046,39 +4056,6 @@ function pp_udc_normalize_composition(array $items): array {
 // ── Compilation: the cascade, with provenance ───────────────────────────────
 
 /**
- * Resolves one band into the declarations it will emit, carrying PROVENANCE.
- *
- * Provenance is not decoration. Invariant I35 requires that no declared
- * authoring input is silently ignored or cancelled, and that the envelope
- * DISCLOSES when a submitted value cannot take effect. Carrying `source` per
- * declaration is what makes that disclosure possible at all — a resolver that
- * returns only the winning string can never report what lost.
- *
- * `$layer` is REQUIRED, and that is the point of it. It used to default to
- * `'all'` — both tiers resolved into one result — which no production caller
- * ever asked for and which is precisely the shape the cascade contract forbids
- * emitting: the two tiers rank by the position they print at, so a caller that
- * receives them merged has already lost the ranking. Production passes
- * `'defaults'` or `'authored'`; `'all'` survives as an explicit request, for
- * tests that inspect which layer won a declaration.
- *
- * @param string $layer  'defaults' | 'authored' | 'all'
- * @return array {
- *   id     string
- *   tokens array  name => literal, emitted as --pp-<name> on the band root
- *   blocks array  ordered emission units
- * }
- */
-/**
- * @param array      $item   One composition item, or a chrome entry shaped like one.
- * @param string     $layer  'defaults' | 'authored' — which tier to compile.
- * @param array|null $drops  Pass an array to collect what this compile DISCARDED.
- *                           Filled with ['where' => string, 'reason' => string]
- *                           entries, bounded at PP_UDC_MAX_EMIT_DROPS, both fields
- *                           already cleaned for reflection. Left untouched at null,
- *                           which is what every render path passes.
- */
-/**
  * May this role selector be emitted into a stylesheet at all?
  *
  * ONE GATE, TWO TIERS. The band tier and the item tier emit the SAME role
@@ -4249,6 +4226,38 @@ function _pp_udc_selector_is_emittable(string $selector): bool {
     return true;
 }
 
+/**
+ * Resolves one band into the declarations it will emit, carrying PROVENANCE.
+ *
+ * Provenance is not decoration. Invariant I35 requires that no declared
+ * authoring input is silently ignored or cancelled, and that the envelope
+ * DISCLOSES when a submitted value cannot take effect. Carrying `source` per
+ * declaration is what makes that disclosure possible at all — a resolver that
+ * returns only the winning string can never report what lost.
+ *
+ * `$layer` is REQUIRED, and that is the point of it. It used to default to
+ * `'all'` — both tiers resolved into one result — which no production caller
+ * ever asked for and which is precisely the shape the cascade contract forbids
+ * emitting: the two tiers rank by the position they print at, so a caller that
+ * receives them merged has already lost the ranking. Production passes
+ * `'defaults'` or `'authored'`; `'all'` survives as an explicit request, for
+ * tests that inspect which layer won a declaration.
+ *
+ * @param string $layer  'defaults' | 'authored' | 'all'
+ * @return array {
+ *   id     string
+ *   tokens array  name => literal, emitted as --pp-<name> on the band root
+ *   blocks array  ordered emission units
+ * }
+ *
+ * @param array      $item   One composition item, or a chrome entry shaped like one.
+ * @param string     $layer  'defaults' | 'authored' — which tier to compile.
+ * @param array|null $drops  Pass an array to collect what this compile DISCARDED.
+ *                           Filled with ['where' => string, 'reason' => string]
+ *                           entries, bounded at PP_UDC_MAX_EMIT_DROPS, both fields
+ *                           already cleaned for reflection. Left untouched at null,
+ *                           which is what every render path passes.
+ */
 function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
 
@@ -5848,7 +5857,7 @@ function _pp_udc_render_blocks(
                     $block_item = (string) ($block['item'] ?? '');
                     foreach ($block['decls'] as $property => $entry) {
                         $decls .= $property . ':' . $entry['css'] . ';';
-                        // KEYED BY SELECTOR **AND STATE**, and the state is the
+                        // KEYED BY SELECTOR, STATE AND ITEM. The state axis came first and its history is the
                         // half that is easy to drop. A guard emitted without it
                         // lands at `[data-pp-band] .role` [0,2,0] while the rule
                         // it must neutralize is `[data-pp-band] .role:hover`
@@ -8772,9 +8781,6 @@ function _pp_udc_mint_splits(array $parts): array {
  * by `quote.typography.size.d`). A token in the normalized form is that; an author
  * squatting the name is not, and is the case worth refusing — their value would be
  * silently overwritten on the next write.
- */
-/**
- * @param array $item_maps id => that item's `udc` map, for the item tier.
  *
  * THE ITEM ARM IS NOT AN ENHANCEMENT — WITHOUT IT THE ENGINE REFUSES ITS OWN
  * OUTPUT. Measured on this tree before the arm existed: an item-minted token
@@ -8798,6 +8804,8 @@ function _pp_udc_mint_splits(array $parts): array {
  * name whose id names no item on this band is NOT the engine's own — falling
  * back to a scan would let a stored name borrow another item's reference and
  * pass a gate it should fail.
+ *
+ * @param array $item_maps id => that item's `udc` map, for the item tier.
  */
 function _pp_udc_name_is_the_engines_own_mint(string $name, array $udc, array $item_maps = []): bool {
     $split = _pp_udc_split_item_mint($name);

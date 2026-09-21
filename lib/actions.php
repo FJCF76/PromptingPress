@@ -6451,9 +6451,11 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        // Mirror execute (#604): the incoming patch is merged verbatim. No prop-key
-        // rewriting happens on either side, so the preview's reported "after" and
-        // `changes` are the exact shape that will be stored.
+        // Mirror execute (#604): the incoming patch is merged through the SAME helper,
+        // so the preview's reported "after" and `changes` are the exact shape that will
+        // be stored — including the engine-owned item `id`/`udc` keys that helper carries
+        // forward when the caller omits them (#1101, Addendum B). No prop-key rewriting
+        // happens on either side.
         $after_props  = _pp_merge_component_props(
             $before_props,
             $params['props'],
@@ -6477,7 +6479,12 @@ pp_register_action('update_component', [
         _pp_resolve_id_param($params, $params['post_id']);
         $composition  = pp_get_composition($params['post_id']);
         $before_props = $composition[$params['component_index']]['props'] ?? [];
-        // Merge the patch verbatim (#604). No prop-key rewriting runs on the incoming
+        // Merge the patch verbatim (#604), with ONE engine-owned exception (#1101,
+        // Addendum B): inside a component's item-grain repeater prop, an entry's `id`
+        // and `udc` are carried forward when the caller omits them, because neither is
+        // a field the caller authors — see _pp_preserve_item_design().
+        //
+        // No prop-key REWRITING runs on the incoming
         // patch, on the stored props, or on the merged result: the composition arrives
         // from pp_get_composition() exactly as stored, and is written back exactly as
         // merged. A retired prop name in the patch is rejected upstream by the shared

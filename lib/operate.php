@@ -2844,9 +2844,10 @@ function pp_component_schema_report(string $component): array|WP_Error {
     // cannot use.
     //
     // Emitted only when declared, so its absence is not mistaken for "declared empty":
-    // `grid` — the ONE component still on style slots — carries no `roles` key and says
-    // nothing. The other eleven (the nine v2 body components plus nav and footer) all
-    // declare roles.
+    // EVERY shipped component declares roles since #1101 put `grid` — the last one on
+    // style slots — onto the contract. So this gate has no shipped subject: it exists
+    // for a FUTURE component that declares none, and for stored bytes naming a
+    // component the registry no longer has.
     $roles = pp_udc_component_roles($component);
     if ($roles !== []) {
         $report['roles'] = [];

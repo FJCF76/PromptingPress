@@ -129,7 +129,7 @@ That emits a band-scoped rule keyed on a minted id, printed after the band's own
 
 ```css
 [data-pp-band="pp-3f9a1c2e"] .grid__item                               { /* band tier */ }
-[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"] .grid__title { /* item tier */ }
+[data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"] .grid__item-title { /* item tier */ }
 [data-pp-band="pp-3f9a1c2e"] [data-pp-item="it-7b2c91d4"]              { /* item root */ }
 ```
 

@@ -450,7 +450,7 @@ The render path was fixed in the same change and independently: grid's card loop
 
 > `Component "grid" prop "items" item 0 field "style" must be an object, but this one is a JSON list (1 entry). Send it as an object with keys ({...}), not an array ([...]). [invalid_prop_value]`
 
-The rule covers the one `object` declaration left in the registry, `grid.items[].style`, plus any future `object` prop at either depth. (`section.panel_items[].style` was the second until #1023 retired it.)
+The rule is live and prospective: NO shipped schema declares an object-typed field today. `grid.items[].style` was the last one and retired at #1101; `section.panel_items[].style` went at #1023.
 
 **What actually changes for the two shipped fields is the error code, not what is accepted.** A list reaching either was already refused a few rules later by the shared style-slot engine, which reads a list's integer keys as slot names (`item 0 has no style slot "0". Available slots: ...`) — a populated list always carries integer key `0`, so the set of refused writes is identical before and after. If you key on error codes, `invalid_style_slot` becomes `invalid_prop_value` for this shape; that is the migration.
 
