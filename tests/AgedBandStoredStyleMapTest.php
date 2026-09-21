@@ -376,6 +376,58 @@ class AgedBandStoredStyleMapTest extends TestCase
     }
 
     /**
+     * THE CHAT PAYLOAD, PINNED BECAUSE THE SEAM WENT GREEN OVER A REAL DEFECT.
+     *
+     * The PHP suite and the JS suite were both green while the chat card told an author
+     * that an aged band's refusal was IMPOSSIBLE — the exact #625 failure — because the
+     * defect lived between them. PHP changed what the payload contains; the classifier in
+     * assets/js/pp-ai-chat.js reads it, and nothing asserted the two agreed.
+     *
+     * So this pins the payload SHAPE that the JS branches on. Its counterpart lives in
+     * tests/js/pp-ai-chat-proposal.test.js, which feeds these same values to
+     * ppChatGetErrorStepClass() and ppChatGetStatusMessage(). Change either side and one
+     * of the two goes red.
+     *
+     *   alternatives: []   -> the JS must NOT read this as "nothing to try"
+     *   hints:        {}   -> no component declares a slot, so none can be hinted at
+     *   user_message       -> describes the stored map, not a style setting the author
+     *                         did not ask to change
+     *   raw_error          -> carries the repair, because the status bar sends the
+     *                         reader to the details for it
+     */
+    public function testTheChatPayloadNamesTheRepairAndOffersNoAlternatives(): void
+    {
+        $id     = $this->agedPage();
+        $params = ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'A new title']];
+        $result = pp_execute_action('update_component', $params);
+
+        $this->assertSame('invalid_style_slot', $result['error_code'], 'precondition');
+
+        $friendly = _pp_build_friendly_error(
+            new \WP_Error($result['error_code'], $result['error']),
+            $params
+        );
+
+        $this->assertSame([], $friendly['alternatives'], 'there is nothing to offer instead');
+        $this->assertSame([], (array) $friendly['cross_component_hints'], 'and no component to point at');
+
+        // THE VISIBLE SENTENCE. It renders unconditionally; raw_error is behind a
+        // disclosure. It must describe what happened to the author who met it — who very
+        // likely changed a title, as this test just did.
+        $this->assertStringContainsString('"grid" band', $friendly['user_message']);
+        $this->assertStringContainsString('old system', $friendly['user_message']);
+        $this->assertStringNotContainsString(
+            'style setting',
+            $friendly['user_message'],
+            'the author did not ask to change a style setting — telling them they did is the '
+            . 'confident falsehood this branch was rewritten to stop telling'
+        );
+
+        // AND THE DETAILS CARRY THE ANSWER, because the status bar sends the reader there.
+        $this->assertStringContainsString('EVERY stored slot name set to null', $friendly['raw_error']);
+    }
+
+    /**
      * THE NEGATIVE CONTROL FOR THE WHOLE FILE. A band with NO stored map edits normally,
      * so none of the refusals above can be coming from "grid declares no slots" on its
      * own — they come from the stored bytes, which is the distinction the sweep turns on.
