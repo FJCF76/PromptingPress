@@ -123,6 +123,11 @@ class ModelFacingRosterTest extends TestCase
                 '/NONE OF THIS APPLIES TO A v2 COMPONENT — all nine of ([^:]+):/',
             ],
             [
+                'AI_CONTEXT.md\'s band-background roster',
+                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
+                '/Every v2 component is different, and better:\*\* on all nine of (.+?) the band background/',
+            ],
+            [
                 'retheme.md\'s dark-band trap',
                 file_get_contents(dirname(__DIR__) . '/ai-instructions/retheme.md'),
                 '/All NINE v2 components — (.+?) — have no `theme` prop/s',
@@ -208,17 +213,20 @@ class ModelFacingRosterTest extends TestCase
         // of sixteen and report success.
         if (\pp_ai_live_slot_types() !== []) {
             $this->assertGreaterThan(
-                1,
+                4,
                 $scanned,
                 'the reverse check scanned fewer positive slot claims than the corpus carries. '
-                . 'MEASURED after the prose rewrite: 8 sentences make a slot claim, 6 of those '
-                . 'claim-clauses say the component declares NO slots (correct, and correctly '
-                . 'exempt), and 2 are scanned — down from 16/13/3 before, because the rewrite '
-                . 'removed the v1-era claims rather than because the guard narrowed. THIS '
-                . 'NUMBER TRACKS THE CORPUS and is expected to fall as the last slot-carrying '
-                . 'component is rebuilt; the gate above is what makes zero legitimate then. If '
-                . 'it falls without the corpus shrinking, the negation exemption has widened '
-                . 'again and the guard is passing on an empty set rather than on clean docs'
+                . 'RE-MEASURED over the FINISHED corpus (the earlier 8/6/2 in this message was '
+                . 'taken after only the first file was rewritten and was stale by six more): '
+                . '14 sentences make a positive slot claim, 9 of those claim-clauses say the '
+                . 'component declares NO slots (correct, and correctly exempt), and 5 are '
+                . 'scanned — down from 16/13/3 before the rewrite, because it removed v1-era '
+                . 'claims rather than because the guard narrowed. THIS NUMBER TRACKS THE '
+                . 'CORPUS and is expected to fall as the last slot-carrying component is '
+                . 'rebuilt; the gate above is what makes zero legitimate then. Re-measure it '
+                . 'when the corpus changes rather than loosening it. If it falls without the '
+                . 'corpus shrinking, the negation exemption has widened again and the guard is '
+                . 'passing on an empty set rather than on clean docs'
             );
         }
     }
