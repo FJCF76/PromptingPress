@@ -361,9 +361,11 @@ function pp_ai_system_prompt(): string {
     //
     // SUPPRESSED WHEN EMPTY. If nothing declares this kind, the roster sentence is omitted
     // entirely rather than left asserting instances it cannot name.
-    // ONE WALK FOR BOTH KINDS. pp_udc_obligation_summary() builds the whole map and indexes
-    // one kind out, so calling it twice walked all 125 roles twice and discarded half the work
-    // — 44% of everything this gate added to a cold prompt build, measured.
+    // ONE WALK FOR BOTH KINDS. pp_udc_obligation_groups() is the walk; formatting is separate,
+    // so both kinds come off a single pass. The first cut called pp_udc_obligation_summary()
+    // once per kind, and that helper builds the whole map and indexes one kind out of it — so
+    // all 125 roles were walked twice and half the work discarded, 44% of everything this gate
+    // added to a cold build. That wrapper is still there for tests; this path does not use it.
     $obligation_groups = pp_udc_obligation_groups();
     $outranked = pp_udc_format_obligation_groups($obligation_groups['outranked_by_default'] ?? []);
     $paragraph = 'ONE ROLE\'S DEFAULT CAN BEAT A VALUE YOU SET ON ANOTHER ROLE, and this rung '

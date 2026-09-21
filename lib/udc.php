@@ -6247,23 +6247,6 @@ function pp_udc_group_summary(): string {
 }
 
 /**
- * The obligation records ONE role contributes, or [] when it contributes none (#1087).
- *
- * A SEAM, extracted so the fail-safe path is reachable from a test. The shapes this has to
- * survive — a malformed record, an unknown kind, a dangling partner, a non-list container —
- * exist on a HAND-EDITED install, not in the shipped schemas, so a test that could only go
- * through the real registry could never reach them without swapping the theme root. The
- * behaviour being pinned is "renders nothing, warns nothing, fatals nothing", and an
- * untested fail-safe is not one.
- *
- * `$siblings` is passed in rather than re-read so the caller's single registry walk is the
- * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N. It is a
- * MAP keyed by role name, not a list, so the partner check is a hash hit rather than a scan.
- *
- * @param array<string, true> $siblings  Role names this component declares, as keys.
- * @return array<int, array{kind: string, why: string, pair: string}>
- */
-/**
  * May this role's schema bytes be composed onto a model-facing surface? (#1087)
  *
  * ONE GATE FOR EVERY COMPOSER, and it exists because the first cut had two composers and
@@ -6278,14 +6261,16 @@ function pp_udc_group_summary(): string {
  * the same identifier from the other end — was bounded. So the name is checked here, and the
  * definition is delegated to the validator that owns definition shape.
  *
- * function_exists on BOTH admin.php entry points or neither: a guard that checks one function
- * from a file and then calls another from the same file unguarded buys nothing.
+ * EVERY admin.php symbol THIS function touches is probed, and only those. It reaches exactly
+ * two — PP_ROLE_NAME_PATTERN and pp_schema_definition_errors() — so those two are guarded and
+ * nothing else is. The first cut also probed pp_udc_is_single_line(), which this function
+ * never calls; a load probe for a symbol on no code path here is noise that reads as rigour.
  */
 function _pp_udc_role_is_composable(string $component, string $role, $definition): bool {
     if (!is_array($definition)) {
         return false;
     }
-    if (!function_exists('pp_udc_is_single_line') || !defined('PP_ROLE_NAME_PATTERN')) {
+    if (!defined('PP_ROLE_NAME_PATTERN')) {
         return false;
     }
     if (!preg_match(PP_ROLE_NAME_PATTERN, $role)) {
@@ -6295,6 +6280,23 @@ function _pp_udc_role_is_composable(string $component, string $role, $definition
         || pp_schema_definition_errors($definition, 'role', "{$component} role {$role}") === [];
 }
 
+/**
+ * The obligation records ONE role contributes, or [] when it contributes none (#1087).
+ *
+ * A SEAM, extracted so the fail-safe path is reachable from a test. The shapes this has to
+ * survive — a malformed record, an unknown kind, a dangling partner, a non-list container —
+ * exist on a HAND-EDITED install, not in the shipped schemas, so a test that could only go
+ * through the real registry could never reach them without swapping the theme root. The
+ * behaviour being pinned is "renders nothing, warns nothing, fatals nothing", and an
+ * untested fail-safe is not one.
+ *
+ * `$siblings` is passed in rather than re-read so the caller's single registry walk is the
+ * only one: re-reading pp_udc_component_roles() per entry would turn one pass into N. It is a
+ * MAP keyed by role name, not a list, so the partner check is a hash hit rather than a scan.
+ *
+ * @param array<string, true> $siblings  Role names this component declares, as keys.
+ * @return array<int, array{kind: string, with: string, why: string, pair: string}>
+ */
 function _pp_udc_role_obligation_records(
     string $component,
     string $role,
@@ -6343,7 +6345,10 @@ function _pp_udc_role_obligation_records(
         }
         $records[] = [
             'kind' => $kind,
+            'with' => $with,
             'why'  => $why,
+            // The display form the prompt roster composes. `with` travels beside it so no
+            // consumer has to split this string back apart to recover the partner.
             'pair' => "{$component}.{$role} -> {$with}",
         ];
     }
@@ -6537,10 +6542,8 @@ function pp_udc_derived_descendant_pairs(): array {
                 if ($inner === $outer || !is_array($inner_def)) {
                     continue;
                 }
-                $inner_selector = (string) ($inner_def['selector'] ?? '');
-                if ($inner_selector === '') {
-                    continue;
-                }
+                // The predicate reads and empty-checks the inner selector itself, on the
+                // TRIMMED value — a second check here was the weaker of the two.
                 if (!_pp_udc_is_derivable_descendant($outer_selector, $inner_def)) {
                     continue;
                 }
@@ -6611,18 +6614,22 @@ function pp_udc_chrome_own_ink_summary(): string {
  * going stale ("THE INSTANCE THAT SHIPS TODAY IS faq", true when written).
  */
 function pp_udc_obligation_summary(string $kind): string {
+    // A TEST-FACING CONVENIENCE, not the prompt path. Kept because three tests read one kind
+    // in isolation and the two-call expression adds nothing there; named here so nobody reads
+    // its existence as evidence that production composes rosters one kind at a time.
     return pp_udc_format_obligation_groups(pp_udc_obligation_groups()[$kind] ?? []);
 }
 
 /**
  * One kind's group list rendered as prompt prose, or '' when it is empty (#1087).
  *
- * SPLIT OUT SO THE WALK RUNS ONCE. pp_udc_obligation_summary() builds the whole both-kinds
- * map and indexes one kind out of it, so calling it once per kind — which the prompt did —
- * walked all 125 roles TWICE and threw half the work away: 250 record extractions and 278
- * validator calls where 125 and 153 suffice. Measured by the pre-landing performance
- * specialist at 0.185ms of a 0.650ms warm build, 28%, and 44% of everything this gate added
- * to a cold build.
+ * SPLIT OUT SO THE WALK RUNS ONCE. pp_udc_obligation_summary() below builds the whole
+ * both-kinds map and indexes one kind out of it, so calling it once per kind — which the
+ * prompt DID, before this split — walked all 125 roles TWICE and threw half the work away:
+ * 250 record extractions and 278 validator calls where 125 and 153 suffice. Measured by the
+ * pre-landing performance specialist at 0.185ms of a 0.650ms warm build, 28%, and 44% of
+ * everything this gate added to a cold build. The prompt now calls pp_udc_obligation_groups()
+ * once and this formatter per kind; the summary wrapper remains for tests only.
  *
  * A FORMATTER RATHER THAN A CACHE, deliberately. A `static` memo would have been fewer lines
  * and would have needed the theme-root keying and invalidate handshake

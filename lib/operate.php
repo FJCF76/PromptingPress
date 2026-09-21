@@ -2874,10 +2874,12 @@ function pp_component_schema_report(string $component): array|WP_Error {
                 ? _pp_udc_role_obligation_records($component, (string) $role_name, $definition, array_fill_keys(array_keys($roles), true))
                 : [];
             if ($gated !== []) {
+                // The record carries `with` structurally, so this projects the three declared
+                // keys rather than splitting the display string back apart to recover one.
                 $entry['obligations'] = array_map(
                     static fn (array $record) => [
                         'kind' => $record['kind'],
-                        'with' => explode(' -> ', $record['pair'])[1] ?? '',
+                        'with' => $record['with'],
                         'why'  => $record['why'],
                     ],
                     $gated

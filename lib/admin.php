@@ -865,8 +865,13 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     continue;
                 }
                 foreach (array_keys($entry) as $key) {
-                    if (!in_array($key, ['kind', 'with', 'why'], true)) {
-                        $errors[] = "{$label}: unknown obligation key `{$key}` (expected kind, with, why).";
+                    if (!in_array($key, pp_udc_obligation_keys(), true)) {
+                        $errors[] = sprintf(
+                            '%s: unknown obligation key `%s` (expected %s).',
+                            $label,
+                            $key,
+                            implode(', ', pp_udc_obligation_keys())
+                        );
                     }
                 }
                 $entry_kind = $entry['kind'] ?? null;
