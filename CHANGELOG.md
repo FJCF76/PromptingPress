@@ -6,6 +6,10 @@ All notable changes to PromptingPress are documented here.
 
 ## [v2.0.0-alpha.2] — 2026-09-22 — v2 Sprint 2 "components": the Sprint-2 gates, author-created presets, the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling, which ends the v1 styling system (#1011, #1016, #994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
 
+**This is a prerelease, and it is the release where v2 stops being partly built.** All ten components run on the Universal Design Contract now, and the v1 styling system is gone rather than deprecated: `style_component` is a refusal, style slots and recipes are deleted, and the retired-slot census reads zero. It is not production software — the reference deployment stays on 1.20.0 until 2.0.0. There is no upgrade path from 1.x and there will not be one, so v2 installs onto fresh content and reconstructing the brand site on it is 2.0.0's acceptance test.
+
+What that costs is specific rather than blunt, and this release is where it lands hardest: a page authored before its component was rebuilt still **renders** — its stored v1 `style` map is ignored at paint time, so the page looks the way it did — but it cannot accept an edit, not even a title change, until that map is cleared. One command does it, and it now has a how-to of its own: `docs/howto-clear-a-stored-v1-style-map.md`. Read that before any of the eight per-component migration guides, each of which assumes you can edit the band it is migrating.
+
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
 ### What changes for you
