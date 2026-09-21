@@ -195,7 +195,7 @@ class ModelFacingRosterTest extends TestCase
             $checked++;
         }
         // SEVEN ANCHORS TODAY, and the floor sits just under it. `> 0` was the token floor
-        // this suite rejects everywhere else: four of the five could be deleted from the array
+        // this suite rejects everywhere else: six of the seven could be deleted from the array
         // and it would still pass, which is the same silent-exemption shape the per-anchor
         // fail-closed match exists to prevent for the prose. Bump it with the array.
         $this->assertGreaterThan(6, $checked, '7 roster anchors today; deleting one exempts its roster from this guard');

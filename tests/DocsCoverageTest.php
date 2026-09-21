@@ -122,7 +122,15 @@ class DocsCoverageTest extends TestCase
 
     private function doc(string $relative): string
     {
-        return (string) file_get_contents($this->themeRoot . '/' . $relative);
+        // ASSERT THE FILE EXISTS FIRST. Without this, a renamed or moved doc makes
+        // file_get_contents() return false and every assertion downstream reports something
+        // else entirely — "states a stale retired-prop count" for a file that is simply gone.
+        // This PR relocates `ai-instructions/add-page.md`, which is exactly the move that
+        // produces that misleading failure, and the sibling anchor helper in
+        // ModelFacingRosterTest was given the same guard for the same reason.
+        $path = $this->themeRoot . '/' . $relative;
+        $this->assertFileExists($path, "a docs guard reads {$relative}, which no longer exists");
+        return (string) file_get_contents($path);
     }
 
     // ── Style-slot coverage ──────────────────────────────────────────────────

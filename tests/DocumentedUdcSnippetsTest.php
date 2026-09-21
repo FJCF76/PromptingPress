@@ -107,43 +107,8 @@ class DocumentedUdcSnippetsTest extends TestCase
         // about the docs. What is lifted is a strict ADDITION of subjects — composition.md's
         // 648-byte flagship `create_page` command among them, which is the block the
         // `subtitle` defect lived in.
-        //
-        // OPT-IN, because it is only sound where attribution is. The instruction-file walks
-        // take SELF-IDENTIFYING bands (a block naming its own `component`), so a lifted
-        // payload is either a band or ignored. The per-component doc walk instead attributes
-        // a bare map to the component its file is about — and a lifted `import_media` payload
-        // (`{"url": "…"}`) is not a `udc` map at all, so attributing it to `cta` produced a
-        // confident refusal about a doc that is correct. Caller decides.
-        preg_match_all("/```bash\n(.*?)```/s", $includeShellParams ? $text : '', $shell);
-        foreach ($shell[1] as $script) {
-            if (preg_match_all("/--params='(.*?)'/s", $script, $params)) {
-                foreach ($params[1] as $payload) {
-                    if (is_array(json_decode($payload, true))) {
-                        $raws[] = $payload;
-                        continue;
-                    }
-                    // A DROP IS RECORDED, because the payloads this skips are the ones most
-                    // likely to be wrong and the floors below only notice a LOSS of subjects,
-                    // never a subject that was never counted.
-                    //
-                    // Two reasons a payload fails to decode, and they deserve opposite
-                    // answers. An ELISION (`{"title":"Product Launch", ... }`) is a
-                    // deliberate doc style and correct. An APOSTROPHE in the copy is not: the
-                    // lazy match stops at that quote, so the payload truncates — AND the same
-                    // apostrophe breaks the documented command for anyone who runs it,
-                    // because `--params='{"title":"Don't wait"}'` closes the shell string
-                    // mid-payload. So the example is simultaneously unrunnable and invisible
-                    // to the guard meant to catch unrunnable examples. The first is tolerated
-                    // silently; the second is collected and asserted on.
-                    $elided = str_contains($payload, '...') || str_contains($payload, "\u{2026}");
-                    if (!$elided) {
-                        $this->shellPayloadDrops[] = basename($path) . ': a `--params` payload '
-                            . 'does not parse and carries no elision, so it truncated — almost '
-                            . 'always at an apostrophe in the copy, which ALSO breaks the '
-                            . 'documented command for anyone who runs it. Payload: ' . $payload;
-                    }
-                }
-            }
+        if ($includeShellParams) {
+            $raws = array_merge($raws, $this->shellParamPayloads($path, $text));
         }
 
         $out = [];
@@ -489,35 +454,90 @@ class DocumentedUdcSnippetsTest extends TestCase
         $this->assertGreaterThan(17, $checked, 'the instruction-file `udc` walk lost subjects');
     }
 
-    /** Component-attributed `udc` maps in one decoded block, at either depth. */
-    private function selfIdentifyingUdcMaps($json): array
+    /**
+     * JSON payloads lifted out of `--params='…'` inside ```bash fences.
+     *
+     * THE MOST-COPIED EXAMPLES ARE NOT IN A ```json FENCE, and that is where the one defect
+     * these walks exist to catch actually survived (#1087). A whole-page example is a COMMAND
+     * — `wp pp action execute create_page --params='{…}'` — so it is written in a bash fence,
+     * and every JSON guard in this file skipped it. composition.md's flagship `create_page`
+     * example is exactly that shape and carried an undeclared `subtitle` prop on its hero band
+     * through the entire suite. It is also the single most likely block in the corpus to be
+     * copied verbatim by an agent.
+     *
+     * OPT-IN at the call site, because it is only sound where attribution is. The
+     * instruction-file walks take SELF-IDENTIFYING bands, so a lifted payload is either a band
+     * or ignored. The per-component doc walk instead attributes a bare map to the component
+     * its file is about — and a lifted `import_media` payload (`{"url": "…"}`) attributed to
+     * `cta` produced a confident refusal about a doc that is correct.
+     *
+     * ONLY PAYLOADS THAT PARSE ARE RETURNED. A doc legitimately ELIDES part of a long command
+     * (`{"title":"Product Launch", ... }`), which is clearer prose and not valid JSON. A
+     * payload that fails to parse with NO elision truncated instead — the capture is lazy to
+     * the next single quote, so an apostrophe in the copy cuts it short, and that same
+     * apostrophe breaks the documented command for anyone who runs it. Those are collected in
+     * $shellPayloadDrops and asserted on, because a silently skipped example is exactly the
+     * blind spot this lifter was added to remove.
+     */
+    private function shellParamPayloads(string $path, string $text): array
     {
-        if (!is_array($json)) {
-            return [];
+        $payloads = [];
+        preg_match_all("/```bash\n(.*?)```/s", $text, $shell);
+        foreach ($shell[1] as $script) {
+            if (!preg_match_all("/--params='(.*?)'/s", $script, $params)) {
+                continue;
+            }
+            foreach ($params[1] as $payload) {
+                if (is_array(json_decode($payload, true))) {
+                    $payloads[] = $payload;
+                    continue;
+                }
+                $elided = str_contains($payload, '...') || str_contains($payload, "\u{2026}");
+                if (!$elided) {
+                    $this->shellPayloadDrops[] = basename($path) . ': a `--params` payload '
+                        . 'does not parse and carries no elision, so it truncated — almost '
+                        . 'always at an apostrophe in the copy, which ALSO breaks the '
+                        . 'documented command for anyone who runs it. Payload: ' . $payload;
+                }
+            }
         }
+        return $payloads;
+    }
+
+    /**
+     * Component-attributed maps in one decoded block, at ANY depth.
+     *
+     * ONE WALKER, TWO KEYS. The `udc` and `props` walks were written as separate copies of
+     * the same recursive descent, and the copies bought nothing: byte-identical logic fails
+     * together rather than independently, and every message is built at the call site, not
+     * here. What they bought was independent DRIFT — which is precisely the defect this walk
+     * was widened to fix. The `udc` walk went from two levels to full recursion because the
+     * richest examples sit nested under a `composition` key, and the second walk then had to
+     * be hand-copied to match. A third would have to be too.
+     *
+     * WALK THE WHOLE DOCUMENT, not just its first two levels (#1087). Taking the block and,
+     * if it is a LIST, its entries, reaches a lone band object and a bare composition array —
+     * and misses the shape a doc most naturally uses to show a WHOLE PAGE: the params object
+     * for `create_page`. A planted `"nonesuch"` role in build-landing-page.md passed the
+     * suite, which is how this was found.
+     *
+     * The predicate is what keeps a recursive walk honest: an entry must carry BOTH a string
+     * `component` and an array under the requested key before it is taken, so descending into
+     * unrelated structure yields nothing rather than guesses. A taken node is still descended
+     * into, so no role or group may be named `component` or `udc` — measured: zero
+     * within-block duplicate takes across the corpus.
+     */
+    private function selfIdentifying($json, string $key): array
+    {
         $found = [];
-        $take  = static function ($entry) use (&$found) {
+        $take  = static function ($entry) use (&$found, $key) {
             if (is_array($entry)
-                && isset($entry['udc'], $entry['component'])
-                && is_array($entry['udc'])
-                && is_string($entry['component'])) {
-                $found[] = [$entry['component'], $entry['udc']];
+                && isset($entry['component'], $entry[$key])
+                && is_string($entry['component'])
+                && is_array($entry[$key])) {
+                $found[] = [$entry['component'], $entry[$key]];
             }
         };
-        // WALK THE WHOLE DOCUMENT, not just its first two levels (#1087, widened).
-        //
-        // The first cut took the block itself and, if the block was a LIST, each of its
-        // entries. That reaches a lone band object and a bare composition array — and
-        // misses the shape a doc most naturally uses to show a WHOLE PAGE: the params
-        // object for `create_page`, where the bands sit one level down under
-        // `composition`. Both composition.md's flagship example and
-        // build-landing-page.md's five-band recipe are written that way, so the richest
-        // `udc` examples in the corpus were the ones nothing validated. A planted
-        // `"nonesuch"` role in the latter passed the suite, which is how this was found.
-        //
-        // The predicate is what keeps a recursive walk honest: an entry must carry BOTH
-        // a string `component` and an array `udc` before it is taken, so descending into
-        // unrelated structure yields nothing rather than guesses.
         $walk = static function ($node) use (&$walk, $take) {
             if (!is_array($node)) {
                 return;
@@ -529,6 +549,18 @@ class DocumentedUdcSnippetsTest extends TestCase
         };
         $walk($json);
         return $found;
+    }
+
+    /** Component-attributed `udc` maps in one decoded block, at any depth. */
+    private function selfIdentifyingUdcMaps($json): array
+    {
+        return $this->selfIdentifying($json, 'udc');
+    }
+
+    /** Component-attributed `props` maps in one decoded block, at any depth. */
+    private function selfIdentifyingBands($json): array
+    {
+        return $this->selfIdentifying($json, 'props');
     }
 
     /**
@@ -885,30 +917,6 @@ class DocumentedUdcSnippetsTest extends TestCase
         $this->assertGreaterThan(80, $checked, 'the documented-prop walk lost its subjects');
     }
 
-    /** Component-attributed `props` maps in one decoded block, at any depth. */
-    private function selfIdentifyingBands($json): array
-    {
-        $found = [];
-        $take  = static function ($entry) use (&$found) {
-            if (is_array($entry)
-                && isset($entry['component'], $entry['props'])
-                && is_string($entry['component'])
-                && is_array($entry['props'])) {
-                $found[] = [$entry['component'], $entry['props']];
-            }
-        };
-        $walk = static function ($node) use (&$walk, $take) {
-            if (!is_array($node)) {
-                return;
-            }
-            $take($node);
-            foreach ($node as $child) {
-                $walk($child);
-            }
-        };
-        $walk($json);
-        return $found;
-    }
 
     /**
      * The self-identifying walk reaches a band at ANY depth (#1087).
