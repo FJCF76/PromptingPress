@@ -159,7 +159,23 @@ class FixtureThemeSeamTest extends TestCase
             }
             $entry = ltrim(str_replace($dir, '', $path), '/');
             $src   = file_get_contents($path);
-            if (strpos($src, 'FixtureTheme::activate()') === false) {
+            // MEMBERSHIP IS A REAL CALL SITE, NOT A MENTION, and the difference is the
+            // whole guard (#1101 review). This was `strpos($src, 'FixtureTheme::activate()')`
+            // — which THIS FILE satisfies on its own failure-message prose, several lines
+            // of which quote the call. So after a rename of the opt-in, every real caller
+            // could drop out while this file stayed listed on its own text, and the floor
+            // below — which asks whether the scan found this file — passed.
+            //
+            // The suffix test is the one the per-method walk already uses: a statement
+            // ending in `FixtureTheme::activate();`. Prose quoting the call does not end
+            // that way, and a fully-qualified call still does.
+            $callSites = 0;
+            foreach (explode("\n", $src) as $srcLine) {
+                if (str_ends_with(trim(preg_replace('#//.*$#', '', $srcLine) ?? ''), 'FixtureTheme::activate();')) {
+                    $callSites++;
+                }
+            }
+            if ($callSites === 0) {
                 continue;
             }
             $activators[] = $entry;
@@ -281,29 +297,44 @@ class FixtureThemeSeamTest extends TestCase
         // Fail-closed: if the scan stops finding activators, the loop above passes on
         // nothing and this guard silently retires.
         //
-        // IT USED TO BE A HAND-MAINTAINED FLOOR (`>= 13`, tracking an actual 16) and that
-        // was wrong in a way only a mass deletion reveals: #1101 retired the style-slot
-        // engine, five suites stopped opting into the fixture, and the floor went RED FOR
-        // BEING CORRECT. A number that has to be re-measured every time the truth changes
-        // is a number that will eventually be re-measured wrongly — the tempting fix in
-        // that moment is to lower it, which is exactly how an anti-vacuity guard dies.
+        // THIS FLOOR HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, and both are recorded
+        // because the second was introduced by the fix for the first.
         //
-        // SO THE GUARD IS SELF-REFERENTIAL NOW, and it cannot drift. THIS FILE activates
-        // the fixture inside a test method, so a working scan MUST find this file. If the
-        // opt-in is renamed, or if the directory scan breaks, this file drops out of the
-        // list with everything else and there is no count to adjust to make the symptom go
-        // away. (It does NOT cover a broken method-boundary parse — membership is decided
-        // by a strpos over the whole file, so a file stays listed while the per-method walk
-        // silently stops matching. The old floor had exactly the same blind spot; this
-        // change removes the drift, not that gap.)
+        // It began as a hand-maintained count (`>= 13`, tracking an actual 16). #1101
+        // retired the style-slot engine, five suites stopped opting into the fixture, and
+        // the count went RED FOR BEING CORRECT. A number that has to be re-measured every
+        // time the truth changes will eventually be re-measured wrongly, and the tempting
+        // move in that moment is to lower it.
+        //
+        // It was then replaced with a self-reference — the scan must find THIS file — which
+        // does not drift but was STRICTLY WEAKER on the failure its own message named. With
+        // membership decided by a whole-file `strpos`, this file qualified on its own
+        // failure-message prose, so a rename of the opt-in could take eight of nine real
+        // activators out of the scan and leave this green. The deleted count floor had
+        // caught exactly that. Proved by a review specialist, by renaming the opt-in and
+        // watching both the shipped form and the obvious fix stay green.
+        //
+        // SO IT IS BOTH, AND MEMBERSHIP IS NOW A REAL CALL SITE (see above). The
+        // self-reference cannot drift and now cannot be satisfied by prose; the small
+        // absolute floor catches a scan that has collapsed to this file alone. Two is not a
+        // measurement of anything and is not expected to move: this file plus at least one
+        // real consumer. If the fixture ever genuinely has no other consumer, the answer is
+        // its README's death condition — delete it — not a lower number here.
         $this->assertContains(
             basename(__FILE__),
             $activators,
             'the scan did not find THIS file, which activates the fixture inside a test '
             . 'method a few lines below. Either the opt-in was renamed, this directory scan '
-            . 'broke, or the method-boundary parse stopped matching — and in every one of '
-            . 'those cases the pairing guard above is running over an empty list and '
-            . 'proving nothing. Fix the scan; do not relax this.'
+            . 'broke, or the call-site test stopped matching — and in every one of those '
+            . 'cases the pairing guard above is running over an empty list and proving '
+            . 'nothing. Fix the scan; do not relax this.'
+        );
+        $this->assertGreaterThanOrEqual(
+            2,
+            count($activators),
+            'the scan collapsed to this file alone, so the pairing guard is checking only '
+            . 'itself. If the fixture really has no other consumer left, that is its '
+            . 'README\'s death condition — delete the fixture — not a reason to lower this.'
         );
     }
 
