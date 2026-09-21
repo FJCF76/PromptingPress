@@ -3792,20 +3792,30 @@ function _pp_udc_split_item_mint(string $name): ?array {
  * @return array      The normalized item.
  */
 function pp_udc_normalize_band(array $item): array {
-    if (!isset($item['udc']) || !is_array($item['udc'])) {
-        return $item;
-    }
     $component = isset($item['component']) && is_scalar($item['component'])
         ? (string) $item['component']
         : '';
-    $udc    = $item['udc'];
+    // A BAND WITH NO MAP OF ITS OWN STILL HAS ITEMS TO NORMALIZE. This used to
+    // return early on an absent `udc`, which was correct while normalization
+    // had one subject; with the item tier it would skip every responsive value
+    // on every card of a band whose own map happens to be empty — an entirely
+    // ordinary shape, since the owner's live design styles cards and leaves the
+    // band alone. The early exit now asks whether there is ANY subject.
+    $has_band_map = isset($item['udc']) && is_array($item['udc']);
+    if (!$has_band_map && ($component === '' || pp_udc_item_roles($component) === null)) {
+        return $item;
+    }
+    $udc    = $has_band_map ? $item['udc'] : [];
     $tokens = isset($udc['_tokens']) && is_array($udc['_tokens']) ? $udc['_tokens'] : [];
+    // HOISTED, because the item pass below needs it too and this loop may not
+    // run at all. Left inside the loop it was a function-scoped local that
+    // happened to exist only when the band declared at least one role.
+    $states = pp_udc_states();
 
     foreach ($udc as $role => $role_map) {
         if (in_array($role, pp_udc_reserved_keys(), true) || !is_array($role_map)) {
             continue;
         }
-        $states = pp_udc_states();
         foreach ($role_map as $group => $group_map) {
             if (!is_array($group_map)) {
                 continue;
@@ -3834,10 +3844,90 @@ function pp_udc_normalize_band(array $item): array {
         }
     }
 
+    // ── ITEM VALUES MINT INTO THE BAND'S TOKENS (Addendum B4) ───────────────
+    //
+    // INTO THE BAND'S MAP, NOT THE ITEM'S, and that is forced rather than
+    // chosen: a minted literal is emitted as a custom property declaration on
+    // the BAND ROOT (`--pp-<name>:<value>` in _pp_udc_render_blocks()), and the
+    // band root is the only element the band and its items share. An item has
+    // no element of its own to hang a token declaration on, which is why
+    // pp_udc_item_reserved_keys() refuses `_tokens` inside an item map.
+    //
+    // THE NAME CARRIES THE ITEM ID so two items styling the same role at the
+    // same breakpoint cannot collide on one token name — B4 says so, and
+    // without it the collision guard in _pp_udc_mint_value() would silently
+    // leave the second item's value unminted, which paints correctly but for a
+    // reason no one could explain.
+    //
+    // MINTING IS STILL A CONVENIENCE, NOT A REQUIREMENT. Everything the band
+    // tier's minting docblock says holds here: a literal breakpoint map emits
+    // perfectly well unminted, so a coordinate whose name is already taken is
+    // left alone rather than renamed or refused.
+    $component_declaration = $component === '' ? null : pp_udc_item_roles($component);
+    if ($component_declaration !== null) {
+        $prop    = $component_declaration['prop'];
+        $entries = $item['props'][$prop] ?? null;
+        if (is_array($entries)) {
+            foreach ($entries as $k => $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $item_id = isset($entry[PP_UDC_ITEM_ID_KEY]) && is_scalar($entry[PP_UDC_ITEM_ID_KEY])
+                    ? (string) $entry[PP_UDC_ITEM_ID_KEY]
+                    : '';
+                $item_map = $entry[PP_UDC_ITEM_MAP_KEY] ?? null;
+                // NO ID MEANS NO MINT, not a mint under a blank prefix. An
+                // un-minted entry emits nothing at all (it has no selector), so
+                // lifting its literals into band tokens would strand them: named
+                // after nothing, referenced by nothing, and reported unused.
+                if ($item_id === '' || !pp_udc_valid_item_id($item_id) || !is_array($item_map)) {
+                    continue;
+                }
+                foreach ($item_map as $role => $role_map) {
+                    if (!is_array($role_map)) {
+                        continue;
+                    }
+                    foreach ($role_map as $group => $group_map) {
+                        if (!is_array($group_map)) {
+                            continue;
+                        }
+                        foreach ($group_map as $param => $value) {
+                            if (isset($states[$param]) && is_array($value)) {
+                                foreach ($value as $state_param => $state_value) {
+                                    $minted = _pp_udc_mint_value(
+                                        $state_value, (string) $role, (string) $group,
+                                        (string) $state_param, (string) $param, $tokens, $item_id
+                                    );
+                                    if ($minted !== null) {
+                                        $item['props'][$prop][$k][PP_UDC_ITEM_MAP_KEY][$role][$group][$param][$state_param] = $minted;
+                                    }
+                                }
+                                continue;
+                            }
+                            $minted = _pp_udc_mint_value(
+                                $value, (string) $role, (string) $group, (string) $param,
+                                '', $tokens, $item_id
+                            );
+                            if ($minted !== null) {
+                                $item['props'][$prop][$k][PP_UDC_ITEM_MAP_KEY][$role][$group][$param] = $minted;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if ($tokens !== []) {
         $udc['_tokens'] = $tokens;
     }
-    $item['udc'] = $udc;
+    // A BAND THAT HAD NO MAP AND MINTED NOTHING KEEPS HAVING NO MAP. Writing
+    // back an empty `udc` would change the stored shape of every item-styled
+    // band for no reader, and would make the no-coercion promise visibly false
+    // on a round trip.
+    if ($has_band_map || $udc !== []) {
+        $item['udc'] = $udc;
+    }
     return $item;
 }
 
@@ -3852,7 +3942,8 @@ function _pp_udc_mint_value(
     string $group,
     string $param,
     string $state,
-    array &$tokens
+    array &$tokens,
+    string $item = ''
 ): ?array {
     if (!is_array($value) || $value === []) {
         return null; // Not responsive — nothing to normalize.
@@ -3887,7 +3978,7 @@ function _pp_udc_mint_value(
             $rewritten[$bp] = $bp_value; // Already a reference; the author's own.
             continue;
         }
-        $name           = pp_udc_mint_name($role, $group, $param, $state, (string) $bp);
+        $name           = pp_udc_mint_name($role, $group, $param, $state, (string) $bp, $item);
         // A MINT NAME MUST NOT LAND ON A NAME ALREADY HOLDING A DIFFERENT VALUE.
         //
         // Mint names join their segments with `-` and escape nothing, so two distinct
@@ -3940,7 +4031,12 @@ function _pp_udc_mint_value(
  */
 function pp_udc_normalize_composition(array $items): array {
     foreach ($items as $i => $item) {
-        if (is_array($item) && isset($item['udc'])) {
+        // The `isset($item['udc'])` fence this used to carry is gone for the
+        // reason pp_udc_normalize_band()'s own early exit changed: a band with
+        // no map of its own can still carry items that need minting, and that
+        // is the ordinary shape of an item-styled band rather than an edge
+        // case. The callee decides whether it has a subject.
+        if (is_array($item)) {
             $items[$i] = pp_udc_normalize_band($item);
         }
     }
@@ -7884,7 +7980,17 @@ function pp_udc_composition_findings(array $items): array {
         if ($tokens === []) {
             continue;
         }
+        // ITEM REFERENCES COUNT (Addendum B4). A token minted for an item is
+        // referenced from inside `props.items[k].udc`, which the band map does
+        // not contain — so without this every item-minted token would be
+        // reported `udc_unused_band_token` on the very write that created it,
+        // telling an author their own value "has no effect" while it paints.
         $referenced = _pp_udc_referenced_token_names($item['udc']);
+        foreach (pp_udc_item_maps($item) as $item_map) {
+            foreach (_pp_udc_referenced_token_names($item_map) as $ref_name => $ignored_ref) {
+                $referenced[$ref_name] = true;
+            }
+        }
 
         // THE NO-COERCION DISCLOSURE, derived from what is STORED.
         //
@@ -7902,7 +8008,7 @@ function pp_udc_composition_findings(array $items): array {
             if (!is_scalar($literal) || !_pp_udc_is_mint_shaped_name((string) $name)) {
                 continue;
             }
-            if (!_pp_udc_name_is_the_engines_own_mint((string) $name, $item['udc'])) {
+            if (!_pp_udc_name_is_the_engines_own_mint((string) $name, $item['udc'], pp_udc_item_maps($item))) {
                 continue;
             }
             $findings[] = [
