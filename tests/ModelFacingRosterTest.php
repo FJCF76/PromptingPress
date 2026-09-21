@@ -188,13 +188,17 @@ class ModelFacingRosterTest extends TestCase
         // of sixteen and report success.
         if (\pp_ai_live_slot_types() !== []) {
             $this->assertGreaterThan(
-                2,
+                1,
                 $scanned,
                 'the reverse check scanned fewer positive slot claims than the corpus carries. '
-                . 'MEASURED TODAY: 16 sentences make a slot claim, 13 of those claim-clauses '
-                . 'say the component declares NO slots (correct, and correctly exempt), and 3 '
-                . 'are scanned. If this drops, the negation exemption has widened again and '
-                . 'the guard is passing on an empty set rather than on clean docs'
+                . 'MEASURED after the prose rewrite: 8 sentences make a slot claim, 6 of those '
+                . 'claim-clauses say the component declares NO slots (correct, and correctly '
+                . 'exempt), and 2 are scanned — down from 16/13/3 before, because the rewrite '
+                . 'removed the v1-era claims rather than because the guard narrowed. THIS '
+                . 'NUMBER TRACKS THE CORPUS and is expected to fall as the last slot-carrying '
+                . 'component is rebuilt; the gate above is what makes zero legitimate then. If '
+                . 'it falls without the corpus shrinking, the negation exemption has widened '
+                . 'again and the guard is passing on an empty set rather than on clean docs'
             );
         }
     }
