@@ -116,7 +116,7 @@ class ModelFacingRosterTest extends TestCase
         $anchors = [
             // Already derived and pinned by DocsCoverageTest; re-checked here so the two
             // guards cannot disagree about what a complete roster is.
-            ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)]+)\)/'],
+            ['the runtime prompt', $prompt, '/ON A v2 COMPONENT \(([^)\n]{0,200})\)/'],
 
             // THE PROSE ANCHORS, landing WITH the rewrite exactly as the note below
             // promised. Each of these is a sentence that genuinely introduces a COMPLETE
@@ -236,7 +236,25 @@ class ModelFacingRosterTest extends TestCase
                 // exempt. That is the 46%-by-accident shape this repo has already paid for,
                 // and the vacuity probe missed it because it counted HITS (zero, correctly)
                 // instead of SUBJECTS SCANNED (one).
-                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $claim[0])) {
+                // THE EXEMPTION WINDOW IS SENTENCE-START THROUGH THE END OF THE CLAIM, and
+                // both halves of that are load-bearing because both failure modes have
+                // happened here.
+                //
+                // Scoping it to the whole SENTENCE was the original bug: a real defect —
+                // "declares style slots, but not for its background" — was exempted by a
+                // negation that came AFTER the claim and had nothing to do with it. Scoping
+                // it to the matched CLAUSE fixed that and over-corrected, because the clause
+                // starts at the verb: "No component in the theme declares a button style
+                // slot" is a correct NEGATIVE statement whose "No" sits 26 characters before
+                // `declares`, so it was scanned as a positive claim.
+                //
+                // Ending the window at the end of the claim keeps the trailing negation out
+                // while letting a leading one in, which is exactly the distinction that
+                // matters: a negation before the verb negates this claim, one after it
+                // qualifies something else.
+                $claimStart = (int) strpos($sentence, $claim[0]);
+                $upToClaim  = substr($sentence, 0, $claimStart + strlen($claim[0]));
+                if (preg_match('/\b(no|zero|not|never|stopped|retired|gone)\b/i', $upToClaim)) {
                     continue;
                 }
                 $scanned++;
@@ -258,20 +276,23 @@ class ModelFacingRosterTest extends TestCase
         // of sixteen and report success.
         if (\pp_ai_live_slot_types() !== []) {
             $this->assertGreaterThan(
-                4,
+                3,
                 $scanned,
                 'the reverse check scanned fewer positive slot claims than the corpus carries. '
-                . 'RE-MEASURED over the FINISHED corpus (the earlier 8/6/2 in this message was '
-                . 'taken after only the first file was rewritten and was stale by six more): '
-                . '14 sentences make a positive slot claim, 9 of those claim-clauses say the '
-                . 'component declares NO slots (correct, and correctly exempt), and 5 are '
-                . 'scanned — down from 16/13/3 before the rewrite, because it removed v1-era '
-                . 'claims rather than because the guard narrowed. THIS NUMBER TRACKS THE '
-                . 'CORPUS and is expected to fall as the last slot-carrying component is '
-                . 'rebuilt; the gate above is what makes zero legitimate then. Re-measure it '
-                . 'when the corpus changes rather than loosening it. If it falls without the '
-                . 'corpus shrinking, the negation exemption has widened again and the guard is '
-                . 'passing on an empty set rather than on clean docs'
+                . 'RE-MEASURED TWICE. The 8/6/2 this message first carried was taken after only '
+                . 'the first file was rewritten and was stale by six more; the 14/9/5 that '
+                . 'replaced it was measured before the exemption window was corrected to reach '
+                . 'a LEADING negation, which had been counting one correct NEGATIVE sentence '
+                . '("No component in the theme declares a button style slot") as a positive '
+                . 'claim. TODAY: 14 sentences make a positive slot claim, 10 are correctly '
+                . 'exempt as saying the component declares NO slots, and 4 are scanned — down '
+                . 'from 16/13/3 before the rewrite, because it removed v1-era claims rather '
+                . 'than because the guard narrowed. THIS NUMBER TRACKS THE CORPUS and is '
+                . 'expected to fall as the last slot-carrying component is rebuilt; the gate '
+                . 'above is what makes zero legitimate then. Re-measure it when the corpus '
+                . 'changes rather than loosening it. If it falls without the corpus shrinking, '
+                . 'the negation exemption has widened again and the guard is passing on an '
+                . 'empty set rather than on clean docs'
             );
         }
     }

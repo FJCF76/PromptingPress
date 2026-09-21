@@ -82,10 +82,11 @@ targets for patching and carries **no `udc` at all** (measured: zero occurrences
 Neither gives you the map you are about to edit. Reading the meta is safe — it is WRITING it
 that skips validation, minting, versioning and history.
 
-**On `expected_version`:** no read command surfaces the composition version today. It comes back
-on the `findings` envelope of your own last write (`composition_version`). Carry that forward if
-you have it; if you do not, omit `expected_version` and accept last-write-wins, or make a
-no-op-free write first to learn the number. Tracked as a gap, not a thing you are missing.
+**On `expected_version`:** read it the same way, from its own meta key —
+`wp post meta get 42 _pp_composition_version`. Pass it as `expected_version` and a concurrent
+edit becomes a refusal instead of a lost update. (It also comes back on every write's envelope
+as `composition_version`, which is the second source if you already have it.) There is no
+reason to omit it.
 
 ### Groups and parameters
 
@@ -161,8 +162,9 @@ Any value may be a map instead of a single value:
 ```
 
 `d` is **the base and carries no media query at all** — it applies at every width unless a narrower tier overrides it, which is why writing only `d` is the normal case. `t` is tablet
-(768–1023px), `p` is phone (≤767px). The ranges do not overlap, so a value set at one breakpoint
-cannot be cancelled by another. Writing only `d` means that value applies at every width.
+(768–1023px), `p` is phone (≤767px). `t` and `p` do not overlap each other, so neither cancels
+the other — but `d` sits underneath both and IS overridden by whichever of them you set, which is
+the same thing as saying it is the base.
 
 ### States
 
@@ -274,6 +276,7 @@ background, then every text part's colour:
   "component": "testimonials",
   "udc": {
     "_band":       { "background": { "fill": "#101828" } },
+    "card":        { "background": { "fill": "#1d2939" }, "border": { "color": "#344054" } },
     "quote":       { "typography": { "color": "#f7f8fa" } },
     "author":      { "typography": { "color": "#f7f8fa" } },
     "meta":        { "typography": { "color": "#c8ccd4" } },
@@ -283,9 +286,20 @@ background, then every text part's colour:
 }
 ```
 
-**You own the contrast.** Nothing re-lights text for you. Check every colour against the background
-for WCAG AA — 4.5:1 for body text, 3:1 for large text. A dark band with one part left un-recoloured
-renders dark ink on dark, which is the single most common way this goes wrong.
+**`card` is in that map for a reason, and leaving it out is the trap.** The quote, author and
+meta all render INSIDE `.testimonials__item`, and the `card` role ships
+`background.fill: "@color-surface"` as its own DEFAULT — a near-white panel. Darken `_band`,
+re-ink the text, and skip `card`, and you get near-white ink on a near-white card: measured
+**1.01:1** for the quote and 1.50:1 for the meta, on a write that returns `findings: []`,
+because the engine warns about a value that cannot take effect and not about a role default
+that survives a change you made to a different role.
+
+**You own the contrast, and you own it per ROLE, not per band.** Nothing re-lights text for
+you. Check every colour against the surface it actually sits on — which is the nearest
+ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
+WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
+un-recoloured renders dark ink on dark, or light ink on light, and that is the single most
+common way this goes wrong.
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and
@@ -343,9 +357,11 @@ put over a new background.
 ### Eyebrows: differentiate one deliberately, or leave the default alone
 
 The eyebrow is the small kicker above a heading, and it renders as a pill. Its colour, background,
-border, radius and casing are all authorable through the `eyebrow` role — but **the pill geometry
-is not**: `padding: 0.35rem 0.85rem` is a stated default, so an eyebrow you restyle keeps the
-original pill proportions unless you set `spacing.padding` yourself.
+border, radius, casing **and geometry** are all authorable through the `eyebrow` role: every one
+of the five v2 components that has an eyebrow declares `spacing` among its permitted groups, with
+`padding: 0.35rem 0.85rem` as the role's DEFAULT. So a restyled eyebrow keeps the original pill
+proportions until you set `spacing.padding`, and then it takes yours, breakpoint map and all. On
+`grid` the geometry genuinely is fixed, because no slot reaches it.
 
 That asymmetry is the thing to plan around. The first instinct on being asked to make one eyebrow
 stand out is to change its colour and background, which moves everything except the shape — and a

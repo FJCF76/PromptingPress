@@ -19,10 +19,6 @@ inspect-only for site customization."
 The page/component/template workflows below are **product-development procedures**
 (authoring or improving the theme), not site-customization steps.
 
-**To add a page (product dev):** Create or edit a file in `/templates/`. Call
-`pp_get_component()` for each section. Register the template in WP Admin (Pages →
-Edit → Page Attributes → Template).
-
 **To edit a component (product dev):** Open `/components/{name}/{name}.php`. Props are
 documented in `schema.json` in the same folder. CSS is in `/assets/css/components.css`.
 

@@ -60,6 +60,20 @@ style.
 Content is `props`; appearance is `udc`. The two never mix: there is no `theme` prop on
 any of the nine v2 components, and no style slots on any of them either.
 
+**On images, before you write one into this example.** A site-relative
+`/wp-content/uploads/…` value is EXISTENCE-CHECKED against the Media Library at write, and
+a path with no attachment behind it is refused with `invalid_media_url` ("Image URL does
+not match any file in the media library"). `create_page` is all-or-nothing, so that
+refusal costs you the whole page, not just the image. Import first and use the id it
+returns:
+
+```bash
+wp pp action execute import_media --run-id=<uuid> --params='{"url":"https://example.com/product.png","alt":"The editor with a composition open"}'
+# → returns an attachment_id; pass it as "image_id": <id> on the band
+```
+
+The recipe below is deliberately image-free so it runs as written on a fresh install.
+
 ```json
 {
   "title": "Product Launch",
@@ -85,9 +99,7 @@ any of the nine v2 components, and no style slots on any of them either.
         "id": "lp-what",
         "title": "What makes this different",
         "body": "<p>Describe the core problem and how the product solves it. Be specific.</p>",
-        "layout": "image-right",
-        "image_url": "/wp-content/uploads/product.png",
-        "image_alt": "The editor with a composition open"
+        "layout": "text-only"
       },
       "udc": {
         "heading-accent": { "typography": { "color": "@color-accent" } }

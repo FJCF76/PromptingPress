@@ -159,7 +159,7 @@ structural-only boundary the same day.
 Lists typed by hand go stale, and several of these had. Everything above is read from the
 components themselves each time the assistant's instructions are assembled, so a component
 rebuilt tomorrow updates them the day it lands rather than whenever somebody remembers. The
-rewritten rosters are pinned too: three of them are anchored to the component registry, so a
+rewritten rosters are pinned too: six of them are anchored to the component registry, so a
 tenth component makes the sentence fail rather than quietly leaving it a list of nine.
 
 ### Fixed
@@ -208,7 +208,7 @@ tenth component makes the sentence fail rather than quietly leaving it a list of
 - Every `udc` map any instruction file documents is run through the real write path, including the
   ones nested inside a whole-page example — the shape the richest examples use, and the one the
   first cut of that check could not see.
-- Three rewritten component rosters are anchored to the registry and fail if they go stale, or if
+- Six rewritten component rosters are anchored to the registry and fail if they go stale, or if
   the sentence they hang on is reworded away.
 
 ---

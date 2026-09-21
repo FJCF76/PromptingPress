@@ -752,7 +752,20 @@ class DocumentedUdcSnippetsTest extends TestCase
                     // dark-band example in the prose PR impossible to write without weakening
                     // this guard. False negative: a role that sets its own fill and an
                     // illegible ink on it, with no `_band` fill anywhere, was skipped entirely.
-                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+                    //
+                    // AND WHERE THE ROLE SETS NONE, THE NEAREST ANCESTOR ROLE'S FILL WINS
+                    // OVER THE BAND'S — including a fill the ancestor never had to be given,
+                    // because it ships one as a schema DEFAULT. The red team found the gap
+                    // with the flagship dark-band example in style-component.md: it darkened
+                    // `_band` and re-inked `quote`, `author` and `meta`, but `card`
+                    // (`.testimonials__item`) DEFAULTS to `background.fill: @color-surface`
+                    // and physically contains all three. Rendered, the quote measured
+                    // 1.01:1 — near-white on near-white — and this walk called it 16.70:1
+                    // because it measured against the band. A guard that resolves the wrong
+                    // surface is worse than no guard: it certifies the defect.
+                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens)
+                        ?? $this->ancestorRoleFill($component, $role, $map, $tokens)
+                        ?? $bandFill;
                     if ($fill === null) {
                         continue;
                     }
@@ -794,6 +807,53 @@ class DocumentedUdcSnippetsTest extends TestCase
             'the contrast walk found fewer background+ink pairings than the corpus carries; '
             . 'the extractor or the ink resolver stopped reaching most of its subjects'
         );
+    }
+
+    /**
+     * The fill of the ANCESTOR role whose element contains this one, where one exists.
+     *
+     * DECLARED, NOT INFERRED FROM SELECTORS, and the first cut proving why is the reason this
+     * is a map rather than a rule. Guessing containment from a shared BEM prefix treated
+     * cta's `button` as an ancestor of cta's `heading` — they are siblings — and measured the
+     * heading's ink against the button's fill at a bogus 2.11:1. Selector text cannot prove
+     * containment; only the markup can, so each pair below was read out of the component's
+     * own PHP and is listed with the children it actually wraps.
+     *
+     * Only roles that BOTH contain text roles AND ship a fill need an entry: a leaf that
+     * happens to declare a fill (an `eyebrow` pill, an outline button) contains nothing, and
+     * `_band` is already the fallback.
+     */
+    private const CONTAINER_ROLES = [
+        // component => [container role => [roles rendered inside it]]
+        'testimonials' => ['card' => ['quote', 'author', 'meta']],
+        'section'      => ['panel' => ['panel-heading', 'panel-body', 'panel-row', 'panel-row-label', 'panel-row-value', 'panel-cta']],
+        'faq'          => ['item' => ['question', 'question-open', 'answer', 'answer-link']],
+        'table'        => ['table' => ['head', 'row', 'cell', 'cell-link', 'header'], 'head' => ['header']],
+        'nav'          => ['submenu' => ['link', 'link-current']],
+    ];
+
+    /** The fill of the role that renders this one inside it, authored map first, else default. */
+    private function ancestorRoleFill(string $component, string $role, array $map, array $tokens): ?string
+    {
+        $containers = self::CONTAINER_ROLES[$component] ?? [];
+        $roles      = \pp_udc_component_roles($component);
+
+        foreach ($containers as $container => $children) {
+            if (!in_array($role, $children, true)) {
+                continue;
+            }
+            // An authored fill wins over the default: an author who filled the card has
+            // already answered the question this is asking.
+            $authored = $this->hex($map[$container]['background']['fill'] ?? null, $tokens);
+            if ($authored !== null) {
+                return $authored;
+            }
+            $default = $this->hex($roles[$container]['defaults']['background']['fill'] ?? null, $tokens);
+            if ($default !== null) {
+                return $default;
+            }
+        }
+        return null;
     }
 
     /**
