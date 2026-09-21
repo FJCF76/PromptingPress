@@ -134,12 +134,136 @@ Create `/components/mycomponent/schema.json`:
       "description": "URL for the link button."
     }
   },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself — the <section>.",
+      "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+      "defaults": {
+        "spacing": { "padding-top": "@pp-band-padding", "padding-bottom": "@pp-band-padding" }
+      },
+      "obligations": []
+    },
+    "heading": {
+      "selector": ".mycomponent__title",
+      "description": "The band heading.",
+      "groups": ["typography", "spacing", "sizing"],
+      "defaults": {},
+      "obligations": []
+    }
+  },
   "safe_to_edit": ["mycomponent.php", "../../assets/css/components.css (COMPONENT: mycomponent section)"],
   "do_not_touch": ["schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"]
 }
 ```
 
-**Required keys:** `component`, `description`, `props`.
+**Required keys:** `component`, `description`, `props`. A v2 component also declares
+`roles` — that is Step 3b below, and it is the step that decides whether the component
+is styleable at all, so read it before you settle the role names above.
+
+### Step 3b — declare `roles`: put the component on the design contract
+
+**This is the step that makes a new component authorable, and the v1 docs had no
+equivalent.** A component with props and no `roles` renders, validates, and is
+then unreachable by every styling surface the theme has. A `udc` map aimed at it is
+refused outright — the measured refusal is `unknown_udc_role`, *"Component "grid" is
+not on the UDC styling system, so it accepts no "udc" map"* — and `wp pp schema`
+reports no roles. `grid` is the only shipped component in that state, and it is there
+because it predates the contract; it is not the model to copy.
+
+A **role** is one visual job on the component: the band, the inner wrapper, the
+heading, a button, a card. Authors style a band by naming roles, never by naming
+your CSS classes, so the roles you declare *are* the component's styling API.
+
+```json
+"roles": {
+  "_band": {
+    "selector": "",
+    "description": "The band itself — the <section>. Maintainer-facing prose.",
+    "groups": ["typography", "spacing", "border", "background", "sizing", "shadow", "motion"],
+    "defaults": {
+      "spacing": { "padding-top": "@pp-band-padding", "padding-bottom": "@pp-band-padding" }
+    },
+    "obligations": []
+  },
+  "heading": {
+    "selector": ".mycomponent__title",
+    "description": "The band heading.",
+    "groups": ["typography", "spacing", "sizing"],
+    "defaults": {},
+    "obligations": []
+  }
+}
+```
+
+**The five keys are the whole surface** (`pp_role_definition_keys()`, `lib/admin.php`),
+and all 125 shipped roles declare all five — write all five. An unknown key fails CI,
+exactly as it does on a prop. Requiredness is enforced for `obligations` alone today;
+the other four are load-bearing rather than policed, so omitting `groups` or `selector`
+buys you a role that passes CI and styles nothing.
+
+- **`selector`** — the CSS selector the role's authored values emit at, relative to
+  the band. The empty string means the band element itself, which is why `_band`
+  declares `""`. It must match what your PHP actually renders; a selector that
+  matches nothing is a role that silently styles nothing.
+- **`description`** — **maintainer-facing prose.** It reaches `wp pp schema` and it
+  does **not** reach the model's system prompt (see `docs/v2/AI-INSTRUCTION-CONTRACT.md`),
+  so write it for the next person reading the schema: what the default measured, why
+  it is what it is, and which roles it interacts with. Length is not charged to the
+  prompt budget here.
+- **`groups`** — the UDC groups this role permits. The eight are `typography`,
+  `spacing`, `border`, `background`, `sizing`, `shadow`, `layout` and `motion`
+  (`pp_udc_groups()`, `lib/udc.php`). Declare only the ones the role's element can
+  honour: a group listed here is a promise that writing it changes the rendering. A group
+  the role does not list is refused at write with `unknown_udc_group`, which names the
+  permitted set back to the author.
+- **`defaults`** — the role's own default values, per group. **Measure them, do not
+  read them off the stylesheet.** The shipped roles were measured in Chromium at
+  375/768/1280 precisely because the stylesheet and the computed value disagree more
+  often than they agree.
+
+  **`defaults` and an authored `udc` map do not accept the same values, and this is the
+  trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is
+  what every shipped `_band` uses for its padding, stats included — but the *authored*
+  path refuses the same string: `invalid_prop_value`, *"references "@pp-band-padding",
+  which is not a registered design token. Only site design tokens resolve here."* The
+  band props live in a second `:root` block the token registry does not read, so they
+  are reachable as a shipped default and not as an author's value. Copy them into
+  `defaults` freely; never put one in a doc example of a `udc` map.
+
+**`obligations` is required on every role, and `[]` is a real answer** (#1087,
+`SchemaValidationTest`). It is the one part of the role that IS model-facing, so it
+is bounded rather than prose. An obligation is a fact about this role that an author
+must act on and that no other channel can tell them — two kinds, and the set does not
+grow without changing `pp_udc_obligation_kinds()`:
+
+- **`outranked_by_default`** — writing this role alone loses to something already on
+  the page, so the pair must be written together. Not derivable from the selectors.
+- **`reached_only_by_inheritance`** — this role takes its value from an ancestor
+  rather than declaring its own, so setting the ancestor is what moves it.
+
+Each record declares exactly `kind`, `with` and `why` (`pp_udc_obligation_keys()`).
+`with` must name a real sibling role on the same component — CI checks it — and `why`
+is one line under 240 characters, because it is composed into the prompt.
+
+```json
+"obligations": [
+  { "kind": "outranked_by_default",
+    "with": "number",
+    "why": "`number` pins its own colour as a direct declaration, so a band ink set here does not reach it." }
+]
+```
+
+Write `[]` when the role has no such fact. That is the common case and it is not a
+placeholder — it is the declaration that this role stands alone, and the validator
+requires you to say so rather than leaving the question open.
+
+**Two more things the roster gets you.** A role name is bounded to
+`[A-Za-z0-9_-]{1,64}`, because it is composed into the newline-delimited prompt
+catalog and a name carrying a newline would forge a line there. And the roles you
+declare are pinned by `ModelFacingRosterTest`: a component that grows a role without
+the docs learning about it fails CI, which is the guard against the vocabulary-blind
+roster drift that this rewrite exists to end.
 
 ### The definition-object contract (issue #575)
 
@@ -156,7 +280,7 @@ never stored anywhere else.
 | `item_eligible` | slot | the slot is item-scoped (a grid card, a section panel row) — enforced at **write and at render**, so a container-scoped slot never reaches the item element even from a non-validating write |
 | `applies_when` | slot + prop | machine-readable conditionality (below) |
 | `conditionality_note` | slot + prop | the bounded prose escape hatch (below) |
-| `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`) |
+| `role` | slot | `"fill"` — this slot is the component's fill colour; `"measure"` — this slot is a text measure (a heading, prose or content-column `max-width`). **Not a UDC role.** This is a marker ON a style slot, bounded by `pp_slot_roles()`; the UDC roles of Step 3b are a different surface with a different key (`roles`) and a different value set. Only `grid` has style slots, so only `grid` can carry this key. |
 
 `applies_when` is an **array of clauses, ANDed**. **Exactly four clause forms
 exist and the grammar does not grow:**
@@ -172,11 +296,17 @@ Do **not** add an `any_of` clause, a `context` clause, or any free-form
 structure. Three condition classes stay **prose**, in `conditionality_note`,
 precisely so the machine-readable grammar never has to grow to swallow them:
 
-- **Disjunction** — a slot that applies on dark bands only, i.e. `theme:
-  inverted` **or** `background_image` present.
 - **Composed-page context** — `--grid-item-bar-*` / `--grid-featured-*` apply
   only under a `main >` scope, which is not a prop, not a slot and not a value.
-- **Interaction state** — a question's open state.
+  **This is the only one of the three with a shipped declaration today** — four grid
+  slots carry it, and they are the whole population.
+- **Disjunction** — a slot applying on dark bands only, i.e. `theme: inverted` **or**
+  `background_image` present. *Historical:* the v2 rebuilds retired both props from
+  every component that had them, and `grid` — the only component with style slots
+  left — never declared `background_image`, so nothing declares this today. The
+  grammar rule stands: if a disjunction returns, it returns as prose.
+- **Interaction state** — a question's open state. *Historical for the same reason:*
+  faq became a v2 component at #1046 and has no style slots at all now.
 
 (Viewport-scoped behaviour is neither: responsive slot values are out of scope by
 ruling, and breakpoint families are *defaults*, not authored conditions.) If the
@@ -202,9 +332,14 @@ declares both `applies_when` and a note, the catalog joins them with `AND` as on
 condition.
 
 **One field, two consumers (issue #580).** `applies_when` is populated across the
-conditionality census — 160 declarations today, which is what the schemas state, not a
-claim that every code-real condition has been found — and the *same* field drives a
-write-time advisory:
+conditionality census — **29 entries in `CONDITIONALITY_LEDGER` today, 21 of them
+declaring clauses and 8 carrying a `conditionality_note` only**, which is what the
+schemas state, not a claim that every code-real condition has been found. The census
+used to be an order of magnitude larger; it shrank because conditionality is a
+STYLE-SLOT concept and the v2 rebuilds retired the slots (testimonials alone took 18
+rows with it). A v2 component's roles are unconditional by construction, so a new
+component on the design contract will usually add nothing here at all. The *same*
+field drives a write-time advisory:
 when a composition sets a slot whose condition is unmet, a non-blocking **`inert_slot`**
 smell names the slot and every unmet clause. Since #687 that advisory rides the
 ACCEPTED WRITE's own envelope (`findings`), as well as `wp pp check page` and the
@@ -434,57 +569,68 @@ Styles in `assets/css/components.css` under `/* === COMPONENT: mycomponent === *
 
 ## Step 5 — Add CSS
 
-Open `/assets/css/components.css` and add a labeled section at the bottom:
+Open `/assets/css/components.css` and add a labeled section at the bottom.
+
+**What you may write here is decided by Step 3b.** The moment your schema declares a
+non-empty `roles` map, the css-lint enrolls the component in the v2 structural boundary
+— the suite discovers v2 components by reading the schemas, "so each later sprint's
+component joins the rule on the day it declares roles", which means the day you finish
+Step 3b, not the day someone remembers to add you to a list.
+
+Inside that boundary the rule is: **structural CSS only.** No colour, type, size,
+spacing, border, shadow or aspect-ratio value, and **no custom properties at all** — a
+`--anything: …` in a v2 component's rule is itself an offence. Every one of those values
+belongs to a role and is emitted by the UDC engine as a band-scoped block in the head.
+
+The practical consequence surprises people, so it is worth stating plainly: **a v2
+component usually has no band rule.** When stats was rebuilt, `.stats` declared padding,
+background, max-width, margin-inline and border-radius — and the whole rule was deleted,
+because each of those is a `_band` role parameter now. Your band padding comes from the
+`_band` role's `spacing` defaults (`@pp-band-padding`, as in the Step 3b template), not
+from a CSS declaration here.
+
+Two narrow admissions, both geometry rather than design: a spacing property whose value
+is geometry-only (`0`, `auto`, a negative pull) is allowed — `padding: 0` on a `<ul>`
+undoes UA chrome rather than expressing rhythm — and `text-align` is allowed when
+*every* selector in the rule targets a `--variant` layout modifier, because a layout
+called "centered" that leaves its text ragged-left is not the layout it advertises.
 
 ```css
 /* === COMPONENT: mycomponent === */
 
-.mycomponent {
-  /* A band-level (full-width section) component shares ONE rhythm definition
-     with the others (grid, stats, logos — the v1 components
-     that still route through a slot; section, cta, testimonials, faq, table and embed
-     reach the SAME definition as a `@pp-band-padding` spacing default on their `_band`
-     role since their v2 rebuilds, and hero is deliberately outside it, carrying its own
-     `@space-2xl`/`@space-xl` scale). Route its
-     vertical padding through the component's own slot, falling back to the
-     shared --pp-band-padding, so it agrees with every other band by default and
-     a release-level rhythm retune moves it too — never paste a bare rhythm
-     literal (issue 431). That retune means editing --pp-band-padding in base.css:
-     it is NOT a design token and update_design_token rejects it, so there is no
-     site-wide authoring write for it (issue 616). */
-  padding-top: var(--mycomponent-padding-top, var(--pp-band-padding));
-  padding-bottom: var(--mycomponent-padding-bottom, var(--pp-band-padding));
+/* STRUCTURAL CSS ONLY — this block is the v2 boundary
+   (docs/v2/BUILD-SPEC-sprint0.md §2). Note what is NOT here: no .mycomponent band
+   rule, because its padding, background and framing are all `_band` role parameters. */
+
+.mycomponent__list {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;   /* geometry-only: undoes UA chrome, not rhythm */
+  margin: 0;
 }
 
-.mycomponent__title {
-  /* A band-level title shares ONE responsive heading scale with every other band
-     title (issue 436). Route its font-size through the component's own size slot,
-     falling back to the shared --pp-band-heading-size, so it never collapses to
-     body size on mobile and reads as a peer of adjacent band titles. Never fall
-     back to `inherit` (that silently discards the scale) or a bare literal.
-     Like --pp-band-padding, this one is theme-internal: not a design token, and
-     update_design_token rejects it, so retuning the scale is a theme-source
-     change and the per-band slot is the only authoring surface (issue 616). */
-  font-size: var(--mycomponent-heading-size, var(--pp-band-heading-size));
-  margin-bottom: var(--space-md);
-}
-
-.mycomponent__body {
-  color: var(--color-muted);
-}
+/* NO .mycomponent__title rule and NO .mycomponent__body rule here either. A title's
+   font-size and margin, and a body's colour, are `heading` and `body` role defaults —
+   writing them in this file is exactly what the lint refuses. */
 ```
 
-**Rule:** No raw hex values and no raw rhythm literals — use CSS variables:
-each component's own authorable slots (`--mycomponent-padding-*`) falling back to
-a `base.css` property. Band-level components take their default vertical rhythm from
-`--pp-band-padding` (never a per-component literal), so all sections share one
-spacing model. Band titles do the same on the typography axis: their `font-size`
-falls back to `--pp-band-heading-size` (never `inherit`, never a per-component
-literal), so every band heading shares one responsive scale and never collapses
-to body size on mobile. Both of those shared properties are theme-internal, not
-design tokens — the registry is the FIRST `:root` block of `base.css`, and they are
-declared in a later one — so a slot may fall back to them but nothing may advertise
-them as authorable.
+**The shared scales did not go away — they moved.** Every band still shares one
+vertical rhythm and one responsive heading scale, and a v2 component joins both through
+its role defaults rather than through a CSS fallback chain. `stats` is the worked
+example: its `heading` role declares `typography.size: "@pp-band-heading-size"`,
+`spacing.margin-bottom: "@space-lg"` and `sizing.max-width: "@measure-heading"`, which is
+the same shared definition the v1 slot chain reached, declared where an author can now
+see and override it. Copy that shape; never paste a rhythm or scale literal, and never
+fall back to `inherit` (it silently discards the scale).
+
+Those two shared properties — `@pp-band-padding` and `@pp-band-heading-size` — are
+theme-internal rather than design tokens: the registry is the FIRST `:root` block of
+`base.css` and they are declared in a later one, so `update_design_token` rejects both
+and retuning either is a theme-source change (issue 616). They are reachable as role
+DEFAULTS, and, per Step 3b, refused in an authored `udc` map.
+
+**Still true regardless of tier:** no raw hex values and no raw rhythm literals.
 
 ---
 
@@ -537,6 +683,15 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 
 - [ ] `components/mycomponent/mycomponent.php` exists
 - [ ] `components/mycomponent/schema.json` exists and is valid JSON
+- [ ] **The component declares `roles` (Step 3b).** A new component belongs on the
+      Universal Design Contract; shipping one without roles ships a band no author can
+      style, and `grid` is a predecessor rather than a precedent.
+- [ ] **Every role declares `obligations`** — `[]` for a role that carries none, never
+      absent. `SchemaValidationTest` fails until this is done, and every `with` must name
+      a real sibling role on the same component.
+- [ ] Every role's `selector` matches what the PHP actually renders, and every group in
+      its `groups` list is one the role's element can honour. Probe both with
+      `wp pp schema mycomponent` and a trial `udc` write before believing either.
 - [ ] `components/mycomponent/README.md` exists
 - [ ] CSS section added to `assets/css/components.css`
 - [ ] No raw hex values in the new CSS section
@@ -566,7 +721,9 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       contract (Step 3); `SchemaValidationTest` rejects anything else — and the fields
       it renders into the AI catalog also satisfy their shape contracts (`values`,
       `conditionality_note`, `applies_when`, `role`)
-- [ ] Every slot's `default` states the **effective** default — what actually renders
+- [ ] *(style slots only — `grid` is the sole component that has any, so a new v2
+      component skips this item and the three below it.)*
+      Every slot's `default` states the **effective** default — what actually renders
       with the slot unset, in the component's default configuration, at desktop (>=768px,
       the theme's desktop tier). Not the CSS fallback literal, and never a value that
       appears nowhere in the stylesheet.
