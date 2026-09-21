@@ -25,7 +25,7 @@ Capture a **before-screenshot**: `wp pp screenshot capture --post_id=<page_id> -
   - a **content** revision (text, images, URLs, `layout`) changes `props`
   - a **styling** revision (type, colour, spacing, border, radius, shadow, tone) changes
     the band's `udc` map, and on the nine v2 components that is the ONLY way to restyle
-    a band — they have no style slots and no `theme` prop
+    a band — no component has style slots or a `theme` prop since #1101
 - Declare which props and/or which roles, groups and parameters will change
 - Note which other sections should remain unchanged (regression check)
 - If file mutations are needed, list planned_files
