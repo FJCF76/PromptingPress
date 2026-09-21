@@ -188,10 +188,12 @@ class StyleSlotContractTest extends TestCase
      * false), and the predicate that produced both answers still returns true for a schema
      * that DOES declare a slot map.
      *
-     * The detection proof is a synthetic decoded schema rather than a fixture on disk. The
-     * fixture component `tests/fixtures/components/ppfixture` still declares sixteen slots
-     * and would have served — but it is scheduled for deletion, and a proof that dies with
-     * a fixture is a proof that stops proving on someone else's schedule.
+     * The detection proof is a synthetic decoded schema rather than a fixture on disk,
+     * because a proof that dies with a fixture stops proving on someone else's schedule.
+     * That reasoning was written when `tests/fixtures/components/ppfixture` still declared
+     * sixteen slots and would have served; #1101 stripped it to zero (and did NOT delete
+     * it), so the fixture could no longer serve even if you wanted it to — and the census
+     * five lines below now reads that same fixture, asserting the zero.
      */
     public function testNoComponentDeclaresAStyleSlotAndDiscoveryCouldStillSeeOne(): void
     {

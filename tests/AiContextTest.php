@@ -1320,13 +1320,20 @@ class AiContextTest extends TestCase
 
     public function testSystemPromptOmitsStyleSlotsForComponentsWithNoSlots(): void
     {
-        // faq gained style slots in #100, and table/logos/embed gained the shared
-        // band-heading size slot in #436, so no band/content component in the
-        // catalog is "unstyled" anymore (embed used to be the example here). This
-        // guard is now dynamic: any component whose schema declares zero style
-        // slots must still omit the "Style slots:" line in the prompt. It passes
-        // vacuously today (every listed component has >= 1 slot) but re-arms the
-        // moment a slotless component is added.
+        // VACUOUS, AND SINCE #1101 FOR THE OPPOSITE REASON — worth stating precisely,
+        // because the two look identical from a green run.
+        //
+        // It was vacuous because EVERY listed component declared at least one slot, so the
+        // `continue` never fired and the guard walked a roster it could not fail on. The
+        // note said it would "re-arm the moment a slotless component is added". Every
+        // component is slotless now, and it did not re-arm: #1101 deleted the emitter, so
+        // the "Style slots:" line this guard looks for cannot be produced by any input.
+        // It went from a guard with no negative case to a guard with no positive one.
+        //
+        // Catalogued in #1110 with the other 47. Left in place rather than fixed here
+        // because #1110 owns the decision per method (restore the discrimination, add a
+        // floor, or delete with a reason) and doing it piecemeal inside a deletion PR is
+        // how a vacuity sweep becomes unreviewable.
         $prompt = pp_ai_system_prompt();
         $this->assertNotEmpty($prompt);
         $lines = explode("\n", $prompt);

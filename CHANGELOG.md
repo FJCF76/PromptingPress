@@ -223,9 +223,12 @@ The design contract reports that itself now, on the surface that has it —
 cancels it. `transparent_fill` is gone too; it read a field off a style slot and had been
 unable to fire on anything since #1026.
 
-**About 9 KB of dead teaching leaves the assistant's prompt**, which is re-sent every turn and
-is not cached: the per-component slot and recipe catalog, the slot-value grammar, and a
-three-step pre-flight that taught a model to prepare carefully for a call that cannot succeed.
+**About 9 KB of dead slot teaching is deleted from the source** — the per-component slot and
+recipe catalog, the slot-value grammar, and a three-step pre-flight that taught a model to
+prepare carefully for a call that cannot succeed. Measured honestly: the assistant's prompt
+does **not** shrink by that, because those blocks were already gated shut when `grid` was
+rebuilt and had stopped being emitted. The emitted prompt in fact grows about 1.1 KB, because
+the corrected guidance that replaces the wrong guidance is longer than it was.
 
 ### Fixed
 

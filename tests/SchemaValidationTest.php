@@ -1209,26 +1209,6 @@ class SchemaValidationTest extends TestCase
     // validator enforces it on the per-item path only, with the same
     // invalid_style_slot code. Grid-level style is unaffected.
 
-    /** @return array{eligible: array<string,string>, ineligible: string[]} */
-    private static function gridSlotScopes(): array
-    {
-        $schema = json_decode(
-            file_get_contents(dirname(__DIR__) . '/components/grid/schema.json'),
-            true
-        );
-        $slots      = $schema['styling']['style_slots'];
-        $eligible   = [];
-        $ineligible = [];
-        foreach ($slots as $name => $def) {
-            if (!empty($def['item_eligible'])) {
-                $eligible[$name] = $def['type'];
-            } else {
-                $ineligible[] = $name;
-            }
-        }
-        return ['eligible' => $eligible, 'ineligible' => $ineligible];
-    }
-
 
 /**
      * THE TWO SLOT-NAME INVARIANTS RETIRED AT #1101, and both were flagged RISKY by
