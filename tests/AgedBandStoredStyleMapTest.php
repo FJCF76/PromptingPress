@@ -376,6 +376,44 @@ class AgedBandStoredStyleMapTest extends TestCase
     }
 
     /**
+     * THE PREVIEW SHOWS THE CLEAR BEFORE IT HAPPENS, and this is the only reachability
+     * proof for a function #1101 kept against the inventory's advice.
+     *
+     * `_pp_diff_style()` was on the list of unreachable code to delete. It is reached here,
+     * on the one route that still carries a non-empty `style` map through a write: the
+     * aged-band clear. Without the preview an operator would be asked to approve a call
+     * whose visible effect is nothing — the props are unchanged and the removal is the
+     * whole point — so the diff is what makes the repair reviewable rather than a leap.
+     *
+     * Measured: two changes, each naming its slot and its `from` value, `to` null.
+     */
+    public function testThePreviewShowsEachSlotBeingRemoved(): void
+    {
+        $id      = $this->agedPage();
+        $preview = pp_preview_action('update_component', [
+            'post_id'         => $id,
+            'component_index' => 0,
+            'props'           => [],
+            'style'           => ['--grid-item-bg' => null, '--grid-gap' => null],
+        ]);
+
+        $this->assertNotInstanceOf(\WP_Error::class, $preview, 'the clear must be previewable');
+
+        $paths = array_column($preview['changes'], 'path');
+        $this->assertContains('composition[0].style.--grid-item-bg', $paths);
+        $this->assertContains('composition[0].style.--grid-gap', $paths);
+
+        foreach ($preview['changes'] as $change) {
+            $this->assertNull($change['to'], 'every change is a removal');
+            $this->assertNotNull(
+                $change['from'],
+                'and it names the value being removed — a diff that showed only the null '
+                . 'would tell the operator nothing about what they are losing'
+            );
+        }
+    }
+
+    /**
      * THE CHAT PAYLOAD, PINNED BECAUSE THE SEAM WENT GREEN OVER A REAL DEFECT.
      *
      * The PHP suite and the JS suite were both green while the chat card told an author
