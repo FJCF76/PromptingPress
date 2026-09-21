@@ -253,7 +253,8 @@ See `ai-instructions/validate-site.md`.
 - **Change content:** `update_component` (patch semantics — only the props you pass change)
 - **Change appearance:** edit the band's `udc` map and send the whole array back with
   `update_composition`. `update_component` declares no `udc` parameter, so this is
-  necessarily a read-modify-write: read with `wp pp operate inspect-composition`, edit the
+  necessarily a read-modify-write: read with `wp post meta get <id> _pp_composition` (the only
+  surface that returns the `udc` maps — `inspect-composition` carries none), edit the
   one band, write it all back. See `ai-instructions/playbook-revise-section.md`
 - **Add a band:** `add_component`
 - **Retheme the whole site:** `update_design_token` — overrides are stored in the database

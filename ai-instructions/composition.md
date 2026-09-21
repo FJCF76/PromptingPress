@@ -699,7 +699,7 @@ wp pp action execute create_page --run-id=<uuid> --params='{
       "props": {
         "layout": "split",
         "title": "Ship faster",
-        "subtitle": "Everything you need, nothing you do not.",
+        "subheading": "Everything you need, nothing you do not.",
         "button_text": "Start free",
         "button_url": "/signup"
       }
@@ -725,7 +725,7 @@ moments earlier is removed rather than left behind empty.
 To change one band afterwards, read the composition back, edit it, and send the whole thing:
 
 ```bash
-wp pp operate inspect --post_id=42
+wp post meta get 42 _pp_composition   # the resendable bytes, `udc` included; `inspect` has neither
 wp pp action execute update_composition --run-id=<uuid> --params='{
   "post_id": 42,
   "expected_version": 3,

@@ -38,7 +38,10 @@ Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_fil
 
 **A styling revision goes through `update_composition`, and that is not a violation of the rule above — it is the only route the engine offers.** Exactly two actions carry a `udc` map: `update_composition` and `create_page`. `update_component` declares `post_id`, `component_index`, `component_id`, `props`, `style` and `expected_version` — no `udc`; `add_component` and `style_component` likewise carry `style` and no `udc`. And `style` is not a substitute: it addresses style SLOTS, which only `grid` has, so on any of the nine v2 components those calls are refused with `no_style_slots`. That leaves the whole-composition write as the only way to restyle a v2 band. So a `udc` edit is necessarily a read-modify-write of the WHOLE composition:
 
-1. `wp pp operate inspect-composition --post_id=<page_id>` to read the current array
+1. `wp post meta get <page_id> _pp_composition` to read the current array. **Read the meta here,
+   not `inspect-composition`** — that report returns per-field patch targets and carries no `udc`
+   at all, so it cannot give you the map you are about to edit. Reading the meta is safe; writing
+   it is what skips validation, band-id minting, versioning and history
 2. edit the target band's `udc` map in place, leaving every other band's bytes untouched
 3. send the whole array back with `update_composition`
 

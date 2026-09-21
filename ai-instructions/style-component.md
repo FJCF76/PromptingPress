@@ -71,12 +71,21 @@ and `update_component` additionally requires `props`.
 So a styling edit is a read-modify-write of the composition:
 
 ```bash
-wp pp operate inspect --post_id=42          # read the composition and its version
+wp post meta get 42 _pp_composition          # the resendable bytes, `udc` maps included
 wp pp action execute update_composition --run-id=<uuid> --params='{ ... }'
 ```
 
-Pass the version you read back as `expected_version` so a concurrent edit is refused rather than
-silently overwritten.
+**Read the meta, not `inspect`.** This is the one place a raw meta READ is the right tool, and
+it is worth being exact about why: `wp pp operate inspect` returns the page map, tokens, chrome
+and smells but no composition array; `wp pp operate inspect-composition` returns per-field
+targets for patching and carries **no `udc` at all** (measured: zero occurrences in its report).
+Neither gives you the map you are about to edit. Reading the meta is safe — it is WRITING it
+that skips validation, minting, versioning and history.
+
+**On `expected_version`:** no read command surfaces the composition version today. It comes back
+on the `findings` envelope of your own last write (`composition_version`). Carry that forward if
+you have it; if you do not, omit `expected_version` and accept last-write-wins, or make a
+no-op-free write first to learn the number. Tracked as a gap, not a thing you are missing.
 
 ### Groups and parameters
 
@@ -151,7 +160,7 @@ Any value may be a map instead of a single value:
 }
 ```
 
-`d` is desktop (≥1024px) **and the base for anything you do not override**, `t` is tablet
+`d` is **the base and carries no media query at all** — it applies at every width unless a narrower tier overrides it, which is why writing only `d` is the normal case. `t` is tablet
 (768–1023px), `p` is phone (≤767px). The ranges do not overlap, so a value set at one breakpoint
 cannot be cancelled by another. Writing only `d` means that value applies at every width.
 
@@ -392,7 +401,7 @@ background's focal point `_band` → `background.position`, and a text colour th
 
 ### Recipes
 
-A recipe is a named bundle of slot values, applied with `apply_recipe`. Only `grid` ships any:
+A recipe is a named bundle of slot values. There is no `apply_recipe` action: a recipe is applied through `style_component`'s optional `recipe` parameter, which expands into slot values before any explicit `style` map you send alongside it is merged on top. Only `grid` ships any:
 
 | component | recipe |
 |---|---|
@@ -421,8 +430,9 @@ A write is not finished when it returns `ok: true`.
 1. **Read the envelope's `findings`.** An empty array is the positive confirmation. Anything in it
    is the engine telling you a value did not land the way you wrote it — a skipped preset group, a
    shadowed value, an unchecked raw property, a minted token.
-2. **Re-read the composition** with `wp pp operate inspect --post_id=<id>` and confirm the map is
-   what you sent.
+2. **Re-read the composition** with `wp post meta get <id> _pp_composition` and confirm the map is
+   what you sent. (`inspect` does not return the composition, and `inspect-composition` does not
+   return `udc` — see the read-modify-write note above.)
 3. **Check the page** with `wp pp check page --post_id=<id>` for rendered problems.
 4. **Look at it.** Contrast, wrapping and cramped text are not things any check catches for you.
 

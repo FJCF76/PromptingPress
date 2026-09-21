@@ -75,13 +75,55 @@ class DocumentedUdcSnippetsTest extends TestCase
     }
 
     /** Every ```json fenced block in a file, decoded. Undecodable blocks are reported. */
-    private function jsonBlocks(string $path): array
+    private function jsonBlocks(string $path, bool $includeShellParams = false): array
     {
         $text = (string) file_get_contents($path);
         preg_match_all('/```json\n(.*?)```/s', $text, $m);
+        $raws = $m[1];
+
+        // THE MOST-COPIED EXAMPLES ARE NOT IN A ```json FENCE, and that is where the one
+        // defect these walks exist to catch actually survived (#1087).
+        //
+        // A whole-page example is a COMMAND — `wp pp action execute create_page --params='{…}'`
+        // — so it is written in a ```bash fence, and every JSON guard in this file skipped it.
+        // composition.md's flagship `create_page` example is exactly that shape, and it carried
+        // an undeclared `subtitle` prop on its hero band through this entire suite: the parse
+        // check never saw the block, the `udc` walk never saw the block, and a planted
+        // regression in it produced a PASS. It is also the single most likely block in the
+        // corpus to be copied verbatim by an agent.
+        //
+        // So the payload of a `--params='…'` argument is lifted out of bash fences and walked
+        // like any other block.
+        //
+        // ONLY PAYLOADS THAT PARSE ARE LIFTED, and that restraint is deliberate rather than
+        // lazy. Two shapes here are not defects and must not fail: a doc legitimately ELIDES
+        // part of a long command (`--params='{"title":"Product Launch", ... }'`), which is
+        // clearer prose and not valid JSON; and this extractor reads the payload with a lazy
+        // match to the next single quote, which truncates a multi-line payload that contains
+        // an apostrophe. Failing on either would be asserting about this regex rather than
+        // about the docs. What is lifted is a strict ADDITION of subjects — composition.md's
+        // 648-byte flagship `create_page` command among them, which is the block the
+        // `subtitle` defect lived in.
+        //
+        // OPT-IN, because it is only sound where attribution is. The instruction-file walks
+        // take SELF-IDENTIFYING bands (a block naming its own `component`), so a lifted
+        // payload is either a band or ignored. The per-component doc walk instead attributes
+        // a bare map to the component its file is about — and a lifted `import_media` payload
+        // (`{"url": "…"}`) is not a `udc` map at all, so attributing it to `cta` produced a
+        // confident refusal about a doc that is correct. Caller decides.
+        preg_match_all("/```bash\n(.*?)```/s", $includeShellParams ? $text : '', $shell);
+        foreach ($shell[1] as $script) {
+            if (preg_match_all("/--params='(.*?)'/s", $script, $params)) {
+                foreach ($params[1] as $payload) {
+                    if (is_array(json_decode($payload, true))) {
+                        $raws[] = $payload;
+                    }
+                }
+            }
+        }
 
         $out = [];
-        foreach ($m[1] as $i => $raw) {
+        foreach ($raws as $i => $raw) {
             $raw     = trim($raw);
             $decoded = json_decode($raw, true);
 
@@ -352,7 +394,7 @@ class DocumentedUdcSnippetsTest extends TestCase
     {
         $checked = 0;
         foreach ($this->instructionFiles() as $file) {
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 $this->assertNotNull(
                     $block['json'],
                     sprintf(
@@ -381,7 +423,7 @@ class DocumentedUdcSnippetsTest extends TestCase
     {
         $checked = 0;
         foreach ($this->instructionFiles() as $file) {
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
                     if (\pp_udc_component_roles($component) === []) {
                         continue;
@@ -406,8 +448,10 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        // 18 self-identifying maps today (build-landing-page 4, composition 7,
-        // style-component 7), and the floor sits just under it rather than at a token value.
+        // 19 self-identifying maps today, and the floor sits just under it rather than at a
+        // token value. The nineteenth arrived when the extractor learned to read a
+        // `--params='…'` payload out of a ```bash fence, which is where composition.md's
+        // flagship whole-page `create_page` example lives.
         //
         // WHY IT MOVED FROM 6, and it is the reason this floor matters more than most: the
         // walk this test consumes was widened in #1087 from two levels to a full recursive
@@ -418,7 +462,7 @@ class DocumentedUdcSnippetsTest extends TestCase
         // composition.md's flagship example and build-landing-page.md's five-band recipe, the
         // exact maps it was written to reach — left this suite GREEN. A floor has to sit close
         // enough to the real count to notice the change it is guarding.
-        $this->assertGreaterThan(16, $checked, 'the instruction-file `udc` walk lost subjects');
+        $this->assertGreaterThan(17, $checked, 'the instruction-file `udc` walk lost subjects');
     }
 
     /** Component-attributed `udc` maps in one decoded block, at either depth. */
@@ -629,7 +673,7 @@ class DocumentedUdcSnippetsTest extends TestCase
         $sources = [['the runtime prompt', $this->promptUdcExamples(\pp_ai_system_prompt())]];
         foreach ($this->instructionFiles() as $file) {
             $maps = [];
-            foreach ($this->jsonBlocks($file) as $block) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
                 foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
                     $maps[] = [$component, $map, 'block ' . $block['index']];
                 }
@@ -740,6 +784,93 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
         return $inks;
+    }
+
+    /**
+     * EVERY PROP AN INSTRUCTION FILE TELLS AN AGENT TO WRITE IS DECLARED (#1087).
+     *
+     * The sibling check above runs each documented band's `udc` map through the write path.
+     * Nothing ran its `props`, and the gap was not theoretical: this PR's own rewrite of
+     * composition.md's flagship whole-page example wrote `"subtitle"` on a hero band. hero
+     * declares `subheading`; `subtitle` is a retired legacy key with no alias surface (#604),
+     * so the documented command is refused with `unknown_prop` and creates nothing — and the
+     * suite was green twice over, because the block's `udc` map was valid AND the block sits
+     * in a ```bash fence that no walk here used to read.
+     *
+     * A documented command that cannot run is worse than a missing one: an agent executes it,
+     * gets a refusal for a shape the docs handed it, and cannot tell whether the doc or the
+     * engine is wrong.
+     */
+    public function testEveryInstructionFilePropKeyIsDeclaredByItsComponent(): void
+    {
+        $checked = 0;
+        $errors  = [];
+
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file, true) as $block) {
+                foreach ($this->selfIdentifyingBands($block['json']) as [$component, $props]) {
+                    $path = dirname(__DIR__) . "/components/{$component}/schema.json";
+                    if (!is_file($path)) {
+                        continue;
+                    }
+                    $schema = json_decode((string) file_get_contents($path), true);
+                    if (!is_array($schema) || !isset($schema['props']) || !is_array($schema['props'])) {
+                        continue;
+                    }
+                    $declared = array_keys($schema['props']);
+                    $retired  = array_keys(\pp_component_retired_props($component));
+                    foreach (array_keys($props) as $key) {
+                        $checked++;
+                        if (in_array($key, $declared, true)) {
+                            continue;
+                        }
+                        $errors[] = sprintf(
+                            '%s block %d: `%s` documents prop `%s`, which the component %s. Declared: %s',
+                            basename($file),
+                            $block['index'],
+                            $component,
+                            $key,
+                            in_array($key, $retired, true)
+                                ? 'RETIRED (the write is refused with `retired_prop`)'
+                                : 'does not declare (the write is refused with `unknown_prop`)',
+                            implode(', ', $declared)
+                        );
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $errors, "an instruction file documents a prop the write path refuses:\n"
+            . implode("\n", $errors));
+
+        // FAIL-CLOSED, with the floor under the measured count so a walk that stops finding
+        // bands cannot pass by asserting on nothing.
+        $this->assertGreaterThan(80, $checked, 'the documented-prop walk lost its subjects');
+    }
+
+    /** Component-attributed `props` maps in one decoded block, at any depth. */
+    private function selfIdentifyingBands($json): array
+    {
+        $found = [];
+        $take  = static function ($entry) use (&$found) {
+            if (is_array($entry)
+                && isset($entry['component'], $entry['props'])
+                && is_string($entry['component'])
+                && is_array($entry['props'])) {
+                $found[] = [$entry['component'], $entry['props']];
+            }
+        };
+        $walk = static function ($node) use (&$walk, $take) {
+            if (!is_array($node)) {
+                return;
+            }
+            $take($node);
+            foreach ($node as $child) {
+                $walk($child);
+            }
+        };
+        $walk($json);
+        return $found;
     }
 
     /**

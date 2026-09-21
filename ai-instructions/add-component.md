@@ -223,8 +223,12 @@ buys you a role that passes CI and styles nothing.
   often than they agree.
 
   **`defaults` and an authored `udc` map do not accept the same values, and this is the
-  trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is
-  what every shipped `_band` uses for its padding, stats included — but the *authored*
+  trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is what
+  EIGHT of the nine v2 `_band` roles use for their padding, stats included. `hero` is
+  deliberately outside that rhythm, carrying its own `@space-2xl` / `@space-xl` scale, and
+  chrome is outside it too (`footer` uses `@space-lg`, `nav` declares no spacing default),
+  so "every band shares one rhythm" is the rule and a band is allowed its own scale when
+  the design calls for it. But the *authored*
   path refuses the same string: `invalid_prop_value`, *"references "@pp-band-padding",
   which is not a registered design token. Only site design tokens resolve here."* The
   band props live in a second `:root` block the token registry does not read, so they

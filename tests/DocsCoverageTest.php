@@ -398,34 +398,73 @@ class DocsCoverageTest extends TestCase
             . 'for it — extend $words, then fix the doc sentence.'
         );
 
-        $doc = $this->doc('ai-instructions/add-component.md');
-        $this->assertStringContainsString(
-            "the {$words[$total]} v2-rebuild keys",
-            $doc,
-            "ai-instructions/add-component.md states a stale retired-prop count. The "
-            . "registry declares {$total} keys across " . count(array_unique(array_column($keys, 0)))
-            . ' components. An agent reading the stale number is told a retired prop is an '
-            . 'unknown one, so it never learns where the value went.'
-        );
+        // EVERY COPY OF THE ROSTER, not just the first one written (#1087).
+        //
+        // This check used to cover `ai-instructions/add-component.md` alone, and its own
+        // docblock called that "a third copy of a registry fact". The prose rewrite then
+        // widened the roster in two MORE places — validate-site.md's repair table and the CLI
+        // reference's error-code migration — because both are genuinely the right place for a
+        // reader to meet it. That is three full enumerations of a registry fact with one of
+        // them guarded, which is exactly how validate-site.md's list came to say fifteen keys
+        // when the registry had nineteen.
+        //
+        // Each entry carries its own anchor because each file states the roster in its own
+        // words, and each anchor is FAIL-CLOSED: if the sentence is reworded so the anchor
+        // stops matching, this fails rather than silently checking nothing.
+        $sites = [
+            [
+                'ai-instructions/add-component.md',
+                "the {$words[$total]} v2-rebuild keys",
+                '/the ' . $words[$total] . ' v2-rebuild keys \((.+?)\) return/',
+            ],
+            [
+                'ai-instructions/validate-site.md',
+                "nineteen keys across eight components",
+                '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, (.+?) `table` is v2/s',
+            ],
+            [
+                'docs/reference-apply-cli.md',
+                "**{$words[$total]}** keys",
+                '/the \*\*' . $words[$total] . '\*\* keys across \*\*[a-z-]+\*\* components(.+?)moved from/s',
+            ],
+        ];
 
-        // And the roster itself: every declaring component and every key it retired has to
-        // be NAMED, or the sentence's count is right while its list still omits a component.
-        // Scoped to the parenthetical, not the whole doc: matching document-wide would let
-        // a component named in some unrelated checklist satisfy a roster it has left.
-        $this->assertSame(
-            1,
-            preg_match('/the ' . $words[$total] . ' v2-rebuild keys \((.+?)\) return/', $doc, $roster),
-            "ai-instructions/add-component.md no longer carries a parenthesised "
-            . 'retired-prop roster after its count, so nothing states WHICH keys they are.'
-        );
-        foreach ($keys as [$component, $prop]) {
-            $this->assertMatchesRegularExpression(
-                // Possessive either way: "hero's" and the plural "testimonials'".
-                '/' . preg_quote($component, '/') . "(?:'s|') [^;]*?`" . preg_quote($prop, '/') . '`/',
-                $roster[1],
-                "ai-instructions/add-component.md's retired-prop roster never names "
-                . "{$component}'s `{$prop}`. The roster reads: {$roster[1]}"
+        $componentCount = count(array_unique(array_column($keys, 0)));
+        foreach ($sites as [$relative, $countPhrase, $rosterPattern]) {
+            $doc = $this->doc($relative);
+            $this->assertStringContainsString(
+                $countPhrase,
+                $doc,
+                "{$relative} states a stale retired-prop count. The registry declares "
+                . "{$total} keys across {$componentCount} components. An agent reading the "
+                . 'stale number is told a retired prop is an unknown one, so it never learns '
+                . 'where the value went.'
             );
+
+            // And the roster itself: every declaring component and every key it retired has
+            // to be NAMED, or the sentence's count is right while its list still omits a
+            // component. Scoped to the roster span, not the whole doc: matching document-wide
+            // would let a component named in some unrelated checklist satisfy a roster it has
+            // left.
+            $this->assertSame(
+                1,
+                preg_match($rosterPattern, $doc, $roster),
+                "{$relative} no longer carries a retired-prop roster its count can be checked "
+                . 'against, so nothing states WHICH keys they are. Re-point the anchor in this '
+                . 'test if the sentence was deliberately reworded.'
+            );
+            foreach ($keys as [$component, $prop]) {
+                $this->assertMatchesRegularExpression(
+                    // Possessive either way: "hero's" and the plural "testimonials'" — and
+                    // with or without the backtick the newer copies wrap the name in, so
+                    // "`cta`'s `theme`" and "cta's `theme`" both satisfy it. Requiring one
+                    // house style here would fail a roster that is correct.
+                    '/' . preg_quote($component, '/') . "`?(?:'s|') [^;]*?`" . preg_quote($prop, '/') . '`/',
+                    $roster[1],
+                    "{$relative}'s retired-prop roster never names {$component}'s "
+                    . "`{$prop}`. The roster reads: {$roster[1]}"
+                );
+            }
         }
     }
 
