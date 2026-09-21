@@ -7695,6 +7695,12 @@ function pp_udc_composition_findings(array $items): array {
     // `wp pp check page` and restore paths its own comment names as having no size gate
     // in front of them. Found by the adversarial pass.
     $css_disclosed = 0;
+    // HOISTED FOR THE SAME REASON, and the first cut of the item arm got this wrong
+    // while quoting the paragraph above: scoped per BAND, a bound of 200 delivers 200
+    // PER BAND. Measured at 400 cards on each of 50 bands: 10,000 findings and +8 MB
+    // from a counter whose own comment claimed 200.
+    $item_disclosed   = 0;
+    $tokens_disclosed = 0;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -7726,8 +7732,13 @@ function pp_udc_composition_findings(array $items): array {
         // them no-ops without a second condition on each one. Nothing is written back
         // — `$item` is a by-value copy of one composition entry — so this changes what
         // is REPORTED and never what is stored.
+        // RESOLVED ONCE PER BAND. Four arms below need this and each rebuilt it, so
+        // pp_udc_item_maps() — which walks the whole repeater and re-validates the
+        // `item_roles` declaration on every call — ran two to four times per band.
+        $band_item_maps = pp_udc_item_maps($item);
+
         if (!isset($item['udc']) || !is_array($item['udc'])) {
-            if (pp_udc_item_maps($item) === []) {
+            if ($band_item_maps === []) {
                 continue; // No band map and no item map: genuinely nothing to say.
             }
             $item['udc'] = [];
@@ -7760,7 +7771,7 @@ function pp_udc_composition_findings(array $items): array {
         // "typography skipped" while the emitter painted it.
         $roles = pp_udc_component_roles($component);
         $preset_maps = [['', $item['udc']]];
-        foreach (pp_udc_item_maps($item) as $preset_item_id => $preset_item_map) {
+        foreach ($band_item_maps as $preset_item_id => $preset_item_map) {
             $preset_maps[] = [(string) $preset_item_id, $preset_item_map];
         }
         foreach ($preset_maps as [$locator, $map]) {
@@ -7915,7 +7926,7 @@ function pp_udc_composition_findings(array $items): array {
         // default, and a BAND value cancelled by an ITEM value.
         $item_declaration = pp_udc_item_roles($component);
         if ($item_declaration !== null) {
-            $all_item_maps = pp_udc_item_maps($item);
+            $all_item_maps = $band_item_maps;
 
             // (a) AN ITEM'S INHERITED VALUE, CANCELLED BY A PART'S OWN DEFAULT.
             //
@@ -7938,7 +7949,8 @@ function pp_udc_composition_findings(array $items): array {
             // with a different axis. Measured here at 400 styled cards: 400 findings
             // before the bound, on a function `wp pp check page`, restore_composition
             // and every post-write envelope all reach.
-            $item_disclosed = 0;
+            // `$item_disclosed` is declared OUTSIDE the band loop, beside
+            // `$css_disclosed` — a per-band counter bounds nothing that matters.
             foreach ($all_item_maps as $item_id => $item_map) {
                 if ($item_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                     break;
@@ -8224,7 +8236,7 @@ function pp_udc_composition_findings(array $items): array {
         // reported `udc_unused_band_token` on the very write that created it,
         // telling an author their own value "has no effect" while it paints.
         $referenced      = _pp_udc_referenced_token_names($item['udc']);
-        $token_item_maps = pp_udc_item_maps($item);
+        $token_item_maps = $band_item_maps;
         foreach ($token_item_maps as $item_map) {
             foreach (_pp_udc_referenced_token_names($item_map) as $ref_name => $ignored_ref) {
                 $referenced[$ref_name] = true;
@@ -8244,6 +8256,19 @@ function pp_udc_composition_findings(array $items): array {
         // --pp-quote-typography-size-d" — the §3.1 disclosure, reconstructed from
         // the only two facts that matter, both of which are still on disk.
         foreach ($tokens as $name => $literal) {
+            // BOUNDED ACROSS THE COMPOSITION, same discipline as the `_css` and
+            // item-shadowing arms, and the item tier is what made this one matter: B4
+            // mints one band token per responsive ITEM value, so the token count scales
+            // with the card count. Measured at 40 bands x 50 cards x 24 responsive
+            // params: 48,000 findings, 7.4 MB of message strings, +34 MB peak, 426 ms in
+            // ONE call. The accepted-write path is protected by its stored-bytes gate;
+            // `wp pp check page` and restore_composition carry the count budget and NOT
+            // that gate, which is the exposure. Nothing downstream can display more than
+            // PP_WRITE_FINDINGS_BUDGET of them anyway, so the cap costs no
+            // operator-visible information.
+            if ($tokens_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break;
+            }
             if (!is_scalar($literal) || !_pp_udc_is_mint_shaped_name((string) $name)) {
                 continue;
             }
@@ -8255,6 +8280,7 @@ function pp_udc_composition_findings(array $items): array {
             if (!_pp_udc_name_is_the_engines_own_mint((string) $name, $item['udc'], $token_item_maps)) {
                 continue;
             }
+            $tokens_disclosed++;
             $findings[] = [
                 'type'    => 'udc_token_minted',
                 'message' => sprintf(

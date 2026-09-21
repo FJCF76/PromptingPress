@@ -1117,6 +1117,33 @@ class GridItemUdcTest extends TestCase
             $shadow,
             'the item axis must be bounded at the source, exactly as the `_css` axis is'
         );
+
+        // ACROSS THE COMPOSITION, NOT PER BAND — and the first cut of this bound got
+        // that wrong while quoting the sibling that had already learned it. A counter
+        // declared inside the per-band loop delivers its bound ONCE PER BAND: measured
+        // at 400 cards on each of 50 bands, 10,000 findings from a bound of 200.
+        //
+        // Asserted at TEN bands rather than one, because one band cannot tell a
+        // composition-wide counter from a per-band one.
+        $tenBands = [];
+        for ($b = 0; $b < 10; $b++) {
+            $tenBands[] = [
+                'component' => 'grid',
+                'id'        => sprintf('pp-%08x', $b),
+                'props'     => ['items' => $items],
+            ];
+        }
+        $wide = 0;
+        foreach (pp_udc_composition_findings($tenBands) as $finding) {
+            if ($finding['type'] === 'udc_item_value_shadowed_by_role_default') {
+                $wide++;
+            }
+        }
+        $this->assertLessThanOrEqual(
+            PP_UDC_MAX_EMIT_DROPS,
+            $wide,
+            'the bound is composition-wide: a per-band counter multiplies it by the band count'
+        );
     }
 
     /**
