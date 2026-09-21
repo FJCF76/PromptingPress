@@ -1,187 +1,239 @@
 # Build a Complete Landing Page
 
-End-to-end guide to creating a new landing page using PromptingPress components.
+End-to-end recipe for a new landing page: one composition, written once, styled through
+the bands' own `udc` maps.
+
+**A landing page is not a template file.** Earlier versions of this guide had you create
+`templates/landing-page.php`, a root loader, an ACF field group, and a `Page Attributes`
+selection — a whole parallel authoring system. None of that is how a page is built now,
+and none of it is needed. A page is a **composition**: a JSON array of bands stored on the
+page, created and edited through typed actions. The only template involved is
+`composition.php`, which `create_page` assigns for you.
+
+Read `ai-instructions/composition.md` for the composition format and
+`ai-instructions/style-component.md` for the `udc` map. This page is the worked example
+that puts them together.
 
 ---
 
-## Step 1 — Create the template file
+## Step 1 — Open a run
 
-Create `/templates/landing-page.php`:
+Every mutating command needs a run token, and the token must be the one `inspect` minted:
 
-```php
-<?php
-/**
- * Template Name: Landing Page
- *
- * templates/landing-page.php — Custom landing page with full component stack.
- */
-
-require_once get_template_directory() . '/templates/base.php';
-
-pp_base_template(function () {
-
-    // Hero — the first thing visitors see
-    pp_get_component('hero', [
-        'title'    => pp_field('lp_hero_title')    ?: 'Your Compelling Headline Here',
-        'subheading' => pp_field('lp_hero_subtitle') ?: 'One sentence that explains what you do and who it is for.',
-        'button_text' => pp_field('lp_cta_text')      ?: 'Get Started',
-        'button_url'  => pp_field('lp_cta_url')       ?: '#contact',
-        'layout'   => 'centered',
-    ]);
-
-    // What is it — narrative section
-    pp_get_component('section', [
-        'title'     => pp_field('lp_section_title')     ?: 'What Makes This Different',
-        'body'      => pp_field('lp_section_body')      ?: '<p>Describe the core problem and how your product solves it. Be specific. Avoid generic phrases like "all-in-one solution."</p>',
-        'image_url' => pp_field('lp_section_image_url') ?: '',
-        'image_alt' => pp_field('lp_section_image_alt') ?: '',
-        'layout'    => pp_field('lp_section_layout')    ?: 'text-only',  // omit layout prop in compositions — text-only is the default
-    ]);
-
-    // Feature grid — real content cards, not decoration
-    $grid_items = pp_field('lp_features') ?: [
-        [
-            'title' => 'Feature One',
-            'text'  => 'Describe this feature with enough specificity that a prospect understands what it actually does.',
-        ],
-        [
-            'title' => 'Feature Two',
-            'text'  => 'Another real feature. Avoid icons-in-circles with 2-line descriptions.',
-        ],
-        [
-            'title' => 'Feature Three',
-            'text'  => 'Third feature. Three is a good number for a landing page grid.',
-        ],
-    ];
-
-    pp_get_component('grid', [
-        'title' => pp_field('lp_features_title') ?: 'Key Features',
-        'items' => $grid_items,
-    ]);
-
-    // FAQ — answer the questions that stop people from converting
-    $faq_items = pp_field('lp_faq_items') ?: [
-        [
-            'question' => 'How does this work?',
-            'answer'   => 'Explain the mechanism clearly.',
-        ],
-        [
-            'question' => 'What does it cost?',
-            'answer'   => 'Be direct. Vague pricing information reduces conversions.',
-        ],
-        [
-            'question' => 'Do I need [common prerequisite]?',
-            'answer'   => 'Address the most common blocker for your audience.',
-        ],
-    ];
-
-    pp_get_component('faq', [
-        'title' => pp_field('lp_faq_title') ?: 'Common Questions',
-        'items' => $faq_items,
-    ]);
-
-    // Final CTA — make it easy to take the next step
-    pp_get_component('cta', [
-        'title'       => pp_field('lp_final_cta_title')  ?: 'Ready to get started?',
-        'body'        => pp_field('lp_final_cta_text')   ?: 'One sentence reinforcing the value.',
-        'button_text' => pp_field('lp_final_cta_button') ?: 'Start Now',
-        'button_url'  => pp_field('lp_final_cta_url')    ?: '#contact',
-        'layout'      => 'full-width',
-    ]);
-
-});
+```bash
+wp pp operate inspect                       # capture `run_id` from the JSON output
+wp pp apply preflight --run-id=<uuid>       # site-scoped: no --post_id, the page does not exist yet
 ```
 
+A self-generated UUID passes format validation and then fails at EDIT, because only the
+token `inspect` records carries run state. It expires two hours after `inspect`; re-run
+`inspect` if it does. Full contract: `docs/reference-apply-cli.md`.
+
 ---
 
-## Step 2 — Create the root loader
+## Step 2 — Plan the bands
 
-Create `/landing-page.php` at the theme root:
+A landing page is a sequence of bands, each one component. A five-band spine that works:
 
-```php
-<?php
-/*
- * Template Name: Landing Page
- */
-get_template_part('templates/landing-page');
+| Band | Component | Job |
+|---|---|---|
+| 1 | `hero` | The headline and the primary action |
+| 2 | `section` | What it is, in prose, with an image |
+| 3 | `grid` | The real features, as cards |
+| 4 | `faq` | The questions that stop people converting |
+| 5 | `cta` | The closing action |
+
+Pick from the ten composable components — `hero`, `section`, `grid`, `cta`, `faq`,
+`stats`, `table`, `embed`, `logos`, `testimonials`. **`nav` and `footer` are not on that
+list**: they are site chrome the template renders on every page, and composing either is
+rejected with `template_owned_component`.
+
+Give every band you might want to target later an authored `id`. Ids you do not author
+are generated as `pp-<hex8>`, which is stable in place but regenerates on a full
+re-apply — and a `udc` map is scoped to the band, so a durable id is what makes a durable
+style.
+
+---
+
+## Step 3 — Write the composition
+
+Content is `props`; appearance is `udc`. The two never mix: there is no `theme` prop on
+any of the nine v2 components, and no style slots on any of them either.
+
+```json
+{
+  "title": "Product Launch",
+  "slug": "launch",
+  "composition": [
+    {
+      "component": "hero",
+      "props": {
+        "id": "lp-hero",
+        "title": "Ship your site in an afternoon",
+        "subheading": "One sentence that explains what you do and who it is for.",
+        "button_text": "Get Started",
+        "button_url": "#closing",
+        "layout": "centered"
+      },
+      "udc": {
+        "_band": { "background": { "fill": "@color-surface" } }
+      }
+    },
+    {
+      "component": "section",
+      "props": {
+        "id": "lp-what",
+        "title": "What makes this different",
+        "body": "<p>Describe the core problem and how the product solves it. Be specific.</p>",
+        "layout": "image-right",
+        "image_url": "/wp-content/uploads/product.png",
+        "image_alt": "The editor with a composition open"
+      },
+      "udc": {
+        "heading-accent": { "typography": { "color": "@color-accent" } }
+      }
+    },
+    {
+      "component": "grid",
+      "props": {
+        "id": "lp-features",
+        "title": "Key features",
+        "items": [
+          { "title": "Feature one", "text": "Describe it with enough specificity that a prospect understands what it does." },
+          { "title": "Feature two", "text": "Another real feature." },
+          { "title": "Feature three", "text": "Three is a good number for a landing-page grid." }
+        ]
+      }
+    },
+    {
+      "component": "faq",
+      "props": {
+        "id": "lp-faq",
+        "title": "Common questions",
+        "items": [
+          { "question": "How does this work?", "answer": "Explain the mechanism clearly." },
+          { "question": "What does it cost?", "answer": "Be direct. Vague pricing reduces conversions." }
+        ]
+      },
+      "udc": {
+        "_band": { "background": { "fill": "@color-surface" } }
+      }
+    },
+    {
+      "component": "cta",
+      "props": {
+        "id": "closing",
+        "title": "Ready to get started?",
+        "body": "One sentence reinforcing the value.",
+        "button_text": "Start now",
+        "button_url": "/signup",
+        "layout": "full-width"
+      },
+      "udc": {
+        "_band": { "background": { "fill": "@color-bg-inverted" } },
+        "heading": { "typography": { "color": "@color-bg" } },
+        "text": { "typography": { "color": "@color-bg" } },
+        "button": {
+          "background": { "fill": "@color-accent-on-inverted" },
+          "typography": { "color": "@color-bg-inverted" }
+        }
+      }
+    }
+  ]
+}
 ```
 
+**Read the closing band carefully — it is four writes, not one, and that is the single
+most common v2 mistake.** A dark band is a `_band` `background.fill` AND a
+`typography.color` on every text role over it. Nothing infers "this band is dark": the
+old `theme: "inverted"` did the recolouring as a bundle and it is retired, so a fill set
+alone leaves the heading at the inherited `@color-text` and renders near-black on
+near-black. The button is its own pair again — a fill and an ink — because a role's
+colours do not follow the band's.
+
+`@color-bg` as INK on an inverted band is deliberate, not a typo: it is the semantic
+opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
+`@color-accent-on-inverted` exists because the plain `@color-accent` drops to about
+3.2:1 on the default inverted background and fails AA.
+
+Note that `grid` carries no `udc` — it is the one component not on the design contract.
+Style it with `style_component` and its 38 style slots instead.
+
 ---
 
-## Step 3 — Assign the template in WP Admin
+## Step 4 — Create the page
 
-1. Go to **Pages → Add New**
-2. Give the page a title (e.g. "Home" or "Landing")
-3. In **Page Attributes → Template**, select **Landing Page**
-4. Publish the page
-5. To use it as the homepage: **Settings → Reading → A static page → Front page → [select your page]**
+One call creates the page, assigns `composition.php`, validates every band and mints the
+band ids:
 
----
+```bash
+wp pp action execute create_page --run-id=<uuid> --params@composition.json
+```
 
-## Step 4 — Fill in ACF fields (if ACF is installed)
+If it is REFUSED, normally no page was left behind and no slug was reserved (#719) —
+re-run the same command rather than hunting for a half-made page. If a page WAS left, the
+message says so and names it.
 
-Create an ACF field group with these fields and assign it to this template:
-
-| Field name           | Type      | Label |
-|----------------------|-----------|-------|
-| lp_hero_title        | Text      | Hero Title |
-| lp_hero_subtitle     | Textarea  | Hero Subtitle |
-| lp_cta_text          | Text      | CTA Button Text |
-| lp_cta_url           | URL       | CTA Button URL |
-| lp_section_title     | Text      | Section Title |
-| lp_section_body      | WYSIWYG   | Section Body |
-| lp_section_image_url | URL       | Section Image URL |
-| lp_section_image_alt | Text      | Section Image Alt |
-| lp_section_layout    | Select    | Layout (text-only / image-left / image-right) |
-| lp_features_title    | Text      | Features Heading |
-| lp_features          | Repeater  | Features (sub-fields: title, text, image_url, link_url, link_text) |
-| lp_faq_title         | Text      | FAQ Heading |
-| lp_faq_items         | Repeater  | FAQ Items (sub-fields: question, answer) |
-| lp_final_cta_title   | Text      | Final CTA Title |
-| lp_final_cta_text    | Text      | Final CTA Body |
-| lp_final_cta_button  | Text      | Final CTA Button Label |
-| lp_final_cta_url     | URL       | Final CTA Button URL |
-
-**Without ACF:** The page renders with the hardcoded fallback defaults. No plugin required.
+To make it the homepage: **Settings → Reading → A static page → Front page**.
 
 ---
 
 ## Step 5 — Verify non-English content (if applicable)
 
-If the site content is in a non-English language, perform a dedicated orthography verification
-pass after generating the composition JSON and before applying it.
+If the site content is in a non-English language, do a dedicated orthography pass after
+generating the composition JSON and before applying it.
 
-AI agents generating content inside JSON / CLI-heavy workflows are more likely to drop
-diacritics and language-specific characters. This is not a system bug — the pipeline
-preserves Unicode correctly end to end — but the authored content can be wrong.
+Agents generating content inside JSON / CLI-heavy workflows are more likely to drop
+diacritics and language-specific characters. This is not a pipeline bug — Unicode is
+preserved end to end — but the authored content can be wrong.
 
 Explicitly verify:
-- **Diacritics / accent marks** — e.g. `tecnología` not `tecnologia`, `diseño` not `diseno`
-- **Language-specific punctuation** — e.g. `¿`, `¡`, `ñ`, `ç`, `ü`
-- **Headings and CTA text** — these are highest-visibility, highest-impact if wrong
-- **Common high-frequency words** in the target language that are often degraded in code contexts
+- **Diacritics / accent marks** — `tecnología` not `tecnologia`, `diseño` not `diseno`
+- **Language-specific punctuation** — `¿`, `¡`, `ñ`, `ç`, `ü`
+- **Headings and CTA text** — highest visibility, highest impact if wrong
+- **Common high-frequency words** in the target language that degrade in code contexts
 
 Do not skip this step. Orthographic errors in a non-English site are immediately visible
-to native speakers and undermine the credibility of the entire page.
+to native speakers and undermine the credibility of the whole page.
 
 ---
 
 ## Step 6 — Write real copy
 
-Replace every fallback default in the template with specific, concrete content. Avoid:
+Replace every placeholder above with specific, concrete content. Avoid:
 
 - "Welcome to [Site]"
 - "Your all-in-one solution for..."
 - "Unlock the power of..."
 - "Discover the difference"
 
-Use: customer-specific language, concrete feature descriptions, and real pricing.
+Use customer-specific language, concrete feature descriptions, and real pricing.
 
 ---
 
-## Step 7 — Customization
+## Step 7 — Check it
 
-- **Reorder components:** Rearrange the `pp_get_component()` calls inside `pp_base_template()`
-- **Remove a component:** Delete that `pp_get_component()` call
-- **Add a component:** Insert a new `pp_get_component()` call (see `ai-instructions/add-component.md`)
-- **Restyle:** Set design tokens via the `update_design_token` apply — overrides are stored in the database and survive theme updates (see `ai-instructions/retheme.md`). Do not edit `assets/css/base.css` for a site; that is release-level only and is overwritten on update.
+```bash
+wp pp check page --post_id=<id>        # composition validity, styling, smells
+wp pp validate page --post_id=<id>     # the rendered HTML
+```
+
+`check page` is the inspector and never changes its exit code; `wp pp validate site` is
+the gate. Read the `udc` advisories — `udc_preset_value_shadowed_by_role_default` and
+`udc_css_overrides_group_value` both describe a value you wrote that is not painting.
+See `ai-instructions/validate-site.md`.
+
+---
+
+## Step 8 — Revise
+
+- **Reorder bands:** `reorder_components`
+- **Change content:** `update_component` (patch semantics — only the props you pass change)
+- **Change appearance:** edit the band's `udc` map and send the whole array back with
+  `update_composition`. `update_component` declares no `udc` parameter, so this is
+  necessarily a read-modify-write: read with `wp pp operate inspect-composition`, edit the
+  one band, write it all back. See `ai-instructions/playbook-revise-section.md`
+- **Add a band:** `add_component`
+- **Retheme the whole site:** `update_design_token` — overrides are stored in the database
+  and survive theme updates. Do not edit `assets/css/base.css` for a site; that is
+  release-level and is overwritten on update. See `ai-instructions/retheme.md`

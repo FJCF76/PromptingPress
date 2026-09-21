@@ -425,12 +425,30 @@ class DocumentedUdcSnippetsTest extends TestCase
                 $found[] = [$entry['component'], $entry['udc']];
             }
         };
-        $take($json);
-        if (array_is_list($json)) {
-            foreach ($json as $entry) {
-                $take($entry);
+        // WALK THE WHOLE DOCUMENT, not just its first two levels (#1087, widened).
+        //
+        // The first cut took the block itself and, if the block was a LIST, each of its
+        // entries. That reaches a lone band object and a bare composition array — and
+        // misses the shape a doc most naturally uses to show a WHOLE PAGE: the params
+        // object for `create_page`, where the bands sit one level down under
+        // `composition`. Both composition.md's flagship example and
+        // build-landing-page.md's five-band recipe are written that way, so the richest
+        // `udc` examples in the corpus were the ones nothing validated. A planted
+        // `"nonesuch"` role in the latter passed the suite, which is how this was found.
+        //
+        // The predicate is what keeps a recursive walk honest: an entry must carry BOTH
+        // a string `component` and an array `udc` before it is taken, so descending into
+        // unrelated structure yields nothing rather than guesses.
+        $walk = static function ($node) use (&$walk, $take) {
+            if (!is_array($node)) {
+                return;
             }
-        }
+            $take($node);
+            foreach ($node as $child) {
+                $walk($child);
+            }
+        };
+        $walk($json);
         return $found;
     }
 
