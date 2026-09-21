@@ -562,7 +562,7 @@
     },
     "card-link": {
       "selector": ".grid__item-link",
-      "description": "The card's 'Read more' link. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so darkening a card means setting this colour in the same write. ITS FOCUS RING IS DRAWN INSET, AND THAT IS STRUCTURAL RATHER THAN DECORATIVE: `.grid__item` declares `overflow: hidden` to clip a banner image to the card radius, and base.css paints focus rings 2px OUTSIDE the control, so an outset ring on this link lands entirely in the clipped region and paints nothing. v1 survived that only because the card's padding happened to be wider than the 4px the ring needs; in v2 that padding is an ordinary authored value on `card-body`, so the defect was one write away (#1056). The remedy is #1046's, already proven on faq: a negative outline offset, applied structurally so no authored value can reopen it. ITS UNDERLINE IS A STATE PAIR, ported whole: base.css underlines every `a`, v1 removed it at rest and put it back on hover, and measured `text-decoration-line` read `none` at rest and `underline` on hover with `@color-accent-hover` ink. Both halves are defaults here — `typography.decoration` plus a `:hover` block — on nav `link`'s precedent, because keeping the rest half in the stylesheet would have left an authored `decoration` unable to win the hover.",
+      "description": "The card's 'Read more' link. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so darkening a card means setting this colour in the same write. ITS FOCUS RING IS DRAWN INSET, AND THAT IS STRUCTURAL RATHER THAN DECORATIVE: `.grid__item` declares `overflow: hidden` to clip a banner image to the card radius, and base.css paints focus rings 2px OUTSIDE the control, so an outset ring on this link lands entirely in the clipped region and paints nothing. v1 survived that only because the card's padding happened to be wider than the 4px the ring needs; in v2 that padding is an ordinary authored value on `card-body`, so the defect was one write away (#1056). The remedy is #1046's, already proven on faq: a negative outline offset, applied structurally so no authored value can reopen it. ITS UNDERLINE IS A STATE PAIR, ported whole: base.css underlines every `a`, v1 removed it at rest and put it back on hover, and measured `text-decoration-line` read `none` at rest and `underline` on hover with `@color-accent-hover` ink. Both halves are defaults here — `typography.decoration` plus a `:hover` block — on nav `link`'s precedent, because keeping the rest half in the stylesheet would have left an authored `decoration` unable to win the hover. ITS INLINE PADDING IS THE ROOM THE FOCUS RING LANDS IN, and the equal negative margin is what keeps the label optically aligned with the copy above it. The ring is drawn INSIDE this box (see above); an inline-flex box hugs its text, so without the padding the stroke cuts through the glyphs — measured at 1280, the first glyph sat exactly on the border box edge. Change the pair together or not at all: zeroing the padding puts the ring back over the label, which still beats the pre-#1056 state where it painted nothing, but it is a regression you are choosing.",
       "groups": [
         "typography",
         "spacing",
@@ -586,7 +586,11 @@
         },
         "spacing": {
           "gap": "0.45rem",
-          "padding-top": "0.2rem"
+          "padding-top": "0.2rem",
+          "padding-left": "5px",
+          "padding-right": "5px",
+          "margin-left": "-5px",
+          "margin-right": "-5px"
         },
         "motion": {
           "transition-duration": "0.15s",

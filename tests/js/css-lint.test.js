@@ -2890,6 +2890,13 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
                 // block from the final cascade in the same change, because track
                 // geometry is structure and the cascade block they lived in was grid's
                 // alone.
+                //
+                // IT STAYED 29 THROUGH #1101's DESIGN REVIEW, and this lint is why. The
+                // first cut of the inset-focus-ring fix put `padding-inline` on
+                // `.grid__item-link` here and tripped the fail-closed arm — correctly:
+                // spacing on a v2 component is a role's value, not this stylesheet's.
+                // The clearance moved to `card-link` -> `spacing` in schema.json and the
+                // block went back to 29 rules.
                 grid: 29,
             };
             const expected = STRUCTURAL_RULE_COUNT[component];

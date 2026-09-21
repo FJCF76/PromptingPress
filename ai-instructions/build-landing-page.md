@@ -58,7 +58,7 @@ style.
 ## Step 3 — Write the composition
 
 Content is `props`; appearance is `udc`. The two never mix: there is no `theme` prop on
-any of the nine v2 components, and no style slots on any of them either.
+any of the ten v2 components, and no style slots on any of them either.
 
 **On images, before you write one into this example.** A site-relative
 `/wp-content/uploads/…` value is EXISTENCE-CHECKED against the Media Library at write, and

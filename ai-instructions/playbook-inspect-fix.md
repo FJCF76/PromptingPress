@@ -31,7 +31,7 @@ Diagnose the root cause. Common categories:
   (a dark `_band` fill with no `typography.color` on the text roles is the classic),
   a value outranked by a role default or a preset, or a `_css` shorthand resetting a
   group value. Fix it in the band's `udc` map via `update_composition`. Note there is
-  no `theme` prop to get wrong on any of the nine v2 components — only `grid` still
+  no `theme` prop to get wrong on any component — grid was the last to have one and it went at #1101; only stored bands
   has one; on the rest `theme` is refused with `retired_prop`
 - **Token issue**: Incorrect design token value (color, spacing, font)
 - **CSS conflict**: Custom CSS overriding component styles
