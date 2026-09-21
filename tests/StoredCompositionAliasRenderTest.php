@@ -169,30 +169,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         );
     }
 
-    /**
-     * VALIDATORS ARE NOT WEAKENED (acceptance criterion 2). A NEW write naming a
-     * legacy slot was rejected before #603 — `_pp_validate_style_slot_map()` never
-     * consulted the alias map — and is rejected after it, by this same test. Removing
-     * the map cannot have widened the accepted slot set, because the map was never
-     * on the write path to begin with.
-     */
-    public function testANewWriteOfALegacySlotNameIsRejected(): void
-    {
-        $id = pp_create_page('Legacy slot write', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Canonical', 'items' => [['number' => '1', 'label' => 'Card']]]],
-        ]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--ppfixture-text' => '#f0f0f0'],
-        ]);
-
-        $this->assertFalse($result['ok'], 'a legacy slot name is not authorable');
-        $this->assertStringContainsString('--ppfixture-text', (string) ($result['error'] ?? ''));
-        $this->assertSame('invalid_style_slot', $result['error_code'] ?? null);
-    }
 
     /**
      * THE STATED BREAKAGE, pinned so it can never be quietly softened into a
@@ -299,33 +275,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('--ppfixture-heading-color: #f0f0f0', $this->renderStored($id));
     }
 
-    /**
-     * A canonical declaration is untouched when a stale legacy twin sits beside it.
-     * Before #603 canonical-wins arbitrated between the two; now there is nothing to
-     * arbitrate — the canonical name paints because it is declared, and the legacy one
-     * is dropped because it is not.
-     */
-    public function testACanonicalDeclarationStillPaintsBesideAStaleLegacyTwin(): void
-    {
-        $id = pp_create_page('Both slot names', 'draft');
-        // RE-HOMED FROM `grid` TO `ppfixture` AT #1101 — the legacy-slot family's last
-        // available move. These tests need a component that DECLARES slots, so a
-        // stale name can be shown to be dropped while a canonical one still paints;
-        // grid was the last shipped one, and the fixture exists for exactly this
-        // (#1025). `--ppfixture-text` plays the retired legacy name and
-        // `--ppfixture-heading-color` the canonical twin — the same pairing
-        // `--grid-text` / `--grid-heading-color` carried.
-        pp_update_composition($id, [[
-            'component' => 'ppfixture',
-            'props'     => ['title' => 'Both', 'items' => [['number' => '1', 'label' => 'Card']]],
-            'style'     => ['--ppfixture-text' => '#111111', '--ppfixture-heading-color' => '#222222'],
-        ]]);
-
-        $html = $this->renderStored($id);
-
-        $this->assertStringContainsString('--ppfixture-heading-color: #222222', $html, 'the canonical value paints');
-        $this->assertStringNotContainsString('#111111', $html, 'the stale legacy value is simply gone');
-    }
 
     /**
      * PER-ITEM style maps lose the alias too. The schema-derived per-item resolution
@@ -707,78 +656,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertStringContainsString('color:#ff6600', $css);
     }
 
-    /**
-     * The write path REJECTS a name that is neither declared nor aliased — the rename
-     * must not have widened the accepted slot set. `--section-accent-hover` is the exact
-     * name the new slot replaces, and it gets no alias entry (it was never storable, so
-     * no document can carry it).
-     */
-    public function testTheReplacedUndeclaredNameIsStillRejectedAtWrite(): void
-    {
-        $id = pp_create_page('Rejected slot', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band']]]);
-
-        $result = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--section-accent-hover' => '#ff6600']]);
-
-        $this->assertFalse($result['ok'], 'an undeclared, unaliased slot name must still be rejected');
-        $this->assertStringContainsString('--section-accent-hover', (string) ($result['error'] ?? ''));
-    }
-
-    /**
-     * THE INVERSION OF #594'S BOUNDARY (converted, not deleted — the "still rejected at
-     * write" half is exactly what acceptance criterion 2 asks to keep proving).
-     *
-     * #594 made a stored legacy slot name EDITABLE: it painted under its canonical name,
-     * and the band carrying it could still be styled. #603 removes both halves of that.
-     * A band carrying a now-undeclared slot name paints nothing AND cannot be edited —
-     * `_pp_validate_style_slot_map()` rejects the whole composition with
-     * `invalid_style_slot` naming the slot the operator never typed.
-     *
-     * That was #594's stated defect, and it is now the intended state: under the
-     * governing ruling the fix is to author the canonical name, not to teach the
-     * validator to tolerate the stale one. The one thing that must NOT break is
-     * restore_composition, which reports rather than blocks (#233) — pinned below.
-     */
-    public function testABandCarryingALegacySlotNameCanNoLongerBeEditedAndTheWriteIsRejected(): void
-    {
-        $id = pp_create_page('Legacy slot write boundary', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['items' => [['number' => '1', 'label' => 'One']], 'title' => 'Band'],
-             'style' => ['--section-text' => '#334455']]]);
-
-        // STORED: paints nothing, under either name.
-        $html = $this->renderStored($id);
-        $this->assertStringNotContainsString('#334455', $html, 'the stored legacy declaration is dead');
-        $this->assertStringNotContainsString('--ppfixture-label-color', $html, 'and nothing renames it');
-        $this->assertStringNotContainsString('--section-text', $html);
-
-        // The band can no longer be edited at all — the stale declaration is visible
-        // to the whole-array validation `update_component` runs. This is the
-        // inversion: #594 made this edit succeed, #603 makes it fail on purpose.
-        $blocked = pp_execute_action('update_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'props'           => ['title' => 'Renamed']]);
-        $this->assertFalse($blocked['ok'], 'the dead slot fails the write it sits on');
-        $this->assertSame('invalid_style_slot', $blocked['error_code'] ?? null);
-        $this->assertStringContainsString(
-            '--section-text',
-            (string) ($blocked['error'] ?? ''),
-            'the error names the dead slot, so the operator knows what to fix'
-        );
-
-        // NEW WRITE naming a legacy slot: still rejected, exactly as before #603.
-        $rejected = pp_execute_action('style_component', [
-            'post_id'         => $id,
-            'component_index' => 0,
-            'style'           => ['--section-title-size' => '3rem']]);
-        $this->assertFalse($rejected['ok'], 'authoring a legacy slot name was never accepted and still is not');
-        $this->assertStringContainsString('--section-title-size', (string) ($rejected['error'] ?? ''));
-    }
 
     // ── restore_composition: reports, never blocks (#233) ────────────────────
 
