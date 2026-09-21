@@ -82,7 +82,8 @@ Used by: #99, #100, #108, #111, #61 (and the #99 scaffold issue defines the reus
    and add the row to `CONDITIONALITY_LEDGER` in `tests/SchemaValidationTest.php` in the SAME
    change. Both fields reach the agent through the runtime catalog line it reads before
    writing; only `applies_when` is machine-readable, so only `applies_when` drives the
-   `inert_slot` advisory it gets after. Verify the condition against the renderer AND the CSS
+   `inert_slot` advisory it got after (that advisory retired at #1101 with the slot engine).
+   Verify the condition against the renderer AND the CSS
    selector before declaring it — a wrong condition is advice an agent designs around.
 2. **Validation is automatic** for known types via `_pp_validate_token_value()` (`lib/apply.php`) — but if you introduce a *new* type (e.g. `gradient`, #99), add its validator there and to the `switch` in `_pp_validate_token_value`, keeping the `{};<>` guard and a positive-pattern grammar (see `_pp_validate_length` clamp/calc handling as the model). Reject `var()`/`url()`/`env()` unless explicitly allowlisted.
 3. **Render:** the slot is emitted by `pp_render_style_vars($style, '{name}')` in `components/{name}/{name}.php`, where `$style` is the **guarded** local — never the raw prop (#708):

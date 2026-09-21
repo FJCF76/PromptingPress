@@ -349,7 +349,7 @@ STYLE-SLOT concept and the v2 rebuilds retired the slots (testimonials alone too
 rows with it). A v2 component's roles are unconditional by construction, so a new
 component on the design contract will usually add nothing here at all. The *same*
 field drives a write-time advisory:
-when a composition sets a slot whose condition is unmet, a non-blocking **`inert_slot`**
+when a composition set a slot whose condition was unmet, a non-blocking **`inert_slot`** (RETIRED at #1101 with the slot engine)
 smell names the slot and every unmet clause. Since #687 that advisory rides the
 ACCEPTED WRITE's own envelope (`findings`), as well as `wp pp check page` and the
 restore findings — so an author learns the slot is dead from the write that set it,
