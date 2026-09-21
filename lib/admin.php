@@ -831,6 +831,47 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
         }
     }
 
+    // ROLE SHAPE (#1087). The three structural keys are type-checked, and the red-team pass is
+    // why: the composability gate DELEGATES "definition shape" to this function, and for
+    // `role` this function checked only the closed key set and the obligations block. So
+    // `"groups": "typography"` — brackets forgotten — passed the gate as VALID and then
+    // fataled the entire system prompt in a caller's implode(), taking down the in-admin chat
+    // surface instead of degrading. A `selector` given as an array emitted eleven
+    // "Array to string conversion" diagnostics, which is the exact warning class the
+    // fail-safe docblocks cite as the lesson already learned once.
+    //
+    // Checked here rather than at each reader, because the gate's promise is that a role it
+    // approves is SAFE TO COMPOSE — a promise it could not keep while the shape went
+    // unexamined.
+    if ($kind === 'role') {
+        if (array_key_exists('selector', $definition)
+            && (!is_string($definition['selector']) || !pp_udc_is_single_line($definition['selector']))) {
+            $errors[] = "{$label}: `selector` must be a single-line string.";
+        }
+        if (array_key_exists('groups', $definition)
+            && (!is_array($definition['groups']) || !pp_is_list($definition['groups']))) {
+            $errors[] = "{$label}: `groups` must be a LIST of group names.";
+        } elseif (isset($definition['groups'])) {
+            foreach ($definition['groups'] as $group) {
+                if (!is_string($group) || $group === '') {
+                    $errors[] = "{$label}: every `groups` member must be a non-empty string.";
+                    break;
+                }
+            }
+        }
+        // `{}` and `[]` are indistinguishable once decoded, so an EMPTY defaults block is
+        // accepted — the same carve-out the container rules elsewhere in this file make for
+        // the same reason. Only a POPULATED list is wrong here.
+        if (array_key_exists('defaults', $definition)
+            && (!is_array($definition['defaults'])
+                || ($definition['defaults'] !== [] && pp_is_list($definition['defaults'])))) {
+            $errors[] = "{$label}: `defaults` must be a MAP of groups, not a list.";
+        }
+        if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
+            $errors[] = "{$label}: `description` must be a string.";
+        }
+    }
+
     // ROLE OBLIGATIONS (#1087) — bounded records, not prose.
     //
     // Triggered by PRESENCE and gated to `role`, matching how `role` is gated to `slot`

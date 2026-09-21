@@ -610,12 +610,21 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         foreach ($sources as [$label, $examples]) {
             foreach ($examples as [$component, $map, $raw]) {
-                $fill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
-                if ($fill === null) {
-                    continue;
-                }
+                $bandFill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
                 foreach ($map as $role => $groups) {
                     if ($role === '_band' || !is_array($groups)) {
+                        continue;
+                    }
+                    // THE ROLE'S OWN FILL WINS. Measuring every role's ink against the BAND
+                    // fill is wrong in both directions, and the red-team pass proved both with
+                    // plants. False positive: a dark band with a light-filled button and dark
+                    // ink ON that button — the shape components/cta/README.md documents — was
+                    // failed at a bogus 1.00:1, which would have made the first realistic
+                    // dark-band example in the prose PR impossible to write without weakening
+                    // this guard. False negative: a role that sets its own fill and an
+                    // illegible ink on it, with no `_band` fill anywhere, was skipped entirely.
+                    $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+                    if ($fill === null) {
                         continue;
                     }
                     foreach ($this->inksIn($groups['typography'] ?? []) as $rawInk) {
@@ -743,6 +752,80 @@ class DocumentedUdcSnippetsTest extends TestCase
                 ['size' => '19px', 'weight' => '600'], [], 'only colours are measured for contrast',
             ],
             'not an array' => [[], [], 'a role with no typography contributes nothing'],
+        ];
+    }
+
+    /**
+     * THE CONTRAST MODEL, pinned in BOTH directions (#1087).
+     *
+     * The red-team pass found the walk measuring every role's ink against the BAND fill and
+     * ignoring a fill the role declares itself, which is wrong twice over. Both of its plants
+     * ship here as fixtures, because a guard whose false-POSITIVE rate is unmeasured is the
+     * one that gets weakened later to make a legitimate example pass.
+     *
+     * The must-pass case matters most: it is the shape components/cta/README.md already
+     * documents, and it is the first realistic dark-band example the prose PR has to write.
+     * Under the old model that example failed at a bogus 1.00:1, so the only ways forward
+     * would have been weakening this guard, deleting the example, or contorting it.
+     *
+     * @dataProvider contrastModelProvider
+     */
+    public function testTheContrastModelResolvesTheFillPerRole(array $map, ?string $expectFailRole, string $why): void
+    {
+        $tokens = \pp_design_tokens();
+        $bandFill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
+        $failed = null;
+        foreach ($map as $role => $groups) {
+            if ($role === '_band' || !is_array($groups)) {
+                continue;
+            }
+            $fill = $this->hex($groups['background']['fill'] ?? null, $tokens) ?? $bandFill;
+            if ($fill === null) {
+                continue;
+            }
+            foreach ($this->inksIn($groups['typography'] ?? []) as $rawInk) {
+                $ink = $this->hex($rawInk, $tokens);
+                if ($ink !== null && self::contrastRatio($ink, $fill) < 4.5) {
+                    $failed = (string) $role;
+                }
+            }
+        }
+        $this->assertSame($expectFailRole, $failed, $why);
+    }
+
+    public static function contrastModelProvider(): array
+    {
+        return [
+            'light button on a dark band is LEGIBLE' => [
+                [
+                    '_band'   => ['background' => ['fill' => '#0a0a12']],
+                    'heading' => ['typography' => ['color' => '#f2eee5']],
+                    'button'  => ['background' => ['fill' => '#f2eee5'], 'typography' => ['color' => '#0a0a12']],
+                ],
+                null,
+                'dark ink on the BUTTON\'s own light fill is correct; the old model called it 1.00:1',
+            ],
+            'role-own fill with illegible ink is CAUGHT even with no band fill' => [
+                ['button' => ['background' => ['fill' => '#ff5c2e'], 'typography' => ['color' => '#f2eee5']]],
+                'button',
+                'a real 2.66:1 pairing the old model skipped entirely, because no `_band` fill existed',
+            ],
+            'band fill still governs a role that declares none' => [
+                [
+                    '_band' => ['background' => ['fill' => '#101828']],
+                    'body'  => ['typography' => ['color' => '#1a1f2e']],
+                ],
+                'body',
+                'the original behaviour must survive: a role with no fill of its own sits on the band',
+            ],
+            'a state ink is measured too' => [
+                [
+                    '_band' => ['background' => ['fill' => '#101828']],
+                    'link'  => ['typography' => ['color' => '#f7f8fa', ':focus-visible' => ['color' => '#141a28']]],
+                ],
+                'link',
+                'the state the walk was blind to before, on the fill the role actually sits on',
+            ],
         ];
     }
 

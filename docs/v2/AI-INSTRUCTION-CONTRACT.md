@@ -134,7 +134,7 @@ decides. That is not an obligation.
 **The reclamation estimate was wrong, and the ceiling is tighter than planned.** 3.5–4.5 KB was
 projected; ~1.5 KB was delivered, because `font-family` and `ratio` describe grammars shared with live
 non-slot surfaces (61 design tokens; the v2 `sizing.aspect-ratio` parameter) and deleting them would
-have taken a live rule off a live surface. Final: **91,742 bytes, 258 under the ceiling.**
+have taken a live rule off a live surface. The margin the gate lands on is a few hundred bytes; the budget test prints the live figure rather than pinning a number here that goes stale at the next roster change.
 
 **A count-consistency guard was built and removed.** "A stated count must match the list beside it"
 fired four times on the shipped corpus and was wrong all four — prose pairs counts with exclusions,
@@ -184,6 +184,11 @@ roles measure **3.08:1**. A count whose roster names one member, in the runtime 
 | T6, T9 | chrome example fix, derived own-ink roster, byte budget | `f4a5efe` |
 | T7, T8 | prompt + instruction-file walks; contrast regression case | `6b62fbe` |
 | T5, T12 | anchored roster guard, reverse check, mandate tripwire | `8258fbd` |
+| review | testing pass — eight half-blind guards | `2ea8347` |
+| review | maintainability pass — seventeen comment and structure defects | `f79f08d` |
+| review | security pass — one gate for every composer, the role name bounded | `e16911a` |
+| review | performance pass — one registry walk per build | `f40a136` |
+| review | simplification pass — six structural findings | `68b6ce2` |
 
 ---
 
@@ -201,4 +206,6 @@ review cycles at #1046, each fix round introducing new false claims.
 - Both suites before every commit; commit-per-round; no splices.
 
 Baselines at `8e14221`: **PHP 5239 tests / 33884 assertions, 11 warnings, 2 PHPUnit deprecations,
-2 skipped; JS 1584 / 36 files.** PR1 ends at **PHP 5296 / 34288**, warnings and deprecations unchanged.
+2 skipped; JS 1584 / 36 files.** Warnings and deprecations are unchanged throughout. The final PR1
+totals are recorded in the PR body rather than here, because five review passes moved them after
+this section was first written and a figure quoted in two places goes stale in one of them.

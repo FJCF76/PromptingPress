@@ -440,7 +440,7 @@ class AiContextTest extends TestCase
      * pp_udc_obligation_groups() walks the FULL registry rather than reusing the catalog
      * loop's walk. That loop iterates pp_composable_components(), which deliberately omits
      * nav and footer (#223 — listing chrome there is what led an agent to compose duplicate
-     * chrome). Six of the sixteen records live on exactly those two components, and they are
+     * chrome). Eight of the sixteen records — half of them — live on exactly those two components, and they are
      * the ones a dark-header author most needs. A future refactor that folds this summary
      * into the catalog loop for efficiency would silently drop all six; this test is what
      * stops that being silent.

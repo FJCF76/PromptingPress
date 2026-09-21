@@ -6401,8 +6401,8 @@ class SchemaValidationTest extends TestCase
      * between six files, and nothing noticed if one drifted.
      *
      * A one-character edit to any single copy silently splits the roster into two prompt
-     * sentences and GROWS the prompt, against a budget with 258 bytes of margin. So the
-     * grouping is asserted, not assumed.
+     * sentences and GROWS the prompt, against a budget whose margin is a few hundred bytes.
+     * So the grouping is asserted, not assumed.
      */
     public function testTheSharedRichTextObligationProseStaysShared(): void
     {
@@ -6428,7 +6428,8 @@ class SchemaValidationTest extends TestCase
             1,
             array_unique(array_values($whys)),
             "these six obligations must share ONE `why`, or the prompt splits one roster line "
-            . "into several and grows against a 258-byte budget margin. Found:\n"
+            . "into several and GROWS the prompt against a budget margin of a few hundred bytes. "
+            . "Found:\n"
             . implode("\n", array_map(
                 static fn ($k, $v) => "  {$k}: " . substr($v, 0, 60) . '…',
                 array_keys($whys),

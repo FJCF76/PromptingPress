@@ -2849,6 +2849,29 @@ function pp_component_schema_report(string $component): array|WP_Error {
     if ($roles !== []) {
         $report['roles'] = [];
         foreach ($roles as $role_name => $definition) {
+            // THE WHOLE ENTRY IS GATED, not just its obligations. The first cut gated the
+            // obligations sub-array and emitted `role`/`selector`/`description` raw, so a role
+            // whose definition the gate REJECTS was still reported as existing and complete —
+            // and this sink prints literal characters by design, on the standing justification
+            // that its payload derives only from theme-root files an operator validated. A
+            // rejected definition is exactly the case where that is not true.
+            if (!_pp_udc_role_is_composable($component, (string) $role_name, $definition)) {
+                $report['roles'][] = [
+                    // The NAME may itself be what failed the gate, and this sink prints
+                    // literal characters, so an unusable name is reported as unusable rather
+                    // than echoed.
+                    'role'                   => preg_match(PP_ROLE_NAME_PATTERN, (string) $role_name)
+                        ? (string) $role_name
+                        : '(unreportable role name)',
+                    'unreportable'           => true,
+                    'unreportable_because'   => pp_schema_definition_errors(
+                        is_array($definition) ? $definition : [],
+                        'role',
+                        (string) $role_name
+                    ),
+                ];
+                continue;
+            }
             $entry = [
                 'role'        => (string) $role_name,
                 'selector'    => (string) ($definition['selector'] ?? ''),
