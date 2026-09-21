@@ -376,6 +376,63 @@ class AiContextTest extends TestCase
     }
 
     /**
+     * EVERY OBLIGATION KIND REACHES THE PROMPT — the enum cannot grow silently (#1087).
+     *
+     * Found by this gate's own pre-landing review, in this gate's own code, which is the
+     * reason it is worth the docblock. `pp_ai_system_prompt()` calls
+     * pp_udc_obligation_summary() TWICE, with the two kind names written out. A third kind
+     * added to pp_udc_obligation_kinds() would be accepted by the validator, stored in a
+     * schema, carried by pp_udc_obligation_groups(), and reported by `wp pp schema` — and
+     * would never reach the runtime prompt. Accepted, stored, ignored: the exact class this
+     * whole gate exists to close, reproduced inside it.
+     *
+     * A GUARD RATHER THAN A DERIVATION, deliberately. Each kind needs its own hand-written
+     * ARGUMENT — why that cascade behaves that way is prose a reader needs, and the rulings
+     * were explicit that only the ROSTER is derived. So the prompt cannot compose a
+     * paragraph for a kind nobody has written about yet. What it CAN do is refuse to ship
+     * until someone has: this fails the moment a kind is added without one.
+     */
+    public function testEveryDeclaredObligationKindIsConsumedByThePrompt(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $kinds  = \pp_udc_obligation_kinds();
+        $this->assertNotEmpty($kinds);
+
+        foreach ($kinds as $kind) {
+            $summary = \pp_udc_obligation_summary($kind);
+            if ($summary === '') {
+                // A kind nothing declares yet has no roster to place, which is legitimate —
+                // but the prompt must still be able to carry it once something does.
+                continue;
+            }
+            $this->assertStringContainsString(
+                $summary,
+                $prompt,
+                "obligations of kind `{$kind}` are declared and composed, but the assembled "
+                . 'prompt does not carry them. pp_ai_system_prompt() names each kind '
+                . 'explicitly, so a kind added to pp_udc_obligation_kinds() without its own '
+                . 'paragraph is stored, validated, reported on the CLI, and invisible to the '
+                . 'one channel that cannot fetch it — accepted, stored, ignored'
+            );
+        }
+
+        // Fail-closed: both shipped kinds must actually be exercised above, or the loop is
+        // passing because nothing is declared rather than because everything reaches.
+        $nonEmpty = 0;
+        foreach ($kinds as $kind) {
+            if (\pp_udc_obligation_summary($kind) !== '') {
+                $nonEmpty++;
+            }
+        }
+        $this->assertSame(
+            count($kinds),
+            $nonEmpty,
+            'every shipped kind should have at least one declaration today; if a kind is '
+            . 'deliberately unused, say so here rather than letting the loop skip it silently'
+        );
+    }
+
+    /**
      * CHROME OBLIGATIONS REACH THE PROMPT, though the component catalog excludes chrome
      * (#1087).
      *
