@@ -95,6 +95,25 @@ class DocumentedUdcSnippetsTest extends TestCase
                 $decoded = json_decode('{' . $raw . '}', true);
             }
 
+            // TWO MORE LEGITIMATE DOC STYLES, both found in the shipped instruction files
+            // when this walk was widened to cover them (#1087). Neither doc is wrong; the
+            // extractor was narrow, and a block it cannot read is a block nothing checks.
+            //
+            // A BLOCKQUOTED FENCE. style-component.md puts a `udc` example inside a `>`
+            // quote to set it off from the surrounding prose. The `>` prefixes are markdown,
+            // not JSON.
+            if ($decoded === null && str_starts_with($raw, '>')) {
+                $unquoted = preg_replace('/^>[ \t]?/m', '', $raw) ?? $raw;
+                $decoded  = json_decode($unquoted, true) ?? json_decode('{' . $unquoted . '}', true);
+            }
+
+            // A LIST FRAGMENT. composition.md shows two sibling bands, comma-separated,
+            // without the enclosing brackets — the same abbreviation the `{}` completion
+            // above already accepts for an object fragment, one container up.
+            if ($decoded === null) {
+                $decoded = json_decode('[' . $raw . ']', true);
+            }
+
             $out[] = ['index' => $i, 'raw' => $raw, 'json' => $decoded];
         }
         return $out;
@@ -306,5 +325,358 @@ class DocumentedUdcSnippetsTest extends TestCase
             $checked,
             'the doc walk stopped finding `udc` maps; it is passing on a fraction of the corpus'
         );
+    }
+
+    // ── The model-facing surfaces (#1087) ──────────────────────────────────────
+    //
+    // The walk above covers the surfaces a HUMAN reads: component READMEs, the migration
+    // how-tos, the tutorial. It never covered the two surfaces a MODEL reads — the runtime
+    // system prompt and the shipped instruction files — which is the larger blind spot,
+    // because a refused example in those is followed by an agent rather than a person.
+
+    /** The instruction files a filesystem-capable agent executes. */
+    private function instructionFiles(): array
+    {
+        $files = glob(dirname(__DIR__) . '/ai-instructions/*.md') ?: [];
+        $this->assertNotEmpty($files, 'the ai-instructions directory is the model-facing corpus');
+        return $files;
+    }
+
+    /**
+     * EVERY JSON BLOCK IN THE INSTRUCTION FILES PARSES (#1087).
+     *
+     * A block that does not parse is a block nothing downstream can check, so this is the
+     * gate that makes the validation below meaningful rather than optimistic.
+     */
+    public function testEveryInstructionFileJsonBlockParses(): void
+    {
+        $checked = 0;
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file) as $block) {
+                $this->assertNotNull(
+                    $block['json'],
+                    sprintf(
+                        "%s block %d is fenced as ```json and parses in none of the documented "
+                        . "shapes (whole document, object fragment, blockquoted, list fragment):\n%s",
+                        basename($file),
+                        $block['index'],
+                        substr($block['raw'], 0, 400)
+                    )
+                );
+                $checked++;
+            }
+        }
+        $this->assertGreaterThan(20, $checked, 'the instruction-file walk stopped finding blocks');
+    }
+
+    /**
+     * EVERY `udc` MAP AN INSTRUCTION FILE TELLS AN AGENT TO WRITE IS ACCEPTED (#1087).
+     *
+     * Only SELF-IDENTIFYING maps are validated — a block that names its component. An
+     * instruction file is not about one component the way a README is, so there is no
+     * honest fallback to attribute a bare map to, and guessing one would produce refusals
+     * that say more about the guess than about the doc.
+     */
+    public function testEveryInstructionFileUdcMapIsAcceptedByTheWritePath(): void
+    {
+        $checked = 0;
+        foreach ($this->instructionFiles() as $file) {
+            foreach ($this->jsonBlocks($file) as $block) {
+                foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
+                    if (\pp_udc_component_roles($component) === []) {
+                        continue;
+                    }
+                    [$clean] = $this->stripBackgroundImages($map);
+                    if ($clean === []) {
+                        continue;
+                    }
+                    $result = \pp_udc_validate_map($clean, $component);
+                    $this->assertNull(
+                        $result,
+                        sprintf(
+                            "%s block %d documents a `%s` write the engine REFUSES: %s\nMap: %s",
+                            basename($file),
+                            $block['index'],
+                            $component,
+                            $result instanceof \WP_Error ? $result->get_error_message() : 'unknown',
+                            json_encode($clean)
+                        )
+                    );
+                    $checked++;
+                }
+            }
+        }
+        $this->assertGreaterThan(3, $checked, 'the instruction-file `udc` walk found almost nothing');
+    }
+
+    /** Component-attributed `udc` maps in one decoded block, at either depth. */
+    private function selfIdentifyingUdcMaps($json): array
+    {
+        if (!is_array($json)) {
+            return [];
+        }
+        $found = [];
+        $take  = static function ($entry) use (&$found) {
+            if (is_array($entry)
+                && isset($entry['udc'], $entry['component'])
+                && is_array($entry['udc'])
+                && is_string($entry['component'])) {
+                $found[] = [$entry['component'], $entry['udc']];
+            }
+        };
+        $take($json);
+        if (array_is_list($json)) {
+            foreach ($json as $entry) {
+                $take($entry);
+            }
+        }
+        return $found;
+    }
+
+    /**
+     * EVERY `udc` EXAMPLE IN THE RUNTIME PROMPT IS ACCEPTED BY THE WRITE PATH (#1087).
+     *
+     * The prompt carries its examples as INLINE backticked JSON rather than fenced blocks,
+     * so it needs its own extractor — which is why nothing validated them before. They are
+     * the highest-stakes examples in the repo: the chat AI has no tools, cannot read a
+     * schema, and copies the shape it was shown.
+     */
+    public function testEveryRuntimePromptUdcExampleIsAcceptedByTheWritePath(): void
+    {
+        $GLOBALS['_pp_test_store'] = ['post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100];
+        $prompt  = \pp_ai_system_prompt();
+        $checked = 0;
+
+        foreach ($this->promptUdcExamples($prompt) as [$component, $map, $raw]) {
+            [$clean] = $this->stripBackgroundImages($map);
+            if ($clean === []) {
+                continue;
+            }
+            $result = \pp_udc_validate_map($clean, $component);
+            $this->assertNull(
+                $result,
+                sprintf(
+                    "the runtime prompt shows a `%s` example the engine REFUSES: %s\nExample: %s",
+                    $component,
+                    $result instanceof \WP_Error ? $result->get_error_message() : 'unknown',
+                    $raw
+                )
+            );
+            $checked++;
+        }
+
+        $this->assertGreaterThan(2, $checked, 'the prompt example extractor found almost nothing');
+    }
+
+    /**
+     * The `udc` examples in the prompt, each attributed to a component.
+     *
+     * Attribution is the hard half: the prompt is one long string, so an example's subject
+     * comes from the roles it names. A map is attributed to the component that declares
+     * EVERY role in it, and skipped when that is ambiguous or unknown — a placeholder like
+     * `{"<role>": {"<group>": ...}}` must not be read as a real example.
+     *
+     * @return array<int, array{0: string, 1: array, 2: string}>
+     */
+    private function promptUdcExamples(string $prompt): array
+    {
+        // TWO SHAPES, because the prompt writes its examples both ways: a whole object
+        // (`{"nav": {...}}`) and a bare key-and-value (`"udc": {...}`). The second was the
+        // one the first cut missed, and it is the shape MOST of the band examples use — so
+        // a pattern that only matched a leading brace validated the chrome example and
+        // almost nothing else.
+        preg_match_all('/`((?:"udc":\s*)?\{.*?\})`/s', $prompt, $m, PREG_SET_ORDER);
+
+        $out = [];
+        foreach ($m as $hit) {
+            $raw     = preg_replace('/^"udc":\s*/', '', $hit[1]) ?? $hit[1];
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+            // The chrome shape is keyed by component; a band shape is a bare role map.
+            $candidates = isset($decoded['udc']) && is_array($decoded['udc'])
+                ? [$decoded['udc']]
+                : [$decoded];
+            foreach ($candidates as $map) {
+                foreach ($this->attribute($map) as $pair) {
+                    $out[] = [$pair[0], $pair[1], $hit[1]];
+                }
+            }
+            unset($raw);
+        }
+        return $out;
+    }
+
+    /** @return array<int, array{0: string, 1: array}> */
+    private function attribute(array $map): array
+    {
+        // Chrome: `{"nav": {...}, "footer": {...}}`.
+        $chrome = [];
+        foreach ($map as $key => $value) {
+            if (is_string($key) && is_array($value) && \pp_udc_is_chrome($key)) {
+                $chrome[] = [$key, $value];
+            }
+        }
+        if ($chrome !== []) {
+            return $chrome;
+        }
+
+        $roles = array_keys($map);
+        if ($roles === []) {
+            return [];
+        }
+        // A placeholder, not an example.
+        foreach ($roles as $role) {
+            if (!is_string($role) || !preg_match('/^[a-z_][a-z0-9-]*$/', $role)) {
+                return [];
+            }
+        }
+
+        // AND EVERY VALUE MUST LOOK LIKE A GROUP MAP. This is the guard that separates a
+        // real example from a FRAGMENT that happens to use a role name as a key — the
+        // prompt shows `{"columns": 4}` and `{"columns": {"d": 4, "p": 1}}` to explain the
+        // `columns` PARAMETER, and `columns` is also a role on `section`. Attributing those
+        // to section and validating them produces a refusal that says nothing about the
+        // documentation and everything about the extractor.
+        $groupKeys = array_keys(\pp_udc_groups());
+        foreach ($map as $groups) {
+            if (!is_array($groups) || $groups === []) {
+                return [];
+            }
+            foreach (array_keys($groups) as $group) {
+                $known = in_array($group, $groupKeys, true)
+                    || in_array($group, ['_preset', '_css'], true)
+                    || (is_string($group) && str_starts_with($group, ':'));
+                if (!$known) {
+                    return [];
+                }
+            }
+        }
+
+        $owners = [];
+        foreach (array_keys(\pp_get_registered_components()) as $component) {
+            $declared = \pp_udc_component_roles($component);
+            if ($declared === []) {
+                continue;
+            }
+            $all = true;
+            foreach ($roles as $role) {
+                if (!array_key_exists($role, $declared)) {
+                    $all = false;
+                    break;
+                }
+            }
+            if ($all) {
+                $owners[] = $component;
+            }
+        }
+        // Ambiguous (several components declare all these roles) or unknown: skip rather
+        // than guess. A wrong attribution produces a refusal that says nothing about the doc.
+        return count($owners) === 1 ? [[$owners[0], $map]] : [];
+    }
+
+    /**
+     * A DOCUMENTED EXAMPLE THAT DARKENS A SURFACE MUST STILL CLEAR AA (#1087).
+     *
+     * The regression this exists for shipped in the runtime prompt itself: a chrome example
+     * with a `#101828` fill and `@color-accent` on three states, 3.21:1 against its own
+     * fill. The rest states passed at 16.70:1, so it read as correct — a contrast defect in
+     * an example is invisible to every check that asks only whether the write is accepted.
+     *
+     * SCOPED TO WHAT IS DECIDABLE. Only a map that sets BOTH a literal `_band` fill and a
+     * text colour in the SAME map is checked, because only then is the pairing stated rather
+     * than inferred. `@token` references are resolved against the real token registry;
+     * anything that does not resolve to a hex is skipped rather than guessed at.
+     */
+    public function testNoDocumentedExamplePutsTextUnderTheContrastFloorOnItsOwnFill(): void
+    {
+        $GLOBALS['_pp_test_store'] = ['post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100];
+        $tokens  = \pp_design_tokens();
+        $checked = 0;
+
+        $sources = [['the runtime prompt', $this->promptUdcExamples(\pp_ai_system_prompt())]];
+        foreach ($this->instructionFiles() as $file) {
+            $maps = [];
+            foreach ($this->jsonBlocks($file) as $block) {
+                foreach ($this->selfIdentifyingUdcMaps($block['json']) as [$component, $map]) {
+                    $maps[] = [$component, $map, 'block ' . $block['index']];
+                }
+            }
+            $sources[] = [basename($file), $maps];
+        }
+
+        foreach ($sources as [$label, $examples]) {
+            foreach ($examples as [$component, $map, $raw]) {
+                $fill = $this->hex($map['_band']['background']['fill'] ?? null, $tokens);
+                if ($fill === null) {
+                    continue;
+                }
+                foreach ($map as $role => $groups) {
+                    if ($role === '_band' || !is_array($groups)) {
+                        continue;
+                    }
+                    foreach ([$groups['typography'] ?? [], $groups['typography'][':hover'] ?? []] as $state) {
+                        $ink = $this->hex($state['color'] ?? null, $tokens);
+                        if ($ink === null) {
+                            continue;
+                        }
+                        $checked++;
+                        $ratio = self::contrastRatio($ink, $fill);
+                        $this->assertGreaterThanOrEqual(
+                            4.5,
+                            $ratio,
+                            sprintf(
+                                '%s documents a %s example putting %s on %s for role `%s` — '
+                                . '%.2f:1, under the 4.5:1 AA floor. Example: %s',
+                                $label,
+                                $component,
+                                $ink,
+                                $fill,
+                                $role,
+                                $ratio,
+                                is_string($raw) ? $raw : json_encode($map)
+                            )
+                        );
+                    }
+                }
+            }
+        }
+
+        $this->assertGreaterThan(
+            2,
+            $checked,
+            'the contrast walk found almost no background+ink pairing to check; the extractor '
+            . 'or the resolver stopped working and this is asserting on an empty set'
+        );
+    }
+
+    /** A literal hex, or a hex an `@token` resolves to. Null when it is neither. */
+    private function hex($value, array $tokens): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        if (str_starts_with($value, '@')) {
+            $value = $tokens['--' . substr($value, 1)]['value'] ?? '';
+        }
+        return preg_match('/^#[0-9a-f]{6}$/i', $value) ? strtolower($value) : null;
+    }
+
+    private static function contrastRatio(string $a, string $b): float
+    {
+        $lum = static function (string $hex): float {
+            $hex = ltrim($hex, '#');
+            $out = 0.0;
+            foreach ([[0, 0.2126], [2, 0.7152], [4, 0.0722]] as [$offset, $weight]) {
+                $channel = hexdec(substr($hex, $offset, 2)) / 255;
+                $channel = $channel <= 0.03928 ? $channel / 12.92 : (($channel + 0.055) / 1.055) ** 2.4;
+                $out += $channel * $weight;
+            }
+            return $out;
+        };
+        $one = $lum($a);
+        $two = $lum($b);
+        return $one > $two ? ($one + 0.05) / ($two + 0.05) : ($two + 0.05) / ($one + 0.05);
     }
 }
