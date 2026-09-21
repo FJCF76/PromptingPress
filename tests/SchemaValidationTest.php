@@ -6311,6 +6311,61 @@ class SchemaValidationTest extends TestCase
     }
 
     /**
+     * THE SHARED OBLIGATION PROSE IS PINNED AS SHARED (#1087).
+     *
+     * pp_udc_obligation_groups() groups records by IDENTICAL `why`, and the six composable
+     * rich-text container/link obligations carry the same sentence verbatim across six
+     * separate schema files. That is deliberate — it is what collapses six roster lines into
+     * one and saved 589 bytes of every conversation turn — but it is an invisible coupling
+     * between six files, and nothing noticed if one drifted.
+     *
+     * A one-character edit to any single copy silently splits the roster into two prompt
+     * sentences and GROWS the prompt, against a budget with 258 bytes of margin. So the
+     * grouping is asserted, not assumed.
+     */
+    public function testTheSharedRichTextObligationProseStaysShared(): void
+    {
+        $whys = [];
+        foreach ($this->allSchemas() as $component => $schema) {
+            foreach (($schema['roles'] ?? []) as $role => $def) {
+                foreach (($def['obligations'] ?? []) as $entry) {
+                    if ($entry['kind'] === 'reached_only_by_inheritance'
+                        && str_ends_with((string) $entry['with'], '-link')
+                        && !\pp_udc_is_chrome($component)) {
+                        $whys["{$component}.{$role}"] = $entry['why'];
+                    }
+                }
+            }
+        }
+
+        $this->assertCount(
+            6,
+            $whys,
+            'the six composable rich-text container/link obligations are the shared-prose set'
+        );
+        $this->assertCount(
+            1,
+            array_unique(array_values($whys)),
+            "these six obligations must share ONE `why`, or the prompt splits one roster line "
+            . "into several and grows against a 258-byte budget margin. Found:\n"
+            . implode("\n", array_map(
+                static fn ($k, $v) => "  {$k}: " . substr($v, 0, 60) . '…',
+                array_keys($whys),
+                array_values($whys)
+            ))
+        );
+
+        // And the grouping the prompt actually relies on: 5 groups for 13 records today.
+        $groups = \pp_udc_obligation_groups()['reached_only_by_inheritance'] ?? [];
+        $this->assertCount(
+            5,
+            $groups,
+            'the inherited-kind roster collapses to five groups; a changed count means prose '
+            . 'diverged or converged and the prompt reshaped'
+        );
+    }
+
+    /**
      * THE NON-DERIVABLE OBLIGATIONS ARE PINNED BY NAME (#1087).
      *
      * The net below covers one obligation shape. The other — `outranked_by_default`, where a

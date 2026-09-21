@@ -6280,6 +6280,16 @@ function _pp_udc_role_obligation_records(
         return [];
     }
 
+    // BOTH admin.php entry points are guarded, or neither guard buys anything. The first
+    // version checked function_exists on the validator and then called
+    // pp_udc_obligation_kinds() — from the same file — unguarded eighteen lines later, so
+    // under the exact partial include the guard exists for, the check passed vacuously and
+    // the next line fataled. Found in the pre-landing review.
+    $kinds = function_exists('pp_udc_obligation_kinds') ? pp_udc_obligation_kinds() : [];
+    if ($kinds === []) {
+        return [];
+    }
+
     $obligations = $definition['obligations'] ?? [];
     if (!is_array($obligations)) {
         return [];
@@ -6294,7 +6304,7 @@ function _pp_udc_role_obligation_records(
         $with = $entry['with'] ?? null;
         $why  = $entry['why']  ?? null;
         if (!is_string($kind) || !is_string($with) || !is_string($why)
-            || !in_array($kind, pp_udc_obligation_kinds(), true)) {
+            || !in_array($kind, $kinds, true)) {
             continue;
         }
         // A partner the component does not declare would compose a prompt sentence about a
@@ -6332,8 +6342,8 @@ function _pp_udc_role_obligation_records(
  * correct. That is the whole argument for deriving it.
  *
  * WALKS THE FULL REGISTRY, not pp_composable_components(), and this is deliberate rather
- * than careless: six of the sixteen shipped records are on `nav` and `footer`, which the
- * prompt's component catalog deliberately EXCLUDES (chrome is not composable, and listing
+ * than careless: EIGHT of the sixteen shipped records — half of them — are on `nav` and
+ * `footer`, which the prompt's component catalog deliberately EXCLUDES (chrome is not composable, and listing
  * it there is what led an agent to compose duplicate chrome in #223). A summary built
  * inside that catalog loop would silently omit exactly the chrome pairs a dark-header
  * author most needs. The registry read is memoised per theme root
@@ -6352,8 +6362,8 @@ function _pp_udc_role_obligation_records(
  * this function unvalidated. Guarded with function_exists so a partial include degrades to
  * rendering nothing rather than fataling.
  *
- * Assembled from _pp_udc_role_obligation_records() below, which owns the per-role
- * fail-safe; this function owns only the walk and the grouping.
+ * Assembled from _pp_udc_role_obligation_records(), which owns the per-role fail-safe;
+ * this function owns only the walk and the grouping.
  *
  * @return array<string, array<int, array{pairs: string[], why: string}>>
  *         kind => list of {pairs, why} groups. Empty when nothing is declared.
@@ -6382,39 +6392,16 @@ function pp_udc_obligation_groups(): array {
 }
 
 /**
- * The descendant pairs a declaration SHOULD exist for — a one-directional net (#1087).
+ * Is `$inner_def`'s selector a descendant of `$outer_selector` that an authored value
+ * cannot reach? (#1087)
  *
- * WHAT IT IS AND WHAT IT IS NOT. This is a safety net over the `obligations` declarations,
- * not a source of them. It answers "is there a pair here that obviously needs a
- * declaration and has none?" and it CANNOT answer the reverse, because the declarations
- * cover cases no selector analysis can see. Treating its output as the complete roster
- * would be the drift this gate exists to end, arriving through a derivation instead of
- * through prose.
+ * The predicate behind the net documented on pp_udc_derived_descendant_pairs() below.
+ * Extracted so its NEAR-MISSES are testable: a guard tested only on what it should catch is
+ * a guard whose false-positive rate is unmeasured, and this repo has already shipped one
+ * whose trigger matched ordinary prose.
  *
- * WHY ONE-DIRECTIONAL, stated with the evidence rather than as a caveat. Two shipped
- * obligations are INVISIBLE here and both were found by probing, not by reading selectors:
- *
- *   footer.social -> social-link   The markup (components/footer/footer.php:148-152) nests
- *                                  `<a class="site-footer__social-link">` inside
- *                                  `<ul class="site-footer__social">`, but the two
- *                                  SELECTORS express no containment at all. Nothing
- *                                  derivable from selectors can know the anchors are in
- *                                  there, and `social-link` does declare its own muted
- *                                  colour and accent hover.
- *   faq.item -> question-open      `.faq__item[open] > .faq__question` does not begin with
- *                                  `.faq__item` followed by a combinator, so a
- *                                  prefix-shaped predicate cannot see the containment.
- *
- * THE ANCHOR ARM IS NOT OPTIONAL, and this is the correction that matters most. A net keyed
- * only on "the descendant declares a typography default" finds SIX of the thirteen shipped
- * descendant pairs — all six of them chrome — and misses every pair #1069 was actually filed
- * about. The six composable `*-link` roles declare NO defaults, deliberately, so that an
- * unauthored link keeps the site's normal anchor treatment; their obligation comes from
- * base.css giving every `<a>` a DIRECT colour rule, which beats an inherited value whatever
- * the layer. So a descendant whose last compound is `a` counts whether or not it declares a
- * default.
- *
- * @return array<int, array{component: string, role: string, with: string}>
+ * @param string $outer_selector The containing role's selector.
+ * @param array  $inner_def      The candidate inner role's full definition.
  */
 function _pp_udc_is_derivable_descendant(string $outer_selector, array $inner_def): bool {
     $inner_selector = trim((string) ($inner_def['selector'] ?? ''));
@@ -6456,6 +6443,44 @@ function _pp_udc_is_derivable_descendant(string $outer_selector, array $inner_de
     return (bool) preg_match('/(?:^|[\s>+~])a$/', $inner_selector);
 }
 
+/**
+ * The descendant pairs a declaration SHOULD exist for — a one-directional net (#1087).
+ *
+ * WHAT IT IS AND WHAT IT IS NOT. This is a safety net over the `obligations` declarations,
+ * not a source of them. It answers "is there a pair here that obviously needs a
+ * declaration and has none?" and it CANNOT answer the reverse, because the declarations
+ * cover cases no selector analysis can see. Treating its output as the complete roster
+ * would be the drift this gate exists to end, arriving through a derivation instead of
+ * through prose.
+ *
+ * WHY ONE-DIRECTIONAL, stated with the evidence rather than as a caveat. One shipped
+ * obligation is INVISIBLE here, and it was found by reading MARKUP, not selectors:
+ *
+ *   footer.social -> social-link   The markup (components/footer/footer.php:148-152) nests
+ *                                  `<a class="site-footer__social-link">` inside
+ *                                  `<ul class="site-footer__social">`, but the two
+ *                                  SELECTORS express no containment at all. Nothing
+ *                                  derivable from selectors can know the anchors are in
+ *                                  there, and `social-link` does declare its own muted
+ *                                  colour and accent hover.
+ * A SECOND BLIND SPOT, not currently exercised: `.faq__item[open] > .faq__question` does
+ * not begin with `.faq__item` followed by a combinator, so this predicate cannot see that
+ * containment either. `faq.item` declares no obligation today — the faq pairing that ships
+ * is `question -> question-open`, which is the OTHER kind and outside this net entirely —
+ * so nothing is missing right now. It is recorded because the shape is real and the next
+ * component to use an attribute-qualified ancestor will land in it.
+ *
+ * THE ANCHOR ARM IS NOT OPTIONAL, and this is the correction that matters most. A net keyed
+ * only on "the descendant declares a typography default" finds SIX of the thirteen shipped
+ * descendant pairs — all six of them chrome — and misses every pair #1069 was actually filed
+ * about. The six composable `*-link` roles declare NO defaults, deliberately, so that an
+ * unauthored link keeps the site's normal anchor treatment; their obligation comes from
+ * base.css giving every `<a>` a DIRECT colour rule, which beats an inherited value whatever
+ * the layer. So a descendant whose last compound is `a` counts whether or not it declares a
+ * default.
+ *
+ * @return array<int, array{component: string, role: string, with: string}>
+ */
 function pp_udc_derived_descendant_pairs(): array {
     $pairs = [];
     foreach (array_keys(pp_get_registered_components()) as $component) {

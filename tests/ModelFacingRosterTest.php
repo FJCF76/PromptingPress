@@ -199,37 +199,37 @@ class ModelFacingRosterTest extends TestCase
         }
     }
 
-    /**
-     * THE INTERNAL COUNT CHECK WAS BUILT, RUN AGAINST THE REAL CORPUS, AND REMOVED (#1087).
-     *
-     * Recorded here rather than deleted silently, because "a stated count must match the
-     * list beside it" is an obvious-sounding guard that someone will propose again, and it
-     * was Codex's strongest plan-review finding — prose counts drift where roster guards do
-     * not reach.
-     *
-     * It was implemented and run. It produced FOUR failures on the shipped corpus and ALL
-     * FOUR were false positives, because real prose pairs a count with something the count
-     * does not include:
-     *
-     *   "hero, section and testimonials no longer have it (and cta never did)"
-     *        — three is right; the fourth name is an EXCLUSION.
-     *   "widened from five components to ten in #579"
-     *        — a HISTORICAL count beside a current list.
-     *   "a style slot on the one v1 component left (grid's ...)"
-     *        — "one ... component" and the list belong to different clauses.
-     *
-     * A guard that is wrong every time it fires is not a strict guard, it is a tax on
-     * correct writing: the only way to satisfy it is to contort sentences that were already
-     * true. And it would not have caught the defect that motivated it — "seven v2
-     * components" followed by exactly seven names is internally consistent and externally
-     * stale, so the check passes on the very drift it was written for.
-     *
-     * The sound form of this check is the ANCHORED one above, which compares a roster
-     * against the REGISTRY rather than against itself. DocsCoverageTest already applies it
-     * with a count included (add-component.md's "nineteen keys" plus every key), and that
-     * pairing is correct today — which is the evidence that anchoring is what makes count
-     * checking work.
-     */
+    // ── A CHECK THAT WAS BUILT AND REMOVED ─────────────────────────────────────────
+    // THE INTERNAL COUNT CHECK WAS BUILT, RUN AGAINST THE REAL CORPUS, AND REMOVED (#1087).
+    //
+    // Recorded here rather than deleted silently, because "a stated count must match the
+    // list beside it" is an obvious-sounding guard that someone will propose again, and it
+    // was Codex's strongest plan-review finding — prose counts drift where roster guards do
+    // not reach.
+    //
+    // It was implemented and run. It produced FOUR failures on the shipped corpus and ALL
+    // FOUR were false positives, because real prose pairs a count with something the count
+    // does not include:
+    //
+    //   "hero, section and testimonials no longer have it (and cta never did)"
+    //        — three is right; the fourth name is an EXCLUSION.
+    //   "widened from five components to ten in #579"
+    //        — a HISTORICAL count beside a current list.
+    //   "a style slot on the one v1 component left (grid's ...)"
+    //        — "one ... component" and the list belong to different clauses.
+    //
+    // A guard that is wrong every time it fires is not a strict guard, it is a tax on
+    // correct writing: the only way to satisfy it is to contort sentences that were already
+    // true. And it would not have caught the defect that motivated it — "seven v2
+    // components" followed by exactly seven names is internally consistent and externally
+    // stale, so the check passes on the very drift it was written for.
+    //
+    // The sound form of this check is the ANCHORED one above, which compares a roster
+    // against the REGISTRY rather than against itself. DocsCoverageTest already applies it
+    // with a count included (add-component.md's "nineteen keys" plus every key), and that
+    // pairing is correct today — which is the evidence that anchoring is what makes count
+    // checking work.
+
     /**
      * PER-ROLE DETAIL IS FETCHED, NOT DUPLICATED (#1087).
      *

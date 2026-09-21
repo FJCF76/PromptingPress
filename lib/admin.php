@@ -241,16 +241,19 @@ function pp_role_definition_keys(): array {
  *   reached_only_by_inheritance
  *                         Another role selects a DESCENDANT of this one, so a value
  *                         authored here reaches it only by inheritance and loses to the
- *                         stylesheet's direct rule. The six `*-link` roles inside
- *                         author-written rich text are the shipped instances (#1069).
+ *                         stylesheet's direct rule. THIRTEEN shipped instances: the six
+ *                         composable `*-link` pairs inside author-written rich text
+ *                         (#1069), plus seven chrome pairs on nav and footer.
  *
  * WHY DECLARED AND NOT INFERRED, stated here because the honest answer is asymmetric and
- * the code must not pretend otherwise. `reached_only_by_inheritance` IS derivable from
- * the selectors — a descendant combinator is a string fact, and the derivation reproduces
- * the six-role roster exactly, which is why _pp_udc_derived_descendant_pairs() exists as a
- * one-directional NET over these declarations. `outranked_by_default` is NOT: a sound
- * string predicate catches faq's `item` / `question-open` and MISSES `question` /
- * `question-open` and nav's `link` / `link-current`, while a loose one false-positives on
+ * the code must not pretend otherwise. `reached_only_by_inheritance` IS mostly derivable
+ * from the selectors — a descendant combinator is a string fact, and the derivation
+ * reproduces TWELVE of the thirteen, missing only `footer.social -> social-link`, whose
+ * containment is in the MARKUP and in no selector. That is why
+ * pp_udc_derived_descendant_pairs() is a one-directional NET over these declarations rather
+ * than a substitute for them. `outranked_by_default` is NOT derivable at all: a sound
+ * string predicate MISSES faq's `question` / `question-open` and nav's
+ * `link` / `link-current`, while a loose one false-positives on
  * `.faq__heading` against `.faq__heading-accent`, which select different elements. Real
  * superset reasoning needs a selector engine this theme does not have and does not need.
  * So: the DECLARATION is the complete source of truth, the derived check is a net that can
