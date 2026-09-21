@@ -67,6 +67,23 @@ class ModelFacingRosterTest extends TestCase
         return $files;
     }
 
+    /**
+     * Read a file an anchor names, failing with the anchor's own label if it is gone.
+     *
+     * The anchors build their haystacks EAGERLY, so a renamed or moved file made
+     * file_get_contents() return false and the assertion below raise a TypeError under
+     * strict_types — still a failure, so the fail-closed property held, but reported as a PHP
+     * warning plus a type error instead of the diagnostic the anchor mechanism exists to
+     * produce. A guard that fails for the wrong stated reason costs the next reader the time
+     * it was built to save.
+     */
+    private function anchorSource(string $relative, string $label): string
+    {
+        $path = dirname(__DIR__) . '/' . $relative;
+        $this->assertFileExists($path, "the anchor \"{$label}\" names {$relative}, which no longer exists");
+        return (string) file_get_contents($path);
+    }
+
     /** The composable components on the v2 contract, derived. */
     private function v2Composable(): array
     {
@@ -114,26 +131,37 @@ class ModelFacingRosterTest extends TestCase
             // also a phrase an editor cannot quietly delete.
             [
                 'AI_CONTEXT.md\'s styling route',
-                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
-                '/For the NINE v2 components \(([^)]+)\)/',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's styling route"),
+                '/For the NINE v2 components \(([^)\n]{0,200})\)/',
             ],
             [
                 'AI_CONTEXT.md\'s style-slot exclusion',
-                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
-                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all nine of ([^:]+):/',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's style-slot exclusion"),
+                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all nine of ([^:\n]{0,200}):/',
             ],
             [
                 'AI_CONTEXT.md\'s band-background roster',
-                file_get_contents(dirname(__DIR__) . '/AI_CONTEXT.md'),
-                '/Every v2 component is different, and better:\*\* on all nine of (.+?) the band background/',
+                $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's band-background roster"),
+                '/Every v2 component is different, and better:\*\* on all nine of ([^\n]{0,200}?) the band background/',
             ],
             [
                 'retheme.md\'s dark-band trap',
-                file_get_contents(dirname(__DIR__) . '/ai-instructions/retheme.md'),
-                '/All NINE v2 components — (.+?) — have no `theme` prop/s',
+                $this->anchorSource('ai-instructions/retheme.md', "retheme.md's dark-band trap"),
+                '/All NINE v2 components — (.{0,200}?) — have no `theme` prop/s',
             ],
         ];
 
+        // EVERY ANCHOR MUST BOUND ITS OWN CAPTURE, and the bound is not cosmetic. A
+        // negated character class matches newlines, and `.` matches them under `/s`, so an
+        // unbounded capture is terminated only by the next occurrence of its closing
+        // delimiter ANYWHERE in the file. Measured on the style-slot anchor before this was
+        // fixed: replacing the sentence's terminating colon with an em dash — an ordinary
+        // prose edit — grew the capture from 86 characters to 701 spanning several unrelated
+        // paragraphs, AND THE TEST STILL PASSED, because the wider span happened to contain
+        // all nine v2 names and no other component name. The anchor was then pinning a
+        // paragraph rather than its sentence, and any roster edit inside that window could be
+        // masked by a v2 name mentioned elsewhere in it. Excluding the newline and capping the
+        // span at 200 characters keeps each anchor scoped to the sentence it names.
         $checked = 0;
         foreach ($anchors as [$label, $haystack, $pattern]) {
             $this->assertMatchesRegularExpression(
@@ -153,7 +181,11 @@ class ModelFacingRosterTest extends TestCase
             );
             $checked++;
         }
-        $this->assertGreaterThan(0, $checked, 'no roster anchor was checked');
+        // FIVE ANCHORS TODAY, and the floor sits just under it. `> 0` was the token floor
+        // this suite rejects everywhere else: four of the five could be deleted from the array
+        // and it would still pass, which is the same silent-exemption shape the per-anchor
+        // fail-closed match exists to prevent for the prose. Bump it with the array.
+        $this->assertGreaterThan(4, $checked, '5 roster anchors today; deleting one exempts its roster from this guard');
     }
 
     /**

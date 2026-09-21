@@ -406,8 +406,19 @@ class DocumentedUdcSnippetsTest extends TestCase
                 }
             }
         }
-        // 7 self-identifying maps today.
-        $this->assertGreaterThan(6, $checked, 'the instruction-file `udc` walk lost subjects');
+        // 18 self-identifying maps today (build-landing-page 4, composition 7,
+        // style-component 7), and the floor sits just under it rather than at a token value.
+        //
+        // WHY IT MOVED FROM 6, and it is the reason this floor matters more than most: the
+        // walk this test consumes was widened in #1087 from two levels to a full recursive
+        // descent, so it now reaches the bands nested under a `composition` key — the shape a
+        // whole-page `create_page` example uses, which is where the richest maps live. MEASURED
+        // both ways over the SAME corpus: the widened walk finds 18, the old two-level walk
+        // finds 14. With the floor at `> 6`, reverting the widening — silently losing
+        // composition.md's flagship example and build-landing-page.md's five-band recipe, the
+        // exact maps it was written to reach — left this suite GREEN. A floor has to sit close
+        // enough to the real count to notice the change it is guarding.
+        $this->assertGreaterThan(16, $checked, 'the instruction-file `udc` walk lost subjects');
     }
 
     /** Component-attributed `udc` maps in one decoded block, at either depth. */
@@ -672,11 +683,13 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
 
-        // 12 pairings today. A floor set at a token value is a floor that never fires: this
-        // walk could lose ten of its twelve subjects — every chrome subject among them — and
-        // a `> 2` floor would still call it a pass.
+        // 21 pairings today (runtime prompt 9, build-landing-page 3, composition 4,
+        // style-component 5). A floor set at a token value is a floor that never fires: this
+        // walk could lose ten of its subjects — every chrome subject among them — and a `> 2`
+        // floor would still call it a pass. The same argument applied to `> 10` once the
+        // widened extractor took this walk from 13 subjects to 21, so it moves with the count.
         $this->assertGreaterThan(
-            10,
+            19,
             $checked,
             'the contrast walk found fewer background+ink pairings than the corpus carries; '
             . 'the extractor or the ink resolver stopped reaching most of its subjects'
@@ -727,6 +740,67 @@ class DocumentedUdcSnippetsTest extends TestCase
             }
         }
         return $inks;
+    }
+
+    /**
+     * The self-identifying walk reaches a band at ANY depth (#1087).
+     *
+     * Pinned directly, for the same reason the ink walk below is: a regression here does not
+     * move any count the corpus-walking tests report. MEASURED: the old two-level walk finds
+     * 14 maps in today's corpus and the widened one finds 18, so with the floor where it was
+     * a full revert of this walk left every downstream test green. The floor is tightened now,
+     * but a floor is a smoke alarm — this is the pin that says what the walk must actually do.
+     *
+     * The four cases are the contract: the nested `composition` shape this widening exists
+     * for, the two shapes that already worked, the predicate's refusal of a malformed entry,
+     * and the no-double-count property (a taken node is still descended into, so a role or
+     * group named `component` or `udc` would be the way that could break).
+     *
+     * @dataProvider selfIdentifyingWalkProvider
+     */
+    public function testTheSelfIdentifyingWalkReachesABandAtAnyDepth(array $doc, array $expected, string $why): void
+    {
+        $this->assertSame($expected, $this->selfIdentifyingUdcMaps($doc), $why);
+    }
+
+    public static function selfIdentifyingWalkProvider(): array
+    {
+        $map = ['heading' => ['typography' => ['color' => '#111111']]];
+        return [
+            'nested under composition (the create_page shape the two-level walk missed)' => [
+                ['title' => 'A page', 'composition' => [['component' => 'hero', 'props' => [], 'udc' => $map]]],
+                [['hero', $map]],
+                'a band one level down under `composition` must be found: this is the shape '
+                . 'composition.md and build-landing-page.md use for a whole-page example',
+            ],
+            'a bare band object (already worked)' => [
+                ['component' => 'cta', 'udc' => $map],
+                [['cta', $map]],
+                'the block IS the band',
+            ],
+            'a bare list of bands (already worked)' => [
+                [['component' => 'hero', 'udc' => $map], ['component' => 'cta', 'udc' => $map]],
+                [['hero', $map], ['cta', $map]],
+                'a composition array at the top level',
+            ],
+            'component is not a string' => [
+                ['component' => ['hero'], 'udc' => $map],
+                [],
+                'the predicate takes only a STRING component, so descending into unrelated '
+                . 'structure yields nothing rather than a guess',
+            ],
+            'udc is not an array' => [
+                ['component' => 'hero', 'udc' => 'none'],
+                [],
+                'the predicate takes only an ARRAY udc',
+            ],
+            'one band yields exactly one pair' => [
+                ['composition' => [['component' => 'hero', 'udc' => $map]]],
+                [['hero', $map]],
+                'the walk descends into a node it has already taken, so a band must not be '
+                . 'counted twice',
+            ],
+        ];
     }
 
     /**
