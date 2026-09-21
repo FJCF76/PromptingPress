@@ -2849,12 +2849,23 @@ function pp_component_schema_report(string $component): array|WP_Error {
     if ($roles !== []) {
         $report['roles'] = [];
         foreach ($roles as $role_name => $definition) {
-            $report['roles'][] = [
+            $entry = [
                 'role'        => (string) $role_name,
                 'selector'    => (string) ($definition['selector'] ?? ''),
                 'groups'      => array_values((array) ($definition['groups'] ?? [])),
                 'description' => (string) ($definition['description'] ?? ''),
             ];
+            // OBLIGATIONS REACH THE CLI TOO (#1087), and without this the mechanism is only
+            // half built. The runtime prompt composes these for the chat AI, which has no
+            // way to fetch a schema; an agent with CLI access is told to run this command
+            // INSTEAD of carrying a copy, so if the command does not emit them, "fetch it"
+            // points at a surface that does not have it. Emitted only when the role declares
+            // any, so `[]` is not mistaken for a contract that failed to load.
+            $obligations = $definition['obligations'] ?? [];
+            if (is_array($obligations) && $obligations !== []) {
+                $entry['obligations'] = array_values($obligations);
+            }
+            $report['roles'][] = $entry;
         }
         $report['udc_groups'] = pp_udc_group_summary();
         // RAW DECLARATIONS ARE PART OF THE AUTHORING SURFACE, so they belong in the
