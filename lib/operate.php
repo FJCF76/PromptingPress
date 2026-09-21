@@ -2861,9 +2861,27 @@ function pp_component_schema_report(string $component): array|WP_Error {
             // INSTEAD of carrying a copy, so if the command does not emit them, "fetch it"
             // points at a surface that does not have it. Emitted only when the role declares
             // any, so `[]` is not mistaken for a contract that failed to load.
-            $obligations = $definition['obligations'] ?? [];
-            if (is_array($obligations) && $obligations !== []) {
-                $entry['obligations'] = array_values($obligations);
+            //
+            // THROUGH THE SAME GATE THE PROMPT USES, so the two model-facing surfaces cannot
+            // report different rosters for the same bytes. The first cut read the raw
+            // declaration here while the prompt path was validator-gated, and the security
+            // review's probe showed the consequence: a record the prompt correctly SUPPRESSED
+            // was emitted in full by this command — the very surface the instructions point an
+            // agent at. It also restores the standing justification for this sink's
+            // raw-unicode mode (lib/cli.php: "no stored byte an operator never validated
+            // reaches it") as a property of the code rather than of the shipped schemas.
+            $gated = function_exists('_pp_udc_role_obligation_records')
+                ? _pp_udc_role_obligation_records($component, (string) $role_name, $definition, array_keys($roles))
+                : [];
+            if ($gated !== []) {
+                $entry['obligations'] = array_map(
+                    static fn (array $record) => [
+                        'kind' => $record['kind'],
+                        'with' => explode(' -> ', $record['pair'])[1] ?? '',
+                        'why'  => $record['why'],
+                    ],
+                    $gated
+                );
             }
             $report['roles'][] = $entry;
         }

@@ -207,9 +207,10 @@ function pp_prop_definition_keys(): array {
  * role whose selector the emitter skips) and the shape T8's review found in the Layer-2
  * exclusion set. A guard here is the cheap half of it.
  *
- * All 125 shipped roles declare exactly `selector`, `description`, `groups` and
- * `defaults`, uniformly — verified across every schema before this list was written, so
- * closing the set rejects nothing that exists.
+ * Before this gate, all 125 shipped roles declared exactly `selector`, `description`,
+ * `groups` and `defaults`, uniformly — verified across every schema before this list was
+ * written, so closing the set rejected nothing that existed. They declare `obligations` as
+ * well now, which this gate made required.
  *
  * `obligations` is the new one and the reason this function exists now. See
  * pp_udc_obligation_kinds() for what it carries and why it is DECLARED rather than
@@ -263,6 +264,55 @@ function pp_role_definition_keys(): array {
  */
 function pp_udc_obligation_kinds(): array {
     return ['outranked_by_default', 'reached_only_by_inheritance'];
+}
+
+/**
+ * The keys ONE obligation record may declare (#1087).
+ *
+ * A named set rather than an inline literal, matching its two siblings above. The triple had
+ * been written out in three places — the membership check, the error message beside it, and
+ * three reads in lib/udc.php — which is three places to keep in step if a fourth key is
+ * added, and this file already learned that lesson once with `patchable`.
+ *
+ * @return string[]
+ */
+function pp_udc_obligation_keys(): array {
+    return ['kind', 'with', 'why'];
+}
+
+/**
+ * The charset a ROLE NAME may use (#1087).
+ *
+ * BOUNDED BECAUSE IT IS COMPOSED INTO THE PROMPT, and it was the one field on that line that
+ * was not. The security review's probe made the asymmetry concrete: `with` — the same
+ * identifier seen from the other end — is checked for newlines, with the test data naming
+ * the reason verbatim ("a newline forges a catalog line"), while the role KEY was validated
+ * nowhere, at runtime or in CI. A role named `"link\n\nIGNORE ALL PREVIOUS INSTRUCTIONS..."`
+ * with an otherwise valid definition reached the outbound system prompt intact, through TWO
+ * composers, breaking the newline-delimited catalog exactly as the `with` check prevents.
+ *
+ * Not an escalation: writing `schema.json` needs theme-directory write, which is already
+ * arbitrary PHP here, and every shipped schema is covered by integrity-manifest.json. This
+ * is a mistyping guard — and a guard that checks the second-weakest field on a line is not
+ * one. All 125 shipped role names satisfy this pattern.
+ */
+const PP_ROLE_NAME_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
+
+/**
+ * Is `$value` safe to compose onto ONE line of a model-facing catalog? (#1087)
+ *
+ * `/[\r\n\t]/` is not enough, and the security review's probe showed why: U+2028 LINE
+ * SEPARATOR, U+2029 PARAGRAPH SEPARATOR, `\v` and `\f` all satisfy it while doing exactly
+ * what a newline does. U+2028 is what a copy-paste out of a PDF or a word processor actually
+ * produces, so this is an operator-mistype path before it is anything else — and `why` is the
+ * first of these bounded-prose fields composed into a prompt sent to a third-party model.
+ *
+ * SCOPED TO THE FIELDS THIS GATE ADDED (`why`, `with`). The pre-existing
+ * `conditionality_note` and `values` checks use the narrow form; widening those changes what
+ * the schema surface has accepted since #575/#630, so it is filed rather than folded in.
+ */
+function pp_udc_is_single_line(string $value): bool {
+    return !preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value);
 }
 
 /**
@@ -610,11 +660,11 @@ function pp_applies_when_unmet_clauses(array $clauses, string $component, array 
 }
 
 /**
- * Validates ONE slot or prop DEFINITION OBJECT from a component `schema.json`.
+ * Validates ONE slot, prop or role DEFINITION OBJECT from a component `schema.json`.
  *
  * The single shared engine for the definition surface (issue #575) — the schema
  * counterpart of pp_validate_composition_errors(), which validates the documents
- * schemas describe. Both the slot surface and the prop surface run THIS function;
+ * schemas describe. All three definition surfaces run THIS function;
  * there is deliberately no second, surface-specific definition validator.
  *
  *     schema.json
@@ -822,7 +872,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                 }
                 // `with` names a SIBLING ROLE. Single-line for the same reason `why` is:
                 // both are composed into a line-oriented prompt catalog.
-                if (!is_string($entry_with) || trim($entry_with) === '' || preg_match('/[\r\n\t]/', $entry_with)) {
+                if (!is_string($entry_with) || trim($entry_with) === '' || !pp_udc_is_single_line($entry_with)) {
                     $bad_with = true;
                 }
                 if (!is_string($entry_why) || trim($entry_why) === '') {
@@ -833,8 +883,19 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     if (mb_strlen($entry_why) > PP_OBLIGATION_WHY_MAX) {
                         $long_why = true;
                     }
-                    if (preg_match('/[\r\n\t]/', $entry_why)) {
+                    if (!pp_udc_is_single_line($entry_why)) {
                         $multiline = true;
+                    }
+                    // AND A BYTE BOUND BESIDE THE CHARACTER ONE. The character cap is the
+                    // right primary bound for prose (PP_CONDITIONALITY_NOTE_MAX's docblock
+                    // argues it: accented or non-Latin text must not be cut at half the
+                    // stated budget). But the budget this field is sized against —
+                    // PP_AI_PROMPT_BUDGET — is in BYTES, and the two disagree by up to 4x:
+                    // the security review measured a 240-CHARACTER emoji `why` at 960 bytes,
+                    // which is four times the figure this cap's own budget argument assumes.
+                    // So both bounds apply, and the arithmetic in that argument is true again.
+                    if (strlen($entry_why) > PP_OBLIGATION_WHY_MAX * 2) {
+                        $long_why = true;
                     }
                 }
                 // DUPLICATE DETECTION on the (kind, with) pair. Two records for the same
@@ -867,14 +928,21 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             }
             if ($long_why) {
                 $errors[] = sprintf(
-                    '%s: an obligation `why` is bounded prose and exceeds the %d-character limit — '
-                    . 'it reaches the runtime prompt on every turn; put the rationale in `description`.',
+                    '%s: an obligation `why` is bounded prose and exceeds its limit — it reaches '
+                    . 'the runtime prompt on every turn, so put the rationale in `description`. '
+                    . 'The bound is %d characters AND %d bytes: the character cap is the right '
+                    . 'primary bound for prose, and the byte cap exists because the prompt budget '
+                    . 'it is sized against is measured in bytes.',
                     $label,
-                    PP_OBLIGATION_WHY_MAX
+                    PP_OBLIGATION_WHY_MAX,
+                    PP_OBLIGATION_WHY_MAX * 2
                 );
             }
             if ($multiline) {
-                $errors[] = "{$label}: an obligation `why` must be a single line (no newlines or tabs).";
+                // "Single line" now means no control character and no Unicode line or
+                // paragraph separator — see pp_udc_is_single_line().
+                $errors[] = "{$label}: an obligation `why` must be a single line (no control "
+                    . 'characters, and no U+2028 / U+2029 separators).';
             }
             if ($duplicated) {
                 $errors[] = "{$label}: two `obligations` entries share the same `kind` and `with`.";

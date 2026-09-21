@@ -6262,6 +6262,38 @@ function pp_udc_group_summary(): string {
  * @param string[] $siblings  Role names this component declares.
  * @return array<int, array{kind: string, why: string, pair: string}>
  */
+/**
+ * May this role's schema bytes be composed onto a model-facing surface? (#1087)
+ *
+ * ONE GATE FOR EVERY COMPOSER, and it exists because the first cut had two composers and
+ * gated one. The security review probed it: a nav role carrying an unknown definition key
+ * was correctly suppressed from the obligation roster and STILL appeared by name in the
+ * chrome-ink roster, in the same prompt build. That is the write/render-disagreement shape
+ * this repo has already recorded once — in an engine where stored bytes reach the emitter by
+ * several paths, every gate must exist on all of them or they disagree.
+ *
+ * TWO CHECKS, because the review showed the definition gate alone guards the wrong field.
+ * The NAME is composed onto the same line as the values and was bounded nowhere; `with` —
+ * the same identifier from the other end — was bounded. So the name is checked here, and the
+ * definition is delegated to the validator that owns definition shape.
+ *
+ * function_exists on BOTH admin.php entry points or neither: a guard that checks one function
+ * from a file and then calls another from the same file unguarded buys nothing.
+ */
+function _pp_udc_role_is_composable(string $component, string $role, $definition): bool {
+    if (!is_array($definition)) {
+        return false;
+    }
+    if (!function_exists('pp_udc_is_single_line') || !defined('PP_ROLE_NAME_PATTERN')) {
+        return false;
+    }
+    if (!preg_match(PP_ROLE_NAME_PATTERN, $role)) {
+        return false;
+    }
+    return !function_exists('pp_schema_definition_errors')
+        || pp_schema_definition_errors($definition, 'role', "{$component} role {$role}") === [];
+}
+
 function _pp_udc_role_obligation_records(
     string $component,
     string $role,
@@ -6275,16 +6307,10 @@ function _pp_udc_role_obligation_records(
     // whose definition does not validate contributes NOTHING rather than contributing
     // garbage to a prompt. function_exists because a partial include must degrade to
     // rendering nothing, not fatal.
-    if (function_exists('pp_schema_definition_errors')
-        && pp_schema_definition_errors($definition, 'role', "{$component} role {$role}") !== []) {
+    if (!_pp_udc_role_is_composable($component, $role, $definition)) {
         return [];
     }
 
-    // BOTH admin.php entry points are guarded, or neither guard buys anything. The first
-    // version checked function_exists on the validator and then called
-    // pp_udc_obligation_kinds() — from the same file — unguarded eighteen lines later, so
-    // under the exact partial include the guard exists for, the check passed vacuously and
-    // the next line fataled. Found in the pre-landing review.
     $kinds = function_exists('pp_udc_obligation_kinds') ? pp_udc_obligation_kinds() : [];
     if ($kinds === []) {
         return [];
@@ -6530,7 +6556,9 @@ function pp_udc_chrome_own_ink_summary(): string {
     foreach (pp_udc_chrome_names() as $component) {
         $named = [];
         foreach (pp_udc_component_roles($component) as $role => $definition) {
-            if (!is_array($definition)) {
+            // THE SAME GATE THE OBLIGATION COMPOSER USES. This path had none, so a role the
+            // other roster correctly suppressed still reached the prompt by name here.
+            if (!_pp_udc_role_is_composable($component, (string) $role, $definition)) {
                 continue;
             }
             $typography = $definition['defaults']['typography'] ?? [];
