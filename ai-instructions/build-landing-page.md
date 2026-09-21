@@ -185,8 +185,15 @@ wp pp action execute create_page --run-id=<uuid> --params='{"title":"Product Lau
 
 `--params` takes the JSON **inline**. There is no `--params@file` form: the value is read
 straight out of the argument and `json_decode`d (`pp_cli_parse_params()`), so an `@path`
-is rejected as an unknown parameter. For a composition too long to paste comfortably,
-keep it in a file and let the shell do the substitution:
+is rejected as an unknown parameter.
+
+**The single-quoted form cannot carry an apostrophe, and landing-page copy is exactly
+where apostrophes live.** One `'` in a headline closes the shell's string mid-payload:
+`--params='{"title":"Don't wait"}'` is a syntax error (`unexpected EOF while looking for
+matching`), and everything between that apostrophe and the next one is unquoted shell
+text, where `$`, a backtick, `;`, `|` and `&` are live rather than literal. So the file
+form below is not only for length — **it is the form to use whenever the copy contains an
+apostrophe**, which is most real copy:
 
 ```bash
 wp pp action execute create_page --run-id=<uuid> --params="$(cat composition.json)"

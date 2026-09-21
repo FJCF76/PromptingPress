@@ -411,6 +411,15 @@ class DocsCoverageTest extends TestCase
         // Each entry carries its own anchor because each file states the roster in its own
         // words, and each anchor is FAIL-CLOSED: if the sentence is reworded so the anchor
         // stops matching, this fails rather than silently checking nothing.
+        //
+        // AND EACH CAPTURE IS BOUNDED, for the reason ModelFacingRosterTest states at length
+        // in this same change: an unbounded `(.+?)` under `/s` is terminated only by the next
+        // occurrence of its closing phrase ANYWHERE in the file, so a reworded delimiter can
+        // silently grow the span into neighbouring prose and let a component named elsewhere
+        // satisfy a roster it has left. Measured today these captures are 485 and 451
+        // characters on a single line each, so the line bound plus 800 characters is generous
+        // for the roster and far short of the next paragraph. Two guards in one PR should not
+        // disagree about what a checkable roster is.
         $sites = [
             [
                 'ai-instructions/add-component.md',
@@ -420,12 +429,12 @@ class DocsCoverageTest extends TestCase
             [
                 'ai-instructions/validate-site.md',
                 "nineteen keys across eight components",
-                '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, (.+?) `table` is v2/s',
+                '/The whole set is ' . $words[$total] . ' keys across [a-z-]+ components\*\*, ([^\n]{0,800}?) `table` is v2/',
             ],
             [
                 'docs/reference-apply-cli.md',
                 "**{$words[$total]}** keys",
-                '/the \*\*' . $words[$total] . '\*\* keys across \*\*[a-z-]+\*\* components(.+?)moved from/s',
+                '/the \*\*' . $words[$total] . '\*\* keys across \*\*[a-z-]+\*\* components([^\n]{0,800}?)moved from/',
             ],
         ];
 

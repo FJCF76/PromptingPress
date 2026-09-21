@@ -75,6 +75,9 @@ class DocumentedUdcSnippetsTest extends TestCase
     }
 
     /** Every ```json fenced block in a file, decoded. Undecodable blocks are reported. */
+    /** Documented `--params` payloads the lifter could not read, collected per walk. */
+    private array $shellPayloadDrops = [];
+
     private function jsonBlocks(string $path, bool $includeShellParams = false): array
     {
         $text = (string) file_get_contents($path);
@@ -117,6 +120,27 @@ class DocumentedUdcSnippetsTest extends TestCase
                 foreach ($params[1] as $payload) {
                     if (is_array(json_decode($payload, true))) {
                         $raws[] = $payload;
+                        continue;
+                    }
+                    // A DROP IS RECORDED, because the payloads this skips are the ones most
+                    // likely to be wrong and the floors below only notice a LOSS of subjects,
+                    // never a subject that was never counted.
+                    //
+                    // Two reasons a payload fails to decode, and they deserve opposite
+                    // answers. An ELISION (`{"title":"Product Launch", ... }`) is a
+                    // deliberate doc style and correct. An APOSTROPHE in the copy is not: the
+                    // lazy match stops at that quote, so the payload truncates — AND the same
+                    // apostrophe breaks the documented command for anyone who runs it,
+                    // because `--params='{"title":"Don't wait"}'` closes the shell string
+                    // mid-payload. So the example is simultaneously unrunnable and invisible
+                    // to the guard meant to catch unrunnable examples. The first is tolerated
+                    // silently; the second is collected and asserted on.
+                    $elided = str_contains($payload, '...') || str_contains($payload, "\u{2026}");
+                    if (!$elided) {
+                        $this->shellPayloadDrops[] = basename($path) . ': a `--params` payload '
+                            . 'does not parse and carries no elision, so it truncated — almost '
+                            . 'always at an apostrophe in the copy, which ALSO breaks the '
+                            . 'documented command for anyone who runs it. Payload: ' . $payload;
                     }
                 }
             }
@@ -809,6 +833,15 @@ class DocumentedUdcSnippetsTest extends TestCase
         foreach ($this->instructionFiles() as $file) {
             foreach ($this->jsonBlocks($file, true) as $block) {
                 foreach ($this->selfIdentifyingBands($block['json']) as [$component, $props]) {
+                    // RESOLVE THROUGH THE REGISTRY, not by pasting a documented string into a
+                    // path. `$component` comes out of decoded markdown with only an is_string()
+                    // check, so `"component": "../ai-instructions"` would resolve outside
+                    // components/. The realism is nil — repo-controlled input, CI-only, and the
+                    // file is merely json_decode()d — but every sibling helper in this suite
+                    // goes through the registry and this was the one place that did not.
+                    if (!\pp_component_exists($component)) {
+                        continue;
+                    }
                     $path = dirname(__DIR__) . "/components/{$component}/schema.json";
                     if (!is_file($path)) {
                         continue;
@@ -842,6 +875,10 @@ class DocumentedUdcSnippetsTest extends TestCase
 
         $this->assertSame([], $errors, "an instruction file documents a prop the write path refuses:\n"
             . implode("\n", $errors));
+
+        $this->assertSame([], $this->shellPayloadDrops, "a documented command's `--params` "
+            . "payload could not be read, and an apostrophe is why:\n"
+            . implode("\n", $this->shellPayloadDrops));
 
         // FAIL-CLOSED, with the floor under the measured count so a walk that stops finding
         // bands cannot pass by asserting on nothing.
