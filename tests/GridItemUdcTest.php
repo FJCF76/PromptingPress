@@ -519,6 +519,167 @@ class GridItemUdcTest extends TestCase
     }
 
     /**
+     * REORDER, DELETE, AND THE ID THAT MAKES BOTH CORRECT (D6, completed).
+     *
+     * THE RED-PROOF SET, ENCODED. Measured through the real action surface before the
+     * fix, three cards with card 02 dark:
+     *
+     *   deletes card 01            design + minted id MIGRATE to card 03      ok: true
+     *   reorders 02 and 03         design stays on POSITION 1                 ok: true
+     *   reorders, re-sends the id  REFUSED — duplicate_component_id           ok: false
+     *
+     * The third line is the one that settled the ruling. The index pass filled stored
+     * index 1's id into the caller's index 1 while the caller had also sent it at index
+     * 2, so the engine collided with itself and reported "item 1 and item 2 both claim
+     * the id" — a caller doing exactly the right thing, refused by the guard meant to
+     * protect them. There was no correct way to reorder a styled card at all.
+     *
+     * The reorder is also the ORDINAL behaviour ruling D9 retired `card_emphasis` to
+     * eliminate. grid's own `retired_props` says an item is addressed by its minted id
+     * "so that reordering carries styling WITH the item"; it did not.
+     *
+     * ID WINS, THEN POSITION — which is what "preserve by index" had to mean once ids
+     * existed to win. The same-length no-id case is D6's red-proofed one and is
+     * byte-identical; a LENGTH CHANGE drops rather than migrates, because position
+     * demonstrably lies once an entry was added or removed and a design that vanishes is
+     * visible where one on the wrong card looks deliberate.
+     */
+    public function testReorderAndDeleteCarryTheDesignWithTheCardWhenIdsAreSent(): void
+    {
+        $seed = function (): array {
+            $post_id = $this->newPage('d6 ' . uniqid('', true));
+            $this->assertTrue($this->write($post_id, [$this->ownersBand()])['ok']);
+            return [$post_id, pp_get_composition($post_id)[0]['props']['items'][1]['id']];
+        };
+        $titles = static function (array $items): array {
+            $out = [];
+            foreach ($items as $entry) {
+                $out[] = ($entry['title'] ?? '?') . (isset($entry['udc']) ? ':dark' : '');
+            }
+            return $out;
+        };
+        $patch = function (int $post_id, array $items): array {
+            return pp_execute_action('update_component', [
+                'post_id'         => $post_id,
+                'component_index' => 0,
+                'props'           => ['items' => $items],
+            ]);
+        };
+
+        // 1. REORDER WITH IDS — was refused outright, now correct.
+        [$post_id, $minted] = $seed();
+        $result = $patch($post_id, [
+            ['title' => '01', 'text' => 'one'],
+            ['title' => '03', 'text' => 'three'],
+            ['title' => '02', 'text' => 'two', 'id' => $minted],
+        ]);
+        $this->assertTrue($result['ok'], 're-sending the id must not collide with the carry: ' . ($result['error'] ?? ''));
+        $this->assertSame(
+            ['01', '03', '02:dark'],
+            $titles(pp_get_composition($post_id)[0]['props']['items']),
+            'the design follows the CARD when the caller says which card it is'
+        );
+
+        // 2. DELETE WITH IDS — the surviving styled card keeps its design.
+        [$post_id, $minted] = $seed();
+        $this->assertTrue($patch($post_id, [
+            ['title' => '02', 'text' => 'two', 'id' => $minted],
+            ['title' => '03', 'text' => 'three'],
+        ])['ok']);
+        $this->assertSame(
+            ['02:dark', '03'],
+            $titles(pp_get_composition($post_id)[0]['props']['items'])
+        );
+
+        // 3. DELETE WITHOUT IDS — drops rather than migrating. This is the behaviour
+        //    change: it used to put card 02's design on card 03.
+        [$post_id] = $seed();
+        $this->assertTrue($patch($post_id, [
+            ['title' => '02', 'text' => 'two'],
+            ['title' => '03', 'text' => 'three'],
+        ])['ok']);
+        $this->assertSame(
+            ['02', '03'],
+            $titles(pp_get_composition($post_id)[0]['props']['items']),
+            'a length change must not hand one card\'s design to another'
+        );
+
+        // 4. SAME LENGTH, NO IDS — D6's red-proofed case, unchanged.
+        [$post_id] = $seed();
+        $this->assertTrue($patch($post_id, [
+            ['title' => '01', 'text' => 'one'],
+            ['title' => '02', 'text' => 'two EDITED'],
+            ['title' => '03', 'text' => 'three'],
+        ])['ok']);
+        $items = pp_get_composition($post_id)[0]['props']['items'];
+        $this->assertSame(['01', '02:dark', '03'], $titles($items));
+        $this->assertSame('two EDITED', $items[1]['text'], 'and the caller\'s edit still lands');
+    }
+
+    /**
+     * CARRYING BY POSITION IS DISCLOSED, WITH THE ROUTE THAT REMOVES THE AMBIGUITY.
+     *
+     * A same-length patch that omits the ids is CORRECT whenever the caller did not
+     * reorder, and wrong when they did — and nothing in the merge can tell the two apart.
+     * `[{02},{03}]` is indistinguishable from "the author rewrote the copy of both
+     * cards". So the write is accepted and the assumption is stated, which is this
+     * program's posture for every accepted-but-possibly-not-what-you-meant write.
+     *
+     * ON THE WRITE'S OWN CHANNEL, because the fact cannot be derived from stored bytes:
+     * once the merge has run, nothing distinguishes a design the engine carried from one
+     * the caller sent. Same drain-slot shape as the history-push notice (#821).
+     */
+    public function testCarryingAnItemDesignByPositionIsDisclosedWithItsRoute(): void
+    {
+        $post_id = $this->newPage('d6 disclosure');
+        $this->assertTrue($this->write($post_id, [$this->ownersBand()])['ok']);
+        $minted = pp_get_composition($post_id)[0]['props']['items'][1]['id'];
+
+        $carried = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['title' => '01', 'text' => 'one'],
+                ['title' => '02', 'text' => 'two EDITED'],
+                ['title' => '03', 'text' => 'three'],
+            ]],
+        ]);
+        $this->assertTrue($carried['ok']);
+
+        $disclosure = null;
+        foreach ($carried['findings'] ?? [] as $finding) {
+            if ($finding['type'] === 'udc_item_design_carried_by_position') {
+                $disclosure = $finding;
+            }
+        }
+        $this->assertNotNull($disclosure, 'an assumption the caller can remove must be stated');
+        $this->assertStringContainsString('BY POSITION', $disclosure['message']);
+        $this->assertStringContainsString(
+            're-send entries with their ids',
+            $disclosure['message'],
+            'a disclosure without its route is a warning the reader cannot act on'
+        );
+
+        // AND IT IS SILENT WHEN THE CALLER REMOVED THE AMBIGUITY. A finding on a correct
+        // write trains an operator to stop reading findings.
+        $explicit = pp_execute_action('update_component', [
+            'post_id'         => $post_id,
+            'component_index' => 0,
+            'props'           => ['items' => [
+                ['title' => '01', 'text' => 'one'],
+                ['title' => '02', 'text' => 'two AGAIN', 'id' => $minted],
+                ['title' => '03', 'text' => 'three'],
+            ]],
+        ]);
+        $this->assertTrue($explicit['ok']);
+        $this->assertNotContains(
+            'udc_item_design_carried_by_position',
+            array_column($explicit['findings'] ?? [], 'type'),
+            'sending the ids is the route the message names, so taking it must silence it'
+        );
+    }
+
+    /**
      * AN ITEM MAP ARRIVING THROUGH `update_component` IS VALIDATED, NOT JUST STORED (D6).
      *
      * The half of D6 that is easy to miss. A band map is a SIBLING of `props` and no

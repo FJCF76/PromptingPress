@@ -4706,6 +4706,58 @@ function _pp_take_history_push_skipped(int $post_id): bool {
 }
 
 /**
+ * The write-time slot for "an item design was carried by POSITION" (#1101).
+ *
+ * THE SIBLING OF _pp_history_push_skip_state(), and a separate slot rather than a second
+ * flag on that one because the two notices are about different things: that one says the
+ * write kept no undo point, this one says the write made an assumption the caller can
+ * remove. Both share the shape for the same reason — the fact is about the WRITE, and
+ * once the merge has run nothing in the stored bytes distinguishes a design the engine
+ * carried from one the caller sent.
+ *
+ * @param int  $post_id  WordPress post ID.
+ * @param int  $count    Entries carried, or 0 to clear/consume.
+ * @param bool $write    true to record, false to read-and-clear.
+ * @return int  The count BEFORE this call.
+ */
+function _pp_item_design_position_state(int $post_id, int $count, bool $write): int {
+    static $carried = [];
+
+    $had = $carried[$post_id] ?? 0;
+    if ($write) {
+        $carried[$post_id] = $count;
+    } else {
+        unset($carried[$post_id]);
+    }
+    return $had;
+}
+
+/** Records that N item designs were carried by position on this write (#1101). */
+function _pp_record_item_design_carried_by_position(int $post_id, int $count): void {
+    _pp_item_design_position_state($post_id, $count, true);
+}
+
+/**
+ * Clears the slot (#1101).
+ *
+ * NOT CALLED AT WRITE START, which is where its history sibling is called and is the one
+ * place this slot must NOT be cleared. The history notice is recorded INSIDE the write;
+ * this one is recorded by the MERGE, which runs before the write — so clearing at write
+ * start would wipe the record the same call stack had just made. The MERGE owns this
+ * slot instead: `_pp_preserve_item_design()` writes the count on every run, zero
+ * included, so a merge that carries nothing clears whatever a refused earlier write left
+ * behind.
+ */
+function _pp_forget_item_design_carried_by_position(int $post_id): void {
+    _pp_item_design_position_state($post_id, 0, false);
+}
+
+/** Reads AND clears the slot: draining is what stops one write being reported twice. */
+function _pp_take_item_design_carried_by_position(int $post_id): int {
+    return _pp_item_design_position_state($post_id, 0, false);
+}
+
+/**
  * Reads the freshness content-hash straight from the DB inside the composition lock (#828).
  * The fourth sibling of the three readers above, and the last of pp_update_composition()'s
  * four in-lock reads to stop asking the object cache.

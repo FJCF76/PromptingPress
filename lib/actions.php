@@ -5896,7 +5896,46 @@ function _pp_history_push_skipped_findings(int $post_id): array {
  * @return array[]  The report, led by any write-scoped disclosures.
  */
 function _pp_prepend_write_disclosures(int $post_id, array $report): array {
-    return array_merge(_pp_history_push_skipped_findings($post_id), $report);
+    return array_merge(
+        _pp_history_push_skipped_findings($post_id),
+        _pp_item_design_position_findings($post_id),
+        $report
+    );
+}
+
+/**
+ * The "carried by position" disclosure, drained (#1101).
+ *
+ * An `items` patch that omits the engine-owned keys has its designs carried forward by
+ * POSITION, which is right whenever the caller did not reorder and wrong when they did —
+ * and nothing in the merge can tell the two apart. So the write is accepted and the
+ * assumption is stated, with the route that removes it.
+ *
+ * IN FRONT OF THE BUDGET, for the reason the history notice states: this is about the
+ * WRITE rather than about the composition, and appending would put it behind a
+ * `findings_truncated` tail on exactly the page where losing it is worst.
+ */
+function _pp_item_design_position_findings(int $post_id): array {
+    $carried = _pp_take_item_design_carried_by_position($post_id);
+    if ($carried < 1) {
+        return [];
+    }
+
+    return [[
+        'type'     => 'udc_item_design_carried_by_position',
+        'severity' => 'warning',
+        'message'  => sprintf(
+            '%d per-card design%s carried forward BY POSITION, because this patch sent the '
+            . '"items" array without the engine-owned "id" on each entry. That is correct if '
+            . 'you did not reorder the list, and wrong if you did — the design stays on the '
+            . 'slot rather than following the card. To make styling follow cards, re-send '
+            . 'entries with their ids: read them back with `wp pp operate inspect` and include '
+            . '"id" on every entry you keep.',
+            $carried,
+            $carried === 1 ? ' was' : 's were'
+        ),
+        'index'    => null,
+    ]];
 }
 
 /**
@@ -6494,7 +6533,8 @@ pp_register_action('update_component', [
         $after_props = _pp_merge_component_props(
             $before_props,
             $params['props'],
-            (string) ($composition[$params['component_index']]['component'] ?? '')
+            (string) ($composition[$params['component_index']]['component'] ?? ''),
+            (int) $params['post_id']
         );
 
         $composition[$params['component_index']]['props'] = $after_props;
@@ -7420,7 +7460,7 @@ function _pp_resolve_id_param(array &$params, int $post_id) {
  *
  * @param string $component The band's component, for the item-grain lookup.
  */
-function _pp_merge_component_props(array $existing, array $new, string $component = ''): array {
+function _pp_merge_component_props(array $existing, array $new, string $component = '', int $post_id = 0): array {
     $merged = $existing;
     $declaration = $component !== '' && function_exists('pp_udc_item_roles')
         ? pp_udc_item_roles($component)
@@ -7433,7 +7473,7 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
         }
         if ($declaration !== null && $key === $declaration['prop']
             && is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
-            $value = _pp_preserve_item_design($existing[$key], $value);
+            $value = _pp_preserve_item_design($existing[$key], $value, $post_id);
         }
         $merged[$key] = $value;
     }
@@ -7453,17 +7493,111 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
  * clear-it route open, which matters because there is otherwise no way to
  * remove an item's design once minted.
  */
-function _pp_preserve_item_design(array $existing_entries, array $incoming_entries): array {
-    foreach ($incoming_entries as $k => $entry) {
-        if (!is_array($entry) || !isset($existing_entries[$k]) || !is_array($existing_entries[$k])) {
+function _pp_preserve_item_design(array $existing_entries, array $incoming_entries, int $post_id = 0): array {
+    // ── PASS 1: AN EXPLICIT ID WINS, AND CLAIMS ITS STORED ENTRY ────────────
+    //
+    // This is what "preserve by index" had to mean once ids existed to win. Index alone
+    // moved a design onto the wrong card, and — the sharper half — it DEFEATED the one
+    // workaround. Measured through the real action surface, three cards with card 02
+    // dark:
+    //
+    //   deletes card 01          design + minted id MIGRATE to card 03   ok: true
+    //   reorders 02 and 03       design stays on POSITION 1              ok: true
+    //   reorders, re-sends the id  REFUSED, duplicate_component_id       ok: false
+    //
+    // That third line is the one that settled it: the index pass filled stored index 1's
+    // id into the caller's index 1 while the caller had also sent it at index 2, so the
+    // engine collided with itself and reported "item 1 and item 2 both claim the id" —
+    // a caller doing exactly the right thing, refused by the guard meant to protect them.
+    //
+    // The reorder is also the ordinal behaviour ruling D9 retired `card_emphasis` to
+    // eliminate: grid's own `retired_props` says an item is addressed by its minted id
+    // "so that reordering carries styling WITH the item". It did not.
+    $by_id    = [];
+    $claimed  = [];
+    foreach ($existing_entries as $existing_key => $existing_entry) {
+        if (!is_array($existing_entry) || !isset($existing_entry[PP_UDC_ITEM_ID_KEY])
+            || !is_scalar($existing_entry[PP_UDC_ITEM_ID_KEY])) {
             continue;
         }
-        foreach ([PP_UDC_ITEM_ID_KEY, PP_UDC_ITEM_MAP_KEY] as $owned) {
-            if (!array_key_exists($owned, $entry) && array_key_exists($owned, $existing_entries[$k])) {
-                $incoming_entries[$k][$owned] = $existing_entries[$k][$owned];
+        $existing_id = (string) $existing_entry[PP_UDC_ITEM_ID_KEY];
+        if ($existing_id !== '' && !isset($by_id[$existing_id])) {
+            $by_id[$existing_id] = $existing_key;
+        }
+    }
+
+    foreach ($incoming_entries as $k => $entry) {
+        if (!is_array($entry) || !isset($entry[PP_UDC_ITEM_ID_KEY])
+            || !is_scalar($entry[PP_UDC_ITEM_ID_KEY])) {
+            continue;
+        }
+        $sent_id = (string) $entry[PP_UDC_ITEM_ID_KEY];
+        if ($sent_id === '' || !isset($by_id[$sent_id])) {
+            continue;
+        }
+        $source = $existing_entries[$by_id[$sent_id]];
+        // CLAIMED EITHER WAY. The stored entry this id names is off the index pool even
+        // when the caller sent their own map — otherwise pass 2 could hand the same
+        // design to a second card and mint the duplicate the write gate then refuses.
+        $claimed[$by_id[$sent_id]] = true;
+        if (!array_key_exists(PP_UDC_ITEM_MAP_KEY, $entry)
+            && array_key_exists(PP_UDC_ITEM_MAP_KEY, $source)) {
+            $incoming_entries[$k][PP_UDC_ITEM_MAP_KEY] = $source[PP_UDC_ITEM_MAP_KEY];
+        }
+    }
+
+    // ── PASS 2: POSITION, AND ONLY WHEN POSITION STILL MEANS SOMETHING ──────
+    //
+    // A SAME-LENGTH ARRAY IS D6's RED-PROOFED CASE AND IS UNTOUCHED: the editor shape
+    // that sends the list back with one word changed still keeps every design, byte for
+    // byte. A LENGTH CHANGE is the one where position demonstrably lies — an entry was
+    // added or removed, so stored index N and incoming index N are different cards — and
+    // there the design is dropped rather than moved onto a stranger. Losing a design is
+    // visible; finding it on the wrong card looks deliberate.
+    //
+    // The residual is genuinely undecidable and is DISCLOSED rather than guessed: with
+    // no ids and no length change, `[{02},{03}]` cannot be told apart from "the author
+    // rewrote the copy of both cards".
+    $same_length   = count($existing_entries) === count($incoming_entries);
+    $carried_by_position = 0;
+
+    if ($same_length) {
+        foreach ($incoming_entries as $k => $entry) {
+            if (!is_array($entry) || !isset($existing_entries[$k]) || !is_array($existing_entries[$k])
+                || isset($claimed[$k])) {
+                continue;
+            }
+            foreach ([PP_UDC_ITEM_ID_KEY, PP_UDC_ITEM_MAP_KEY] as $owned) {
+                if (!array_key_exists($owned, $entry) && array_key_exists($owned, $existing_entries[$k])) {
+                    $incoming_entries[$k][$owned] = $existing_entries[$k][$owned];
+                    if ($owned === PP_UDC_ITEM_MAP_KEY) {
+                        $carried_by_position++;
+                    }
+                }
             }
         }
     }
+
+    // ── THE DISCLOSURE ─────────────────────────────────────────────────────
+    //
+    // Carrying by position is CORRECT whenever the caller did not reorder, and there is
+    // no way to know from here whether they did. So it is reported rather than refused,
+    // with the route that removes the ambiguity — which is the posture this program takes
+    // for every accepted-but-possibly-not-what-you-meant write.
+    //
+    // ON THE WRITE'S OWN CHANNEL, because the fact is about the WRITE and cannot be
+    // derived from stored bytes afterwards: once the merge has run, nothing distinguishes
+    // "carried by position" from "the caller sent it". Same drain-slot shape as the
+    // history-push notice (#821), for the same reason.
+    // RECORDED ON EVERY RUN, ZERO INCLUDED, because this merge owns the slot. The write
+    // cannot clear it the way it clears the history one — that clear runs inside the
+    // write and this record is made before it, so the write would wipe what the same
+    // call stack had just written. Writing the count unconditionally is what stops a
+    // refused earlier write from leaving a stale notice for the next accepted one.
+    if ($post_id > 0 && function_exists('_pp_record_item_design_carried_by_position')) {
+        _pp_record_item_design_carried_by_position($post_id, $carried_by_position);
+    }
+
     return $incoming_entries;
 }
 
