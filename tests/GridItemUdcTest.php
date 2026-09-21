@@ -529,6 +529,86 @@ class GridItemUdcTest extends TestCase
         $this->assertStringContainsString('@nosuchtoken', $result['error']);
     }
 
+    /**
+     * THE TWO RETIRED ITEM FIELDS OFFER A ROUTE, NOT A LIST OF LIVE FIELD NAMES.
+     *
+     * §3.1: "Every retirement lands in `retired_props` naming the v2 surface that replaced
+     * it, SO A REFUSAL OFFERS A ROUTE INSTEAD OF A LIST OF LIVE PROP NAMES." grid is the
+     * first component whose retirements reach INSIDE an `items[]` entry — `items[].style`
+     * and `items[].text_role` — and the item-field gate did not consult `retired_props`,
+     * so both fell through to the typo gate and answered a deliberate v1 authoring shape
+     * with `unknown_prop` and a field list.
+     *
+     * MEASURED BEFORE THE FIX, through the real write path:
+     *
+     *   items[].style     -> unknown_prop  'has no field "style". Available fields: …'
+     *   items[].text_role -> unknown_prop  'has no field "text_role". Available fields: …'
+     *
+     * Both are keys an author had on every pre-rebuild page, and the replacement for one
+     * of them is the headline capability of this whole task — so "here is the list of
+     * fields you may use" was the least useful true sentence available.
+     *
+     * IT ALSO MADE THE MODEL-FACING PROMPT UNTRUE IN THE SAME CHANGE THAT WROTE IT.
+     * `lib/ai-context.php` tells the model that a stale `style` or `text_role` on ONE card
+     * "refuses the band like any other retired key". It did not, and a prompt that
+     * describes a diagnostic the engine does not emit is the drift the AI-facing docs rule
+     * exists to prevent.
+     *
+     * THE CODE IS THE SAME AS THE BAND-PROP ARM'S ON PURPOSE. A caller that cannot tell
+     * "you typo'd" from "this moved, and here is where" has to string-match prose to know
+     * whether to re-read the schema or rewrite the value.
+     */
+    public function testTheTwoRetiredItemFieldsRefuseWithARouteRatherThanAFieldList(): void
+    {
+        foreach (
+            [
+                'style'     => 'udc',
+                'text_role' => 'card-text',
+            ] as $field => $route_fragment
+        ) {
+            $post_id = $this->newPage("retired item field {$field}");
+            $band    = $this->ownersBand();
+            unset($band['props']['items'][1]['udc']);
+            $band['props']['items'][1][$field] = $field === 'style'
+                ? ['--grid-item-bg' => '#14141F']
+                : 'meta';
+
+            $result = $this->write($post_id, [$band]);
+
+            $this->assertFalse($result['ok'], "a stale `{$field}` must refuse");
+            $this->assertSame(
+                'retired_prop',
+                $result['error_code'],
+                "`items[].{$field}` is retired, not a typo — the code is what lets a caller tell "
+                . 'the two apart without string-matching prose'
+            );
+            $this->assertStringContainsString($field, $result['error'], 'the refusal names the key');
+            $this->assertStringContainsString(
+                $route_fragment,
+                $result['error'],
+                "the refusal must name the v2 surface that replaced `items[].{$field}`, per §3.1"
+            );
+            // And it locates the CARD, not just the band: a page with one stale card
+            // should not send an author reading three.
+            $this->assertStringContainsString('item ', $result['error']);
+        }
+
+        // BOTH ROUTES ARE DECLARED, or the messages above are improvised rather than
+        // derived — `retired_props` is the single source they are read from.
+        $retired = pp_component_retired_props('grid');
+        $this->assertArrayHasKey('items[].style', $retired);
+        $this->assertArrayHasKey('items[].text_role', $retired);
+
+        // AND THE ROUTE WORKS, which is the half that makes a refusal a redirect rather
+        // than a dead end: the same design the stale `style` expressed is accepted at the
+        // address the message names.
+        $post_id = $this->newPage('retired item field route works');
+        $this->assertTrue(
+            $this->write($post_id, [$this->ownersBand()])['ok'],
+            'the route the refusal offers must actually take the write'
+        );
+    }
+
     // ───────────────────────────────────────────────────────────────────────
     // B6 — the seven exclusions, each REFUSING rather than being ignored
     // ───────────────────────────────────────────────────────────────────────

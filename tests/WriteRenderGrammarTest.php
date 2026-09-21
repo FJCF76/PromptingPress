@@ -1057,8 +1057,31 @@ class WriteRenderGrammarTest extends TestCase
             ]]],
         ]);
         $this->assertInstanceOf(\WP_Error::class, $rejected, 'the retired role must not be quietly accepted');
-        $this->assertSame('unknown_prop', $rejected->get_error_code(), 'it is an unknown FIELD now, not an out-of-set value');
+        // `retired_prop`, NOT `unknown_prop`, AND THE CHANGE IS AN UPGRADE ON THIS TEST'S
+        // OWN TERMS (#1101). This asserted `unknown_prop` while grid's rebuild was being
+        // written, because the item-FIELD gate did not consult `retired_props` and every
+        // retired item key fell through to the typo arm — so a field that had moved
+        // answered with a list of live field names, which is the one thing §3.1 says a
+        // refusal must not do. The gate consults it now.
+        //
+        // The claim this test makes is "refused, and refused BY NAME, because an
+        // unknown-field refusal that did not name the field would send an agent hunting".
+        // `retired_prop` still names the field and additionally names WHERE THE VALUE
+        // WENT, so the agent does not have to hunt at all — it is the same claim, better
+        // served. The out-of-set-value distinction the old message carried is preserved:
+        // a `text_role` of `terminal` is not reported as an invalid enum value, because
+        // there is no enum left to be out of.
+        $this->assertSame(
+            'retired_prop',
+            $rejected->get_error_code(),
+            'it is a RETIRED field now — not an out-of-set value, and not a typo either'
+        );
         $this->assertStringContainsString('text_role', $rejected->get_error_message());
+        $this->assertStringContainsString(
+            'card-text',
+            $rejected->get_error_message(),
+            'and the refusal names the role that replaced it, which is what stops the hunt'
+        );
 
         // RENDER: the raw-meta seed, for the population the write path can no longer
         // create — aged storage and restore_composition. The card still renders, and the

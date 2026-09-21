@@ -4310,9 +4310,65 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                     $engine_owned = $item_grain_prop === $prop_name
                         ? [PP_UDC_ITEM_ID_KEY => true, PP_UDC_ITEM_MAP_KEY => true]
                         : [];
+                    // A RETIRED ITEM FIELD GETS A ROUTE TOO (#1101), the band-prop rule
+                    // one level down. `retired_props` addresses an item-level key as
+                    // `<prop>[].<field>` — grid declares `items[].style` and
+                    // `items[].text_role`, the first component whose retirements reach
+                    // inside an entry — and without this lookup both fell through to the
+                    // typo gate below and answered a deliberate v1 authoring shape with a
+                    // list of live field names.
+                    //
+                    // THAT IS THE ONE THING §3.1 SAYS A REFUSAL MUST NOT DO: "every
+                    // retirement lands in `retired_props` naming the v2 surface that
+                    // replaced it, so a refusal offers a route instead of a list of live
+                    // prop names". It also made the model-facing prompt untrue in the same
+                    // change that wrote it — lib/ai-context.php tells the model a stale
+                    // `style` or `text_role` on ONE card "refuses the band like any other
+                    // retired key", and it did not.
+                    //
+                    // Measured before the fix, through the real write path:
+                    //   items[].style     -> unknown_prop, "has no field \"style\""
+                    //   items[].text_role -> unknown_prop, "has no field \"text_role\""
+                    // Both are keys an author had on every pre-rebuild page, and the
+                    // replacement for one of them is the headline capability of this task.
+                    //
+                    // SAME CODE, SAME CURE SENTENCE as the band-prop arm, because it is
+                    // the same fact at a different depth: a caller that cannot tell
+                    // "you typo'd" from "this moved, and here is where" has to
+                    // string-match prose to know whether to re-read the schema or rewrite
+                    // the value.
+                    // Looked up here rather than reused from the band-prop arm: that
+                    // local is bound in a different branch of this function, and a
+                    // by-accident reach across it would break the moment either moved.
+                    $retired_fields = function_exists('pp_component_retired_props')
+                        ? pp_component_retired_props($name)
+                        : [];
                     foreach ($entry as $entry_key => $ignored) {
                         if (array_key_exists($entry_key, $declared_fields)
                             || isset($engine_owned[$entry_key])) {
+                            continue;
+                        }
+                        $retired_field = $retired_fields[$prop_name . '[].' . (string) $entry_key] ?? null;
+                        if ($retired_field !== null
+                            && _pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {
+                            $errors[] = _pp_composition_item_error($i,
+                                'retired_prop',
+                                sprintf(
+                                    'Component "%s" prop "%s" item %s no longer has a field "%s": it was '
+                                    . 'retired when %s moved to the v2 styling system. The replacement is '
+                                    . '%s. To clear the stored key, re-send this item without it — '
+                                    . 'update_component replaces the "%s" array, and every other field on '
+                                    . 'the entry is kept as you send it. Available fields: %s',
+                                    $name,
+                                    $prop_name,
+                                    _pp_item_index_label($entry_index, $entries),
+                                    _pp_render_undeclared_prop_keys([(string) $entry_key]),
+                                    $name,
+                                    $retired_field,
+                                    $prop_name,
+                                    $available_fields
+                                )
+                            );
                             continue;
                         }
                         if (_pp_claim_item_finding($sink, 'prop', $prop_name, $entry_index, $entry_key)) {

@@ -3404,72 +3404,14 @@ test.describe('Safe-surface rendered proof', () => {
   // slots, exactly as testimonials did in Sprint 0, and grid was the LAST row. Every
   // component's two header-rhythm halves are pinned on the roles in the v2 tests below.
   //
-  // THE LOOP IS KEPT EMPTY RATHER THAN DELETED, and the empty array is the assertion:
-  // `styleComponent` has no successful caller left on this strand, so a row reappearing
-  // here would mean a style slot had come back — which is a thing that should have to
-  // argue with a reviewer rather than slip in as a one-line array entry.
-  for (const { component, slot, expected } of [] as Array<{
-    component: string;
-    slot: string;
-    expected: string;
-  }>) {
-    test(`#336 ${component} subheading keeps its bottom rhythm as the header's last child @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E ${component} Subheading Rhythm`);
-      setComposition(pageId, [
-        {
-          component,
-          props: {
-            id: 'pp-sub01',
-            title: 'Rhythm',
-            eyebrow: 'Kicker',
-            subheading: 'The sub-heading must not collide with the content below it.',
-            // Each component's own required props (section: body, grid: items).
-            ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
-            ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
-          },
-        },
-      ]);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const sub = page.locator(`.${component}__subheading`);
-      await expect(sub).toBeVisible({ timeout: 10000 });
-
-      // Unset: the component's own declared rhythm survives the global prose reset.
-      // Before #336 this was '0px' — the reset won and the subheading collided.
-      const unset = await sub.evaluate((el) => getComputedStyle(el).marginBottom);
-      expect(unset).toBe(expected);
-
-      // The element really is the last child, so the reset genuinely applies to it.
-      // If this ever fails, the markup changed and the regression above is no longer pinned.
-      const isLastChild = await sub.evaluate((el) => el === el.parentElement?.lastElementChild);
-      expect(isLastChild).toBe(true);
-
-      // Rendered proof that THIS component's eyebrow radius slot reaches the element.
-      // All six eyebrow blocks are identical, but a declared slot that no rule consumes
-      // is exactly the failure the unit guards cannot see at computed-style level.
-      const radius = await page
-        .locator(`.${component}__eyebrow`)
-        .evaluate((el) => getComputedStyle(el).borderRadius);
-      expect(radius).toBe('3px');
-
-      // Set: the new slot drives it. A value no token resolves to.
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, { [slot]: '61px' });
-      expect(res.success).toBe(true);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const set = await page.locator(`.${component}__subheading`).evaluate(
-        (el) => getComputedStyle(el).marginBottom
-      );
-      expect(set).toBe('61px');
-    });
-  }
+  // NO ROWS REMAIN, so the loop is gone rather than left iterating an empty array: a
+  // `for` over `[]` generates no tests and asserts nothing, and dressing that up as a
+  // tripwire would be a comment doing a test's job.
+  //
+  // THE RETURNING-SLOT GUARD IS REAL AND LIVES ELSEWHERE. '#332 the rendered pins cover
+  // every border-trigger slot in schema.json' walks every components/*/schema.json and
+  // asserts the declared style-slot set is EMPTY. That runs, and it is what a style slot
+  // reappearing anywhere in the theme would have to argue with.
 
   // ── #343: title -> subheading gap is now slot-driven ──────────────────────
   //
@@ -3489,61 +3431,7 @@ test.describe('Safe-surface rendered proof', () => {
   // pinned is not gone — it moved onto the UDC roles, where the same two halves are
   // pinned in the v2 tests that follow this loop, grid's included.
   //
-  // Kept empty for the reason the #336 loop above states: the empty array is what a
-  // returning slot would have to argue with.
-  for (const { component, locator, slot, expected } of [] as Array<{
-    component: string;
-    locator: string;
-    slot: string;
-    expected: string;
-  }>) {
-    test(`#343 ${component} title keeps its slot-driven gap above the subheading @smoke`, async ({
-      page,
-    }) => {
-      pageId = createPage(`E2E ${component} Title Rhythm`);
-      setComposition(pageId, [
-        {
-          component,
-          props: {
-            id: 'pp-ttl01',
-            title: 'Rhythm',
-            eyebrow: 'Kicker',
-            subheading: 'The title must not collide with the sub-heading below it.',
-            // Each component's own required props (section: body, grid: items).
-            ...(component === 'section' ? { body: '<p>Body copy.</p>' } : {}),
-            ...(component === 'grid' ? { items: [{ title: 'One', text: 'Card' }] } : {}),
-          },
-        },
-      ]);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-
-      const title = page.locator(locator);
-      await expect(title).toBeVisible({ timeout: 10000 });
-
-      // Unset: today's literal renders (byte-identical to pre-#343). The slot adds
-      // capability, not a new default. The title is NOT the header's last child, so
-      // the `p:last-child` reset never applied here in the first place.
-      const unset = await title.evaluate((el) => getComputedStyle(el).marginBottom);
-      expect(unset).toBe(expected);
-      const isLastChild = await title.evaluate((el) => el === el.parentElement?.lastElementChild);
-      expect(isLastChild).toBe(false);
-
-      // Set: the new slot drives it. A value no token resolves to.
-      await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-      await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-      const res = await styleComponent(page, pageId, { [slot]: '61px' });
-      expect(res.success).toBe(true);
-
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/?page_id=${pageId}`);
-      const set = await page.locator(locator).evaluate(
-        (el) => getComputedStyle(el).marginBottom
-      );
-      expect(set).toBe('61px');
-    });
-  }
+  // Gone for the same reason the #336 loop above is, and pinned by the same live guard.
 
   // REPLACES the testimonials rows of BOTH the #336 and the #343 loops above.
   //
