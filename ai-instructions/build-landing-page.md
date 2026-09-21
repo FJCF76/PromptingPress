@@ -132,7 +132,7 @@ any of the nine v2 components, and no style slots on any of them either.
       "udc": {
         "_band": { "background": { "fill": "@color-bg-inverted" } },
         "heading": { "typography": { "color": "@color-bg" } },
-        "text": { "typography": { "color": "@color-bg" } },
+        "body": { "typography": { "color": "@color-bg" } },
         "button": {
           "background": { "fill": "@color-accent-on-inverted" },
           "typography": { "color": "@color-bg-inverted" }
@@ -151,6 +151,19 @@ alone leaves the heading at the inherited `@color-text` and renders near-black o
 near-black. The button is its own pair again — a fill and an ink — because a role's
 colours do not follow the band's.
 
+**And write the role that OWNS the text, not the one that contains it.** cta has both a
+`text` role (`.cta__text`, the wrapper around eyebrow + heading + body) and a `body` role
+(`.cta__body`, the supporting line itself). Colouring the wrapper looks right and does
+nothing, because `body` declares its own `typography.color` default
+(`@color-text-secondary`) and a role default is emitted as a direct declaration — which
+beats an inherited value at any specificity. I made exactly this mistake writing this
+page: the first version of the example set `text`, and the rendered `<p>` measured
+`rgb(45, 54, 72)` on `rgb(15, 23, 42)`, about 1.4:1 and unreadable, while every other
+write on the band landed. **The general rule: when a value does not seem to apply, check
+whether the role you targeted merely contains the element, and whether the role that owns
+it ships a default for that parameter.** `wp pp schema <component>` prints both the
+selector and the defaults.
+
 `@color-bg` as INK on an inverted band is deliberate, not a typo: it is the semantic
 opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
 `@color-accent-on-inverted` exists because the plain `@color-accent` drops to about
@@ -167,7 +180,16 @@ One call creates the page, assigns `composition.php`, validates every band and m
 band ids:
 
 ```bash
-wp pp action execute create_page --run-id=<uuid> --params@composition.json
+wp pp action execute create_page --run-id=<uuid> --params='{"title":"Product Launch", ... }'
+```
+
+`--params` takes the JSON **inline**. There is no `--params@file` form: the value is read
+straight out of the argument and `json_decode`d (`pp_cli_parse_params()`), so an `@path`
+is rejected as an unknown parameter. For a composition too long to paste comfortably,
+keep it in a file and let the shell do the substitution:
+
+```bash
+wp pp action execute create_page --run-id=<uuid> --params="$(cat composition.json)"
 ```
 
 If it is REFUSED, normally no page was left behind and no slug was reserved (#719) —
