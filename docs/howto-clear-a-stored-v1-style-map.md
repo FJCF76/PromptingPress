@@ -30,9 +30,11 @@ people: it is not "you cannot restyle this band", it is "you cannot edit this ba
 props-only `update_component` — a new title, a new link — meets the same refusal, naming a slot
 you were not touching.
 
-At RENDER time the map is simply ignored, which is why the page looks fine and nothing warns
-you until you try to change something. Measured across components: `section`, `cta`, `stats`,
-`grid` all behave identically.
+At RENDER time the map is simply ignored, so the band paints with the component's role defaults
+and loses whatever that map was painting — a band you had stored as dark comes back as an
+unthemed light band. The page still renders; it does not fatal and it does not go blank. But it
+does not look the same, and nothing warns you until you try to change something. Measured across
+components: `section`, `cta`, `stats`, `grid` all behave identically.
 
 ## Prerequisites
 
