@@ -1458,6 +1458,36 @@ for the preset surfaces, not for the dangling-reference message.
 
 ### Known issues for this release
 
+**Three of these are where this release's two new capabilities meet — custom presets and
+item-grain styling — and all three are the same class: the engine accepts a value, reports
+success, and paints nothing. They are the head of the Sprint-3 queue.**
+
+- **Deleting a preset a card still references succeeds silently (#1115).** `delete_preset`
+  refuses when a BAND or a chrome role references the preset, and says so: "a preset that any
+  band or chrome role still references cannot be deleted". That gate is blind to item grain —
+  it walks a band's own `udc` map and never the maps inside `props.items[]`. So a preset
+  referenced only from a card is deleted, the delete reports `ok: true` with no findings, and
+  the card's design stops painting. The card keeps the dangling `_preset` in storage.
+  **Confirmed. Separately reported and NOT confirmed:** that the band then becomes uneditable.
+  A follow-up probe accepted both a props-only edit and one re-sending the whole `items` array,
+  so some path does refuse but it is not yet pinned — treat the lockout as unverified rather
+  than planning around it. Until it is fixed, check your cards before deleting a preset.
+- **An item-grain preset shadowed by a role default tells you nothing (#1116).** Apply a
+  `_preset` to a card, and if the target role's own defaults outrank the parameters that preset
+  carries, the value is accepted, stored, reported `ok: true` with `findings: []`, and paints
+  nothing. The byte-identical map one level up, on the band, **does** get the
+  `udc_preset_value_shadowed_by_role_default` warning. This is the sibling of a gap that was
+  fixed: `udc_preset_groups_skipped` was deliberately widened to walk both grains at #1101,
+  and the shadowed-preset arm was missed in the same pass. The fix shape is already in the
+  file — `lib/udc.php:7907` builds the band-plus-items source list that the skipped-groups arm
+  consumes, and the shadowed-preset arm at `lib/udc.php:7978` needs the same list. One sitting.
+- **`background.overlay` with no `background.image` is accepted and painted nowhere (#1117).**
+  An overlay is a scrim over an image, so with no image the engine drops it — correctly — but
+  it drops it with no drop-ledger row and no finding, at band grain and now on every one of
+  `grid`'s item-settable roles. It also swallows the overlay when you pair it with
+  `background.fill` instead of `image`, which is the mistake an author actually makes. The
+  render behaviour is right; the silence is the defect.
+
 - **The composition compare-and-swap is a no-op on `wp pp action execute` (#1094).** The CLI
   overwrites the `expected_version` a caller sends with the baseline its own freshness gate
   computed, and that baseline advances after every successful write in the run. A
