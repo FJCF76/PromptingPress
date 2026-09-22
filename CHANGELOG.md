@@ -8,7 +8,9 @@ All notable changes to PromptingPress are documented here.
 
 **This is a prerelease, and it is the release where v2 stops being partly built.** All ten components run on the Universal Design Contract now, and the v1 styling system is gone rather than deprecated: `style_component` is a refusal, style slots and recipes are deleted, and the retired-slot census reads zero. It is not production software — the reference deployment stays on 1.20.0 until 2.0.0. There is no upgrade path from 1.x and there will not be one, so v2 installs onto fresh content and reconstructing the brand site on it is 2.0.0's acceptance test.
 
-What that costs is specific rather than blunt, and this release is where it lands hardest: a page authored before its component was rebuilt still **renders** — its stored v1 `style` map is ignored at paint time, so the page looks the way it did — but it cannot accept an edit, not even a title change, until that map is cleared. One command does it, and it now has a how-to of its own: `docs/howto-clear-a-stored-v1-style-map.md`. Read that before any of the eight per-component migration guides, each of which assumes you can edit the band it is migrating.
+What that costs is specific rather than blunt, and this release is where it lands hardest. A page authored before its component was rebuilt still **renders** — it does not fatal, and it does not go blank. But its stored v1 `style` map is ignored at paint time, so the band paints with the component's role defaults and **loses whatever that map was painting: the pixels change.** A band you had stored as dark comes back as an unthemed light band. On top of that it cannot accept an edit, not even a title change, until the map is cleared.
+
+One command clears it, and it now has a how-to of its own: `docs/howto-clear-a-stored-v1-style-map.md`. Read that before any of the eight per-component migration guides, each of which assumes you can edit the band it is migrating.
 
 **The last two components still painted by the old stylesheet are on the engine.** The site header and footer declared roles you could author, while `assets/css/components.css` quietly owned how they actually looked. That split is what made styling a nav link silently erase its own hover. 88 declarations moved into role defaults, the CSS rules are gone, and the three bugs the split was causing are fixed.
 
@@ -18,7 +20,7 @@ What that costs is specific rather than blunt, and this release is where it land
 
 **The dropdown chevron is reachable, and it sits where it belongs.** It had no role at all, so on a dark header it rendered at the default ink against your new background — invisible. It is the `submenu-toggle` role now. It also used to wrap onto its own line, pushing its menu item ~14px out of line with its neighbours; measured at 1280 the parent item now shares its siblings' exact box (#995).
 
-**Seven new roles.** nav gains `menu-list` and `submenu-toggle`; the footer gains `social`, `nav-list`, `contact` and `bottom-row`. Each covers spacing or type that no surface could reach before.
+**Six new roles.** nav gains `menu-list` and `submenu-toggle`; the footer gains `social`, `nav-list`, `contact` and `bottom-row`. Each covers spacing or type that no surface could reach before.
 
 **The current-page treatment stays where it belongs.** It targets the current item's own link as a direct child, so visiting a page that has a dropdown no longer tints every link inside it.
 
@@ -67,7 +69,9 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 - The header and footer now emit ~4.6 KB of inline CSS per request (+710 gzipped) that was previously served from the cacheable stylesheet, and `components.css` itself grew because the change is heavily commented. #1021 tracks stripping comments at package time.
 - An unstyled page pays ~2.4 ms of compile on routes that warm nothing else (404, search, archives). #1020 tracks the available win.
 - **Section's 19 roles roughly double the head-compile, and the numbers are worth seeing.** Measured on a nine-band page (PHP 8.3, median of five cold processes): the UDC portion of `wp_head` goes **1.30 ms → 2.09 ms warm**, and cold TTFB **3.57 ms → 4.50 ms (+0.93 ms)** against a 43-45 ms baseline. Section's own default block is **0.447 ms and 3,060 bytes**, paid on every page carrying a section band whether or not it is styled. The compile is a pure function of repo content — the emitted CSS holds only `var()` references, never resolved token values — so ~1.9 ms of it is cacheable and nothing in the engine caches it yet. #1020.
-- **The byte trade goes the other way, and it depends on your traffic.** Per request that same page's inline head CSS grows **8,870 → 13,669 bytes** (+443 gzipped), while the markup *loses* 1,230 bytes of per-band `style` attributes. Against that, `assets/css/components.css` drops **252,287 → 233,231 bytes** (−5,197 gzipped) and is cached once. Break-even is roughly **12-17 page views per cached-stylesheet lifetime**. A site with warm caches and repeat visitors pays the inline tax on every request; a site with mostly first-time visitors comes out ahead.
+- **The byte trade goes the other way, and it depends on your traffic.** CSS moves out of one cached stylesheet and into per-request inline head CSS. Two measurements, and it matters which is which:
+  - **At the chrome rebuild, on a nine-band page:** inline head CSS grew **8,870 → 13,669 bytes** (+443 gzipped) while the markup *lost* 1,230 bytes of per-band `style` attributes, against a `components.css` drop of 252,287 → 233,231 bytes (−5,197 gzipped). Break-even there was roughly **12-17 page views per cached-stylesheet lifetime**.
+  - **Across the whole release:** `assets/css/components.css` drops **247,421 → 185,530 bytes** (**72,121 → 59,070 gzipped**, −13,051) as all nine remaining components moved off it. The per-request inline side grew further with each rebuild and has **not** been re-measured end-to-end, so the 12-17 figure describes the chrome step only and should not be quoted for the release. The shape of the trade is unchanged — repeat-visitor sites pay the inline tax per request, first-time-visitor sites come out ahead — but the crossover for a fully-rebuilt page is unmeasured. #1020 tracks the caching work that would make the question moot.
 - **A prose link on a dark band you author is an AA failure until you colour it.** `body-link` ships no colour default, so it renders `@color-accent` `#3157f4`: **5.43:1** on the default light band, **3.23:1** on `@color-bg-inverted` `#0f172a`. v1 remapped that automatically because an inverted band carried a CLASS; a v2 band carries none, which is exactly what lets any background be a band, so nothing can guess. Set `body-link`'s `typography.color` and its `":hover"` whenever you darken a band — `@color-accent-on-inverted` is the token v1 used. This is the v2 posture rather than section's alone; section is where prose links are common. #1028's sibling problem, filed separately where it is not authorable at all.
 - **The default panel has no visible edge.** `panel` defaults to `@color-surface` `#f4f7fb` with `border.width: 0` and no shadow — **1.06:1** against the page ground `#fcfdff`. A faithful port of v1, and on a default light band the card reads only because the band happens to match the page. Give the panel a `border` or a `background.fill` with more separation if the band is not the page colour. Reconsidering the default is #1031.
 - Two of `panel_cta_variant`'s four values (`outline`, `ghost`) have no system preset and must be written out on the `panel-cta` role. See the breaking note for the JSON.
@@ -100,7 +104,7 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
 
 **The last component on the old style-slot system is rebuilt, so the system has no consumer left.** `grid` declared 38 style slots, 3 named recipes, a `theme` prop and a per-card `style` map; it declares 18 roles and an `item_roles` block now. With it, `style_component` refuses every component, every band in the theme is styled the same way, and BUILD-SPEC §3.4's "no inline style emission anywhere in v2 components" is true theme-wide for the first time — grid was the last component emitting a `style` attribute, and it emitted two.
 
-**A single card can carry its own design.** This is BUILD-SPEC **Addendum B**, ratified for this rebuild, and it exists because roles are BAND grain: before it, the v2 contract had no way to say "this one card". An `items[]` entry may now hold its own `udc` map, addressing the same roles the component declares, validated by the same engine, refused with the same codes:
+**A single card can carry its own design.** This is BUILD-SPEC **Addendum B**, ratified for this rebuild, and it exists because roles are BAND grain: before it, the v2 contract had no way to say "this one card". An `items[]` entry may now hold its own `udc` map, addressing the ten roles `grid` declares item-settable — `card`, `card-bar`, `card-media`, `card-body`, `card-title`, `card-text`, `card-bullets`, `card-bullet`, `card-link` and `step-number` — validated by the same engine, refused with the same codes. The band-level roles (`_band`, `header`, `eyebrow`, `heading`, `heading-accent`, `subheading`, `list`, `empty`) exist once per band and are refused at item grain, naming the band map to set them on instead:
 
 ```json
 {"title": "AI-safe structure", "text": "…",
@@ -109,7 +113,7 @@ Nothing to do unless you have a stored `pp_site_udc` map with a `"_preset"` on a
          "card-text": {"typography": {"color": "#E8E2D4"}}}}
 ```
 
-The engine mints that entry a handle (`it-<hex8>`) on write and emits `[data-pp-band="…"] [data-pp-item="…"]` rules. **The handle is the point:** a design written against `items[1]` moved when someone reordered the list; a design written against a minted id travels with its card. Seven things are refused rather than ignored — per-item chrome, `_band` inside an item map, ordinal selectors (`nth-child`, `first`, `last`, `even`/`odd`), nesting beyond one level, defining a preset inside an item, pseudo-elements, and `_css` at item grain.
+The engine mints that entry a handle (`it-<hex8>`) on write and emits `[data-pp-band="…"] [data-pp-item="…"]` rules. **The handle is the point:** a design written against `items[1]` moved when someone reordered the list; a design written against a minted id travels with its card. Eight things are refused rather than ignored — per-item chrome, `_band` inside an item map, ordinal selectors (`nth-child`, `first`, `last`, `even`/`odd`), nesting beyond one level, defining a preset inside an item, pseudo-elements, `_css` at item grain, and `_tokens` (tokens are declared once per band, on the band's own map, because they emit as custom properties on the band root).
 
 **Every ported default was measured in a browser, not read off a fallback.** A v1 slot's fallback tells you what that DECLARATION resolves to, not what the ELEMENT rendered, and the two differ whenever an ancestor constrains it or a media query scopes it. Some of what that found: the card text's colour is a BREAKPOINT MAP (`@color-muted` below 768px, `@color-text-secondary` above), because the premium typography tier overrode the base rule; the band heading follows `currentColor` rather than pinning a token, which is what made a dark band's heading light without a theme class; and THREE of `text_role`'s four values genuinely rendered — `mono` set a monospace family at every tier, `label` and `kicker` set tracking and casing — while only `meta` was inert, the premium typography tier having out-ranked it at every desktop width.
 
@@ -126,7 +130,9 @@ wp pp action execute update_component --run-id=<uuid> \
 
 Send EVERY stale key on a band in the same call: the validator reports the first problem per band, so clearing one just surfaces the next.
 
-**Four measured narrowings, stated rather than discovered.** Each was checked against the owner's production site before the prop went:
+**The two item-level keys are cleared differently, and a `null` will not do it.** `items[].text_role` and `items[].style` live on the entries inside the `items` array, so you clear them by **re-sending the `items` array without them** — `update_component` replaces that array whole, and every other field on an entry is kept as you send it. A `null` at `props` level never reaches the item gate. The refusal says this itself when it fires.
+
+**Six measured narrowings, stated rather than discovered.** Each was checked against the owner's production site before the prop went:
 
 - **`card_emphasis` is retired rather than ported.** Its `featured` treatment was `:first-child` — ordinal styling — which contradicts Addendum B's rule that a card is addressed by its minted id. Measured: all 11 production grid bands already rendered `uniform`. One special card is an item `udc` map now.
 - **`--grid-item-bullet-color` has no replacement.** It coloured a `::before` check-mark glyph, and pseudo-elements are deferred (#1028), so the marker takes the shared accent. A band that authored it (the starter homepage did, in orange) renders the accent instead.
@@ -134,6 +140,9 @@ Send EVERY stale key on a band in the same call: the validator reports the first
 - **The steps layout shifts.** Its badge moved inside the card body, because the steps-only outer padding it sat in has no v2 home — role defaults carry a breakpoint and a state dimension and no VARIANT dimension. Content insets go from 48px to 32px at the sides, and the steps card title loses its own type scale: 1.04rem at weight 680 capped to a 17rem measure becomes the shared 1.14rem at 670, uncapped. Set `card-title` -> `sizing.max-width` on a steps band to restore the cap. That conditionality gap is filed as #1102.
 
 - **A card that ends with its paragraph is 16px taller.** `card-text` defaults a bottom margin, which v1's `p:last-child` reset zeroed when nothing followed it; a role has no way to say "unless last". Same #1102 gap, reached through spacing instead of a variant. Set `card-text` -> `spacing.margin-bottom` to `"0"` on a band where it shows. Everything else measured byte-identical: a card with text, bullets and a link is the same height it always was.
+
+- **The card's default fill is flat where v1 had a gradient.** v1 painted `linear-gradient(180deg, var(--color-bg) 0%, var(--color-surface) 100%)`; `card` now defaults to a flat `@color-bg`. The grammar takes a gradient of literal colours or a bare `@token`, but not a token *inside* a gradient — so the choice was a flat fill that follows a retheme, or a hex gradient frozen against every future token change. The flat fill won. Write the literal gradient on `card`'s `background.fill` to get the tint back.
+- **`--grid-featured-texture-color` retires with no route.** It fed a second background layer, and a layer is a `fill`, which refuses. A band that authored it loses the texture.
 
 **The card top bar SURVIVED, and it is why it is a real element now.** v1 painted it as `.grid__item::before`, which no role can address, so ported literally it would have retired with the slots. Measured first: 10 of the 11 production bands author it, all with the same purple→orange→teal 3px rule. It is an empty `<span>` and the `card-bar` role now — one element per card for a capability the Sprint-3 reconstruction depends on.
 
@@ -157,11 +166,13 @@ Nothing to do on a site with no stored `grid` styling. If you have grid bands bu
 - The authoring model is told about item-grain styling: which roles a card may set, the exclusions, the engine-owned handle, and that `update_component` is the action that reaches it. It had none of that.
 - `wp pp schema <component>` reports an `item_roles` block for a component that declares one.
 - Disclosure volume is bounded across the composition rather than per band, on every item-grain channel.
+- Two new findings ride the same channel as every other one: `udc_item_value_shadowed_by_role_default` (a value you set on one card that the role's own default cancels) and `udc_band_value_shadowed_by_item_value` (a band value one card overrides).
 
 #### Docs
 - `docs/howto-migrate-a-grid-band-to-v2.md` — the migration guide, the last of eight. Every `udc` snippet in it is validated against the live engine by the test suite.
+- Five more documents were created in this release and are worth naming, because nothing else points at them: `docs/howto-migrate-a-section-band-to-v2.md` (the largest of the eight), `docs/tutorial-style-a-band-on-the-design-contract.md` (the entry point if you have never written a `udc` map), `docs/v2/LAYER-2-CONTRACT.md` and `docs/v2/LAYOUT-GROUP-CONTRACT.md` (the contracts for this release's two new capabilities), and `docs/explanation-validation-scope.md` (why a write validates the band it targets and not the page).
 - The README's migration index lists all eight components; it had listed five since #1066.
-- Every AI-facing surface corrected: `AI_CONTEXT.md` advertised six retired props as live and claimed grid "is the one component with style slots (38)" in a file whose own census read zero; `validate-site.md` taught that a `udc` map on grid is an error, which is this change's headline capability.
+- `AI_CONTEXT.md` and `validate-site.md` corrected: `AI_CONTEXT.md` advertised six retired props as live and claimed grid "is the one component with style slots (38)" in a file whose own census read zero; `validate-site.md` taught that a `udc` map on grid is an error, which is this change's headline capability. Five further sentences in `ai-instructions/` still describe `grid` as the component that has slots — see the known issues below.
 
 #### Tests
 - `GridRoleDefaultsEmitTest` and `GridItemUdcTest`: grid's 76 shipped defaults asserted as CSS rather than JSON, and the item tier pinned at the grain an author writes at — the write path, the seven exclusions, the id lifecycle, emission order, provenance and all four disclosure families.
@@ -180,15 +191,16 @@ darkened panel, under the accessibility floor, while the write was accepted and 
 reported no problems.
 
 Roles now declare those pairings as data, and the assistant's instructions are composed from the
-declarations rather than typed out by hand. Sixteen ship today: six inside rich-text
+declarations rather than typed out by hand. Twenty-nine ship today: six inside rich-text
 areas, where a colour on the container never reaches the links in it; seven in the header and
-footer; and three where one part's built-in styling overrides a value you set on another.
+footer; and sixteen where one part's built-in styling overrides a value you set on another —
+thirteen of those on `grid`, where the rule reaches item grain.
 
 ### The v1 styling system is gone (#1101)
 
 **`style_component`, style slots and recipes are retired.** `grid` was the last component
 carrying them and its rebuild was the last half of #1101; this is the sweep that removes the
-machinery behind it. Roughly 4,300 lines of production code and test code go, and what
+machinery behind it. About 8,900 lines of production code and test code go — 1,307 production and 7,453 test, against 2,543 added — and what
 replaced each capability is named at every site rather than left to be re-derived.
 
 ### What changes for you
@@ -279,7 +291,8 @@ contract the in-admin assistant does, rather than carrying its own copy that dri
 **The assistant stopped being taught six styling types nothing can use.** The older styling
 section described twelve when only six had any component still carrying them. It is built from
 what actually ships now, so it shrinks by itself as components are rebuilt, and the section
-goes away entirely once the last one is.
+goes away entirely once the last one is. `grid` was rebuilt later in this same release, so the
+roster is empty and the section is gone.
 
 ### The instructions a coding agent reads are rewritten for the v2 world
 
@@ -289,9 +302,11 @@ following them wrote props that no longer exist, reached for a styling surface t
 and was never told about the one that works.
 
 **Styling a band is now documented where an agent looks.** Every page that explains how to
-change how something looks now leads with the band's `udc` map, on all nine components that use
-it. `style_component` and style slots are described as what they are — `grid` only, the last
-component on the old surface.
+change how something looks now leads with the band's `udc` map. `style_component` and style
+slots are described as what they are — retired, on every component, an action that always
+refuses. (This corpus rewrite landed before `grid`'s rebuild, and described the slots as
+`grid`-only at the time it was written; `grid` went in the same release, so the roster is
+empty. Five sentences that still say otherwise are named in the known issues below.)
 
 **"Build a landing page" builds a landing page.** That guide had you create a PHP template file,
 a root loader, and a seventeen-field ACF group. It is the composition recipe now: one
@@ -392,7 +407,8 @@ sideways.
 
 **Setting columns makes the box a grid.** The engine emits `display: grid` with your value, because
 otherwise the value would paint nothing wherever the theme lays that box out with flexbox — and a
-value that stores and paints nothing is exactly what this system refuses to ship. Plan for it: on
+value that stores and paints nothing is what this system tries hardest to refuse — see the known
+issues for the three places it still does not (#1095, #1096, #1117). Plan for it: on
 that box, at the breakpoints you set, `orientation` and `wrap` stop applying, because they are
 flexbox parameters.
 
@@ -411,13 +427,17 @@ wrong thing. The AI-facing instructions now say so where the model reads them.
 
 ### Which roles carry it
 
-The group lands on the 29 roles whose boxes are actually flex or grid containers, across `hero`,
-`section`, `cta`, `faq`, `stats`, `logos`, `testimonials`, `nav` and `footer`. Each component's
-README lists its own, and a test checks those lists against the stylesheet in both directions so
-they cannot drift.
+The group lands on the 34 roles whose boxes are actually flex or grid containers, across all ten
+components — `grid` included, whose `list`, `card`, `card-body`, `card-bullets` and `card-link`
+joined when it was rebuilt later in this same release. Each component's README lists its own, and
+a test checks those lists against the stylesheet in both directions so they cannot drift.
 
 `nav`'s menu and hamburger are deliberately excluded: their `display` is a visibility switch, and an
 authored `display: grid` there would outrank the `hidden` attribute and pin an open mobile menu open.
+
+**That exclusion covers the typed parameter only.** The same `display` written raw through `_css`
+is not excluded and still outranks `[hidden]`, so it can pin an open mobile menu open — **#1085 is
+open.** Do not write `display` on `nav`'s menu or toggle through `_css`.
 
 ### The props did not go away, and that is deliberate
 
@@ -436,7 +456,9 @@ anything CSS accepts still validates — the full box-alignment vocabulary, `saf
 included — so an alignment value you already stored does not start failing. The track-list grammar is
 narrower than CSS on purpose and says so: no `calc()` inside a track, one `repeat()` per list, at most
 12 tracks once resolved. If you had written one of those raw, it is refused now with a message naming
-the accepted forms. If you set both a parameter and a raw declaration
+the accepted forms — as `invalid_track_list`, alongside `invalid_flex_direction`, `invalid_flex_wrap`,
+`invalid_justify_content`, `invalid_align_items` and `invalid_align_self` for the other five
+parameters. If you set both a parameter and a raw declaration
 for the same property, the raw one wins and the write envelope tells you so — and the box stays a
 grid, because the companion the parameter earned survives. A raw track list on its own brings no
 `display: grid` with it: companions belong to the named parameter, and the raw valve emits what you
@@ -444,9 +466,8 @@ wrote and nothing else.
 
 ### Fixed along the way
 
-- A stored track list could cost seconds of CPU on **every page view**: nested `minmax()` validated in
-  quadratic time, was accepted, and was re-checked on every render. It is refused now (it was never
-  valid CSS), and a whole track list is bounded before anything walks it.
+- A stored track list is bounded before anything walks it, and nested `minmax()` — which was never
+  valid CSS — is refused rather than re-validated on every render. The bound is 12 resolved tracks.
 - A value the browser drops no longer reaches the page: `repeat(2, 1fr, 2fr)`,
   `repeat(auto-fit, 1fr)`, `repeat(2,,1fr)` and a zero or negative track are all refused, each with a
   message naming the accepted form.
@@ -484,7 +505,7 @@ the type check.
 **A property the vocabulary knows KEEPS its parameter's grammar,** and this is the one that
 will surprise you. `_css` is not a way around a grammar, it is a way to reach a property
 that has none. A raw `color` still refuses `red`; a raw `width` still refuses `fit-content`;
-a raw `background-image` still wants a Media Library attachment id. 61 typed properties
+a raw `background-image` still wants a Media Library attachment id. 67 typed properties
 behave this way, and the refusal names the parameter you should have used.
 
 **Your write tells you what it did.** Two new findings come back on the same channel as
@@ -493,9 +514,12 @@ also set on that role, and `udc_css_unchecked_property` when the property is one
 vocabulary does not know, so it reaches the page exactly as written and a typo paints
 nothing. Read them rather than assuming a value landed.
 
-**The layout demand is expressible today.** `display`, `grid-template-columns`, `flex` and
-`order` have no group, so the requests in #658, #588 and #905 are `_css` writes now. The
-migration how-to carries this as the interim path until a Layout group ships.
+**The layout demand is expressible today.** `display`, `flex` and `order` have no group, so
+those parts of #658, #588 and #905 are `_css` writes. `grid-template-columns` and `align-self`
+are **not** among them any more: the Layout group above claimed them as `layout.columns` and
+`sizing.align-self` in this same release, so use the parameters — a raw `_css` write of either
+is type-checked against them, and by this entry's own rule it buys nothing while costing you
+the catalog entry and the type check.
 
 **`opacity` is reachable.** The stats entry below says it has no group in the design
 vocabulary; that is still true, and it is no longer the same as unreachable. The contrast
@@ -515,13 +539,13 @@ itself is validated: lowercase `a-z`, digits and hyphens, one optional leading h
 vendor prefixes, 64 characters. That makes `--custom-property` unmatchable and refuses a
 name carrying a `:`, `;`, `{`, `}` or a newline rather than sanitising it. Five properties
 are refused by name: `all`, `content`, `behavior`, `-moz-binding`, and the engine's own
-overlay carrier — including their vendor-prefixed spellings. `!important` is refused on
-every surface, because the engine keeps specificity flat by construction.
+overlay carrier — including their vendor-prefixed spellings. A property refused by name or by
+charset comes back as `unknown_udc_css_property`. `!important` is refused on every surface,
+because the engine keeps specificity flat by construction.
 
 **Values reach the same gates they always did, which got stricter.** The ban on naming an
-external resource in a value matched only the literal token `url(`. `image-set()` takes a
-bare string as its image and went straight through it. The gate now covers the class:
-`url()`, `image-set()`, `image()`, `src()`, `expression()` and `@import`, on every value
+external resource in a value was an exact-token check and is now a class check: `url()`,
+`image-set()`, `image()`, `src()`, `expression()` and `@import` are refused on every value
 surface in the theme, not only `_css`.
 
 **The reduced-motion guard follows the property that is emitted,** not the group it came
@@ -900,7 +924,8 @@ cta's own vocabulary could not find them:
 
 **The most-used band in the theme is rebuilt.** `section` declared 47 style slots and
 40,852 bytes of stylesheet; it declares **19 roles and zero slots**, and its stylesheet
-block is 6,969 bytes of pure layout scaffolding. Every designable value — colour, type,
+block is 7,746 bytes of pure layout scaffolding at this release (7,431 at its own rebuild;
+later rebuilds in the same release added to it). Every designable value — colour, type,
 spacing, border, shadow, size, crop, motion — is now a role parameter in the band's `udc`
 map, per breakpoint and per state.
 
@@ -1170,8 +1195,12 @@ carry that, and `refuse_props_when` has no way to say "this other prop is absent
 value is now stored, paints nothing, and nothing tells you. It is #1029, with the two
 candidate fixes written up. Until then: set `body_items_align` only alongside `body_items`.
 
+---
+
+### `faq` is on the design contract (#1046)
+
 **The accordion is on the contract, and its open state is a role of its own for the first time.**
-`faq` declared 21 style slots; it declares ten roles now and no slots at all. The change
+`faq` declared 21 style slots; it declares eleven roles now and no slots at all. The change
 worth knowing is `question-open`. v1 could colour an open question — it had a slot for it —
 but the pairing was a convention nobody enforced: set the resting colour and not the open
 one, and your colour reverted the moment a reader opened the item. It is structural now.
@@ -1189,7 +1218,7 @@ on both roles, and the heading's leading and bottom margin, are breakpoint maps:
 tablet and phone values on one key. v1 had these as fixed rules inside media queries that no
 slot could reach.
 
-**Every value is what your browser actually rendered before.** The ten roles' defaults were
+**Every value is what your browser actually rendered before.** The rebuild's ten role defaults were
 read out of Chromium at 375, 768 and 1280 on the commit before the rebuild, in nine
 configurations and both accordion states, rather than transcribed from the stylesheet. Three
 v1 declarations that never rendered at all are deliberately not carried forward.
@@ -1277,7 +1306,7 @@ call; #1064 tracks making the refusal name every key at once.
   background image or fill no longer counts as a bare text band.
 
 #### Changed
-- `section`'s stylesheet block: 40,852 → 6,969 bytes. Four families deleted rather than
+- `section`'s stylesheet block: 40,852 → 7,431 bytes at its rebuild, 7,746 at this release. Four families deleted rather than
   moved — the theme variants, the background-image variant and its overlay element, the
   band-padding rules, and the two measure caps — plus the four `main > .section` premium
   typography rules, which were **dead code**: they live in the `pp-v1` cascade layer and a
@@ -1311,9 +1340,10 @@ call; #1064 tracks making the refusal name every key at once.
   token; hero and section retired theirs, so it is two.
 - Counts that this rebuild falsified, re-measured rather than carried forward: the
   "76 retired slot names" in `lib/wp.php`, `lib/admin.php` and
-  `docs/explanation-validation-scope.md` is **123** (hero 49, section 47, testimonials 27 —
-  nav and footer never had slots to retire), and the `no_style_slots` refusal fires on
-  **five** components, not four. The apply-CLI schema table gains section's four retired
+  `docs/explanation-validation-scope.md` was **123** at section's rebuild (hero 49, section 47,
+  testimonials 27 — nav and footer never had slots to retire), and the `no_style_slots` refusal
+  fired on **five** components, not four. Both moved again later in this release: the census
+  reads **261** once `grid` is retired, and the refusal fires on **every** component. The apply-CLI schema table gains section's four retired
   props and two refuse rules.
 - The shared marker-colour note claimed all three retired glyph slots keep the value they
   had. Two do; the separator does not, and the note now says which is which instead of
@@ -1382,8 +1412,8 @@ reports it under `chrome` as `presets` and `presets_version`, and that number is
 `expected_version` takes for a preset write.
 
 Also reported rather than silently applied: the name collision a future theme upgrade could
-create — a shipped preset arriving with a name a site already used — reaches the operator
-instead of quietly repainting the site.
+create — a shipped preset arriving with a name a site already used — reaches the operator as the
+`shadowed_presets` readiness finding instead of quietly repainting the site.
 
 ### The Sprint-2 gates (#1011)
 
@@ -1418,9 +1448,13 @@ could land on top of them. Five, each proven against a real surface first.
 
 Charset and bounds hardening rode along with the preset work: the gates on a preset name, a
 band id and a reference name are anchored so they admit only the characters they name, the
-names are bounded, and the sinks that list them clean their own output rather than trusting
+names are bounded, and the preset-listing sinks clean their own output rather than trusting
 the gate upstream. Two refusals that interpolated unbounded lists now cap what they echo and
 say that they capped it.
+
+Not every sink is covered. A refusal naming an `@reference` that does not resolve still echoes
+the stored name unbounded and uncleaned — **#1082 is open** — so the sink-side rule above holds
+for the preset surfaces, not for the dangling-reference message.
 
 ### Known issues for this release
 
@@ -1446,6 +1480,9 @@ say that they capped it.
 - **The owner's dark-card values are not automatically AA.** The same rule reaches item
   grain: a card you fill dark owns the contrast of every text and link role inside it, and
   the engine reports nothing about it. Measure the pairs you author.
+- **Five model-facing sentences still say `grid` has style slots (#1109).** The AI-instruction corpus was rewritten before `grid`'s rebuild landed in this same release, and five sentences in `ai-instructions/add-component.md`, `composition.md` and `retheme.md` were missed by the sweep. They are wrong: every component declares zero slots and `style_component` always refuses. An agent that believes them will attempt a `style_component` call and get `no_style_slots` back. #1109 tracks re-homing the remaining live claims.
+- **A raw `_css` `display` can pin an open mobile menu open (#1085).** The Layout group deliberately excludes `display` on `nav`'s menu and toggle, because it outranks the `hidden` attribute. The exclusion covers the typed parameter only — the same value written through `_css` is not excluded. Do not write `display` on those roles through `_css`.
+- **A dangling `@reference` echoes the stored name unbounded and uncleaned into the refusal that names it (#1082).** The preset-name, band-id and reference-name gates were anchored and bounded this release, and the preset-listing sinks clean their output; this one message was not covered.
 - **A fresh install's homepage paints role defaults, not the branded seed (#1042).** The
   activation seed mints band ids on a by-value copy, so the FIRST render emits no authored
   `udc` CSS at all — measured at 0 bytes against 4,636 after minting. It self-heals on the
