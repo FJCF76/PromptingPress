@@ -7954,6 +7954,12 @@ function pp_udc_composition_findings(array $items): array {
     // from a counter whose own comment claimed 200.
     $item_disclosed   = 0;
     $tokens_disclosed = 0;
+    // THE SAME BOUND FOR EVERY ARM THAT WALKS ITEM MAPS (#1116, #1117). Each multiplies by
+    // the card count, and `items` declares no maximum: measured at 50 bands x 20 cards,
+    // 3,000 overlay findings and 1,000 each of the two preset disclosures before these.
+    $skipped_disclosed = 0;
+    $shadow_disclosed  = 0;
+    $overlay_disclosed = 0;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -8048,6 +8054,10 @@ function pp_udc_composition_findings(array $items): array {
                 if ($split['skipped'] === [] || $split['applied'] === []) {
                     continue; // Nothing skipped, or refused outright at write.
                 }
+                if ($skipped_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    break 2;
+                }
+                $skipped_disclosed++;
                 $findings[] = [
                     'type'    => 'udc_preset_groups_skipped',
                     'message' => sprintf(
@@ -8121,6 +8131,10 @@ function pp_udc_composition_findings(array $items): array {
                 if ($shadowed === []) {
                     continue;
                 }
+                if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    break 2;
+                }
+                $shadow_disclosed++;
                 $total = count($shadowed);
                 $findings[] = [
                     'type'    => 'udc_preset_value_shadowed_by_role_default',
@@ -8166,16 +8180,24 @@ function pp_udc_composition_findings(array $items): array {
             || !pp_udc_valid_band_id((string) $overlay_probe['id'])) {
             $overlay_probe['id'] = 'pp-00000000';
         }
+        // Once the cap is reached the compile is skipped too: bounding the findings but not
+        // the work would leave the write path paying for disclosures nobody will see.
         $overlay_drops = [];
-        try {
-            pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
-        } catch (\Throwable $e) {
-            $overlay_drops = []; // Reported by the readiness channel, which owns compile failures.
+        if ($overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+            try {
+                pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
+            } catch (\Throwable $e) {
+                $overlay_drops = []; // Reported by the readiness channel, which owns compile failures.
+            }
         }
         foreach ($overlay_drops as $drop) {
             if (($drop['code'] ?? '') !== 'overlay_without_image') {
                 continue;
             }
+            if ($overlay_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break;
+            }
+            $overlay_disclosed++;
             $findings[] = [
                 'type'    => 'udc_overlay_without_image',
                 'message' => sprintf(

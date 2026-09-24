@@ -265,6 +265,90 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertNull($found[0]['index'], 'chrome names no band offset');
     }
 
+    /**
+     * BOUNDED ACROSS THE COMPOSITION. Item grain multiplies every per-map arm by the card
+     * count, and `items` declares no maximum — the sibling arms' comments record 10,000
+     * findings and +8 MB from exactly this shape. Every item-grain arm counts against a
+     * composition-wide cap, like `$item_disclosed`.
+     */
+    public function testTheItemGrainDisclosuresAreBoundedAcrossTheComposition(): void
+    {
+        // typography size/weight: shadowed by card-title's defaults; shadow: not permitted there.
+        $this->savePreset('probe-wide', [
+            'typography' => ['size' => '3rem', 'weight' => '800'],
+            'shadow'     => ['box' => 'none'],
+        ]);
+        $bands = [];
+        for ($b = 0; $b < 50; $b++) {
+            $items = [];
+            for ($k = 0; $k < 20; $k++) {
+                $items[] = ['id' => sprintf('it-%08x', $b * 100 + $k + 1), 'title' => 'x', 'udc' => [
+                    'card-title' => ['_preset' => 'probe-wide'],
+                    'card'       => ['background' => ['overlay' => ['d' => '#111111', 't' => '#222222', 'p' => '#333333']]],
+                ]];
+            }
+            $bands[] = ['component' => 'grid', 'id' => sprintf('pp-%08x', $b + 1), 'props' => ['title' => 'G', 'items' => $items]];
+        }
+
+        $counts = array_count_values(array_column(pp_udc_composition_findings($bands), 'type'));
+
+        foreach (['udc_overlay_without_image', 'udc_preset_value_shadowed_by_role_default', 'udc_preset_groups_skipped'] as $type) {
+            $this->assertGreaterThan(0, $counts[$type] ?? 0, "premise: $type fires on this fixture");
+            $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, $counts[$type] ?? 0, "$type is bounded composition-wide");
+        }
+    }
+
+    /** Band grain carries the state reason and locator too (the second compose call site). */
+    public function testABandGrainHoverOverlayIsDisclosedTruthfully(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $result] = $this->page([[
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['image' => 9001, ':hover' => ['overlay' => '#112233']]]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]);
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(:hover)', $found[0]['message']);
+        $this->assertStringContainsString('inside a state', $found[0]['message']);
+        $this->assertStringNotContainsString('declares no background.image', $found[0]['message']);
+    }
+
+    /** A responsive scrim with no image is dropped per breakpoint, and each row names its tier. */
+    public function testANarrowOverlayWithNoImageNamesItsBreakpoint(): void
+    {
+        [, $result] = $this->page([[
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['overlay' => ['d' => '#112233', 'p' => '#445566']]]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]);
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(2, $found);
+        $this->assertStringContainsString('at breakpoint p', implode("\n", array_column($found, 'message')));
+    }
+
+    /**
+     * Control: the finding reads ONLY this discard's ledger rows. A band whose compile writes
+     * a different drop row must not surface it as an overlay finding.
+     */
+    public function testANonOverlayLedgerRowIsNotSurfacedAsAnOverlayFinding(): void
+    {
+        $drops = [];
+        $band  = ['component' => 'section', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'S', 'body' => 'b'],
+                  'udc' => ['_band' => ['_css' => 'not-a-map']]];
+        pp_udc_compile_band($band, 'authored', $drops);
+        $this->assertNotSame([], $drops, 'premise: this band writes some other ledger row');
+
+        $found = array_filter(
+            pp_udc_composition_findings([$band]),
+            static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
+        );
+        $this->assertSame([], array_values($found));
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
