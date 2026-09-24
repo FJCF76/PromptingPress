@@ -1,0 +1,12 @@
+#!/bin/sh
+# Reject AI-attribution trailers in commit messages (owner rule, adopted 2026-09-24:
+# no AI contributor/co-author attribution anywhere; found retroactively on 23 Sprint-2
+# commits — published history stays, this hook keeps the 2.0.0-bound history clean).
+msg_file="$1"
+if grep -n -i -E 'Co-Authored-By:.*(claude|anthropic)|Claude-Session:|Generated with \[?Claude Code\]?|noreply@anthropic\.com' "$msg_file" >/dev/null 2>&1; then
+  echo "commit-msg hook: AI-attribution trailer found in the commit message." >&2
+  echo "The repo rule is: no AI attribution in commits, PR bodies, or files." >&2
+  grep -n -i -E 'Co-Authored-By:.*(claude|anthropic)|Claude-Session:|Generated with \[?Claude Code\]?|noreply@anthropic\.com' "$msg_file" >&2
+  exit 1
+fi
+exit 0

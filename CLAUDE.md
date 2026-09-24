@@ -17,3 +17,11 @@ Key routing rules:
 - Architecture review → invoke plan-eng-review
 - Save progress, checkpoint → invoke context-save; resume → invoke context-restore
 - Code quality, health check → invoke health
+
+## Commit hygiene (owner rule)
+
+No AI attribution anywhere: commit messages, PR bodies, and files must carry no
+Co-Authored-By/Claude/AI trailers or "Generated with" lines. Enforced by
+`.githooks/commit-msg` — activate it once per clone with:
+
+    git config core.hooksPath .githooks
