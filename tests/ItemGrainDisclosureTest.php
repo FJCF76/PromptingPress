@@ -152,6 +152,40 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertArrayHasKey('probe-type', pp_udc_custom_presets());
     }
 
+    /**
+     * THE BACKSTOP READS WHAT THE WRITER HOLDS. The chrome half of the scan must come from
+     * the row the writer read under its lock, not the request-cached option: a chrome
+     * reference committed by another process after this request loaded its options is
+     * exactly what the backstop exists to catch. The double below serves a FRESHER row to
+     * the in-lock read than the option store holds.
+     */
+    public function testTheWriterSeesAChromeReferenceTheCachedOptionDoesNot(): void
+    {
+        $this->savePreset('probe-type', ['typography' => ['weight' => '800']]);
+        $stored = get_option(PP_SITE_UDC_OPTION, '');
+        $row    = is_string($stored) ? (json_decode($stored, true) ?: []) : (array) $stored;
+        $row['nav'] = ['link' => ['_preset' => 'probe-type']];
+        $fresher = (string) json_encode($row);
+
+        $GLOBALS['wpdb'] = new class ($fresher) extends PP_Lockable_Wpdb {
+            public function __construct(private string $fresher) {}
+            public function get_var(string $query)
+            {
+                if (str_contains($query, "option_name = '" . PP_SITE_UDC_OPTION . "'")) {
+                    return $this->fresher;
+                }
+                return parent::get_var($query);
+            }
+        };
+
+        $execute = pp_get_action('delete_preset')['execute'];
+        $result  = $execute(['name' => 'probe-type']);
+
+        $this->assertFalse($result['ok'], 'the committed chrome reference must block the delete');
+        $this->assertSame('preset_in_use', $result['error_code'] ?? null);
+        $this->assertStringContainsString('site chrome "nav"', (string) $result['error']);
+    }
+
     // ═══ #1116 — the shadowed-preset disclosure at item grain ════════════════
 
     public function testACardPresetShadowedByTheRoleDefaultIsDisclosedWithTheItemLocator(): void
@@ -415,6 +449,30 @@ final class ItemGrainDisclosureTest extends TestCase
 
         $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
         $this->assertStringContainsString('band 26', (string) $rows, 'the band-map band is still inside the window');
+    }
+
+    /**
+     * A STORED BAND WITH NO USABLE ID renders nothing at all (the emitter's id gate), and
+     * that is what must be said. Reachable through raw meta and restore (#233). The findings
+     * walk must not compile it under an invented id and describe a render that never
+     * happens, and readiness 8e must carry the whole-band row for a card-only band too.
+     */
+    public function testABandWithNoIdIsReportedAsTheWholeBandNotAsAnOverlay(): void
+    {
+        $band = ['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+            ['id' => 'it-aaaaaaaa', 'title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#111111', 'overlay' => '#112233']]]],
+        ]]];
+        $id = pp_create_page('no id', 'draft');
+
+        $overlay = array_filter(
+            pp_udc_composition_findings([$band]),
+            static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
+        );
+        $this->assertSame([], array_values($overlay), 'no render happens, so no overlay story is told');
+
+        $rows = json_encode(pp_check_udc_emit_drops($id, [$band]));
+        $this->assertStringContainsString('the whole band', (string) $rows);
+        $this->assertStringContainsString('no id', (string) $rows);
     }
 
     /** The readiness channel (the emit-drop ledger) carries the same fact. */

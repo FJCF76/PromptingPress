@@ -1596,7 +1596,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * @return array{references: array<int, string>, references_total: int,
  *               unreadable: array<int, string>, unreadable_total: int}
  */
-function pp_udc_preset_references(string $name): array {
+function pp_udc_preset_references(string $name, ?array $site = null): array {
     $out = [
         'references' => [], 'references_total' => 0,
         'unreadable' => [], 'unreadable_total' => 0,
@@ -1608,7 +1608,12 @@ function pp_udc_preset_references(string $name): array {
     // wrote — and they ride an operator-facing refusal. A title carrying an escape
     // sequence or five thousand characters would otherwise reach a terminal
     // through a delete that was refused for an unrelated reason.
-    $site = pp_udc_site_map();
+    // THE CALLER MAY HAND IN THE ROW IT HOLDS (#1115). The under-lock writer passes the
+    // site map it just read past the cache, because pp_udc_site_map() answers from the
+    // request's option cache — right for rendering, and exactly the staleness a backstop
+    // cannot have: a chrome reference committed after this request loaded its options
+    // would otherwise be missed under the very lock that exists to catch it.
+    $site = $site ?? pp_udc_site_map();
     foreach (($site['chrome'] ?? []) as $chrome_name => $map) {
         foreach (_pp_udc_map_references_preset(is_array($map) ? $map : [], $name) as $where) {
             $out['references_total']++;
@@ -1705,9 +1710,13 @@ function pp_udc_preset_references(string $name): array {
  * there", invariant I9). The caller decides the shadowed-row exemption first: a site row
  * a theme preset shadows can always be deleted, because every reference resolves to the
  * theme's bundle before and after.
+ *
+ * @param array|null $site The site map to scan for chrome references; the under-lock
+ *                         writer passes the row it read past the cache. Null reads the
+ *                         cached option, which is right for validate and preview.
  */
-function pp_udc_preset_delete_reference_refusal(string $name): ?WP_Error {
-    $scan = pp_udc_preset_references($name);
+function pp_udc_preset_delete_reference_refusal(string $name, ?array $site = null): ?WP_Error {
+    $scan = pp_udc_preset_references($name, $site);
     if ($scan['unreadable'] !== []) {
         $unreadable_total = (int) $scan['unreadable_total'];
         return new WP_Error('preset_scan_unreadable', sprintf(
@@ -4547,8 +4556,12 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
     // to produce no CSS at all.
     $id = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
     if ($layer !== 'defaults' && !pp_udc_valid_band_id($id)) {
+        // A band styled only at ITEM grain is styled too (#1117): its cards' designs are
+        // lost to the same missing id. Only asked when a ledger is being kept, so the
+        // render path still never touches the registry here.
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS
-            && isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== []) {
+            && ((isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [])
+                || pp_udc_item_maps($item) !== [])) {
             $drops[] = [
                 'where'  => 'the whole band',
                 'reason' => $id === ''
@@ -7063,7 +7076,9 @@ function _pp_udc_site_findings_unguarded(): array {
     $items = [];
     foreach (pp_udc_chrome_names() as $name) {
         if (isset($site['chrome'][$name]) && is_array($site['chrome'][$name])) {
-            $items[] = ['component' => $name, 'udc' => $site['chrome'][$name]];
+            // `id` as the readiness probe wraps it (pp_check_udc_emit_drops): chrome renders
+            // under its own selector, so the findings walk must not read it as an id-less band.
+            $items[] = ['component' => $name, 'id' => $name, 'udc' => $site['chrome'][$name]];
         }
     }
     if ($items === []) {
@@ -8217,15 +8232,16 @@ function pp_udc_composition_findings(array $items): array {
         // two would disagree (the I29 class). Only rows carrying this code surface: every
         // other ledger row stays on the readiness channel it always had.
         //
-        // A band that has not been given an id yet is compiled under a placeholder, because
-        // the emitter refuses an id-less band outright and this question does not depend on
-        // the id. What it costs is one compile per band that passes the pre-filter below,
-        // on the findings paths only (never render), and none once the cap is reached.
+        // A BAND WITH NO USABLE ID IS NOT PROBED. The emitter renders nothing for it (its id
+        // gate), so there is no overlay drop to report — the whole band is the drop, and the
+        // readiness ledger says so. Compiling it under an invented id would describe a
+        // render that never happens (I29). Every authoring path runs this walk after ids are
+        // minted, so this only ever meets a stored band from raw meta or restore (#233).
+        // What it costs is one compile per band that passes the pre-filter below, on the
+        // findings paths only (never render), and none once the cap is reached.
         $overlay_probe = $item;
-        if (!isset($overlay_probe['id']) || !is_scalar($overlay_probe['id'])
-            || !pp_udc_valid_band_id((string) $overlay_probe['id'])) {
-            $overlay_probe['id'] = 'pp-00000000';
-        }
+        $overlay_probe_has_id = isset($overlay_probe['id']) && is_scalar($overlay_probe['id'])
+            && pp_udc_valid_band_id((string) $overlay_probe['id']);
         // Once the cap is reached the compile is skipped too: bounding the findings but not
         // the work would leave the write path paying for disclosures nobody will see.
         //
@@ -8242,7 +8258,7 @@ function pp_udc_composition_findings(array $items): array {
             }
             $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map);
         }
-        if ($overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+        if ($overlay_probe_has_id && $overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             try {
                 pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
             } catch (\Throwable $e) {

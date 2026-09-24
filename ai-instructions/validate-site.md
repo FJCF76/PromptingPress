@@ -32,13 +32,14 @@ This checks:
      applied. Write the value directly in your map for that role, where it outranks both.
      Fires on a card's own map too, and then names the card as `item "<id>"`.
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
-     under it. The scrim is dropped: an overlay only paints over an image, and a
+     under it, one finding per dropped value (a responsive overlay names each breakpoint). The scrim is dropped: an overlay only paints over an image, and a
      `background.fill` is a colour, not an image. Set `background.image`, put the tint
      in the fill, or remove the overlay. An overlay inside a state (`:hover`) is always
      dropped, even over a base image, because `background.image` cannot be set inside a
      state. `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
-     for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row.
+     for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
+     `run_id` that `wp pp operate inspect` returns, not any UUID.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle
