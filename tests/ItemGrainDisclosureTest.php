@@ -592,6 +592,41 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('band 26', (string) $rows);
     }
 
+    /**
+     * ONE LEVEL, ENFORCED. A preset cannot reference another preset through any write
+     * path, but the row can be written raw, and stored presets are not re-validated on
+     * read. The pre-filter must not follow a `_preset` found INSIDE a resolved bundle —
+     * following it let a stored chain of wide bundles cost O(width^depth) per findings call
+     * (measured 7.6 s at 120 entries per level, against 0.001 s before the pre-filter).
+     * A nested reference is answered conservatively: the band is compiled.
+     */
+    public function testThePreFilterNeverFollowsAPresetInsideAPreset(): void
+    {
+        $chain = [];
+        // Three levels, so the walk's depth cap (which answers "compile") never fires and
+        // only the one-level rule can bound it.
+        foreach (['a1' => 'a2', 'a2' => 'a3'] as $name => $next) {
+            $udc = [];
+            for ($k = 0; $k < 200; $k++) {
+                $udc['r' . $k] = ['_preset' => $next];
+            }
+            $chain[$name] = ['grain' => 'role', 'udc' => $udc];
+        }
+        $leaf = [];
+        for ($k = 0; $k < 200; $k++) {
+            $leaf['r' . $k] = ['typography' => ['weight' => '800']];
+        }
+        $chain['a3'] = ['grain' => 'role', 'udc' => $leaf];
+        update_option(PP_SITE_UDC_OPTION, (string) json_encode(['_version' => 0, '_presets_version' => 1, '_presets' => $chain]));
+
+        $started = microtime(true);
+        $answer  = _pp_udc_map_may_carry_overlay(['_band' => ['_preset' => 'a1']]);
+        $elapsed = microtime(true) - $started;
+
+        $this->assertTrue($answer, 'a nested reference is a candidate: compile rather than guess');
+        $this->assertLessThan(1.0, $elapsed, 'the walk stops at the first bundle');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

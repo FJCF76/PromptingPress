@@ -2383,7 +2383,7 @@ function pp_udc_background_image_url($id): ?string {
  * A preset cannot reference another preset, so one level of resolution is the whole
  * answer; a dangling name is refused at write and has nothing to compile.
  */
-function _pp_udc_map_may_carry_overlay($map, int $depth = 0): bool {
+function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = false): bool {
     if (!is_array($map)) {
         return false;
     }
@@ -2395,13 +2395,21 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0): bool {
             return true;
         }
         if ($key === PP_UDC_PRESET_KEY) {
+            // ONE LEVEL, ENFORCED rather than assumed. No write path can store a preset that
+            // references another, but the row can be written raw and is not re-validated on
+            // read — and following nested references let a stored chain of wide bundles cost
+            // O(width^depth) on every findings call. A reference found INSIDE a bundle is
+            // answered "compile", which costs one compile of this band and cannot be wrong.
+            if ($in_preset) {
+                return true;
+            }
             $preset = is_string($value) ? pp_udc_resolve_preset($value) : null;
-            if ($preset !== null && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1)) {
+            if ($preset !== null && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1, true)) {
                 return true;
             }
             continue;
         }
-        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1)) {
+        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1, $in_preset)) {
             return true;
         }
     }
