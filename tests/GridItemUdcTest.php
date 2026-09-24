@@ -1739,9 +1739,9 @@ class GridItemUdcTest extends TestCase
      *   ok: false, invalid_prop_value: udc token "it-387bb4bc-card-title-typography-
      *   size-d" uses a name the engine mints for itself … Pick another name
      *
-     * On a name the author never typed, naming a repair they cannot perform —
-     * `update_component` carries no `udc` param (#1088), so `_tokens` is unreachable
-     * from the surface that refused them. The documented escape hatch hit the same wall:
+     * On a name the author never typed, naming a repair they could not perform —
+     * `update_component` carried no `udc` param before #1088, so `_tokens` was
+     * unreachable from the surface that refused them. The documented escape hatch hit the same wall:
      * `_pp_preserve_item_design()` promises an explicit `{"udc": {}}` clears a design
      * "because there is otherwise no way to remove an item's design once minted".
      *

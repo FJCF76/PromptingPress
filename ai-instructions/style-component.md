@@ -63,18 +63,28 @@ padding and border.
 
 ### Which action carries it
 
-**`update_composition` and `create_page` are the only two verbs that carry a `udc` map.** Both take
-a whole band, which is why they can. `update_component` and `add_component` declare `props` and
-`style` only — there is no `udc` parameter on either, so a `udc` key sent to them is never examined,
-and `update_component` additionally requires `props`.
+**Four verbs carry a `udc` map** (#1088):
 
-So a styling edit is a read-modify-write of the composition:
+- `update_component` — `udc` is merged into the target band's stored map **BY ROLE**: a role you
+  send replaces that role's map whole, `null` removes a role, and a role you do not send is kept as
+  stored. The same rule `props` follows. `props` is optional here; a call that carries none of
+  `props`, `udc` or `style` is refused with `missing_component_update`. This is the verb for
+  restyling ONE band.
+- `add_component` — `udc` is the new band's map, stored as sent.
+- `update_composition` and `create_page` — they take whole bands, so each band's `udc` rides in it.
+
+A one-band styling edit therefore reads the band, then patches the roles it changes:
 
 ```bash
 wp post meta get 42 _pp_composition_version  # READ THE VERSION FIRST — see below
-wp post meta get 42 _pp_composition          # then the resendable bytes, `udc` maps included
-wp pp action execute update_composition --run-id=<uuid> --params='{ ... }'
+wp post meta get 42 _pp_composition          # then the bytes, `udc` maps included
+wp pp action execute update_component --run-id=<uuid> --params='{"post_id":42,"component_id":"pp-a1b2c3d4","udc":{"heading":{"typography":{"color":"#ffffff","weight":"700"}}},"expected_version":7}'
 ```
+
+Send the WHOLE role you change — the role is what is replaced, so a role sent with only `color`
+drops the `weight` it had. A responsive literal the engine minted into `_tokens` is the engine's:
+replace or remove the role that used it and the tokens nothing references any more are dropped for
+you. A `_tokens` key you send replaces the band's token map whole.
 
 **Read the meta, not `inspect`.** This is the one place a raw meta READ is the right tool, and
 it is worth being exact about why: `wp pp operate inspect` returns the page map, tokens, chrome
@@ -83,7 +93,7 @@ targets for patching and carries **no `udc` at all** (measured: zero occurrences
 Neither gives you the map you are about to edit. Reading the meta is safe — it is WRITING it
 that skips validation, minting, versioning and history.
 
-**On `expected_version`, with two caveats that matter more than the parameter does.**
+**On `expected_version`: pass it, and read it first.**
 
 Read it from its own meta key — `wp post meta get 42 _pp_composition_version` — and read it
 **before** the composition, not after. Read the data first and the version second and you have
@@ -91,17 +101,13 @@ built the race you were trying to close: a write landing between the two reads g
 bytes and a version that already covers them, so the check passes and the other edit is gone.
 (The version also comes back on every write's envelope as `composition_version`.)
 
-**And on the CLI today, passing it protects you less than it looks.** `wp pp action execute`
-runs its own freshness gate and then OVERWRITES whatever `expected_version` you sent with the
-baseline that gate computed, so a deliberately stale value is accepted rather than refused —
-measured: a write carrying `expected_version: 1` against a composition at version 2 returned
-`ok: true`. The engine's compare-and-swap is sound and the chat and dashboard surfaces honour
-it; it is the CLI wrapper that discards your value, and only for COMPOSITION writes — the site-option path on the same CLI refuses a stale `expected_version` correctly with `site_option_conflict`, so the chrome promises elsewhere hold. Filed as its own issue.
-
-Until that lands, treat the CLI as last-write-wins and make the window small: read the version,
-read the composition, edit, and write **immediately**, in one unbroken sequence. Do not carry a
-composition you read earlier in the session. Pass `expected_version` anyway — it costs nothing,
-it is honoured on the other surfaces, and it will start being honoured here.
+Then send it with the write. Every composition write compares it against the stored version
+and refuses with `composition_conflict` if the page has moved since you read it — `wp pp action
+execute` included (#1094: the CLI used to replace the value you sent with its own run baseline,
+so a stale one was accepted; it now honours yours, and uses its run baseline only when you send
+none). On a conflict, re-read the version and the composition, re-apply your edit, and retry.
+This is what keeps a content edit landed earlier in the same session from being erased by a
+styling write built from an older read.
 
 ### Groups and parameters
 
@@ -487,7 +493,8 @@ Common refusals and what each means:
   and a plausible-looking one that exists on a different component is the most common mistake.
 - **Do not reach for `_css` when a parameter exists.** You lose the type check and the report entry,
   and you gain nothing.
-- **Do not send `udc` to `update_component` or `add_component`.** They have no such parameter.
+- **Do not send a partial role to `update_component`'s `udc`.** A role you send replaces that role's
+  stored map whole; read it first and send every value it should keep.
 - **Do not edit `assets/css/components.css`** to change one band's appearance. That file is
   theme-owned, an upgrade replaces it, and per-instance styling is what the `udc` map is for.
 - **Do not use WordPress Additional CSS** for component styling. It is a global stylesheet outside

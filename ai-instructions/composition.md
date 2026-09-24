@@ -26,7 +26,7 @@ The format is AI-native: the same JSON a human edits in the admin meta box is wh
 
 - `component` — must match a registered component name (a folder in `components/`)
 - `props` — must satisfy required props from that component's `schema.json`
-- `udc` — (optional) **the styling key for every component on the design contract**, which since #1101 is all ten of them. A map of `role → group → parameter → value`, validated against the component's declared roles. Only `update_composition` and `create_page` carry it: `update_component` and `add_component` declare no `udc` parameter, so a styling edit is a read-modify-write of the whole composition. See `ai-instructions/style-component.md`, and read a component's roles with `wp pp schema <component>` before writing one
+- `udc` — (optional) **the styling key for every component on the design contract**, which since #1101 is all ten of them. A map of `role → group → parameter → value`, validated against the component's declared roles. Four actions carry it: `update_component` (its `udc` param, merged into ONE band BY ROLE — a sent role replaces that role's map, `null` removes it, unsent roles are kept), `add_component` (the new band's map), and `update_composition` / `create_page` (inside whole bands). See `ai-instructions/style-component.md`, and read a component's roles with `wp pp schema <component>` before writing one
 - `style` — (optional) per-instance CSS custom property overrides, validated against the component's `schema.json` → `styling.style_slots`. Only declared slots are accepted. **`grid` is the only component that declares any**, so on anything else this key has nothing to address and `style_component` refuses it with `no_style_slots`. Set grid's via a composition write (`create_page` / `update_composition`), the `style_component` action, or by passing `style` to `add_component` (which writes it onto the new item in one call, validated by the same shared engine — no separate follow-up needed)
 - `id` — (optional) an anchor id, which also becomes the band's stable identity. A band with no `id` is given one at write time, and only at write time
 - Order in the array = render order on the page
@@ -724,7 +724,7 @@ positive confirmation, and anything in it is the engine telling you a value did 
 you wrote it. `create_page` is all-or-nothing — if the composition write fails, the page it created
 moments earlier is removed rather than left behind empty.
 
-To change one band afterwards, read the composition back, edit it, and send the whole thing:
+To RESTYLE one band afterwards, use `update_component` with a `udc` param (see `ai-instructions/style-component.md`) — it touches only that band. To rewrite several bands at once, read the composition back, edit it, and send the whole thing:
 
 ```bash
 wp post meta get 42 _pp_composition_version   # READ THE VERSION FIRST (this is the 3 below)
@@ -736,13 +736,11 @@ wp pp action execute update_composition --run-id=<uuid> --params='{
 }'
 ```
 
-Pass the `version` you read back as `expected_version`. **On the CLI today that is weaker than
-it sounds** — `wp pp action execute` overwrites the value you send with its own freshness
-baseline, so a stale one is accepted rather than refused (measured: `expected_version: 1`
-against a composition at version 7 returned `ok: true`). The engine's compare-and-swap is sound
-and the chat and dashboard surfaces honour it; the CLI wrapper discards it, and that is filed.
-Until it lands, keep the window small — version, bytes, edit, write, in one unbroken sequence —
-and see the `expected_version` note in `ai-instructions/style-component.md`. Re-send each band's
+Pass the `version` you read back as `expected_version`: if the page moved since you read it, the
+write is refused with `composition_conflict` instead of overwriting the newer edit (#1094: the
+CLI honours the value you send; its own run baseline is used only when you send none). On a
+conflict, re-read, re-apply and retry. See the `expected_version` note in
+`ai-instructions/style-component.md`. Re-send each band's
 `id` as you read it, so the ids stay stable across the re-apply.
 
 ---

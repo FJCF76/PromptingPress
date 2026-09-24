@@ -99,8 +99,9 @@ advisory lock** and refuses the write if it moved, returning the same
 there is no gap left for a lost update to slip through. The baseline is optional at the
 choke point (a new page or a legacy direct write omits it and writes unconditionally),
 so the guarantee is **opt-in per writer**. Three writers opt in today: the WP-CLI
-operate loop (it threads the freshness-validated baseline through `action execute` /
-`operate patch`), the dashboard editor's save/publish AJAX (it echoes the loaded
+operate loop (`action execute` honours a caller-supplied `expected_version` and threads the
+freshness-validated baseline only when none is sent, #1094; `operate patch` always threads the
+baseline), the dashboard editor's save/publish AJAX (it echoes the loaded
 version back as `expected_version`), and the **chat AI path** (#404).
 
 The chat path opts in **mandatorily and fail-closed**, not opportunistically. When the

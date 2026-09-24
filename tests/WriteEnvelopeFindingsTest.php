@@ -292,8 +292,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     {
         $id = $this->trapPage();
         // A BAND-SCOPED write that touches only props still reports the whole stored
-        // composition, advisory included. update_component carries no `udc` parameter, so
-        // it cannot introduce the advisory — which is the point: the envelope describes
+        // composition, advisory included. This call sends only `props` (no `udc`), so it
+        // cannot introduce the advisory — which is the point: the envelope describes
         // what is STORED, not what this call changed.
         $result = pp_execute_action('update_component', [
             'post_id'         => $id,
@@ -1113,8 +1113,8 @@ final class WriteEnvelopeFindingsTest extends TestCase
     public function testEachBatchStepCarriesItsOwnFindings(): void
     {
         // Seeded WITHOUT the advisory, so step 2 is the step that introduces it. The
-        // middle step is an update_composition because that is one of the only two verbs
-        // carrying a `udc` map (ai-instructions/composition.md) — the transition it marks
+        // middle step is an update_composition, one of the verbs carrying a `udc` map
+        // (ai-instructions/composition.md) — the transition it marks
         // is the subject, not which verb produced it.
         $id = pp_create_page('Batch step reports', 'draft');
         pp_update_composition($id, [$this->trapBand(false)]);

@@ -268,7 +268,7 @@ wp pp apply execute update_design_token \
 Every mutation — from CLI, from AI chat, from the editor — goes through the same typed action system:
 
 ```bash
-# See all 20 available actions
+# See all 26 available actions
 wp pp action list
 
 # Preview what a change would do (dry run, never writes)

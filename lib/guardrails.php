@@ -239,7 +239,7 @@ function pp_classify_surface(string $path): array {
         if (preg_match($pattern, $path)) {
             return [
                 'classification' => 'extension',
-                'guidance'       => 'Extension file. Editable but may be overwritten by theme updates. Prefer database-backed surfaces when possible: a band\'s own appearance is its `udc` map, carried by update_composition or create_page; the site palette is update_design_token apply.',
+                'guidance'       => 'Extension file. Editable but may be overwritten by theme updates. Prefer database-backed surfaces when possible: a band\'s own appearance is its `udc` map, written through update_component\'s `udc` param (one band, merged by role), or update_composition / create_page (whole bands); the site palette is update_design_token apply.',
             ];
         }
     }
@@ -260,7 +260,7 @@ function pp_classify_surface(string $path): array {
 function _pp_surface_guidance(string $path): string {
     // Route toward specific approved surfaces based on what the file controls.
     if (str_starts_with($path, 'lib/')) {
-        return "Blocked: {$path} is a core theme file. To change one band's spacing or colours, set them on that band's `udc` map and write it with update_composition or create_page. To change the site palette, use update_design_token apply.";
+        return "Blocked: {$path} is a core theme file. To change one band's spacing or colours, set them on that band's `udc` map and write it with update_component's `udc` param (merged by role), or update_composition / create_page for whole bands. To change the site palette, use update_design_token apply.";
     }
     if ($path === 'functions.php') {
         return "Blocked: functions.php is a core theme file. To add fonts, use enqueue_font apply. To change tokens, use update_design_token apply.";

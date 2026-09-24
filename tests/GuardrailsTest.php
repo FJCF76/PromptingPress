@@ -1374,7 +1374,7 @@ class GuardrailsTest extends TestCase
      *
      * It asserts the SURFACE and the ACTION separately on purpose. Naming only the `udc`
      * map would pass on guidance that never says how to write one, and update_composition
-     * is the load-bearing half — it is one of exactly two actions that carry a band.
+     * is the load-bearing half — it is one of the actions that carry a band.
      */
     public function testGuidanceRoutesLibToTheBandUdcMapAndAnActionThatCarriesIt(): void
     {

@@ -1258,7 +1258,8 @@ function _pp_no_style_slots_clause(string $component_name): string {
     return sprintf(
         '"%s" is on the v2 styling system and declares no style slots: every designable value moved to '
         . 'the band\'s `udc` map. Style it there instead, on one of its roles (%s), through '
-        . 'update_composition or create_page — those are the two actions that carry a whole band. If '
+        . 'update_component\'s `udc` param (one band, merged by role) or update_composition / '
+        . 'create_page (whole bands). If '
         . 'this band was written before the rebuild it still carries a stored `style` map, and that '
         . 'map refuses EVERY update_component edit to the band until it is gone — a props-only edit '
         . 'included. THE SIMPLEST REPAIR IS update_composition: rewrite the band with no `style` key '

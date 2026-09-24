@@ -29,7 +29,7 @@
  *
  * THE JS CLAIM IS UNCHANGED AND IS THE REASON THIS FILE SURVIVES. `pp-ai-step-impossible`
  * must still be reserved for a payload with no next action, and `no_style_slots` is not
- * one: its message names the component's roles and the two actions that carry a `udc`
+ * one: its message names the component's roles and the actions that carry a `udc`
  * map, which is a very actionable answer delivered with an empty `alternatives` list.
  * An empty list is exactly what #625 taught the JS not to read as a dead end.
  *
@@ -169,7 +169,7 @@ class PreviewErrorActionabilityTest extends TestCase
         // styling surface at all, and it is NOT what any real author now meets.
         //
         // `hero` is a real v2 band, so this exercises the branch that actually ships: the
-        // one that names the component's own roles and the two actions that carry a `udc`
+        // one that names the component's own roles and the actions that carry a `udc`
         // map. Asserting that is the whole reason the empty `alternatives` list below is
         // safe for the JS to receive.
         $post_id = $this->authorPage('No slots', [

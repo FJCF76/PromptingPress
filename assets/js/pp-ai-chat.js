@@ -3403,7 +3403,22 @@ function ppChatAppendValidationItems(container, items, className) {
     // Re-reads a page's current composition version from the server and refreshes
     // the stored baseline. Backs the Re-read & re-preview conflict affordance:
     // resolves once the fresh baseline is stored, rejects on any failure.
+    //
+    // A READ THAT OUTLIVES ITS CONVERSATION STORES NOTHING (#909). The generation is
+    // captured when the read STARTS and checked before the write, because the write lives
+    // here, inside this function's own `.then` — upstream of every caller, so no caller can
+    // guard it. Without this a New Chat clicked mid-read got its fresh, empty `pageBaselines`
+    // repopulated (and re-persisted over the key clearState() had just removed) with a
+    // baseline for a page the new conversation never read. That baseline is the write
+    // ticket the #404 fail-closed gate withholds, so the residue turned a server refusal
+    // (missing_expected_version) into an accepted write. A current read is exactly what
+    // makes it dangerous: nothing downstream can tell it from one this conversation earned.
+    //
+    // It REJECTS rather than resolving, so no caller can mistake an abandoned read for a
+    // stored one. Every caller handles that: the re-read handler checks the same generation
+    // first on its catch arm (#880), and refreshTouchedBaselines() catches best-effort.
     function refreshBaseline(pageId) {
+        var myConversationId = currentConversationId;
         var d = new FormData();
         d.append('action', 'pp_ai_page_baseline');
         d.append('nonce', config.executeNonce);
@@ -3411,6 +3426,9 @@ function ppChatAppendValidationItems(container, items, className) {
         return fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: d })
             .then(function (r) { return r.json(); })
             .then(function (resp) {
+                if (myConversationId !== currentConversationId) {
+                    throw new Error('baseline read abandoned: the conversation that started it ended');
+                }
                 if (resp.success && resp.data && typeof resp.data.version === 'number') {
                     storePageBaseline(resp.data);
                     return resp.data;
@@ -3493,7 +3511,10 @@ function ppChatAppendValidationItems(container, items, className) {
      * proposal card with a live Apply into the transcript. The undo link's late response
      * writes a CAS baseline into whatever conversation is current (filed as #909, with
      * executeProposal()'s own chain as #910); the reset link writes no shared state and leaks
-     * nothing. This guard closes the render; those two are their own issues, deliberately.
+     * nothing. This guard closes the render; those two were their own issues, deliberately.
+     * #909 has since closed the baseline write with this same key: refreshBaseline() and the
+     * undo link's success arm both capture the generation when they start and write nothing
+     * once it has moved. #910 is still open.
      *
      * ONE TAB. `currentConversationId` is in-memory and per-tab, while the storage key is
      * shared per site+user, and nothing here listens for `storage`. A New Chat clicked in
@@ -4597,9 +4618,10 @@ function ppChatAppendValidationItems(container, items, className) {
             reader.then(function () {
                 // Abandoned: New Chat ended this conversation while the read was in flight
                 // (#880). Nothing below is safe to run — renderProposal() would append a card
-                // with a LIVE Apply button, carrying a baseline this read just refreshed and
-                // so acceptable to the CAS gate, into a transcript the operator emptied on
-                // purpose. Whatever this click was going to keep or remove was detached by
+                // with a LIVE Apply button into a transcript the operator emptied on purpose.
+                // (Since #909 refreshBaseline() itself rejects an abandoned read and stores
+                // nothing, so for a real page this lands on the catch arm; the guard here
+                // still covers the no-read path and keeps the render safe on its own.) Whatever this click was going to keep or remove was detached by
                 // that clear, so returning here leaves nothing behind either.
                 if (myConversationId !== currentConversationId) return;
 
@@ -4806,6 +4828,12 @@ function ppChatAppendValidationItems(container, items, className) {
             // One activation, ever (#861). The stale-CAS double restore this closes is the
             // reason the helper exists — see its docblock for the measurement.
             ppChatOneShotLink(undoLink, 'Undoing…', function () {
+                // THE CONVERSATION THIS UNDO BELONGS TO (#909), captured at the click. The
+                // link sits on a settled card with Send enabled and can be clicked long after
+                // its request, so "click Undo, then New Chat" is an ordinary sequence, and the
+                // success arm below writes the POST-RESTORE version — exactly current, so
+                // maximally acceptable to the CAS gate — into whatever `pageBaselines` is live.
+                var myConversationId = currentConversationId;
                 var undoData = new FormData();
                 undoData.append('action', 'pp_ai_execute');
                 undoData.append('nonce', config.executeNonce);
@@ -4831,8 +4859,11 @@ function ppChatAppendValidationItems(container, items, className) {
                 .then(function (resp) {
                     if (resp.success) {
                         undoLink.textContent = 'Changes undone ✓';
-                        // Refresh the baseline from the post-write version (#404).
-                        if (resp.data && typeof resp.data.composition_version === 'number') {
+                        // Refresh the baseline from the post-write version (#404) — only into
+                        // the conversation that clicked (#909). The label above still updates:
+                        // the card was detached by the reset, so it reaches nobody either way.
+                        if (myConversationId === currentConversationId
+                            && resp.data && typeof resp.data.composition_version === 'number') {
                             pageBaselines[Number(undoTarget.postId)] = resp.data.composition_version;
                             saveState();
                         }

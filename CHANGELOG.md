@@ -4,6 +4,73 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127)
+
+The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+
+## Your content edit is no longer erased by a styling write, and one band can be restyled on its own (#1094, #1088, #909)
+
+**A styling edit built from an older read is now refused instead of silently undoing the edit
+that landed in between.** The CLI used to replace the `expected_version` you sent with its own
+run baseline, so the documented sequence (read the page, change a title with
+`update_component`, then write the restyled composition back) reported `ok: true` and put the
+old title back. Measured on a real install: the content edit was gone, with no finding.
+`wp pp action execute` now checks the version you send. A write based on a version the page has
+moved past is refused with `composition_conflict`, naming both numbers. If you send no version,
+the run's own baseline is still used.
+
+**You can restyle one band without resending the page.** `update_component` takes a `udc` param,
+merged into the band's stored design by role: a role you send replaces that role's map whole,
+`null` removes a role, and roles you do not send stay as they are. `add_component` takes `udc`
+for the band it adds. Before this, the only verbs that carried a band's design took the whole
+page. Following the revise-a-section playbook literally, a model could not restyle a band at
+all, and every styling edit made an unrelated concurrent edit a conflict.
+
+**A new chat no longer inherits a write permission for a page it never read.** A page read, or an
+Undo, that finished after you clicked New Chat used to store that page's version in the new
+conversation. That stored version is exactly what the chat's safety check requires before it
+will write to a page, so the new conversation could change a page it had never looked at. Those
+late results are now dropped.
+
+### Changed (public action surface)
+
+- `update_component`: new optional `udc` param. `props` is no longer required. A call carrying
+  none of `props`, `udc` or `style` (or only empty ones) is refused with the new code
+  `missing_component_update`.
+- `add_component`: new optional `udc` param, stored as sent.
+- `wp pp action execute`: honours a caller-supplied `expected_version`. A value the preflight has
+  just shown to be out of date is refused before the write, with the writer's own
+  `composition_conflict`.
+- A band `udc` merge drops the tokens the engine minted for a responsive value when nothing
+  references them any more. A minted token that another role or a card still uses, but whose
+  own value the patch removes, is refused by name rather than left dangling.
+- The preview and the write record report `udc` changes per role, and `_tokens` changes per
+  token, as they will be stored.
+
+### Docs
+
+The style-component, revise-section, build-landing-page, composition, website-building,
+inspect-fix and retheme instructions, `AI_CONTEXT.md`, the runtime prompt, both action
+descriptions, the CLI reference, the operating-loop safety note, two how-tos and the design
+contract tutorial (new step 5c) now teach the one-band route and the honoured
+`expected_version`.
+
+### Tests
+
+`CliCallerExpectedVersionTest` drives the real `wp pp action execute` command.
+`ComponentUdcParamTest` covers the merge, the refusals, the minted-token prune and its roster,
+and the write record. `pp-ai-chat-baseline-after-reset.test.js` covers all three late-write
+producers after New Chat. Each fix was shown to fail before it was written, and each new check
+was shown to fail against a deliberately broken copy.
+
+### Known issue
+
+#1128: restyling a card with new responsive values through `props` alone is still refused over
+the engine's own leftover token. It pre-dates this change. Sending the same edit with any band
+`udc` patch goes through.
+
+---
+
 ## [v2.0.0-alpha.2] — 2026-09-22 — v2 Sprint 2 "components": the Sprint-2 gates, author-created presets, the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling, which ends the v1 styling system (#1011, #1016, #994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
 
 **This is a prerelease, and it is the release where v2 stops being partly built.** All ten components run on the Universal Design Contract now, and the v1 styling system is gone rather than deprecated: `style_component` is a refusal, style slots and recipes are deleted, and the retired-slot census reads zero. It is not production software — the reference deployment stays on 1.20.0 until 2.0.0. There is no upgrade path from 1.x and there will not be one, so v2 installs onto fresh content and reconstructing the brand site on it is 2.0.0's acceptance test.

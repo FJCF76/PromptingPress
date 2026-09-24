@@ -271,14 +271,14 @@ See `ai-instructions/validate-site.md`.
 
 - **Reorder bands:** `reorder_components`
 - **Change content:** `update_component` (patch semantics — only the props you pass change)
-- **Change appearance:** edit the band's `udc` map and send the whole array back with
-  `update_composition`. `update_component` declares no `udc` parameter, so this is
-  necessarily a read-modify-write: read the VERSION first
+- **Change appearance:** `update_component` with a `udc` param (#1088), merged into the band's
+  map BY ROLE: a role you send replaces that role's map whole, `null` removes a role, roles you
+  do not send are kept. Read the band's current map first — the VERSION first
   (`wp post meta get <id> _pp_composition_version`), then the bytes
   (`wp post meta get <id> _pp_composition` — the only surface that returns the `udc` maps;
-  `inspect-composition` carries none), edit the one band, and write it back immediately. Order
-  and promptness both matter: see the `expected_version` note in
-  `ai-instructions/style-component.md`, and `ai-instructions/playbook-revise-section.md`
+  `inspect-composition` carries none) — and send each role you change with every value it
+  should keep, plus `expected_version`. See `ai-instructions/style-component.md` and
+  `ai-instructions/playbook-revise-section.md`
 - **Add a band:** `add_component`
 - **Retheme the whole site:** `update_design_token` — overrides are stored in the database
   and survive theme updates. Do not edit `assets/css/base.css` for a site; that is

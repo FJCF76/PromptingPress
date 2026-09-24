@@ -587,7 +587,7 @@ function _pp_build_friendly_error(WP_Error $error, array $params): array {
                 // chat's own step renderer still classes this code as a step it could not
                 // perform, and a card that says impossible and possible at once is the
                 // three-halves-disagreeing defect #667 closed.
-                'user_message'          => 'This component is on the new styling system, so it has no style slots — its colours, spacing and type are set on the band\'s `udc` map instead, through update_composition or create_page.',
+                'user_message'          => 'This component is on the new styling system, so it has no style slots — its colours, spacing and type are set on the band\'s `udc` map instead, through update_component\'s `udc` param (one band, merged by role), or update_composition / create_page (whole bands).',
                 'alternatives'          => [],
                 'cross_component_hints' => (object) [],
                 'raw_error'             => $raw_msg,
