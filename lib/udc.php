@@ -8107,6 +8107,9 @@ function pp_udc_composition_findings(array $items): array {
             $preset_maps[] = [(string) $preset_item_id, $preset_item_map];
         }
         foreach ($preset_maps as [$locator, $map]) {
+            if ($skipped_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break; // Capped: stop the WORK too, not only the output.
+            }
             foreach ($map as $role_name => $role_map) {
                 if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
                     || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
@@ -8189,6 +8192,9 @@ function pp_udc_composition_findings(array $items): array {
         // same parameters; its fragment is resolved at that group and checked as a one-group
         // map, and the message names the group.
         foreach ($preset_maps as [$locator, $map]) {
+            if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break; // Capped: stop the WORK too, not only the output.
+            }
             foreach ($map as $role_name => $role_map) {
                 if (!is_array($role_map) || !isset($roles[(string) $role_name])) {
                     continue;
