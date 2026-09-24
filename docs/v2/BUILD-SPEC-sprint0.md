@@ -96,6 +96,8 @@ The one-pass sweep classified all 187 open issues exactly once (verified by set-
 
 Layer 2 (breakpoint-keyed declaration lists, PP-owned property/function ALLOWLIST) and Layer 3 (sanitizer model: kses delta, no event attrs/iframes/JS URLs; content islands) — Sprint 2/3, each with its own contract review. AI-instruction rewrite with prompt-regression cases (the ai-ready harness extends). The accordion UDC UI: post-2.0.0. #909 CRITICAL re-enters at Sprint 3 if capacity allows, else first post-2.0.0 work.
 
+**RULING MARKER (owner, 2026-09-24, Sprint-3 revision session):** #909 IS IN Sprint 3 (paired with #1094 in the T1 trust cluster — the capacity clause is resolved). **Layer 3 is CONTRACT REVIEW ONLY in Sprint 3**; implementation moves post-2.0.0 (purely additive — no compat debt accrues by deferring) unless the brand-site reconstruction hits content the current sanitizer refuses, in which case that specific need re-enters as a ruled fix. Layer 2 shipped in Sprint 2 as the standing freedom guarantee (broad-by-default `_css`; see docs/v2/LAYER-2-CONTRACT.md — the allowlist wording above predates the owner's freedom ruling).
+
 ---
 
 <!--
