@@ -8183,6 +8183,10 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
             // action's own comment claimed it re-checked references too. Same gate, same
             // refusal, same shadowed-row exemption as validate: a row a theme preset
             // shadows resolves to the theme's bundle before and after, so nothing can dangle.
+            //
+            // NARROWER, NOT CLOSED: the preset store and a composition take different locks,
+            // so a composition write that lands WHILE this scan runs is still not serialized
+            // against it. What this closes is every reference committed before the lock.
             if (!isset(pp_udc_system_presets()[$name]) && function_exists('pp_udc_preset_delete_reference_refusal')) {
                 $refusal = pp_udc_preset_delete_reference_refusal($name);
                 if ($refusal !== null) {

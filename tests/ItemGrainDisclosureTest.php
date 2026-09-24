@@ -245,6 +245,26 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringNotContainsString('declares no background.image', $found[0]['message'], 'the role does declare one');
     }
 
+    /**
+     * CHROME, BY IDENTITY. A chrome write's findings come from the same engine
+     * (pp_udc_site_findings() wraps each entry and calls pp_udc_composition_findings()),
+     * so the nav's scrim is disclosed with no chrome-specific arm. Pinned so a future
+     * chrome-only findings path cannot quietly drop it.
+     */
+    public function testAChromeOverlayWithNoImageIsDisclosedOnTheChromeWrite(): void
+    {
+        $result = pp_execute_action('update_site_option', [
+            'key'   => 'pp_site_udc',
+            'value' => json_encode(['nav' => ['_band' => ['background' => ['overlay' => '#112233']]]]),
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('Component "nav"', $found[0]['message']);
+        $this->assertNull($found[0]['index'], 'chrome names no band offset');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
