@@ -627,6 +627,38 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertLessThan(1.0, $elapsed, 'the walk stops at the first bundle');
     }
 
+    /**
+     * PER-REFERENCE WORK IS PAID ONCE PER PRESET. A preset bundle can be as large as the
+     * 64 KB row allows (raw-stored), and cards may reference it without limit. Walking the
+     * bundle again for every reference — in the overlay pre-filter and in the shadow arm —
+     * made one findings call cost references x bundle size (measured 3.1 s at 400 bands x
+     * 20 cards, against 25 ms on main). Both answers depend only on the preset (and the
+     * role), so each is computed once per call.
+     */
+    public function testAHugePresetReferencedFromEveryCardIsWalkedOncePerCall(): void
+    {
+        $leaves = [];
+        for ($k = 0; $k < 5000; $k++) {
+            $leaves['p' . $k] = '1';
+        }
+        update_option(PP_SITE_UDC_OPTION, (string) json_encode(['_version' => 0, '_presets_version' => 1,
+            '_presets' => ['leafy' => ['grain' => 'typography', 'udc' => $leaves]]]));
+        $bands = [];
+        for ($b = 0; $b < 100; $b++) {
+            $items = [];
+            for ($k = 0; $k < 20; $k++) {
+                $items[] = ['id' => sprintf('it-%08x', $b * 100 + $k + 1), 'title' => 'x',
+                            'udc' => ['card-title' => ['typography' => ['_preset' => 'leafy']]]];
+            }
+            $bands[] = ['component' => 'grid', 'id' => sprintf('pp-%08x', $b + 1), 'props' => ['title' => 'G', 'items' => $items]];
+        }
+
+        $started = microtime(true);
+        pp_udc_composition_findings($bands);
+        // Fixed: ~0.02 s. Either memo removed on its own: ~0.35 s; both: ~0.7 s.
+        $this->assertLessThan(0.2, microtime(true) - $started, 'each preset bundle is walked once per call');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

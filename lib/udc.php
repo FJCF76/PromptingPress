@@ -2383,7 +2383,7 @@ function pp_udc_background_image_url($id): ?string {
  * A preset cannot reference another preset, so one level of resolution is the whole
  * answer; a dangling name is refused at write and has nothing to compile.
  */
-function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = false): bool {
+function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = false, ?array &$memo = null): bool {
     if (!is_array($map)) {
         return false;
     }
@@ -2403,13 +2403,30 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = f
             if ($in_preset) {
                 return true;
             }
-            $preset = is_string($value) ? pp_udc_resolve_preset($value) : null;
-            if ($preset !== null && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1, true)) {
+            if (!is_string($value)) {
+                continue;
+            }
+            // ONCE PER PRESET PER CALL, when the caller keeps a memo: the answer depends on
+            // the bundle alone, and a bundle may be as large as the row allows while cards
+            // may reference it without limit — references x bundle size otherwise.
+            if ($memo === null || !array_key_exists($value, $memo)) {
+                $preset = pp_udc_resolve_preset($value);
+                $answer = $preset !== null
+                    && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1, true);
+                if ($memo === null) {
+                    if ($answer) {
+                        return true;
+                    }
+                    continue;
+                }
+                $memo[$value] = $answer;
+            }
+            if ($memo[$value]) {
                 return true;
             }
             continue;
         }
-        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1, $in_preset)) {
+        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1, $in_preset, $memo)) {
             return true;
         }
     }
@@ -8048,6 +8065,11 @@ function pp_udc_composition_findings(array $items): array {
     $skipped_disclosed = 0;
     $shadow_disclosed  = 0;
     $overlay_disclosed = 0;
+    // PER-CALL MEMOS for the two arms whose per-reference work depends only on the preset
+    // (and the role): without them, one large preset referenced from every card is walked
+    // once per card. Per call, not static, so a preset saved mid-request is never stale.
+    $overlay_preset_memo = [];
+    $shadow_memo         = [];
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -8235,10 +8257,14 @@ function pp_udc_composition_findings(array $items): array {
                     }
                 }
                 foreach ($preset_refs as [$preset_name, $fragment, $preset_group]) {
-                    $shadowed = _pp_udc_preset_values_shadowed_by_role_defaults(
-                        $fragment,
-                        $roles[(string) $role_name]
-                    );
+                    $shadow_key = $component . "\0" . $role_name . "\0" . $preset_group . "\0" . $preset_name;
+                    if (!array_key_exists($shadow_key, $shadow_memo)) {
+                        $shadow_memo[$shadow_key] = _pp_udc_preset_values_shadowed_by_role_defaults(
+                            $fragment,
+                            $roles[(string) $role_name]
+                        );
+                    }
+                    $shadowed = $shadow_memo[$shadow_key];
                     if ($shadowed === []) {
                         continue;
                     }
@@ -8303,12 +8329,12 @@ function pp_udc_composition_findings(array $items): array {
         // that reaches it. Without this the common case, no overlay anywhere, compiled
         // every band on every write: measured 3.3 -> 40 ms at 50 bands x 20 cards.
         $overlay_drops = [];
-        $overlay_candidate = _pp_udc_map_may_carry_overlay($item['udc']);
+        $overlay_candidate = _pp_udc_map_may_carry_overlay($item['udc'], 0, false, $overlay_preset_memo);
         foreach ($band_item_maps as $candidate_map) {
             if ($overlay_candidate) {
                 break;
             }
-            $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map);
+            $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map, 0, false, $overlay_preset_memo);
         }
         if ($overlay_probe_has_id && $overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             try {
