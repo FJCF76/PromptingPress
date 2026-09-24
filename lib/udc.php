@@ -132,6 +132,12 @@
  * restated relationship goes stale silently: 200 entries is far past any report
  * that could be rendered, so a composition that reaches this cap is pathological
  * rather than merely untidy.
+ *
+ * ALSO THE FINDINGS CAP. pp_udc_composition_findings() bounds each of its multiplying
+ * `udc_*` arms at this value across one composition (the `_css` pair and the token pair
+ * share one budget each; overlay, preset-skip, preset-shadow and item-shadow have their
+ * own), and ai-instructions/operating-loop.md tells the model the number. Changing it
+ * changes both.
  */
 const PP_UDC_MAX_EMIT_DROPS = 200;
 
@@ -1576,8 +1582,9 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * Walks the band map AND every item (card) map of each band (#1115), naming a card
  * reference as `item "<id>"`.
  *
- * Bounded to the delete verb. It reads one option and one meta row per
- * composition page, which is a site-sized walk on a verb an author runs rarely —
+ * Bounded to the delete verb. It reads one option (or scans the site map its caller
+ * passes as $site — the under-lock writer's row, read past the cache) and one meta row
+ * per composition page, which is a site-sized walk on a verb an author runs rarely —
  * never on a render path, never in preflight.
  *
  * BOUNDED AT THE SOURCE, not by its reader — the rule _pp_udc_place()'s drop ledger

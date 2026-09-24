@@ -459,7 +459,7 @@ exists to look a name up on.
 | testimonials | — |
 
 The v2 equivalent is a **preset**, and it is better in the way that matters: `save_preset`
-(#1016) stores a named `udc` fragment for the whole SITE, any band or chrome role can apply it
+(#1016) stores a named `udc` fragment for the whole SITE, any band, card or chrome role can apply it
 with `"_preset"`, and editing it moves every reference with no band write. A recipe could only
 ever bundle one component's slots.
 

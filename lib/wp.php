@@ -2593,7 +2593,9 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
  * this names is what the page omits, because the same line decided both.
  *
  * WHAT IT COSTS, STATED RATHER THAN LEFT INCIDENTAL. This compiles up to
- * `$band_budget` bands through the real emitter before every mutation, and a
+ * `$band_budget` bands PER PASS through the real emitter before every mutation — band-map
+ * bands first, then card-only bands (#1117), so at most twice the budget; the figures
+ * below were measured before the card-only pass existed — and a
  * HEALTHY page pays the full walk to produce nothing. Measured on a 4-core box,
  * php 8.3 with opcache, against a preflight that did not run this check: about
  * +1.8 ms on a 10-band page, +4.7 ms on a 50-band page, +12.8 ms at 500 bands
@@ -2813,7 +2815,9 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
             'acknowledgeable' => true,
             'next_action'     => 'Run wp pp check page --post_id=' . (int) $post_id . ' for the whole composition.',
             'message'         => sprintf(
-                'Only the first %d styled bands on this page were checked, so this list may be incomplete.',
+                'Only the first %d bands with a band-level map and the first %d bands styled only at card '
+                . 'level on this page were checked, so this list may be incomplete.',
+                $band_budget,
                 $band_budget
             ),
         ];
