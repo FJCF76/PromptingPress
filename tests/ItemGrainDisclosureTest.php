@@ -693,6 +693,47 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('_css', $found[0]['message']);
     }
 
+    /**
+     * A CARD MAP ONLY SPEAKS FOR ITEM ROLES. A stored card map naming a band-only role
+     * (raw meta, restore) is dropped whole by the emitter ("not settable on a single
+     * item"); the preset arms must not advise writing the value "in your own map for this
+     * role" there, which the write gate would refuse.
+     */
+    public function testThePresetArmsIgnoreABandOnlyRoleInACardMap(): void
+    {
+        // typography: shadowed by heading's defaults; shadow: not permitted on heading (skipped).
+        $this->savePreset('probe-heavy', ['typography' => ['size' => '3rem', 'weight' => '800'], 'shadow' => ['box' => 'none']]);
+        $band_only = ['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'udc' => ['heading' => ['_preset' => 'probe-heavy']],
+                      'props' => ['title' => 'G', 'items' => [['id' => 'it-0000abcd', 'title' => 'One']]]];
+        $premise = array_column(pp_udc_composition_findings([$band_only]), 'type');
+        $this->assertContains('udc_preset_value_shadowed_by_role_default', $premise, 'premise: at band grain it speaks');
+        $this->assertContains('udc_preset_groups_skipped', $premise, 'premise: and so does the skipped arm');
+
+        $on_card = ['component' => 'grid', 'id' => 'pp-a1b2c3d4',
+                    'props' => ['title' => 'G', 'items' => [['id' => 'it-0000abcd', 'title' => 'One',
+                        'udc' => ['heading' => ['_preset' => 'probe-heavy']]]]]];
+        $messages = array_column(array_filter(
+            pp_udc_composition_findings([$on_card]),
+            static fn (array $f): bool => in_array($f['type'], ['udc_preset_value_shadowed_by_role_default', 'udc_preset_groups_skipped'], true)
+        ), 'message');
+        $this->assertSame([], array_values($messages), 'heading is not an item role on grid');
+    }
+
+    /** A fill that came from a PRESET is named as possibly a preset's, not as the author's own. */
+    public function testAPresetSuppliedFillIsNamedAsPossiblyAPresets(): void
+    {
+        $this->savePreset('probe-tint', ['background' => ['fill' => '#123456']]);
+        [, $result] = $this->page([[
+            'component' => 'grid',
+            'udc'       => ['heading' => ['_preset' => 'probe-tint', 'background' => ['overlay' => 'rgba(0,0,0,0.4)']]],
+            'props'     => ['title' => 'G', 'items' => [['title' => 'One']]],
+        ]]);
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('supplied by a preset', $found[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

@@ -2522,7 +2522,8 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
                     ? 'an overlay is layered only over background.image, and this role declares a background '
-                      . '(background.fill, or a raw background in _css) but no usable background.image, so '
+                      . '(background.fill, one supplied by a preset, or a raw background in _css) but no usable '
+                      . 'background.image, so '
                       . 'the scrim was dropped. Set background.image (an attachment id), or put the tint in '
                       . 'that background itself'
                     // "NO USABLE", not "declares no": an image whose attachment was deleted after
@@ -8157,13 +8158,19 @@ function pp_udc_composition_findings(array $items): array {
         foreach ($band_item_maps as $preset_item_id => $preset_item_map) {
             $preset_maps[] = [(string) $preset_item_id, $preset_item_map];
         }
+        // A CARD MAP SPEAKS ONLY FOR THE COMPONENT'S ITEM ROLES. The emitter drops any other
+        // role at item grain whole ("not settable on a single item"), so the preset arms
+        // below must not advise writing a value there — one predicate with the compiler,
+        // which walks exactly this list.
+        $preset_item_roles = (array) (pp_udc_item_roles($component)['roles'] ?? []);
         foreach ($preset_maps as [$locator, $map]) {
             if ($skipped_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                 break; // Capped: stop the WORK too, not only the output.
             }
             foreach ($map as $role_name => $role_map) {
                 if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
-                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])
+                    || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
                     continue;
                 }
                 $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
@@ -8247,7 +8254,8 @@ function pp_udc_composition_findings(array $items): array {
                 break; // Capped: stop the WORK too, not only the output.
             }
             foreach ($map as $role_name => $role_map) {
-                if (!is_array($role_map) || !isset($roles[(string) $role_name])) {
+                if (!is_array($role_map) || !isset($roles[(string) $role_name])
+                    || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
                     continue;
                 }
                 // [preset name, role-shaped fragment, group or '' for role grain]
