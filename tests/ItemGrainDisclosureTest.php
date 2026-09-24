@@ -207,6 +207,7 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertCount(2, $gate_calls, 'premise: validate and the writer each list the pages');
         foreach ($gate_calls as $args) {
             $this->assertFalse($args['cache_results'] ?? true, 'the reference gate lists pages uncached');
+            $this->assertFalse($args['update_post_meta_cache'] ?? true, 'and does not prime the meta cache');
         }
     }
 
@@ -281,6 +282,7 @@ final class ItemGrainDisclosureTest extends TestCase
         $found = $this->findingsOfType($result, 'udc_overlay_without_image');
         $this->assertCount(1, $found, 'accepted, stored, painted nowhere — and now said so');
         $this->assertStringContainsString('background.image', $found[0]['message']);
+        $this->assertStringNotContainsString('at breakpoint', $found[0]['message'], 'the base tier names no breakpoint');
         $this->assertSame(0, $found[0]['index']);
     }
 
@@ -545,6 +547,49 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'probe-plain']]), 'no overlay in the bundle');
         $this->assertFalse(_pp_udc_map_may_carry_overlay(['cta' => ['_preset' => 'button']]), 'a shipped button preset carries no scrim');
         $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'no-such-preset']]), 'dangling: refused at write, nothing to compile');
+    }
+
+    /** The pre-filter reads every card, not only the first. */
+    public function testAnOverlayOnALaterCardIsStillDisclosed(): void
+    {
+        [, $result] = $this->page([['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+            ['title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#111111']]]],
+            ['title' => 'Two', 'udc' => ['card' => ['background' => ['fill' => '#000000', 'overlay' => '#112233']]]],
+        ]]]]);
+
+        $this->assertCount(1, $this->findingsOfType($result, 'udc_overlay_without_image'));
+    }
+
+    /** The card-only pass says when IT stopped early, like the band-map pass does. */
+    public function testTheCardOnlyPassFlagsItsOwnTruncation(): void
+    {
+        $composition = [[
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]];
+        for ($b = 0; $b < 26; $b++) {
+            $composition[] = ['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#111111']]]],
+            ]]];
+        }
+        [$id] = $this->page($composition);
+
+        $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
+        $this->assertStringContainsString('bands_truncated', (string) $rows);
+    }
+
+    /** Unstyled bands spend neither budget: only bands with something to compile count. */
+    public function testUnstyledBandsDoNotSpendTheCardOnlyBudget(): void
+    {
+        $composition = array_fill(0, 25, ['component' => 'section', 'props' => ['title' => 'S', 'body' => 'b']]);
+        $composition[] = ['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+            ['title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#000000', 'overlay' => '#112233']]]],
+        ]]];
+        [$id] = $this->page($composition);
+
+        $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
+        $this->assertStringContainsString('band 26', (string) $rows);
     }
 
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
