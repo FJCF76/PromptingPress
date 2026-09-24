@@ -8168,6 +8168,19 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                     pp_udc_preset_names_for_message($presets) ?: '(none)'
                 ));
             }
+            // THE UNDER-LOCK BACKSTOP (#1115). validate runs the reference gate, but a band
+            // or card that writes a reference between validate and this lock would still be
+            // left pointing at nothing — and this writer used to re-check every other
+            // precondition (not-stored, unreadable, corrupt, conflict, ceilings) while the
+            // action's own comment claimed it re-checked references too. Same gate, same
+            // refusal, same shadowed-row exemption as validate: a row a theme preset
+            // shadows resolves to the theme's bundle before and after, so nothing can dangle.
+            if (!isset(pp_udc_system_presets()[$name]) && function_exists('pp_udc_preset_delete_reference_refusal')) {
+                $refusal = pp_udc_preset_delete_reference_refusal($name);
+                if ($refusal !== null) {
+                    return $refusal;
+                }
+            }
             unset($presets[$name]);
         } else {
             // THE COUNT CEILING IS CHECKED ON A NEW NAME ONLY. Replacing an

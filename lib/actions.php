@@ -4699,42 +4699,10 @@ pp_register_action('delete_preset', [
         if ($shadowed) {
             return null;
         }
-        $scan = pp_udc_preset_references($name);
-        if ($scan['unreadable'] !== []) {
-            $unreadable_total = (int) $scan['unreadable_total'];
-            return new WP_Error('preset_scan_unreadable', sprintf(
-                'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
-                . 'not be read, and a preset may not be deleted while a page that might reference it is '
-                . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
-                . 'delete again.',
-                $name,
-                // BOUNDED LIKE ITS SIBLING ELEVEN LINES DOWN. Each fragment is
-                // cleaned by _pp_udc_reflect(), but the LIST was not, and its
-                // length is linear in the number of unreadable composition pages —
-                // so a site with many of them turned every refusal into a
-                // tens-of-KB message on the terminal, the chat envelope and the
-                // model's context. The count is stated separately, so nothing
-                // diagnostic is lost by showing ten names instead of all of them.
-                pp_udc_bounded_list($scan['unreadable'], 10, $unreadable_total),
-                $unreadable_total === 1 ? 'it' : 'those pages'
-            ));
-        }
-        if ($scan['references'] !== []) {
-            // THE COUNT IS THE TOTAL, THE LIST IS THE SAMPLE. The collector caps
-            // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
-            // while `references_total` is exact — and it is the total an operator
-            // needs to know, not how many the collector chose to hold.
-            $total = (int) $scan['references_total'];
-            return new WP_Error('preset_in_use', sprintf(
-                'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
-                . 'those references first — deleting now would leave each of them pointing at a preset '
-                . 'that does not exist, and those declarations would stop painting with nothing to say why.',
-                $name,
-                $total === 1 ? '1 place' : $total . ' places',
-                pp_udc_bounded_list($scan['references'], 20, $total, '; ')
-            ));
-        }
-        return null;
+        // ONE REFUSAL, TWO CALLERS (#1115): the same gate runs again under the writer's lock
+        // (pp_update_site_preset()), so a reference written between here and the write is
+        // still caught. Defined once so the two cannot disagree about what blocks a delete.
+        return pp_udc_preset_delete_reference_refusal($name);
     },
     'preview' => function (array $params): array {
         $name   = (string) $params['name'];
