@@ -2703,30 +2703,40 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
         // Shares the caller's decode; see the note on the sibling check above.
         $composition = $composition ?? pp_get_composition($post_id);
         if (is_array($composition)) {
-            $seen = 0;
-            foreach ($composition as $i => $item) {
-                if (count($rows) >= $row_budget) {
-                    break;
+            // TWO PASSES, EACH WITH ITS OWN BAND BUDGET (#1117). Bands with a band-level map
+            // are walked first, exactly as before item grain joined this check; bands styled
+            // only at item grain follow under a budget of their own. One shared budget let
+            // twenty-five clean card-only bands push a band-map drop the check had always
+            // reported out of the window, with no truncation notice on an otherwise empty
+            // list — widening the walk must never narrow what it already covered.
+            foreach ([true, false] as $band_map_pass) {
+                $seen = 0;
+                foreach ($composition as $i => $item) {
+                    if (count($rows) >= $row_budget) {
+                        break;
+                    }
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $has_band_map = isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [];
+                    if ($has_band_map !== $band_map_pass) {
+                        continue;
+                    }
+                    // A band styled at ITEM grain alone is styled too: this used to skip every
+                    // band without a band-level map, so a card's discards reached no channel at
+                    // all — #1117's own observed row was a card overlay with `drops=[]`.
+                    if (!$has_band_map && (!function_exists('pp_udc_item_maps') || pp_udc_item_maps($item) === [])) {
+                        continue;
+                    }
+                    if ($seen >= $band_budget) {
+                        $truncated = true;
+                        break;
+                    }
+                    $seen++;
+                    $component = isset($item['component']) && is_scalar($item['component'])
+                        ? (string) $item['component'] : '?';
+                    $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
                 }
-                // A band styled at ITEM grain alone is styled too (#1117): this used to skip
-                // every band without a band-level map, so a card's discards reached no
-                // channel at all — the issue's own observed row was a card overlay with
-                // `drops=[]`. The compile already walks the item maps; only the gate was narrow.
-                if (!is_array($item)) {
-                    continue;
-                }
-                $has_band_map = isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [];
-                if (!$has_band_map && (!function_exists('pp_udc_item_maps') || pp_udc_item_maps($item) === [])) {
-                    continue;
-                }
-                if ($seen >= $band_budget) {
-                    $truncated = true;
-                    break;
-                }
-                $seen++;
-                $component = isset($item['component']) && is_scalar($item['component'])
-                    ? (string) $item['component'] : '?';
-                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
             }
         }
     }

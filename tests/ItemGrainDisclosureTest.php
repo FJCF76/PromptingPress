@@ -393,6 +393,30 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('role "card"', $found[0]['message']);
     }
 
+    /**
+     * WIDENING MUST NOT NARROW. Card-only bands joining check 8e must not spend the band
+     * budget a band-level map was always checked within: a band-map drop after 25 clean
+     * card-only bands was reported before item grain joined the walk, and still is.
+     */
+    public function testCardOnlyBandsDoNotCrowdABandMapOutOfCheck8e(): void
+    {
+        $composition = [];
+        for ($b = 0; $b < 25; $b++) {
+            $composition[] = ['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#111111']]]],
+            ]]];
+        }
+        $composition[] = [
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ];
+        [$id] = $this->page($composition);
+
+        $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
+        $this->assertStringContainsString('band 26', (string) $rows, 'the band-map band is still inside the window');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
