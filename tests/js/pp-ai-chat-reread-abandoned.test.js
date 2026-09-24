@@ -55,8 +55,8 @@
  *
  * DELIBERATELY NOT PINNED HERE: the CAS baseline `refreshBaseline()` stores for the old page
  * on its way through. That write happens inside the shared helper, upstream of anything this
- * handler can guard, so this fix does not close it and this file does not claim to — it is
- * filed as #909.
+ * handler can guard, so this fix did not close it. #909 closed it in the helper itself, and
+ * tests/js/pp-ai-chat-baseline-after-reset.test.js owns those pins.
  *
  * The seam is `fetch`, and the baseline read is GATED: the test holds the response open,
  * clicks New Chat, and only then resolves it. That is the whole race, driven rather than
