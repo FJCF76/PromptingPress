@@ -2356,6 +2356,31 @@ function pp_udc_background_image_url($id): ?string {
 }
 
 /**
+ * Whether a `udc` map could make the emitter drop an overlay (#1117): true when it names
+ * an `overlay` key or a `_preset` (whose bundle is resolved only at compile) anywhere.
+ * A cheap necessary condition that lets the findings walk skip compiling bands that
+ * cannot write that row; it never decides the case itself. Deeper than any real map is
+ * answered true, so a shape it cannot see through is compiled rather than skipped.
+ */
+function _pp_udc_map_may_carry_overlay($map, int $depth = 0): bool {
+    if (!is_array($map)) {
+        return false;
+    }
+    if ($depth > 8) {
+        return true;
+    }
+    foreach ($map as $key => $value) {
+        if ($key === 'overlay' || $key === PP_UDC_PRESET_KEY) {
+            return true;
+        }
+        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * The ledger locator for a dropped overlay (#1117): the card when there is one, the role,
  * and the state / breakpoint bucket it was dropped from — each fragment cleaned, because
  * these are stored keys riding an operator-facing row (the rule _pp_udc_place() states).
@@ -8194,8 +8219,8 @@ function pp_udc_composition_findings(array $items): array {
         //
         // A band that has not been given an id yet is compiled under a placeholder, because
         // the emitter refuses an id-less band outright and this question does not depend on
-        // the id. What it costs is one compile per styled band per write, on the write path
-        // only — the same compile pp_check_udc_emit_drops() runs before every mutation.
+        // the id. What it costs is one compile per band that passes the pre-filter below,
+        // on the findings paths only (never render), and none once the cap is reached.
         $overlay_probe = $item;
         if (!isset($overlay_probe['id']) || !is_scalar($overlay_probe['id'])
             || !pp_udc_valid_band_id((string) $overlay_probe['id'])) {
@@ -8203,8 +8228,21 @@ function pp_udc_composition_findings(array $items): array {
         }
         // Once the cap is reached the compile is skipped too: bounding the findings but not
         // the work would leave the write path paying for disclosures nobody will see.
+        //
+        // A NECESSARY CONDITION FIRST, NOT A SECOND PREDICATE. Only a map that names an
+        // `overlay`, or a `_preset` whose bundle might, can make the emitter write this
+        // row, so every other band skips the compile; the emitter still decides every band
+        // that reaches it. Without this the common case, no overlay anywhere, compiled
+        // every band on every write: measured 3.3 -> 40 ms at 50 bands x 20 cards.
         $overlay_drops = [];
-        if ($overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+        $overlay_candidate = _pp_udc_map_may_carry_overlay($item['udc']);
+        foreach ($band_item_maps as $candidate_map) {
+            if ($overlay_candidate) {
+                break;
+            }
+            $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map);
+        }
+        if ($overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             try {
                 pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
             } catch (\Throwable $e) {

@@ -336,9 +336,13 @@ final class ItemGrainDisclosureTest extends TestCase
      */
     public function testANonOverlayLedgerRowIsNotSurfacedAsAnOverlayFinding(): void
     {
+        // A painting overlay over a live image, so the band reaches the compile (the walk's
+        // pre-filter skips a band that names no overlay), plus a different discarded value.
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
         $drops = [];
         $band  = ['component' => 'section', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'S', 'body' => 'b'],
-                  'udc' => ['_band' => ['_css' => 'not-a-map']]];
+                  'udc' => ['_band' => ['_css' => 'not-a-map', 'background' => ['image' => 9001, 'overlay' => '#112233']]]];
         pp_udc_compile_band($band, 'authored', $drops);
         $this->assertNotSame([], $drops, 'premise: this band writes some other ledger row');
 
@@ -372,6 +376,21 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertCount(1, $found, 'the scrim really is gone');
         $this->assertStringNotContainsString('declares no background.image', $found[0]['message']);
         $this->assertStringContainsString('deleted', $found[0]['message'], 'the other cause is named');
+    }
+
+    /**
+     * An overlay can arrive through a PRESET: the map itself has no `overlay` key. Whatever
+     * narrows which bands get compiled must still reach this one.
+     */
+    public function testAnOverlayCarriedByAPresetIsDisclosed(): void
+    {
+        $this->savePreset('probe-scrim', ['background' => ['overlay' => '#112233']]);
+
+        [, $result] = $this->page($this->grid(['card' => ['_preset' => 'probe-scrim']]));
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "card"', $found[0]['message']);
     }
 
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
