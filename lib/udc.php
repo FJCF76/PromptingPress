@@ -2366,10 +2366,15 @@ function pp_udc_background_image_url($id): ?string {
 
 /**
  * Whether a `udc` map could make the emitter drop an overlay (#1117): true when it names
- * an `overlay` key or a `_preset` (whose bundle is resolved only at compile) anywhere.
+ * an `overlay` key anywhere, directly or inside the bundle of a `_preset` it references.
  * A cheap necessary condition that lets the findings walk skip compiling bands that
  * cannot write that row; it never decides the case itself. Deeper than any real map is
  * answered true, so a shape it cannot see through is compiled rather than skipped.
+ *
+ * READ THROUGH THE PRESET, not merely at it: `button` and `link` sit on most bands, and
+ * counting every `_preset` as a candidate compiled nearly every band on every write.
+ * A preset cannot reference another preset, so one level of resolution is the whole
+ * answer; a dangling name is refused at write and has nothing to compile.
  */
 function _pp_udc_map_may_carry_overlay($map, int $depth = 0): bool {
     if (!is_array($map)) {
@@ -2379,8 +2384,15 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0): bool {
         return true;
     }
     foreach ($map as $key => $value) {
-        if ($key === 'overlay' || $key === PP_UDC_PRESET_KEY) {
+        if ($key === 'overlay') {
             return true;
+        }
+        if ($key === PP_UDC_PRESET_KEY) {
+            $preset = is_string($value) ? pp_udc_resolve_preset($value) : null;
+            if ($preset !== null && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1)) {
+                return true;
+            }
+            continue;
         }
         if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1)) {
             return true;
@@ -8281,7 +8293,14 @@ function pp_udc_composition_findings(array $items): array {
             try {
                 pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
             } catch (\Throwable $e) {
-                $overlay_drops = []; // Reported by the readiness channel, which owns compile failures.
+                // The readiness channel owns compile failures, but it walks a bounded window
+                // of bands, so a failure past it would vanish without this line (I29) — the
+                // same developer-facing log its sibling probe writes.
+                error_log(
+                    'PromptingPress: overlay findings probe failed for band ' . (string) $overlay_probe['id']
+                    . ': ' . get_class($e) . ': ' . $e->getMessage()
+                );
+                $overlay_drops = [];
             }
         }
         foreach ($overlay_drops as $drop) {

@@ -8204,7 +8204,15 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
             // NARROWER, NOT CLOSED: the preset store and a composition take different locks,
             // so a composition write that lands WHILE this scan runs is still not serialized
             // against it. What this closes is every reference committed before the lock.
-            if (!isset(pp_udc_system_presets()[$name]) && function_exists('pp_udc_preset_delete_reference_refusal')) {
+            if (!isset(pp_udc_system_presets()[$name])) {
+                // FAIL CLOSED: without the gate, a delete proceeds with no reference check.
+                if (!function_exists('pp_udc_preset_delete_reference_refusal')) {
+                    return new WP_Error('preset_scan_unreadable', sprintf(
+                        'Whether "%s" is still in use cannot be determined (the reference check is not '
+                        . 'loaded), so it was not deleted.',
+                        $name
+                    ));
+                }
                 // $current is the row read under this lock, past the option cache: the chrome
                 // half of the scan must see what this writer is about to overwrite.
                 $refusal = pp_udc_preset_delete_reference_refusal($name, $current);

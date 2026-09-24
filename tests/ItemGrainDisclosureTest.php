@@ -525,6 +525,28 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('no id', (string) $rows);
     }
 
+    /**
+     * The walk's pre-filter reads THROUGH a preset: a `_preset` whose bundle names no
+     * overlay cannot make the emitter drop one, so the band is not compiled for this
+     * question. Presets like `button` sit on most bands — counting every `_preset` as a
+     * candidate compiled nearly every band on every write (measured 7 -> 806 ms at
+     * 400 bands x 20 cards). A preset cannot reference another preset, so one level is
+     * the whole answer.
+     */
+    public function testThePreFilterReadsThroughAPresetBundle(): void
+    {
+        $this->savePreset('probe-scrim', ['background' => ['overlay' => '#112233']]);
+        $this->savePreset('probe-plain', ['typography' => ['weight' => '800']]);
+        $this->savePreset('probe-gscrim', ['overlay' => '#112233'], 'background');
+
+        $this->assertTrue(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'probe-scrim']]));
+        $this->assertTrue(_pp_udc_map_may_carry_overlay(['card' => ['background' => ['_preset' => 'probe-gscrim']]]));
+        $this->assertTrue(_pp_udc_map_may_carry_overlay(['card' => ['background' => ['overlay' => '#000000']]]));
+        $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'probe-plain']]), 'no overlay in the bundle');
+        $this->assertFalse(_pp_udc_map_may_carry_overlay(['cta' => ['_preset' => 'button']]), 'a shipped button preset carries no scrim');
+        $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'no-such-preset']]), 'dangling: refused at write, nothing to compile');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
