@@ -489,8 +489,8 @@ into CSS variables.
 The entire visual output of the site flows through the design tokens and the apply/action
 model. Editing files directly is unnecessary for a retheme — use `update_design_token` for
 global tokens, `enqueue_font` for fonts, and, for per-band visual overrides, **the band's
-`udc` map** on any of the ten v2 components (carried by `update_composition` /
-`create_page`). `style_component` remains only for `grid`, the last component with style
+`udc` map** on any of the ten v2 components (one band: `update_component`'s `udc` param, merged
+by role; whole bands: `update_composition` / `create_page`). `style_component` remains only for `grid`, the last component with style
 slots; on anything else it is refused with `no_style_slots`.
 
 One documented exception, so you do not go looking for a token that is not there: the

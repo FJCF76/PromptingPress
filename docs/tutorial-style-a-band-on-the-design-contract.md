@@ -231,6 +231,28 @@ makes that box a grid — so `orientation` and `wrap`, which are flexbox paramet
 to it at the breakpoints you set. And a box placing ITSELF is `sizing.align-self`, not a layout
 parameter: `layout` is what a container does to its children.
 
+## Step 5c: Change one role later, without resending the page
+
+So far every change re-sent the whole composition. Once a band exists, restyle it with
+`update_component` and a `udc` param instead: it touches only that band, so an edit someone
+made to another band in the meantime is not a conflict for you. The map is merged **by role**:
+each role you send replaces that role's stored map whole, `null` removes a role, and roles you
+do not send stay as they are. So send every value the role should keep: here the heading keeps
+its responsive size and only its colour changes.
+
+```bash
+wp pp action execute update_component --run-id=$RID --params='{
+  "post_id": '$PID', "component_index": 0, "expected_version": 2,
+  "udc": {"heading": {"typography": {"color": "@color-accent-on-inverted",
+                                     "size": {"d": "3rem", "t": "2.25rem", "p": "1.75rem"}}}}}'
+```
+
+`expected_version` is the version you read before editing (`wp post meta get $PID
+_pp_composition_version`). If the page moved since, the write is refused with
+`composition_conflict` rather than overwriting the newer edit. The envelope's `changes` names
+exactly the role that changed, `composition[0].udc.heading`, with its stored value before and
+after. The `_band` and `body` roles you did not send are not in it, because they did not change.
+
 ## Step 6: When the vocabulary cannot say it — raw CSS
 
 Everything above went through a **group** and a **parameter**: `typography.size`,
