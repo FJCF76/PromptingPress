@@ -1573,6 +1573,9 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * "no references found" and "I could not look" are different answers, and only
  * one of them makes a delete safe. That is invariant I9 at the scan level.
  *
+ * Walks the band map AND every item (card) map of each band (#1115), naming a card
+ * reference as `item "<id>"`.
+ *
  * Bounded to the delete verb. It reads one option and one meta row per
  * composition page, which is a site-sized walk on a verb an author runs rarely —
  * never on a render path, never in preflight.
@@ -1580,7 +1583,8 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * BOUNDED AT THE SOURCE, not by its reader — the rule _pp_udc_place()'s drop ledger
  * states in this same file ("Bounding here is the only place that bounds the
  * ALLOCATION"), and the one collector that had not applied it. Its one consumer,
- * delete_preset's validate arm, renders at most twenty reference locators and ten
+ * pp_udc_preset_delete_reference_refusal() (run by delete_preset's validate arm AND
+ * again under the writer's lock, #1115), renders at most twenty reference locators and ten
  * unreadable pages, but BOTH arrays grew one entry per occurrence: 60,000 entries
  * and 48 MB of heap on a thousand-page site with a widely-used preset, to print
  * twenty of them. No malice needed — a popular preset on a large site is the
@@ -2383,10 +2387,20 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  * flat-scrim idiom — while an overlay the author already wrote as a gradient IS
  * a layer and is used as-is. Wrapping a gradient in a gradient would be invalid.
  *
- * AN OVERLAY WITH NO IMAGE EMITS NOTHING. It is not an error — a band can carry
- * an overlay whose image was dropped at emit because the attachment was deleted,
- * and that band should keep painting its `fill`, not grow a mystery scrim over
- * it. Emitting the scrim alone would be a declaration the author never asked for.
+ * AN OVERLAY WITH NO IMAGE EMITS NOTHING — and, since #1117, is not SILENT. The
+ * render is unchanged: a band can carry an overlay whose image was dropped at emit
+ * because the attachment was deleted, and that band should keep painting its
+ * `fill`, not grow a mystery scrim over it; emitting the scrim alone would be a
+ * declaration the author never asked for. What changed is that the discard writes
+ * a drop-ledger row (code `overlay_without_image`), which the write-envelope
+ * findings walk surfaces as `udc_overlay_without_image`. Its reason never claims
+ * the author set no image, because a deleted attachment reaches this branch too.
+ *
+ * @param array       $declarations One bucket's resolved declarations.
+ * @param array|null  $drops        The compile's drop ledger; null on render paths.
+ * @param string      $where        The ledger locator (card, role, state, breakpoint).
+ * @param bool        $in_state     True for a state bucket (`:hover`), whose scrim
+ *                                  can never have an image of its own.
  */
 function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
@@ -2417,11 +2431,15 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
                       . 'role has a base image. Move the overlay out of the state, or remove it'
                     : (isset($declarations['background'])
-                    ? 'an overlay paints only over an image, and this role declares a background.fill but no '
+                    ? 'an overlay paints only over an image, and this role has a background.fill but no usable '
                       . 'background.image: a fill is a colour, not an image, so the scrim was dropped. Set '
                       . 'background.image (an attachment id), or put the tint in the fill itself'
-                    : 'an overlay paints only over an image, and this role declares no background.image, '
-                      . 'so the scrim was dropped. Set background.image (an attachment id), or remove the overlay'),
+                    // "NO USABLE", not "declares no": an image whose attachment was deleted after
+                    // the write is dropped at place time (check 8c owns that drop), so this
+                    // branch cannot tell the two causes apart and must not blame the author.
+                    : 'an overlay paints only over an image, and this role has no usable background.image '
+                      . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
+                      . 'background.image (an attachment id), or remove the overlay'),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -4470,8 +4488,11 @@ function _pp_udc_selector_is_emittable(string $selector): bool {
  * @param array|null $drops  Pass an array to collect what this compile DISCARDED.
  *                           Filled with ['where' => string, 'reason' => string]
  *                           entries, bounded at PP_UDC_MAX_EMIT_DROPS, both fields
- *                           already cleaned for reflection. Left untouched at null,
- *                           which is what every render path passes.
+ *                           already cleaned for reflection. A row MAY also carry a
+ *                           `code`: the dropped-overlay row carries
+ *                           'overlay_without_image', and pp_udc_composition_findings()
+ *                           selects exactly those rows by it (#1117). Left untouched
+ *                           at null, which is what every render path passes.
  */
 function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];

@@ -242,7 +242,7 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertCount(1, $found, 'the hover scrim paints nowhere');
         $this->assertStringContainsString('(:hover)', $found[0]['message']);
         $this->assertStringContainsString('inside a state', $found[0]['message']);
-        $this->assertStringNotContainsString('declares no background.image', $found[0]['message'], 'the role does declare one');
+        $this->assertStringNotContainsString('no usable background.image', $found[0]['message'], 'the role does declare one');
     }
 
     /**
@@ -313,7 +313,7 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertCount(1, $found);
         $this->assertStringContainsString('(:hover)', $found[0]['message']);
         $this->assertStringContainsString('inside a state', $found[0]['message']);
-        $this->assertStringNotContainsString('declares no background.image', $found[0]['message']);
+        $this->assertStringNotContainsString('no usable background.image', $found[0]['message']);
     }
 
     /** A responsive scrim with no image is dropped per breakpoint, and each row names its tier. */
@@ -347,6 +347,31 @@ final class ItemGrainDisclosureTest extends TestCase
             static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
         );
         $this->assertSame([], array_values($found));
+    }
+
+    /**
+     * An image whose attachment was deleted AFTER the write is dropped at place time, so the
+     * overlay over it is dropped too. The author did set an image: the reason must not tell
+     * them they did not (check 8c owns the deleted image itself).
+     */
+    public function testAnOverlayOverADeletedImageDoesNotBlameTheAuthor(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [$id] = $this->page([[
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.5)']]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]);
+        unset($GLOBALS['_pp_test_store']['posts'][9001], $GLOBALS['_pp_test_store']['attachment_is_image'][9001]);
+
+        $found = array_values(array_filter(
+            pp_udc_composition_findings(pp_get_composition($id)),
+            static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
+        ));
+        $this->assertCount(1, $found, 'the scrim really is gone');
+        $this->assertStringNotContainsString('declares no background.image', $found[0]['message']);
+        $this->assertStringContainsString('deleted', $found[0]['message'], 'the other cause is named');
     }
 
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
