@@ -238,6 +238,21 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('background.image', (string) $rows);
     }
 
+    /**
+     * The readiness channel at ITEM grain. The issue's own observed row is a card overlay
+     * with `drops=[]`: check 8e only compiled bands that carried a band-level map, so a band
+     * styled at item grain alone was never probed — for this drop or any other.
+     */
+    public function testTheEmitDropLedgerSeesABandStyledOnlyAtItemGrain(): void
+    {
+        [$id] = $this->page($this->grid(['card' => ['background' => ['fill' => '#000000', 'overlay' => '#112233']]]));
+        $item_id = (string) pp_get_composition($id)[0]['props']['items'][0]['id'];
+
+        $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
+        $this->assertStringContainsString('item \"' . $item_id . '\"', (string) $rows, 'the card is named');
+        $this->assertStringContainsString('background.overlay', (string) $rows);
+    }
+
     /** Controls: an overlay over an image, and a narrower overlay over the base image, paint. */
     public function testAnOverlayThatPaintsIsNotDisclosed(): void
     {

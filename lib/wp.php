@@ -2708,7 +2708,15 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
                 if (count($rows) >= $row_budget) {
                     break;
                 }
-                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc']) || $item['udc'] === []) {
+                // A band styled at ITEM grain alone is styled too (#1117): this used to skip
+                // every band without a band-level map, so a card's discards reached no
+                // channel at all — the issue's own observed row was a card overlay with
+                // `drops=[]`. The compile already walks the item maps; only the gate was narrow.
+                if (!is_array($item)) {
+                    continue;
+                }
+                $has_band_map = isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [];
+                if (!$has_band_map && (!function_exists('pp_udc_item_maps') || pp_udc_item_maps($item) === [])) {
                     continue;
                 }
                 if ($seen >= $band_budget) {
