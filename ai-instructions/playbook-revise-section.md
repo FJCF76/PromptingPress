@@ -36,19 +36,21 @@ Run `wp pp apply preflight --run-id=<uuid> --post_id=<page_id>` (add planned_fil
 ### 4. EDIT
 **A content revision** uses `update_component` (patch semantics — only the props you pass change) targeted by `component_id` (prefer an authored `id` prop — auto-generated `pp-<hex8>` ids are stable across this in-place path but not across a full `update_composition` re-apply) or `component_index`, or `wp pp operate patch` with a semantic selector for a single field. Modify only the target section.
 
-**A styling revision goes through `update_composition`, and that is not a violation of the rule above — it is the only route the engine offers.** Exactly two actions carry a `udc` map: `update_composition` and `create_page`. `update_component` declares `post_id`, `component_index`, `component_id`, `props`, `style` and `expected_version` — no `udc`; `add_component` and `style_component` likewise carry `style` and no `udc`. And `style` is not a substitute: it addresses style SLOTS, and since #1101 NO component declares one, so those calls are refused with `no_style_slots` on every component there is. That leaves the whole-composition write as the only way to restyle a v2 band. So a `udc` edit is necessarily a read-modify-write of the WHOLE composition:
+**A styling revision also uses `update_component`, with a `udc` param (#1088).** It is merged into the target band's stored map **by role**: each role you send replaces that role's map whole, `null` removes a role, and every role you do not send stays exactly as stored. It is the same rule `props` follows. Send `props`, `udc` or both in one call; a call carrying neither (and no `style`) is refused with `missing_component_update`. So a restyle touches only the target band, and a concurrent edit to another band is not a conflict:
 
-1. `wp post meta get <page_id> _pp_composition_version`, then
-   `wp post meta get <page_id> _pp_composition`. **Read the meta here, not
-   `inspect-composition`** — that report returns per-field patch targets and carries no `udc` at
-   all, so it cannot give you the map you are about to edit. Reading the meta is safe; writing it
-   is what skips validation, band-id minting, versioning and history. **Version first, then the
-   bytes** — the other order builds the race it is meant to close, and read the `expected_version`
-   note in `style-component.md` before relying on the check to save you
-2. edit the target band's `udc` map in place, leaving every other band's bytes untouched
-3. send the whole array back with `update_composition`
+```bash
+wp pp action execute update_component --run-id=<uuid> --params='{"post_id":42,"component_id":"pp-a1b2c3d4","udc":{"heading":{"typography":{"color":"#ffffff"}}},"expected_version":7}'
+# 42 = the page, pp-a1b2c3d4 = the band's id, 7 = the version you read before the bytes
+```
 
-The regression risk the "do not rewrite the composition" rule was guarding against is real and it is now YOUR job rather than the action's: step 2's "which other sections should remain unchanged" is the check, and the after-screenshot in step 6 is where you confirm it. Re-read the composition immediately before writing rather than reusing an array you read earlier in the session, so a concurrent edit is not silently clobbered.
+Two things to get right:
+
+1. **Send the whole ROLE you are changing.** The role is the unit that is replaced, so a role you send with only `color` loses the `weight` it had. Read the band's current map first — `wp post meta get <page_id> _pp_composition` (read the VERSION first, `wp post meta get <page_id> _pp_composition_version`; `inspect-composition` carries no `udc` at all) — and send the role with every value you want to keep.
+2. **Pass `expected_version`.** It is honoured on every surface, the CLI included (#1094), so an edit landed since you read is refused with `composition_conflict` instead of overwritten. On a conflict: re-read, re-apply, retry.
+
+Values the engine minted for a responsive literal (`@heading-typography-size-d` and the band `_tokens` entry behind it) are its own: when you replace or remove the role that used them, the engine drops the tokens nothing references any more. A `_tokens` key you send yourself replaces the band's token map whole and is yours to keep consistent.
+
+`update_composition` still carries `udc` too. Use it when you are rewriting the page, not to restyle one band. The regression check is the same either way: step 2's "which other sections should remain unchanged", confirmed by the after-screenshot in step 6.
 
 Both paths are gated: they require the page-covering PREFLIGHT from step 3 and a `--run-id`.
 

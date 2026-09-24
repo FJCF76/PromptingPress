@@ -190,9 +190,9 @@ codes:
 
 **Four things to know before you write one.**
 
-1. **`update_component` reaches it.** A BAND `udc` map is a sibling of `props` and no action
-   can patch it — you re-send the whole band. An ITEM map rides inside `props`, so patching
-   the `items` array is how you write it. That is the one design surface a patch can reach.
+1. **`update_component` reaches it.** An ITEM map rides inside `props`, so patching the
+   `items` array is how you write it. (A BAND map is reachable too, since #1088: send it as
+   `update_component`'s `udc` param, merged into the stored map by role.)
 2. **Send every entry you want to keep.** The array is replaced, not merged.
 3. **The `id` is the engine's.** It is minted on write, shaped `it-<hex8>`, only for entries
    that carry a map. Never author one.

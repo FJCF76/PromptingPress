@@ -63,18 +63,28 @@ padding and border.
 
 ### Which action carries it
 
-**`update_composition` and `create_page` are the only two verbs that carry a `udc` map.** Both take
-a whole band, which is why they can. `update_component` and `add_component` declare `props` and
-`style` only — there is no `udc` parameter on either, so a `udc` key sent to them is never examined,
-and `update_component` additionally requires `props`.
+**Four verbs carry a `udc` map** (#1088):
 
-So a styling edit is a read-modify-write of the composition:
+- `update_component` — `udc` is merged into the target band's stored map **BY ROLE**: a role you
+  send replaces that role's map whole, `null` removes a role, and a role you do not send is kept as
+  stored. The same rule `props` follows. `props` is optional here; a call that carries none of
+  `props`, `udc` or `style` is refused with `missing_component_update`. This is the verb for
+  restyling ONE band.
+- `add_component` — `udc` is the new band's map, stored as sent.
+- `update_composition` and `create_page` — they take whole bands, so each band's `udc` rides in it.
+
+A one-band styling edit therefore reads the band, then patches the roles it changes:
 
 ```bash
 wp post meta get 42 _pp_composition_version  # READ THE VERSION FIRST — see below
-wp post meta get 42 _pp_composition          # then the resendable bytes, `udc` maps included
-wp pp action execute update_composition --run-id=<uuid> --params='{ ... }'
+wp post meta get 42 _pp_composition          # then the bytes, `udc` maps included
+wp pp action execute update_component --run-id=<uuid> --params='{"post_id":42,"component_id":"pp-a1b2c3d4","udc":{"heading":{"typography":{"color":"#ffffff","weight":"700"}}},"expected_version":7}'
 ```
+
+Send the WHOLE role you change — the role is what is replaced, so a role sent with only `color`
+drops the `weight` it had. A responsive literal the engine minted into `_tokens` is the engine's:
+replace or remove the role that used it and the tokens nothing references any more are dropped for
+you. A `_tokens` key you send replaces the band's token map whole.
 
 **Read the meta, not `inspect`.** This is the one place a raw meta READ is the right tool, and
 it is worth being exact about why: `wp pp operate inspect` returns the page map, tokens, chrome
@@ -483,7 +493,8 @@ Common refusals and what each means:
   and a plausible-looking one that exists on a different component is the most common mistake.
 - **Do not reach for `_css` when a parameter exists.** You lose the type check and the report entry,
   and you gain nothing.
-- **Do not send `udc` to `update_component` or `add_component`.** They have no such parameter.
+- **Do not send a partial role to `update_component`'s `udc`.** A role you send replaces that role's
+  stored map whole; read it first and send every value it should keep.
 - **Do not edit `assets/css/components.css`** to change one band's appearance. That file is
   theme-owned, an upgrade replaces it, and per-instance styling is what the `udc` map is for.
 - **Do not use WordPress Additional CSS** for component styling. It is a global stylesheet outside
