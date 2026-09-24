@@ -659,6 +659,40 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertLessThan(0.2, microtime(true) - $started, 'each preset bundle is walked once per call');
     }
 
+    /**
+     * A CARD's scrim over the band map's image for the same role is dropped — the item
+     * compile does not combine grains — and the reason must say THAT, not tell an author
+     * who set the image to go and set it.
+     */
+    public function testACardOverlayOverTheBandMapsImageGetsATruthfulReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $result] = $this->page($this->grid(
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]],
+            ['card' => ['background' => ['image' => 9001]]]
+        ));
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('not combined', $found[0]['message'], 'the cross-grain cause is named');
+    }
+
+    /** A raw `_css` background shorthand is not reported as a `background.fill` the author never wrote. */
+    public function testARawCssBackgroundIsNotCalledAFill(): void
+    {
+        [, $result] = $this->page([[
+            'component' => 'section',
+            'udc'       => ['_band' => ['_css' => ['background' => 'linear-gradient(#ff0000, #0000ff)'], 'background' => ['overlay' => '#112233']]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]);
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('has a background.fill', $found[0]['message']);
+        $this->assertStringContainsString('_css', $found[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

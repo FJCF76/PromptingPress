@@ -344,7 +344,8 @@ neither are `size` and `repeat`. The reverse does not work: an `overlay` with no
 nothing (a `fill` is a colour, not an image), and the write says so with a
 `udc_overlay_without_image` finding naming the role, and the card when it is one. Keep the
 `overlay` out of states: a `:hover` overlay never paints, even over a base image, because
-`image` cannot be set inside a state.
+`image` cannot be set inside a state. And keep a card's `overlay` with its own `image`: an
+overlay on one card's map does not combine with an image set on the band's map.
 
 ---
 

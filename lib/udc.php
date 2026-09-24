@@ -2479,8 +2479,10 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  * @param string      $where        The ledger locator (card, role, state, breakpoint).
  * @param bool        $in_state     True for a state bucket (`:hover`), whose scrim
  *                                  can never have an image of its own.
+ * @param bool        $in_item      True at item (card) grain, whose compile does not
+ *                                  combine the band map's image for the same role.
  */
-function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false): array {
+function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false, bool $in_item = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
         return $declarations;
     }
@@ -2508,16 +2510,27 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     ? 'an overlay inside a state paints only over an image in that same state, and '
                       . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
                       . 'role has a base image. Move the overlay out of the state, or remove it'
+                    // A CARD's scrim composes only with the card's own image: the item
+                    // compile does not combine the band map's image for the same role, so
+                    // "set background.image" would be wrong advice to an author who did.
+                    : ($in_item
+                    ? 'an overlay on a card paints only over a background.image in that card\'s own map (an '
+                      . 'image set for this role on the band\'s map is not combined with it), and this card has '
+                      . 'no usable one (none is set, or its attachment was deleted), so the scrim was dropped. '
+                      . 'Set background.image on this card, or remove the overlay'
+                    // `background` is also where a raw `_css` shorthand lands, so this names
+                    // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
-                    ? 'an overlay paints only over an image, and this role has a background.fill but no usable '
-                      . 'background.image: a fill is a colour, not an image, so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or put the tint in the fill itself'
+                    ? 'an overlay is layered only over background.image, and this role declares a background '
+                      . '(background.fill, or a raw background in _css) but no usable background.image, so '
+                      . 'the scrim was dropped. Set background.image (an attachment id), or put the tint in '
+                      . 'that background itself'
                     // "NO USABLE", not "declares no": an image whose attachment was deleted after
                     // the write is dropped at place time (check 8c owns that drop), so this
                     // branch cannot tell the two causes apart and must not blame the author.
                     : 'an overlay paints only over an image, and this role has no usable background.image '
                       . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or remove the overlay'),
+                      . 'background.image (an attachment id), or remove the overlay')),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -5424,7 +5437,8 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                                 $declarations,
                                 $drops,
                                 $drops === null ? '' : _pp_udc_overlay_drop_where((string) $item_id, (string) $role_name, (string) $state, (string) $bp),
-                                (string) $state !== ''
+                                (string) $state !== '',
+                                true
                             );
                             $declarations = _pp_udc_background_image_companions($declarations);
                             $declarations = _pp_udc_grid_columns_companion(

@@ -37,7 +37,8 @@ This checks:
      `background.fill` is a colour, not an image. Set `background.image`, put the tint
      in the fill, or remove the overlay. An overlay inside a state (`:hover`) is always
      dropped, even over a base image, because `background.image` cannot be set inside a
-     state. `wp pp check page` reports it as this finding; the readiness report
+     state. A scrim on a CARD's own map composes only with an image on that card's map,
+     not with one the band's map sets for the same role. `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
