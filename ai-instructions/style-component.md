@@ -340,7 +340,9 @@ A background image is an attachment id, never a URL:
 
 `import_media` returns the id. Pair an image with an `overlay` whenever text sits on it, or the text
 is illegible over whatever the photograph happens to contain. The scrim is not automatic, and
-neither are `size` and `repeat`.
+neither are `size` and `repeat`. The reverse does not work: an `overlay` with no `image` paints
+nothing (a `fill` is a colour, not an image), and the write says so with a
+`udc_overlay_without_image` finding naming the role, and the card when it is one.
 
 ---
 

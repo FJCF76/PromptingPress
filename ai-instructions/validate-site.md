@@ -30,6 +30,12 @@ This checks:
    - `udc_preset_value_shadowed_by_role_default` — you applied a preset, but the role's
      OWN default outranks a preset for that parameter, so the preset's value is not
      applied. Write the value directly in your map for that role, where it outranks both.
+     Fires on a card's own map too, and then names the card as `item "<id>"`.
+   - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
+     under it. The scrim is dropped: an overlay only paints over an image, and a
+     `background.fill` is a colour, not an image. Set `background.image`, put the tint
+     in the fill, or remove the overlay. The same fact appears in `wp pp check page` as a
+     `udc_value_cannot_take_effect` row.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle

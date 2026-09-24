@@ -261,8 +261,9 @@ wp pp validate page --post_id=<id>     # the rendered HTML
 ```
 
 `check page` is the inspector and never changes its exit code; `wp pp validate site` is
-the gate. Read the `udc` advisories — `udc_preset_value_shadowed_by_role_default` and
-`udc_css_overrides_group_value` both describe a value you wrote that is not painting.
+the gate. Read the `udc` advisories — `udc_preset_value_shadowed_by_role_default`,
+`udc_css_overrides_group_value` and `udc_overlay_without_image` all describe a value you
+wrote that is not painting.
 See `ai-instructions/validate-site.md`.
 
 ---
