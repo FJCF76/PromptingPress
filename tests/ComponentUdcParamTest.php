@@ -620,6 +620,64 @@ final class ComponentUdcParamTest extends TestCase
         $this->assertSame($before, $this->band($id, 0), 'nothing stored');
     }
 
+    /**
+     * EXECUTE RE-JUDGES THE WHOLE MERGED BAND (Codex adversarial pass): a `_tokens`
+     * replacement that drops a token the band still references is refused even when
+     * validate never saw that reference — here, because execute is driven directly against
+     * a band validate did not read, the shape a validate/execute race produces.
+     */
+    public function testExecuteRevalidatesTheMergedBandItIsAboutToWrite(): void
+    {
+        $id = $this->page();
+        $this->assertTrue($this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => [
+                '_tokens' => ['brand-ink' => '#ffd166'],
+                'heading' => ['typography' => ['color' => '@brand-ink']],
+            ],
+        ])['ok'], 'premise');
+        $before = $this->band($id, 1);
+
+        $execute = pp_get_action('update_component')['execute'];
+        $result = $execute([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['_tokens' => ['other-ink' => '#000000']],
+        ]);
+
+        $this->assertFalse($result['ok'], 'a dangling @brand-ink is never stored');
+        $this->assertStringContainsString('brand-ink', (string) $result['error']);
+        $this->assertSame($before, $this->band($id, 1));
+    }
+
+    /**
+     * THE WRITE RECORD NAMES THE TOKENS THAT WERE STORED (Codex adversarial pass). A card
+     * added in the same call is given its id by the write itself, so its minted token names
+     * cannot be known beforehand; execute reads its udc record back from storage.
+     */
+    public function testExecuteReportsANewCardsMintsUnderTheIdItWasStoredWith(): void
+    {
+        $id = pp_create_page('new card mints', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'grid', 'props' => ['title' => 'G', 'items' => [['title' => 'One']]],
+        ]]])['ok']);
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'props'   => ['items' => [
+                ['title' => 'One'],
+                ['title' => 'New', 'udc' => ['card-title' => ['typography' => ['size' => ['d' => '2rem', 'p' => '1rem']]]]],
+            ]],
+            'udc'     => ['heading' => ['typography' => ['color' => '#101828']]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $new_id = (string) $this->band($id, 0)['props']['items'][1]['id'];
+        $this->assertContains(
+            'composition[0].udc._tokens.' . $new_id . '-card-title-typography-size-d',
+            array_column($result['changes'], 'path')
+        );
+    }
+
     // ── Preview reports what execute will store ──────────────────────────────
 
     public function testThePreviewNamesEachRoleThatChanges(): void

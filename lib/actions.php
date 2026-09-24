@@ -6573,14 +6573,39 @@ pp_register_action('update_component', [
         }
         $composition[$index] = $applied['item'];
 
+        // AND THE WHOLE MERGED BAND IS RE-JUDGED HERE when the call carries a udc patch
+        // (Codex adversarial pass). A stranded mint is one way the state can move under a
+        // merge; another writer adding a reference to a token this patch's `_tokens` drops is
+        // another, and only the shared engine sees every such shape. It is the same
+        // band-scoped validator validate ran, on the band execute is about to write.
+        if (_pp_component_update_carries($params, 'udc')) {
+            $revalidated = pp_validate_composition_band($composition, $index);
+            if (is_wp_error($revalidated)) {
+                return _pp_action_error('update_component', 'section',
+                    'The band changed while this udc patch was being applied, and the result no longer '
+                    . 'validates: ' . $revalidated->get_error_message() . ' Re-read the band and retry.',
+                    $revalidated->get_error_code());
+            }
+        }
+
         $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
-        $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $applied['udc_after'], $index));
 
         $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
         if (is_wp_error($result)) {
             return _pp_action_error('update_component', 'section', $result->get_error_message(), $result->get_error_code());
         }
+
+        // THE RECORD OF THE WRITE IS READ BACK FROM WHAT WAS STORED. The writer mints band and
+        // item ids and normalizes (minting, item-mint names carry an id minted on this very
+        // write), so the preview's dry-run normalization cannot name a NEW card's tokens;
+        // the stored band can. Only the udc rows need it — props and style are stored as
+        // merged.
+        $stored_after = pp_get_composition((int) $params['post_id']);
+        $udc_stored = isset($stored_after[$index]['udc']) && is_array($stored_after[$index]['udc'])
+            ? $stored_after[$index]['udc']
+            : $applied['udc_after'];
+        $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $udc_stored, $index));
 
         return _pp_action_result('update_component', 'section',
             ['post_id' => $params['post_id'], 'component_index' => $params['component_index']],
@@ -7590,6 +7615,8 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
         // reference), so a diff of the raw merge told an operator approving a changed
         // responsive value that its tokens were being DELETED when they were kept with new
         // values (review finding, adversarial pass). The stored side is already normalized.
+        // PREVIEW-EXACT FOR THE BAND'S OWN MINTS; a card added in the same call has no id yet,
+        // so its item mints cannot be named before the write (execute reads its record back).
         'udc_after'    => _pp_normalized_band_udc($item),
         'stranded'     => $stranded,
     ];
