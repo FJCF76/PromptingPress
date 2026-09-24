@@ -426,6 +426,87 @@ final class ComponentUdcParamTest extends TestCase
     }
 
     /**
+     * THE PRUNE'S ROSTER — WHY IT EXISTS, AND THE ONE THING IT MUST NEVER DO.
+     *
+     * The motivating case is the Sprint-2 orphan-token trap (#1101's grid saga, and #1128
+     * today): an engine mint left in `_tokens` with nothing referencing it is read by the
+     * squat gate as an author squatting the engine's namespace, and the band refuses every
+     * later write, permanently, over a name nobody typed. The prune exists to stop a udc
+     * merge from CREATING that state. It must therefore never do the opposite harm: delete a
+     * mint that is still referenced anywhere on the band, which would leave a dangling
+     * reference instead. The roster:
+     *
+     *   orphaned by this merge, referenced nowhere   -> pruned   testReplacingAMintedRolePrunesTheTokensItOrphaned
+     *   still referenced at its own coordinate        -> kept     (this test, and the eyebrow half of the one above)
+     *   still referenced by a card                    -> kept     testABandRoleEditKeepsTheTokensAnItemStillReferences
+     *   its value gone, another role still names it   -> REFUSED  testReplacingAMintAnotherRoleStillReferencesIsRefusedByName
+     *   its value gone, a card still names it          -> REFUSED  testReplacingAMintACardStillReferencesIsRefusedByName
+     *   a squat that arrived off-path                  -> left     testASquattingNameThatArrivedOffPathIsLeftForTheGateToName
+     *   #1128's shape (props-only item restyle)        -> NOT this merge's; pinned below as the open defect
+     */
+    public function testThePruneNeverRemovesAMintThatIsStillReferencedAnywhere(): void
+    {
+        $id = pp_create_page('prune never removes a live mint', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'grid',
+            'udc'       => [
+                'heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]],
+                'eyebrow' => ['typography' => ['size' => ['d' => '1rem', 'p' => '0.9rem']]],
+            ],
+            'props'     => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card-title' => ['typography' => ['size' => ['d' => '2rem', 'p' => '1rem']]]]],
+            ]],
+        ]]])['ok'], 'premise');
+        $before = $this->band($id, 0)['udc']['_tokens'];
+        $this->assertCount(6, $before, 'premise: band + card mints stored');
+
+        // An edit that touches a DIFFERENT role: every stored mint is still referenced.
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['subheading' => ['typography' => ['color' => '#101828']]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertSame($before, $this->band($id, 0)['udc']['_tokens'], 'not one live mint was removed');
+        foreach (array_column($result['changes'], 'path') as $path) {
+            $this->assertStringNotContainsString('._tokens.', (string) $path, 'no token row for an untouched mint');
+        }
+    }
+
+    /**
+     * #1128, THE MOTIVATING CASE, PINNED AS THE OPEN DEFECT IT IS. A props-only item restyle
+     * with new responsive values leaves the item's old mints orphaned and is refused over the
+     * engine's own name; the udc merge's prune does not reach the props path (#1088's ruling
+     * scoped it to udc). The same restyle carrying a band udc patch goes through, because the
+     * prune runs. When #1128 is fixed the first assertion flips — update it there, on purpose.
+     */
+    public function testIssue1128TheLeftoverItemMintTrapIsOpenOnThePropsPathAndClosedOnTheUdcPath(): void
+    {
+        $id = pp_create_page('1128 motivating case', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'grid',
+            'props'     => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card-title' => ['typography' => ['size' => ['d' => '2rem', 'p' => '1rem']]]]],
+            ]],
+        ]]])['ok'], 'premise');
+        $items = pp_get_composition($id)[0]['props']['items'];
+        $items[0]['udc'] = ['card-title' => ['typography' => ['size' => ['d' => '3rem', 'p' => '1.5rem']]]];
+
+        $props_only = $this->update(['post_id' => $id, 'component_index' => 0, 'props' => ['items' => $items]]);
+        $this->assertFalse($props_only['ok'], 'OPEN (#1128): the props path still refuses over the leftover mint');
+        $this->assertStringContainsString('mints for itself', (string) $props_only['error']);
+
+        $with_udc = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'props'   => ['items' => $items],
+            'udc'     => ['heading' => ['typography' => ['color' => '#101828']]],
+        ]);
+        $this->assertTrue($with_udc['ok'], 'the udc merge prunes the orphaned card mint: ' . ($with_udc['error'] ?? ''));
+        $item_id = (string) $this->band($id, 0)['props']['items'][0]['id'];
+        $this->assertSame('3rem', $this->band($id, 0)['udc']['_tokens'][$item_id . '-card-title-typography-size-d']);
+    }
+
+    /**
      * ITEM-MINTED TOKENS LIVE IN THE BAND'S `_tokens` and their references sit in
      * `props.items[k].udc`. A band-role udc edit must see those references, or it prunes a
      * token a card still paints with (review finding: the item-map arm was unpinned — a
