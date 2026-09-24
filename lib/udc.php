@@ -2749,7 +2749,8 @@ function pp_udc_validate_map($udc, string $component, array $item_maps = []): ?W
             // card removes the map but not the token, and the next write was refused
             // permanently — on a name the author never typed, by a message telling them
             // to "pick another name" for it, from a surface (`update_component`) that
-            // carries no `udc` param and therefore cannot reach `_tokens` at all. The
+            // then carried no `udc` param (it has one since #1088) and so could not reach
+            // `_tokens` at all. The
             // documented clear-it route, an explicit `{"udc": {}}`, hit the same wall.
             //
             // THE SQUAT CASE IS STILL REFUSED, and the sequence that looks like a hole
@@ -3998,8 +3999,8 @@ function pp_udc_normalize_band(array $item): array {
     //   engine mints for itself … Pick another name
     //
     // The band is refused permanently, on a token the author never wrote, by a message
-    // naming a repair they cannot perform — `update_component` carries no `udc` param
-    // (#1088), so the `_tokens` map is unreachable from the surface that refused them.
+    // naming a repair they could not perform — `update_component` carried no `udc` param
+    // before #1088, so the `_tokens` map was unreachable from the surface that refused them.
     // The documented escape hatch is refused identically: `_pp_preserve_item_design()`
     // promises that an explicit `{"udc": {}}` clears a design "because there is
     // otherwise no way to remove an item's design once minted", and it hit the same

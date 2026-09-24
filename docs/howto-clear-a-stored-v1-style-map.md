@@ -91,8 +91,8 @@ Two routes. **Prefer the second if you are sweeping a page** — it cannot be go
 
 ### Route A — `update_component`, surgical
 
-Send every stored key with a value of `null`, in ONE call. `props` must be present even when
-you are changing no props, so send `{}`:
+Send every stored key with a value of `null`, in ONE call. `props` is optional since #1088 (a
+style-only call is accepted); sending `{}` as below is harmless:
 
 ```bash
 # The slot names here are RETIRED examples, copied from what the band stores.

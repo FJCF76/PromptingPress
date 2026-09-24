@@ -133,6 +133,16 @@ final class ComponentUdcParamTest extends TestCase
         $this->assertSame(['typography' => ['color' => '#ffd166']], $udc['heading'],
             'the sent role REPLACES its map: the stored weight is gone, not merged under');
         $this->assertSame(['background' => ['fill' => '#101828']], $udc['_band'], 'the unsent role is kept');
+
+        // The write envelope records exactly what changed, at the grain the merge replaced.
+        $rows = [];
+        foreach ($result['changes'] as $row) {
+            $rows[$row['path']] = $row;
+        }
+        $this->assertArrayHasKey('composition[0].udc.heading', $rows);
+        $this->assertArrayNotHasKey('composition[0].udc._band', $rows, 'an unsent role is not a change');
+        $this->assertSame(['typography' => ['color' => '#ffffff', 'weight' => '700']], $rows['composition[0].udc.heading']['from']);
+        $this->assertSame(['typography' => ['color' => '#ffd166']], $rows['composition[0].udc.heading']['to']);
     }
 
     public function testNullRemovesARoleAndTheLastRoleRemovedLeavesNoMap(): void
@@ -180,6 +190,20 @@ final class ComponentUdcParamTest extends TestCase
         }
     }
 
+    /** An EMPTY udc or style changes nothing, so it is not "something to change" either. */
+    public function testEmptyUdcOrStyleIsRefusedRatherThanWrittenAsANoOp(): void
+    {
+        $id = $this->page();
+        $before = (int) pp_get_composition_marker($id)['version'];
+
+        $udc   = $this->update(['post_id' => $id, 'component_index' => 0, 'udc' => []]);
+        $style = $this->update(['post_id' => $id, 'component_index' => 0, 'style' => []]);
+
+        $this->assertSame('missing_component_update', $udc['error_code'] ?? null);
+        $this->assertSame('missing_component_update', $style['error_code'] ?? null);
+        $this->assertSame($before, (int) pp_get_composition_marker($id)['version'], 'no version was spent');
+    }
+
     public function testNullValuedPayloadsCountAsAbsent(): void
     {
         $id = $this->page();
@@ -221,19 +245,48 @@ final class ComponentUdcParamTest extends TestCase
         $this->assertSame($before, $this->band($id, 0), 'the band is byte-identical');
     }
 
+    /**
+     * THE MERGED MAP IS WHAT IS JUDGED. This patch is INVALID on its own — it names a band
+     * token it does not declare — and valid only once merged over the stored `_tokens` that
+     * declares it. A validate arm that judged the patch alone would refuse it.
+     */
     public function testTheMergedMapIsWhatIsValidatedNotThePatchAlone(): void
     {
         $id = $this->page();
+        $this->assertTrue($this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['_tokens' => ['brand-ink' => '#ffd166']],
+        ])['ok'], 'premise');
 
-        // A role whose stored map is fine, patched with a value the engine refuses.
         $result = $this->update([
-            'post_id' => $id, 'component_index' => 0,
-            'udc'     => ['heading' => ['typography' => ['color' => 'not-a-colour']]],
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['color' => '@brand-ink']]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertSame('@brand-ink', $this->band($id, 1)['udc']['heading']['typography']['color']);
+    }
+
+    /** The mirror: a patch valid on its own whose MERGE is refused — the stored map is judged too. */
+    public function testAPatchValidAloneIsRefusedWhenItsMergeIsNot(): void
+    {
+        $id = $this->page();
+        $this->assertTrue($this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => [
+                '_tokens' => ['brand-ink' => '#ffd166'],
+                'heading' => ['typography' => ['color' => '@brand-ink']],
+            ],
+        ])['ok'], 'premise');
+
+        // Valid alone (it just replaces the token map), dangling once merged.
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['_tokens' => ['other-ink' => '#000000']],
         ]);
 
         $this->assertFalse($result['ok']);
-        $this->assertSame(['typography' => ['color' => '#ffffff', 'weight' => '700']],
-            $this->band($id, 0)['udc']['heading']);
+        $this->assertStringContainsString('brand-ink', (string) $result['error']);
     }
 
     public function testAStaleExpectedVersionIsRefusedExactlyAsAPropsEditIs(): void
@@ -296,6 +349,13 @@ final class ComponentUdcParamTest extends TestCase
         $this->assertArrayNotHasKey('heading-typography-size-p', $tokens);
         $this->assertSame('1rem', $tokens['eyebrow-typography-size-d'], 'a kept role keeps its tokens');
         $this->assertSame('0.9rem', $tokens['eyebrow-typography-size-p']);
+
+        // Tokens are reported PER NAME, so the envelope grows with the change, not the map.
+        $paths = array_column($result['changes'], 'path');
+        $this->assertContains('composition[1].udc._tokens.heading-typography-size-d', $paths);
+        $this->assertContains('composition[1].udc._tokens.heading-typography-size-p', $paths);
+        $this->assertNotContains('composition[1].udc._tokens', $paths);
+        $this->assertNotContains('composition[1].udc._tokens.eyebrow-typography-size-d', $paths, 'unchanged tokens are not rows');
     }
 
     public function testRemovingEveryMintedRoleLeavesNoEmptyTokenMap(): void
@@ -365,6 +425,123 @@ final class ComponentUdcParamTest extends TestCase
         $this->assertStringContainsString('heading-typography-size-d', (string) $result['error']);
     }
 
+    /**
+     * ITEM-MINTED TOKENS LIVE IN THE BAND'S `_tokens` and their references sit in
+     * `props.items[k].udc`. A band-role udc edit must see those references, or it prunes a
+     * token a card still paints with (review finding: the item-map arm was unpinned — a
+     * mutation dropping the item maps from the merged check left the whole suite green).
+     */
+    public function testABandRoleEditKeepsTheTokensAnItemStillReferences(): void
+    {
+        $id = pp_create_page('item mints', 'draft');
+        $seed = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'grid',
+            'udc'       => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+            'props'     => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card-title' => ['typography' => ['size' => ['d' => '2rem', 'p' => '1rem']]]]],
+            ]],
+        ]]]);
+        $this->assertTrue($seed['ok'], 'premise: ' . ($seed['error'] ?? ''));
+        $item_tokens = array_filter(
+            array_keys($this->band($id, 0)['udc']['_tokens']),
+            static fn ($n) => str_starts_with((string) $n, 'it-')
+        );
+        $this->assertCount(2, $item_tokens, 'premise: the item values were minted into the band');
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['heading' => ['typography' => ['size' => '4rem']]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $tokens = $this->band($id, 0)['udc']['_tokens'];
+        foreach ($item_tokens as $name) {
+            $this->assertArrayHasKey($name, $tokens, 'the card still paints with ' . $name);
+        }
+        $this->assertArrayNotHasKey('heading-typography-size-d', $tokens, 'the band mint the edit orphaned is pruned');
+    }
+
+    /**
+     * A PATCH THAT SENDS `_tokens` OWNS THE TOKEN MAP: no pruning. So the stored mint-shaped
+     * names it re-sends while nothing references them any more reach the gate, which names
+     * them — an outcome that differs from the pruned one, which is what makes this a pin.
+     */
+    public function testAPatchThatSendsTokensGetsNoPruning(): void
+    {
+        $id = $this->page();
+        $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+        ]);
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => [
+                'heading' => ['typography' => ['size' => '4rem']],
+                '_tokens' => $this->band($id, 1)['udc']['_tokens'],
+            ],
+        ]);
+
+        $this->assertFalse($result['ok'], 'the caller\'s own token map is taken as sent');
+        $this->assertStringContainsString('heading-typography-size-d', (string) $result['error']);
+    }
+
+    /**
+     * A MINT ANOTHER ROLE REUSES (update_composition stores that shape) is neither pruned nor
+     * kept when its own role is replaced — the refusal says which token and why, rather than
+     * blaming the role the caller did not touch.
+     */
+    public function testReplacingAMintAnotherRoleStillReferencesIsRefusedByName(): void
+    {
+        $id = pp_create_page('reused mint', 'draft');
+        // Two writes, as an author reaches it: the first mints, the second reuses the stored
+        // mint by name from another role (a reference cannot name a mint the same write makes).
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'section',
+            'udc'       => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]])['ok'], 'premise: minted');
+        $stored = pp_get_composition($id);
+        $stored[0]['udc']['subheading'] = ['typography' => ['size' => '@heading-typography-size-d']];
+        $seed = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored]);
+        $this->assertTrue($seed['ok'], 'premise: reused: ' . ($seed['error'] ?? ''));
+        $before = $this->band($id, 0);
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['heading' => ['typography' => ['color' => '#111111']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code'] ?? null);
+        $this->assertStringContainsString('@heading-typography-size-d', (string) $result['error']);
+        $this->assertStringContainsString('still references', (string) $result['error']);
+        $this->assertSame($before, $this->band($id, 0), 'nothing stored');
+    }
+
+    /** The same stranded case when the reuse sits in a CARD's map rather than a band role. */
+    public function testReplacingAMintACardStillReferencesIsRefusedByName(): void
+    {
+        $id = pp_create_page('reused by a card', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'grid',
+            'udc'       => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+            'props'     => ['title' => 'G', 'items' => [['title' => 'One']]],
+        ]]])['ok'], 'premise: minted');
+        $stored = pp_get_composition($id);
+        $stored[0]['props']['items'][0]['udc'] = ['card-title' => ['typography' => ['size' => '@heading-typography-size-d']]];
+        $seed = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored]);
+        $this->assertTrue($seed['ok'], 'premise: reused by a card: ' . ($seed['error'] ?? ''));
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['heading' => ['typography' => ['color' => '#111111']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('still references', (string) $result['error']);
+    }
+
     // ── Preview reports what execute will store ──────────────────────────────
 
     public function testThePreviewNamesEachRoleThatChanges(): void
@@ -415,6 +592,19 @@ final class ComponentUdcParamTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertCount(2, pp_get_composition($id));
+    }
+
+    public function testAddComponentWithAnEmptyMapStoresNoUdcKey(): void
+    {
+        $id = $this->page();
+
+        $result = pp_execute_action('add_component', [
+            'post_id' => $id, 'component' => 'section',
+            'props'   => ['title' => 'Added', 'body' => 'b'], 'udc' => [],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertArrayNotHasKey('udc', $this->band($id, 2), 'byte-identical to an add with no udc');
     }
 
     public function testAddComponentPreviewCarriesTheMap(): void

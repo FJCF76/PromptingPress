@@ -5245,13 +5245,19 @@ pp_register_action('publish_page', [
 ]);
 
 /**
- * Puts add_component's optional `udc` on the new band (#1088, ruling D2: set semantics).
- * Only a NON-EMPTY map is written, so an add without one stores a band byte-identical to
- * before — the same rule the `style` param above follows. Validation, band-id and token
- * minting are the ordinary ones: the item reaches pp_validate_composition_item() and
- * pp_update_composition() like any other band.
+ * The band add_component writes, built ONCE for validate, preview and execute (#1088).
+ *
+ * Stored exactly as authored (#604): no prop-key rewriting. `style` and `udc` (ruling D2:
+ * set semantics) are written only when NON-EMPTY, so an add that carries neither stores a
+ * band byte-identical to before. Validation, band-id and token minting are the ordinary
+ * ones: the item reaches pp_validate_composition_item() and pp_update_composition() like
+ * any other band.
  */
-function _pp_add_component_udc(array $new_item, array $params): array {
+function _pp_build_new_component_item(array $params): array {
+    $new_item = ['component' => $params['component'], 'props' => $params['props']];
+    if (!empty($params['style'])) {
+        $new_item['style'] = $params['style'];
+    }
     if (isset($params['udc']) && is_array($params['udc']) && $params['udc'] !== []) {
         $new_item['udc'] = $params['udc'];
     }
@@ -5282,16 +5288,9 @@ pp_register_action('add_component', [
         if (is_wp_error($exists)) {
             return $exists;
         }
-        $new_item = ['component' => $params['component'], 'props' => $params['props']];
-        // Optional per-instance style: written onto the new item so the SAME shared
-        // engine that validates composition items[].style (item-scoped slots per
-        // #306/#323) validates it here too — no surface-specific second validator.
-        // Only set when non-empty, so an add_component WITHOUT style leaves the
-        // stored item byte-identical to before (matches update_component's style).
-        if (!empty($params['style'])) {
-            $new_item['style'] = $params['style'];
-        }
-        $new_item = _pp_add_component_udc($new_item, $params);
+        // The SAME shared engine that validates a composition's items validates the new
+        // band — style and udc included — so there is no surface-specific second validator.
+        $new_item = _pp_build_new_component_item($params);
         // Validate the single new component. The _item() entry point is the one that
         // carries no band locator (#642): the item is not on the page yet, so no offset
         // in this call names a real band. Nothing is lost — this action judges only the
@@ -5311,13 +5310,8 @@ pp_register_action('add_component', [
     },
     'preview' => function (array $params): array {
         $current   = pp_get_composition($params['post_id']);
-        // Stored exactly as authored (#604): no prop-key rewriting on the way in,
-        // so the preview shows the bytes execute will actually persist.
-        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
-        if (!empty($params['style'])) {
-            $new_item['style'] = $params['style'];
-        }
-        $new_item  = _pp_add_component_udc($new_item, $params);
+        // The preview shows the bytes execute will actually persist (#604).
+        $new_item  = _pp_build_new_component_item($params);
         $after     = $current;
         if (isset($params['position'])) {
             array_splice($after, $params['position'], 0, [$new_item]);
@@ -5333,11 +5327,7 @@ pp_register_action('add_component', [
         // Stored exactly as authored (#604). A retired prop name is not healed here;
         // it is rejected upstream by the shared validator's unknown_prop gate, so the
         // authoring agent learns the canonical name instead of being silently repaired.
-        $new_item  = ['component' => $params['component'], 'props' => $params['props']];
-        if (!empty($params['style'])) {
-            $new_item['style'] = $params['style'];
-        }
-        $new_item  = _pp_add_component_udc($new_item, $params);
+        $new_item  = _pp_build_new_component_item($params);
         $after     = $current;
         if (isset($params['position'])) {
             array_splice($after, $params['position'], 0, [$new_item]);
@@ -6454,13 +6444,12 @@ pp_register_action('update_component', [
     ],
     'validate' => function (array $params) {
         // "Either X or Y is required", the registry's own family for this shape
-        // (missing_component_target, missing_style, missing_link). Absent and null are the
-        // same: pp_validate_action()'s type check skips a null, so a null payload is one
-        // the caller did not send.
-        $carries = static function (string $key) use ($params): bool {
-            return array_key_exists($key, $params) && $params[$key] !== null;
-        };
-        if (!$carries('props') && !$carries('udc') && !$carries('style')) {
+        // (missing_component_target, missing_style, missing_link). What counts as SENT is
+        // _pp_component_update_carries()'s answer: absent, null and an empty udc/style are
+        // not — an empty patch changes nothing and must not land a versioned no-op.
+        if (!_pp_component_update_carries($params, 'props')
+            && !_pp_component_update_carries($params, 'udc')
+            && !_pp_component_update_carries($params, 'style')) {
             return new WP_Error(
                 'missing_component_update',
                 'update_component needs something to change: send `props` (the band\'s content), '
@@ -6489,11 +6478,21 @@ pp_register_action('update_component', [
         // Merge and validate the RESULT — props, style and udc applied exactly as execute
         // applies them, so a patch that is only valid in isolation (or only invalid in
         // isolation) is judged on what would actually be stored.
+        $applied = _pp_apply_component_update($composition[$params['component_index']], $params);
+        if ($applied['stranded'] !== []) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                'Component %d: this udc patch removes the value behind the engine-minted token%s %s, '
+                . 'but another role or item on the band still references %s. Replace %s in the '
+                . 'same call (or send the value yourself under `_tokens`, with a name of your own).',
+                $params['component_index'],
+                count($applied['stranded']) === 1 ? '' : 's',
+                '@' . implode(', @', array_map('_pp_udc_reflect', $applied['stranded'])),
+                count($applied['stranded']) === 1 ? 'it' : 'them',
+                count($applied['stranded']) === 1 ? 'that reference' : 'those references'
+            ));
+        }
         $test_composition = $composition;
-        $test_composition[$params['component_index']] = _pp_apply_component_update(
-            $composition[$params['component_index']],
-            $params
-        )['item'];
+        $test_composition[$params['component_index']] = $applied['item'];
 
         // SCOPED TO THE BAND THIS WRITE TOUCHES (#1007).
         //
@@ -6532,12 +6531,7 @@ pp_register_action('update_component', [
 
         $changes = _pp_diff_props($before_props, $after_props, $index);
 
-        if (!empty($params['style'])) {
-            $before_style = $composition[$index]['style'] ?? [];
-            $after_style  = _pp_merge_component_props($before_style, $params['style']);
-            $changes = array_merge($changes, _pp_diff_style($before_style, $after_style, $index));
-        }
-
+        $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
         $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $applied['udc_after'], $index));
 
         return _pp_action_preview('update_component', 'section',
@@ -6563,16 +6557,10 @@ pp_register_action('update_component', [
         // bytes always match what the caller asked for. The band `udc` (#1088) goes through
         // the same helper, merged by role, with the engine's orphaned mints pruned.
         $applied = _pp_apply_component_update($composition[$index], $params, (int) $params['post_id']);
-        $before_style = $composition[$index]['style'] ?? [];
         $composition[$index] = $applied['item'];
 
         $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
-
-        if (!empty($params['style'])) {
-            $after_style = _pp_merge_component_props($before_style, $params['style']);
-            $changes = array_merge($changes, _pp_diff_style($before_style, $after_style, $index));
-        }
-
+        $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
         $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $applied['udc_after'], $index));
 
         $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
@@ -6734,7 +6722,8 @@ pp_register_action('unpublish_page', [
 // prompt, playbook and doc that a model may have learned from named this action, and some
 // pages still carry the stored maps it used to write — so the call WILL be made. Made
 // against this action, the caller gets a message naming the component's own roles and the
-// two actions that carry a `udc` map, which is a route they can follow. Made against an
+// actions that carry a `udc` map (update_component's `udc` param since #1088, and the
+// whole-band writers), which is a route they can follow. Made against an
 // unregistered action, they get an unknown-action error, which is a dead end that tells
 // them nothing about where the capability went.
 //
@@ -6748,7 +6737,7 @@ pp_register_action('unpublish_page', [
 pp_register_action('style_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
-    'description' => 'RETIRED (#1101) — this action now always refuses, and the refusal names where the capability went. Per-instance style SLOTS were the v1 styling system; no component declares one any more, so there is nothing for this verb to write. To style a band, put the value on one of the component\'s roles in the band\'s `udc` map and send it through update_composition or create_page — the only two actions that carry a band. Call this action and the refusal will name that component\'s roles for you. If a band was written before its component was rebuilt it may still STORE a slot map, which refuses every update_component edit to that band until it is cleared: send `style` with every stored slot name set to null, in one call.',
+    'description' => 'RETIRED (#1101) — this action now always refuses, and the refusal names where the capability went. Per-instance style SLOTS were the v1 styling system; no component declares one any more, so there is nothing for this verb to write. To style a band, put the value on one of the component\'s roles in the band\'s `udc` map and send it as update_component\'s `udc` param (one band, merged by role), or through update_composition / create_page (whole bands). Call this action and the refusal will name that component\'s roles for you. If a band was written before its component was rebuilt it may still STORE a slot map, which refuses every update_component edit to that band until it is cleared: send `style` with every stored slot name set to null, in one call.',
     'semantics'   => 'Always refused with `no_style_slots`, whatever `style` or `recipe` asks for — the slot check runs before either is read, so `invalid_recipe` is a code no shipped component can produce. Nothing is written and no composition version is bumped.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
@@ -7461,21 +7450,27 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
  * update_composition), a name that was already squatting in storage is left for the gate to
  * name, and a patch that sends `_tokens` owns the whole token map and gets no pruning.
  *
+ * A MINT SOMETHING ELSE STILL NAMES is neither pruned nor kept: update_composition accepts a
+ * band that reuses `@heading-typography-size-d` on another role or an item, and once the
+ * heading role is replaced its value is gone. Pruning leaves that reference dangling; keeping
+ * it leaves a mint-shaped name the engine no longer owns, which the gate reads as squatting.
+ * Either refusal would name something the caller did not touch, so the name is returned as
+ * `stranded` and validate says what actually happened.
+ *
  * @param array $stored_item The band as stored (its `udc` and, for item-minted names, its items).
  * @param array $patch       The caller's `udc` param.
  * @param array $merged_item The band after its props patch, for the item-grain maps.
- * @return array|null The merged map, or null when nothing is left (the key is then removed).
+ * @return array{udc: array|null, stranded: string[]} The merged map (null when nothing is
+ *         left, and the key is then removed), and any engine-minted token whose own value the
+ *         merge removed while something else on the band still references it — validate
+ *         refuses those by name.
  */
-function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item): ?array {
+function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item): array {
     $stored = isset($stored_item['udc']) && is_array($stored_item['udc']) ? $stored_item['udc'] : [];
-    $merged = $stored;
-    foreach ($patch as $key => $value) {
-        if ($value === null) {
-            unset($merged[$key]);
-            continue;
-        }
-        $merged[$key] = $value;
-    }
+    // The `props` rule verbatim — the same helper, with no component, so no item-grain
+    // carry-forward: a band map has no repeater inside it.
+    $merged = _pp_merge_component_props($stored, $patch);
+    $stranded = [];
 
     if (!array_key_exists('_tokens', $patch)
         && isset($merged['_tokens']) && is_array($merged['_tokens'])
@@ -7483,20 +7478,37 @@ function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item
         $stored_item_maps = pp_udc_item_maps($stored_item);
         $merged_item['udc'] = $merged;
         $merged_item_maps = pp_udc_item_maps($merged_item);
+        // EVERY place the merged band still names a token, not only the mint's own
+        // coordinate: a minted token may legitimately be REUSED by another role or an item
+        // (update_composition stores that shape), and pruning it there would leave that
+        // reference dangling.
+        $referenced = _pp_udc_referenced_token_names($merged);
+        foreach ($merged_item_maps as $item_map) {
+            $referenced += _pp_udc_referenced_token_names($item_map);
+        }
         foreach (array_keys($merged['_tokens']) as $name) {
             $name = (string) $name;
-            if (_pp_udc_is_mint_shaped_name($name)
-                && _pp_udc_name_is_the_engines_own_mint($name, $stored, $stored_item_maps)
-                && !_pp_udc_name_is_the_engines_own_mint($name, $merged, $merged_item_maps)) {
-                unset($merged['_tokens'][$name]);
+            if (!_pp_udc_is_mint_shaped_name($name)
+                || !_pp_udc_name_is_the_engines_own_mint($name, $stored, $stored_item_maps)
+                || _pp_udc_name_is_the_engines_own_mint($name, $merged, $merged_item_maps)) {
+                continue; // Not the engine's, or its own coordinate still uses it.
             }
+            if (isset($referenced[$name])) {
+                // Its own value is gone but something else still names it. Neither
+                // keeping it (the gate then reads a mint-shaped name the engine no longer
+                // owns) nor pruning it (a dangling reference) stores a valid band, so the
+                // caller is told which token and why.
+                $stranded[] = $name;
+                continue;
+            }
+            unset($merged['_tokens'][$name]);
         }
         if ($merged['_tokens'] === []) {
             unset($merged['_tokens']);
         }
     }
 
-    return $merged === [] ? null : $merged;
+    return ['udc' => $merged === [] ? null : $merged, 'stranded' => $stranded];
 }
 
 /**
@@ -7504,14 +7516,21 @@ function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item
  *
  * ONE PLACE, THREE CALLERS. validate, preview and execute each used to rebuild the patched
  * band inline; with a third payload that is three copies of "which keys did the caller
- * send", and a preview that disagreed with execute is exactly the #604 class. Absent and
- * `null` are the same thing here, matching pp_validate_action()'s own type check, which
- * skips a null.
+ * send", and a preview that disagreed with execute is exactly the #604 class. Absent, `null`
+ * and an EMPTY `udc`/`style` are all "not sent" (_pp_component_update_carries()).
  *
- * @return array{item: array, props_before: array, props_after: array, udc_before: array, udc_after: array}
+ * @param array $item    The band as stored.
+ * @param array $params  The action params (props / style / udc).
+ * @param int   $post_id Pass the page id from EXECUTE ONLY. A non-zero id makes the props
+ *                       merge record the item-design carry disclosure
+ *                       (_pp_preserve_item_design), which must describe a write that
+ *                       happens — validate and preview pass 0.
+ * @return array{item: array, props_before: array, props_after: array, style_before: array,
+ *               style_after: array, udc_before: array, udc_after: array, stranded: string[]}
  */
 function _pp_apply_component_update(array $item, array $params, int $post_id = 0): array {
     $props_before = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
+    $style_before = isset($item['style']) && is_array($item['style']) ? $item['style'] : [];
     $udc_before   = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
     $component    = (string) ($item['component'] ?? '');
 
@@ -7520,24 +7539,27 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
         : $props_before;
     $item['props'] = $props_after;
 
-    if (!empty($params['style'])) {
-        $after_style = _pp_merge_component_props($item['style'] ?? [], $params['style']);
-        if (empty($after_style)) {
+    $style_after = $style_before;
+    if (_pp_component_update_carries($params, 'style')) {
+        $style_after = _pp_merge_component_props($style_before, $params['style']);
+        if (empty($style_after)) {
             unset($item['style']);
         } else {
-            $item['style'] = $after_style;
+            $item['style'] = $style_after;
         }
     }
 
-    if (isset($params['udc']) && is_array($params['udc'])) {
+    $stranded = [];
+    if (_pp_component_update_carries($params, 'udc')) {
         $stored_item = $item;
         $stored_item['props'] = $props_before;
         $stored_item['udc']   = $udc_before;
-        $udc_after = _pp_merge_band_udc($stored_item, $params['udc'], $item);
-        if ($udc_after === null) {
+        $merge = _pp_merge_band_udc($stored_item, $params['udc'], $item);
+        $stranded = $merge['stranded'];
+        if ($merge['udc'] === null) {
             unset($item['udc']);
         } else {
-            $item['udc'] = $udc_after;
+            $item['udc'] = $merge['udc'];
         }
     }
 
@@ -7545,27 +7567,63 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
         'item'         => $item,
         'props_before' => $props_before,
         'props_after'  => $props_after,
+        'style_before' => $style_before,
+        'style_after'  => $style_after,
         'udc_before'   => $udc_before,
         'udc_after'    => isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [],
+        'stranded'     => $stranded,
     ];
 }
 
 /**
+ * Did the caller send this update_component payload (#1088)? Absent and `null` are not
+ * sent (pp_validate_action()'s type check skips a null). An EMPTY `udc` or `style` is not
+ * sent either: it changes nothing, and counting it would let `{"udc": {}}` pass the
+ * nothing-to-change refusal and land a no-op write that still bumps the version and fills a
+ * history slot. `props` keeps its long-standing meaning — `{}` has always been accepted, and
+ * the documented v1-map clear sends it beside `style`.
+ */
+function _pp_component_update_carries(array $params, string $key): bool {
+    if (!array_key_exists($key, $params) || $params[$key] === null) {
+        return false;
+    }
+    return $key === 'props' || $params[$key] !== [];
+}
+
+/**
  * A role-grain diff of a band's `udc` map, for the changes array (#1088). One row per
- * top-level key whose value differs, which is exactly the grain the merge replaces at.
+ * top-level key whose value differs, which is exactly the grain the merge replaces at —
+ * except `_tokens`, which is diffed PER TOKEN: a prune touches a few names, and a row
+ * carrying the whole token map on both sides grew the envelope with the band's total token
+ * count rather than with the change (measured: ~1 MB for a one-role edit at 12,000 tokens).
  */
 function _pp_diff_udc(array $before, array $after, int $index): array {
     $changes = [];
     foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $key) {
         $from = $before[$key] ?? null;
         $to   = $after[$key] ?? null;
-        if ($from !== $to) {
-            $changes[] = [
-                'path' => 'composition[' . $index . '].udc.' . $key,
-                'from' => $from,
-                'to'   => $to,
-            ];
+        if ($from === $to) {
+            continue;
         }
+        if ($key === '_tokens' && (is_array($from) || $from === null) && (is_array($to) || $to === null)) {
+            $from = $from ?? [];
+            $to   = $to ?? [];
+            foreach (array_unique(array_merge(array_keys($from), array_keys($to))) as $name) {
+                if (($from[$name] ?? null) !== ($to[$name] ?? null)) {
+                    $changes[] = [
+                        'path' => 'composition[' . $index . '].udc._tokens.' . $name,
+                        'from' => $from[$name] ?? null,
+                        'to'   => $to[$name] ?? null,
+                    ];
+                }
+            }
+            continue;
+        }
+        $changes[] = [
+            'path' => 'composition[' . $index . '].udc.' . $key,
+            'from' => $from,
+            'to'   => $to,
+        ];
     }
     return $changes;
 }

@@ -46,7 +46,7 @@ wp pp action execute update_component --run-id=<uuid> --params='{"post_id":42,"c
 Two things to get right:
 
 1. **Send the whole ROLE you are changing.** The role is the unit that is replaced, so a role you send with only `color` loses the `weight` it had. Read the band's current map first — `wp post meta get <page_id> _pp_composition` (read the VERSION first, `wp post meta get <page_id> _pp_composition_version`; `inspect-composition` carries no `udc` at all) — and send the role with every value you want to keep.
-2. **Pass `expected_version`.** It is honoured on every surface, the CLI included (#1094), so an edit landed since you read is refused with `composition_conflict` instead of overwritten. On a conflict: re-read, re-apply, retry.
+2. **Pass `expected_version`** on the CLI. It is honoured there since #1094 (the in-admin chat supplies its own per-conversation baseline instead), so an edit landed since you read is refused with `composition_conflict` instead of overwritten. On a conflict: re-read, re-apply, retry.
 
 Values the engine minted for a responsive literal (`@heading-typography-size-d` and the band `_tokens` entry behind it) are its own: when you replace or remove the role that used them, the engine drops the tokens nothing references any more. A `_tokens` key you send yourself replaces the band's token map whole and is yours to keep consistent.
 
@@ -88,14 +88,13 @@ Report:
 - **Wrong section modified**: Agent targets the wrong component index
 - **Regression in adjacent section**: Rewriting composition clobbers unrelated sections
 - **Revision too broad**: Agent rewrites the entire page instead of the target section
-- **Styling attempted through the wrong action, and NOT told so.** A `theme` prop or a `style`
-  map sent to `update_component` is refused by name (`retired_prop` / `no_style_slots`). A
-  **`udc` key is not**: it is an undeclared parameter, so the validator never examines it — the
-  call returns `ok: true` with `findings: []`, the props land, and the styling is dropped with
-  no code and no trace. An agent that reads an empty `findings` array as confirmation (which
-  every other page here tells it to do) has no signal its styling never happened. Send `udc`
-  through `update_composition`, and after any styling write re-read the composition and confirm
-  the map is actually there
+- **Styling through a retired surface.** A `theme` prop or a `style` map sent to
+  `update_component` is refused by name (`retired_prop` / `no_style_slots`); the design goes in
+  `update_component`'s `udc` param (section 4)
+- **A partial role in `udc`.** The role you send REPLACES that role's stored map whole, so a role
+  sent with only `color` drops the `weight` it had — with `ok: true`, because that is the
+  documented merge. Read the band first and send each role you touch with every value it should
+  keep; after the write, re-read the band and confirm the map is what you meant
 - **Stale-array clobber**: Agent reuses a composition it read earlier in the session for the
   read-modify-write, discarding a change made in between
 - **Mobile breakage**: Desktop-focused revision breaks the mobile layout

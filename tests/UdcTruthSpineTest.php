@@ -254,11 +254,13 @@ final class UdcTruthSpineTest extends TestCase
      * that. A test whose name claims coverage its body does not carry is an I40
      * violation: it makes the invariant look guarded and stops anyone looking.
      *
-     * @todo #909 (CRITICAL) — pin I8 itself: a baseline must be traceable to the
-     *       read it came from, not merely numerically equal to the current one.
-     *       The known violation is the chat's localStorage-persisted baseline;
-     *       BUILD-SPEC §7 defers the fix to Sprint 3 or the first post-2.0.0 work.
-     *       Until then I8 is UNPINNED — see docs/v2/BUILD-SPEC-sprint0.md §6.
+     * @todo pin I8 itself: a baseline must be traceable to the read it came from,
+     *       not merely numerically equal to the current one. #909 closed the known
+     *       CONVERSATION-level violation (a read landing after New Chat no longer
+     *       writes the chat's persisted baseline — pinned in
+     *       tests/js/pp-ai-chat-baseline-after-reset.test.js); #910 (executeProposal()'s
+     *       own chain) stays open. I8 as a whole is still UNPINNED here — see
+     *       docs/v2/BUILD-SPEC-sprint0.md §6.
      */
     public function testAUdcWriteIsRefusedUnlessItsBaselineEqualsTheStoredVersion(): void
     {

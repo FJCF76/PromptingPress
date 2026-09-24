@@ -4618,9 +4618,10 @@ function ppChatAppendValidationItems(container, items, className) {
             reader.then(function () {
                 // Abandoned: New Chat ended this conversation while the read was in flight
                 // (#880). Nothing below is safe to run — renderProposal() would append a card
-                // with a LIVE Apply button, carrying a baseline this read just refreshed and
-                // so acceptable to the CAS gate, into a transcript the operator emptied on
-                // purpose. Whatever this click was going to keep or remove was detached by
+                // with a LIVE Apply button into a transcript the operator emptied on purpose.
+                // (Since #909 refreshBaseline() itself rejects an abandoned read and stores
+                // nothing, so for a real page this lands on the catch arm; the guard here
+                // still covers the no-read path and keeps the render safe on its own.) Whatever this click was going to keep or remove was detached by
                 // that clear, so returning here leaves nothing behind either.
                 if (myConversationId !== currentConversationId) return;
 

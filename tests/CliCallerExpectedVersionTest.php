@@ -276,6 +276,26 @@ class CliCallerExpectedVersionTest extends TestCase
     }
 
     /**
+     * An explicit JSON `null` is "no value", so it takes the default baseline — it must not
+     * reach the write as a null that skips the compare-and-swap entirely.
+     */
+    public function testAnExplicitNullTakesTheDefaultBaselineRatherThanDisablingTheCas(): void
+    {
+        $post_id = $this->page();
+        $run_id  = $this->preflightedRun($post_id);
+        $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition_version'] =
+            (string) ((int) pp_get_composition_marker($post_id)['version'] + 1);
+
+        $envelope = $this->execute($run_id, 'update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'x'],
+            'expected_version' => null,
+        ]);
+
+        $this->assertFalse($envelope['ok'], 'null is not an opt-out of the compare-and-swap');
+        $this->assertSame('composition_conflict', $envelope['error_code'] ?? null);
+    }
+
+    /**
      * The freshness gate keeps its own job. A caller-supplied version does NOT excuse a
      * preflight the page has moved past through another path: the command still halts with
      * the stale-preflight error, before any write, whatever number the caller sent.
