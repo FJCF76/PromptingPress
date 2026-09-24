@@ -348,4 +348,51 @@ class CliCallerExpectedVersionTest extends TestCase
             ]),
         ]);
     }
+
+    // ── Ship coverage audit additions ────────────────────────────────────────
+
+    /** The first write of a run, carrying exactly the version the preflight recorded, lands. */
+    public function testACallerVersionEqualToThePreflightBaselineWritesOnTheRunsFirstWrite(): void
+    {
+        $post_id = $this->page();
+        $run_id  = $this->preflightedRun($post_id);
+        $read    = (int) pp_get_composition_marker($post_id)['version'];
+
+        $envelope = $this->execute($run_id, 'update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'first'],
+            'expected_version' => $read,
+        ]);
+
+        $this->assertTrue($envelope['ok'], (string) ($envelope['error'] ?? ''));
+        $this->assertSame('first', $this->storedTitle($post_id));
+        $this->assertSame($read + 1, (int) pp_get_composition_marker($post_id)['version']);
+    }
+
+    /**
+     * The #1088 styling surface on the #1094 path: a udc-only update_component carrying the
+     * version the author read is refused once a content edit has landed in the same run, and
+     * the design is not written.
+     */
+    public function testAStaleUdcOnlyEditIsRefusedOnTheCallersVersion(): void
+    {
+        $post_id = $this->page();
+        $run_id  = $this->preflightedRun($post_id);
+        $read    = (int) pp_get_composition_marker($post_id)['version'];
+
+        $content = $this->execute($run_id, 'update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'CONTENT EDIT'],
+        ]);
+        $this->assertTrue($content['ok'], 'premise: ' . ($content['error'] ?? ''));
+
+        $styling = $this->execute($run_id, 'update_component', [
+            'post_id' => $post_id, 'component_index' => 0,
+            'udc'     => ['title' => ['typography' => ['color' => '#111111']]],
+            'expected_version' => $read,
+        ]);
+
+        $this->assertFalse($styling['ok']);
+        $this->assertSame('composition_conflict', $styling['error_code'] ?? null);
+        $this->assertArrayNotHasKey('udc', pp_get_composition($post_id)[0], 'no design was written');
+        $this->assertSame('CONTENT EDIT', $this->storedTitle($post_id));
+    }
 }

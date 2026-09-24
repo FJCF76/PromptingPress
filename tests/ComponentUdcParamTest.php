@@ -757,4 +757,141 @@ final class ComponentUdcParamTest extends TestCase
         $after = $preview['after'] ?? [];
         $this->assertSame(['heading' => ['typography' => ['color' => '#ffffff']]], end($after)['udc'] ?? null);
     }
+
+    // ── Ship coverage audit additions ────────────────────────────────────────
+
+    /** The stranded refusal's PLURAL wording: two mints stranded at once are both named. */
+    public function testTwoStrandedMintsAreBothNamedInThePluralRefusal(): void
+    {
+        $id = pp_create_page('two stranded', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'section',
+            'udc'       => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]])['ok'], 'premise: minted');
+        $stored = pp_get_composition($id);
+        $stored[0]['udc']['subheading'] = ['typography' => ['size' => '@heading-typography-size-d']];
+        $stored[0]['udc']['eyebrow']    = ['typography' => ['size' => '@heading-typography-size-p']];
+        $seed = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored]);
+        $this->assertTrue($seed['ok'], 'premise: reused twice: ' . ($seed['error'] ?? ''));
+        $before = $this->band($id, 0);
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['heading' => ['typography' => ['color' => '#111111']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code'] ?? null);
+        $error = (string) $result['error'];
+        $this->assertStringContainsString('tokens ', $error, 'plural noun');
+        $this->assertStringContainsString('@heading-typography-size-d', $error);
+        $this->assertStringContainsString('@heading-typography-size-p', $error);
+        $this->assertStringContainsString('still references them', $error);
+        $this->assertStringContainsString('those references', $error);
+        $this->assertSame($before, $this->band($id, 0), 'nothing stored');
+    }
+
+    /**
+     * Emptying the whole map in one call: the stored band has NO udc key, so execute's
+     * read-back falls back to the applied (empty) map — and still records each removed role.
+     */
+    public function testRemovingEveryRoleInOneCallRecordsEachRemovedRole(): void
+    {
+        $id = $this->page();
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['_band' => null, 'heading' => null],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertArrayNotHasKey('udc', $this->band($id, 0));
+        $rows = array_column($result['changes'], null, 'path');
+        $this->assertArrayHasKey('composition[0].udc._band', $rows);
+        $this->assertArrayHasKey('composition[0].udc.heading', $rows);
+        $this->assertNull($rows['composition[0].udc._band']['to']);
+        $this->assertSame(['background' => ['fill' => '#101828']], $rows['composition[0].udc._band']['from']);
+        $this->assertNull($rows['composition[0].udc.heading']['to']);
+    }
+
+    /** A props-only edit on a styled band reports no udc rows and leaves the map byte-identical. */
+    public function testAPropsOnlyEditOnAStyledBandReportsNoUdcRows(): void
+    {
+        $id = $this->page();
+        $udc_before = $this->band($id, 0)['udc'];
+        $params = ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => 'Renamed']];
+
+        $preview = pp_preview_action('update_component', $params);
+        $result  = $this->update($params);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        foreach (['preview' => $preview['changes'] ?? [], 'execute' => $result['changes']] as $surface => $changes) {
+            foreach (array_column($changes, 'path') as $path) {
+                $this->assertStringNotContainsString('.udc', (string) $path, $surface . ' reported a udc row for a props-only edit');
+            }
+        }
+        $this->assertSame($udc_before, $this->band($id, 0)['udc']);
+        $this->assertSame('Renamed', $this->band($id, 0)['props']['title']);
+    }
+
+    /** The first mint on a band is reported per token, from null — never as a whole-map row. */
+    public function testAFirstMintIsReportedPerTokenFromNull(): void
+    {
+        $id = $this->page();
+
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $rows = array_column($result['changes'], null, 'path');
+        $this->assertArrayNotHasKey('composition[1].udc._tokens', $rows);
+        $row = $rows['composition[1].udc._tokens.heading-typography-size-d'] ?? null;
+        $this->assertNotNull($row);
+        $this->assertNull($row['from']);
+        $this->assertSame('3rem', $row['to']);
+        $this->assertSame('2rem', $rows['composition[1].udc._tokens.heading-typography-size-p']['to'] ?? null);
+        $this->assertArrayHasKey('composition[1].udc.heading', $rows, 'the role itself is new');
+    }
+
+    /** add_component's `position` splice carries the new band's map to the index it lands on. */
+    public function testAddComponentAtAPositionCarriesItsMapThere(): void
+    {
+        $id = $this->page();
+
+        $result = pp_execute_action('add_component', [
+            'post_id'   => $id,
+            'component' => 'section',
+            'props'     => ['title' => 'First', 'body' => 'b'],
+            'udc'       => ['heading' => ['typography' => ['color' => '#123456']]],
+            'position'  => 0,
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertCount(3, pp_get_composition($id));
+        $this->assertSame('First', $this->band($id, 0)['props']['title']);
+        $this->assertSame(['heading' => ['typography' => ['color' => '#123456']]], $this->band($id, 0)['udc']);
+        $this->assertSame('Styled', $this->band($id, 1)['props']['title'], 'the old first band moved down');
+    }
+
+    /** A udc patch addressed by component_id reaches the band the id names, and only it. */
+    public function testAUdcPatchAddressedByComponentIdRestylesThatBand(): void
+    {
+        $id = $this->page();
+        $seed = $this->update(['post_id' => $id, 'component_index' => 1, 'props' => ['id' => 'plain-band']]);
+        $this->assertTrue($seed['ok'], 'premise: authored id prop: ' . ($seed['error'] ?? ''));
+        $band_id = 'plain-band';
+        $other_before = $this->band($id, 0);
+
+        $result = $this->update([
+            'post_id' => $id, 'component_id' => $band_id,
+            'udc'     => ['heading' => ['typography' => ['color' => '#abcdef']]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertSame(['heading' => ['typography' => ['color' => '#abcdef']]], $this->band($id, 1)['udc']);
+        $this->assertSame($other_before, $this->band($id, 0), 'the other band is untouched');
+    }
 }
