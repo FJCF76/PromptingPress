@@ -276,6 +276,34 @@ class CliCallerExpectedVersionTest extends TestCase
     }
 
     /**
+     * A caller value the freshness gate has just proven wrong is refused AT THE GATE, with the
+     * writer's own code and message — not handed to the write, where a concurrent writer
+     * moving the page to exactly that number would let the CAS pass a write this run never
+     * preflighted against (security + adversarial review).
+     */
+    public function testACallerVersionTheGateDisprovesIsRefusedBeforeTheWrite(): void
+    {
+        $post_id = $this->page();
+        $run_id  = $this->preflightedRun($post_id);
+        $live    = (int) pp_get_composition_marker($post_id)['version'];
+        // THE RACE, staged the way the sibling pins stage it: the gate reads the warmed cache
+        // (still $live), while another writer has moved the ROW to exactly the number this
+        // caller sends. Handed to the write, the in-lock CAS would compare $live + 1 against
+        // $live + 1 and PASS.
+        $GLOBALS['_pp_test_store']['wpdb_postmeta'][$post_id]['_pp_composition_version'] = (string) ($live + 1);
+
+        $refused = $this->execute($run_id, 'update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'x'],
+            'expected_version' => $live + 1,
+        ]);
+
+        $this->assertFalse($refused['ok'], 'refused at the gate, before the CAS could pass it');
+        $this->assertSame('composition_conflict', $refused['error_code'] ?? null);
+        $this->assertStringContainsString('expected version ' . ($live + 1) . ', current version ' . $live, (string) $refused['error']);
+        $this->assertSame('ORIGINAL', $this->storedTitle($post_id), 'no write happened');
+    }
+
+    /**
      * An explicit JSON `null` is "no value", so it takes the default baseline — it must not
      * reach the write as a null that skips the compare-and-swap entirely.
      */

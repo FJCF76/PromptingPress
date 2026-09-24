@@ -462,27 +462,40 @@ final class ComponentUdcParamTest extends TestCase
     }
 
     /**
-     * A PATCH THAT SENDS `_tokens` OWNS THE TOKEN MAP: no pruning. So the stored mint-shaped
-     * names it re-sends while nothing references them any more reach the gate, which names
-     * them — an outcome that differs from the pruned one, which is what makes this a pin.
+     * THE ROUND TRIP: read the band's map back, change one role, send the WHOLE map — its
+     * `_tokens` included, engine mints and all. The mints the edit orphaned are the engine's,
+     * so they are pruned here too; refusing the round trip would blame the caller for names
+     * the engine wrote (adversarial-pass finding: this used to be refused with "pick another
+     * name").
      */
-    public function testAPatchThatSendsTokensGetsNoPruning(): void
+    public function testARoundTripThatResendsTheStoredTokenMapIsAccepted(): void
     {
         $id = $this->page();
         $this->update([
             'post_id' => $id, 'component_index' => 1,
             'udc'     => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
         ]);
+        $map = $this->band($id, 1)['udc'];
+        $map['heading'] = ['typography' => ['size' => '4rem']];
+
+        $result = $this->update(['post_id' => $id, 'component_index' => 1, 'udc' => $map]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $this->assertArrayNotHasKey('_tokens', $this->band($id, 1)['udc'], 'both orphaned mints pruned');
+        $this->assertSame('4rem', $this->band($id, 1)['udc']['heading']['typography']['size']);
+    }
+
+    /** A mint-shaped name the PATCH introduces is not the engine's — the squat gate names it. */
+    public function testAMintShapedNameThePatchIntroducesIsStillRefused(): void
+    {
+        $id = $this->page();
 
         $result = $this->update([
             'post_id' => $id, 'component_index' => 1,
-            'udc'     => [
-                'heading' => ['typography' => ['size' => '4rem']],
-                '_tokens' => $this->band($id, 1)['udc']['_tokens'],
-            ],
+            'udc'     => ['_tokens' => ['heading-typography-size-d' => '3rem']],
         ]);
 
-        $this->assertFalse($result['ok'], 'the caller\'s own token map is taken as sent');
+        $this->assertFalse($result['ok']);
         $this->assertStringContainsString('heading-typography-size-d', (string) $result['error']);
     }
 
@@ -540,6 +553,71 @@ final class ComponentUdcParamTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('still references', (string) $result['error']);
+    }
+
+    /**
+     * THE RECORD DESCRIBES WHAT IS STORED. Changing a responsive value keeps its minted
+     * token and gives it a new value; the envelope used to report the token as DELETED and
+     * the role as a raw literal, because it diffed the merge before the write minted it.
+     */
+    public function testARestyledResponsiveValueIsReportedAsATokenValueChange(): void
+    {
+        $id = $this->page();
+        $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+        ]);
+
+        $preview = pp_preview_action('update_component', [
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['size' => ['d' => '5rem', 'p' => '2rem']]]],
+        ]);
+        $result = $this->update([
+            'post_id' => $id, 'component_index' => 1,
+            'udc'     => ['heading' => ['typography' => ['size' => ['d' => '5rem', 'p' => '2rem']]]],
+        ]);
+
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        foreach (['preview' => $preview['changes'], 'execute' => $result['changes']] as $surface => $changes) {
+            $rows = array_column($changes, null, 'path');
+            $row = $rows['composition[1].udc._tokens.heading-typography-size-d'] ?? null;
+            $this->assertNotNull($row, $surface . ' reports the token');
+            $this->assertSame('3rem', $row['from'], $surface);
+            $this->assertSame('5rem', $row['to'], $surface . ': a new value, not a deletion');
+            $this->assertArrayNotHasKey('composition[1].udc.heading', $rows,
+                $surface . ': the role still holds the same references, so it is not a change');
+        }
+        $this->assertSame('5rem', $this->band($id, 1)['udc']['_tokens']['heading-typography-size-d']);
+    }
+
+    /**
+     * EXECUTE FAILS CLOSED ON A STRANDED MINT, independently of validate. A caller with no
+     * expected_version can have the band change between validate's read and execute's; the
+     * writer normalizes but does not re-validate a udc map. Driven by calling the registered
+     * execute arm directly against a band validate never saw.
+     */
+    public function testExecuteRefusesAStrandedMintOnTheStateItMerged(): void
+    {
+        $id = pp_create_page('execute-stage strand', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
+            'component' => 'section',
+            'udc'       => ['heading' => ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]])['ok']);
+        $stored = pp_get_composition($id);
+        $stored[0]['udc']['subheading'] = ['typography' => ['size' => '@heading-typography-size-d']];
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored])['ok']);
+        $before = $this->band($id, 0);
+
+        $execute = pp_get_action('update_component')['execute'];
+        $result = $execute([
+            'post_id' => $id, 'component_index' => 0,
+            'udc'     => ['heading' => ['typography' => ['color' => '#111111']]],
+        ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_prop_value', $result['error_code']);
+        $this->assertSame($before, $this->band($id, 0), 'nothing stored');
     }
 
     // ── Preview reports what execute will store ──────────────────────────────

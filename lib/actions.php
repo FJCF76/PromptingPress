@@ -6446,7 +6446,7 @@ pp_register_action('update_component', [
         // "Either X or Y is required", the registry's own family for this shape
         // (missing_component_target, missing_style, missing_link). What counts as SENT is
         // _pp_component_update_carries()'s answer: absent, null and an empty udc/style are
-        // not — an empty patch changes nothing and must not land a versioned no-op.
+        // not — an empty patch is refused rather than landed as a versioned no-op.
         if (!_pp_component_update_carries($params, 'props')
             && !_pp_component_update_carries($params, 'udc')
             && !_pp_component_update_carries($params, 'style')) {
@@ -6557,6 +6557,20 @@ pp_register_action('update_component', [
         // bytes always match what the caller asked for. The band `udc` (#1088) goes through
         // the same helper, merged by role, with the engine's orphaned mints pruned.
         $applied = _pp_apply_component_update($composition[$index], $params, (int) $params['post_id']);
+        // FAIL CLOSED ON THE STATE EXECUTE ACTUALLY MERGED INTO. validate refused a stranded
+        // mint on the composition it read; a caller that sends no expected_version can have
+        // another write land between the two reads, and pp_update_composition() normalizes
+        // but does not re-validate a udc map, so this is the last point that can say no.
+        if ($applied['stranded'] !== []) {
+            return _pp_action_error('update_component', 'section', sprintf(
+                'The band changed while this udc patch was being applied: it now removes the value behind '
+                . 'the engine-minted token%s %s while something else on the band still references %s. '
+                . 'Re-read the band and retry.',
+                count($applied['stranded']) === 1 ? '' : 's',
+                '@' . implode(', @', array_map('_pp_udc_reflect', $applied['stranded'])),
+                count($applied['stranded']) === 1 ? 'it' : 'them'
+            ), 'invalid_prop_value');
+        }
         $composition[$index] = $applied['item'];
 
         $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
@@ -7447,8 +7461,10 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
  * the ENGINE minted it in the stored map (the same predicate that gate uses,
  * _pp_udc_name_is_the_engines_own_mint) and the merged map no longer references it. Nothing
  * else is touched: an author's own token survives even unreferenced (as it would through
- * update_composition), a name that was already squatting in storage is left for the gate to
- * name, and a patch that sends `_tokens` owns the whole token map and gets no pruning.
+ * update_composition), and a name that was already squatting in storage — or that the patch
+ * introduces — is left for the gate to name. A patch that sends `_tokens` is pruned by the same
+ * rule: the ordinary read-modify-write re-sends the stored token map, engine mints included, and
+ * refusing that round trip over a name the engine wrote would blame the caller for it.
  *
  * A MINT SOMETHING ELSE STILL NAMES is neither pruned nor kept: update_composition accepts a
  * band that reuses `@heading-typography-size-d` on another role or an item, and once the
@@ -7472,8 +7488,7 @@ function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item
     $merged = _pp_merge_component_props($stored, $patch);
     $stranded = [];
 
-    if (!array_key_exists('_tokens', $patch)
-        && isset($merged['_tokens']) && is_array($merged['_tokens'])
+    if (isset($merged['_tokens']) && is_array($merged['_tokens'])
         && function_exists('_pp_udc_name_is_the_engines_own_mint')) {
         $stored_item_maps = pp_udc_item_maps($stored_item);
         $merged_item['udc'] = $merged;
@@ -7570,9 +7585,25 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
         'style_before' => $style_before,
         'style_after'  => $style_after,
         'udc_before'   => $udc_before,
-        'udc_after'    => isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [],
+        // WHAT WILL BE STORED, not the pre-mint merge. pp_update_composition() normalizes the
+        // band (minting lifts a responsive literal into `_tokens` and rewrites it as a
+        // reference), so a diff of the raw merge told an operator approving a changed
+        // responsive value that its tokens were being DELETED when they were kept with new
+        // values (review finding, adversarial pass). The stored side is already normalized.
+        'udc_after'    => _pp_normalized_band_udc($item),
         'stranded'     => $stranded,
     ];
+}
+
+/**
+ * A band's `udc` map as the write path will store it — through the same normalizer
+ * pp_update_composition() runs — for the preview and the write record (#1088, #604).
+ */
+function _pp_normalized_band_udc(array $item): array {
+    if (function_exists('pp_udc_normalize_band')) {
+        $item = pp_udc_normalize_band($item);
+    }
+    return isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
 }
 
 /**
@@ -7580,7 +7611,9 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
  * sent (pp_validate_action()'s type check skips a null). An EMPTY `udc` or `style` is not
  * sent either: it changes nothing, and counting it would let `{"udc": {}}` pass the
  * nothing-to-change refusal and land a no-op write that still bumps the version and fills a
- * history slot. `props` keeps its long-standing meaning — `{}` has always been accepted, and
+ * history slot. This is a SHAPE check, not a diff: a non-empty patch that happens to change
+ * nothing (`{"eyebrow": null}` on a band with no eyebrow) is still written, as a props patch
+ * that repeats the stored values always has been. `props` keeps its long-standing meaning — `{}` has always been accepted, and
  * the documented v1-map clear sends it beside `style`.
  */
 function _pp_component_update_carries(array $params, string $key): bool {

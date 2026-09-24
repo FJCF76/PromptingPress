@@ -1122,6 +1122,28 @@ class PP_Action_Command extends WP_CLI_Command {
             );
             if ($baseline_version !== null && !isset($params['expected_version'])) {
                 $params['expected_version'] = $baseline_version;
+            } elseif ($baseline_version !== null && (int) $params['expected_version'] !== $baseline_version) {
+                // ANSWERED HERE, ATOMICALLY WITH THE GATE, rather than at the write. The gate
+                // above has just verified the live version IS $baseline_version, so a caller
+                // value that differs can only be refused by the compare-and-swap — unless
+                // another writer moves the page to exactly the caller's number in the window
+                // between this line and the write, in which case the CAS would PASS a write
+                // this run never preflighted against. Refusing now gives every caller the
+                // answer the CAS would have given, and closes that window (review finding,
+                // security + adversarial passes). Same code, same message as the writer's.
+                $post_id_for_conflict = (int) ($params['post_id'] ?? 0);
+                _pp_cli_emit_json(_pp_action_error(
+                    $name,
+                    (string) ($action['scope'] ?? ''),
+                    'The composition for post ' . $post_id_for_conflict . ' changed since you last read it '
+                    . '(expected version ' . (int) $params['expected_version'] . ', current version '
+                    . $baseline_version . '). Another writer (a CLI action, the dashboard editor, or the AI '
+                    . 'chat) modified it. Re-read the current composition and re-apply your change. '
+                    . '[composition_conflict]',
+                    'composition_conflict'
+                ));
+                WP_CLI::halt(1);
+                return;
             }
         }
 
