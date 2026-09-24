@@ -342,7 +342,9 @@ A background image is an attachment id, never a URL:
 is illegible over whatever the photograph happens to contain. The scrim is not automatic, and
 neither are `size` and `repeat`. The reverse does not work: an `overlay` with no `image` paints
 nothing (a `fill` is a colour, not an image), and the write says so with a
-`udc_overlay_without_image` finding naming the role, and the card when it is one.
+`udc_overlay_without_image` finding naming the role, and the card when it is one. Keep the
+`overlay` out of states: a `:hover` overlay never paints, even over a base image, because
+`image` cannot be set inside a state.
 
 ---
 

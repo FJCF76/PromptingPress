@@ -34,7 +34,9 @@ This checks:
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
      under it. The scrim is dropped: an overlay only paints over an image, and a
      `background.fill` is a colour, not an image. Set `background.image`, put the tint
-     in the fill, or remove the overlay. The same fact appears in `wp pp check page` as a
+     in the fill, or remove the overlay. An overlay inside a state (`:hover`) is always
+     dropped, even over a base image, because `background.image` cannot be set inside a
+     state. The same fact appears in `wp pp check page` as a
      `udc_value_cannot_take_effect` row.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.

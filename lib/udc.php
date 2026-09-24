@@ -2388,7 +2388,7 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  * and that band should keep painting its `fill`, not grow a mystery scrim over
  * it. Emitting the scrim alone would be a declaration the author never asked for.
  */
-function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = ''): array {
+function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
         return $declarations;
     }
@@ -2407,12 +2407,21 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
             $drops[] = [
                 'where'  => trim($where . ' background.overlay'),
-                'reason' => isset($declarations['background'])
+                // A STATE's scrim has its own reason. `background.image` is refused
+                // inside a state, so a `:hover` bucket never holds an image of its
+                // own and its overlay is dropped even when the role HAS a base image
+                // (states do not borrow it the way narrower breakpoints do). Saying
+                // "declares no background.image" there would be false.
+                'reason' => $in_state
+                    ? 'an overlay inside a state paints only over an image in that same state, and '
+                      . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
+                      . 'role has a base image. Move the overlay out of the state, or remove it'
+                    : (isset($declarations['background'])
                     ? 'an overlay paints only over an image, and this role declares a background.fill but no '
                       . 'background.image: a fill is a colour, not an image, so the scrim was dropped. Set '
                       . 'background.image (an attachment id), or put the tint in the fill itself'
                     : 'an overlay paints only over an image, and this role declares no background.image, '
-                      . 'so the scrim was dropped. Set background.image (an attachment id), or remove the overlay',
+                      . 'so the scrim was dropped. Set background.image (an attachment id), or remove the overlay'),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -5016,7 +5025,8 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 $declarations = _pp_udc_compose_background_layers(
                     $declarations,
                     $drops,
-                    $drops === null ? '' : _pp_udc_overlay_drop_where('', (string) $role_name, (string) $state, (string) $bp)
+                    $drops === null ? '' : _pp_udc_overlay_drop_where('', (string) $role_name, (string) $state, (string) $bp),
+                    (string) $state !== ''
                 );
                 // AFTER the compose, so the overlay has already been folded into
                 // background-image and the companions see the final layer list.
@@ -5310,7 +5320,8 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             $declarations = _pp_udc_compose_background_layers(
                                 $declarations,
                                 $drops,
-                                $drops === null ? '' : _pp_udc_overlay_drop_where((string) $item_id, (string) $role_name, (string) $state, (string) $bp)
+                                $drops === null ? '' : _pp_udc_overlay_drop_where((string) $item_id, (string) $role_name, (string) $state, (string) $bp),
+                                (string) $state !== ''
                             );
                             $declarations = _pp_udc_background_image_companions($declarations);
                             $declarations = _pp_udc_grid_columns_companion(

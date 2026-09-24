@@ -224,6 +224,27 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('item "' . $item_id . '"', $found[0]['message']);
     }
 
+    /**
+     * A STATE's overlay. `background.image` is refused inside a state, so a `:hover` scrim
+     * never has an image in its own bucket and is dropped even when the role HAS a base
+     * image. The finding must say that, not claim the role declares no image.
+     */
+    public function testAHoverOverlayIsDisclosedTruthfullyEvenOverABaseImage(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $result] = $this->page($this->grid(['card' => ['background' => [
+            'image'  => 9001,
+            ':hover' => ['overlay' => '#112233'],
+        ]]]));
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found, 'the hover scrim paints nowhere');
+        $this->assertStringContainsString('(:hover)', $found[0]['message']);
+        $this->assertStringContainsString('inside a state', $found[0]['message']);
+        $this->assertStringNotContainsString('declares no background.image', $found[0]['message'], 'the role does declare one');
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
