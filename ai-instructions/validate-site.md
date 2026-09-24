@@ -30,7 +30,8 @@ This checks:
    - `udc_preset_value_shadowed_by_role_default` — you applied a preset, but the role's
      OWN default outranks a preset for that parameter, so the preset's value is not
      applied. Write the value directly in your map for that role, where it outranks both.
-     Fires on a card's own map too, and then names the card as `item "<id>"`.
+     Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
+     group-grain `_preset` (inside `typography`, say), naming the group.
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
      under it, one finding per dropped value (a responsive overlay names each breakpoint). The scrim is dropped: an overlay only paints over an image, and a
      `background.fill` is a colour, not an image. Set `background.image`, put the tint

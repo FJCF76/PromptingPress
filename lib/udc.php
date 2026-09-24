@@ -8171,53 +8171,72 @@ function pp_udc_composition_findings(array $items): array {
         // role also defaults was accepted, stored, reported ok:true with findings:[], and
         // painted nothing — the exact sentence that sibling's comment says must not happen.
         // It now reads `$preset_maps`, the band map plus every item map, and names the card.
+        //
+        // AND BOTH PRESET GRAINS. A `_preset` inside a group (`"typography": {"_preset": …}`)
+        // ranks under the role's defaults exactly like a role-grain one, so it loses the
+        // same parameters; its fragment is resolved at that group and checked as a one-group
+        // map, and the message names the group.
         foreach ($preset_maps as [$locator, $map]) {
             foreach ($map as $role_name => $role_map) {
-                if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
-                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                if (!is_array($role_map) || !isset($roles[(string) $role_name])) {
                     continue;
                 }
-                $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
-                if ($preset === null) {
-                    continue;
+                // [preset name, role-shaped fragment, group or '' for role grain]
+                $preset_refs = [];
+                if (isset($role_map[PP_UDC_PRESET_KEY]) && is_string($role_map[PP_UDC_PRESET_KEY])) {
+                    $preset   = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
+                    $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, 'role');
+                    if (is_array($fragment) && $fragment !== []) {
+                        $preset_refs[] = [$role_map[PP_UDC_PRESET_KEY], $fragment, ''];
+                    }
                 }
-                $fragment = _pp_udc_preset_fragment($preset, 'role');
-                if (!is_array($fragment) || $fragment === []) {
-                    continue;
+                foreach ($role_map as $group_name => $group_map) {
+                    if (!is_array($group_map) || !isset($group_map[PP_UDC_PRESET_KEY])
+                        || !is_string($group_map[PP_UDC_PRESET_KEY])) {
+                        continue;
+                    }
+                    $preset   = pp_udc_resolve_preset($group_map[PP_UDC_PRESET_KEY]);
+                    $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, (string) $group_name);
+                    if (is_array($fragment) && $fragment !== []) {
+                        $preset_refs[] = [$group_map[PP_UDC_PRESET_KEY], [(string) $group_name => $fragment], (string) $group_name];
+                    }
                 }
-                $shadowed = _pp_udc_preset_values_shadowed_by_role_defaults(
-                    $fragment,
-                    $roles[(string) $role_name]
-                );
-                if ($shadowed === []) {
-                    continue;
+                foreach ($preset_refs as [$preset_name, $fragment, $preset_group]) {
+                    $shadowed = _pp_udc_preset_values_shadowed_by_role_defaults(
+                        $fragment,
+                        $roles[(string) $role_name]
+                    );
+                    if ($shadowed === []) {
+                        continue;
+                    }
+                    if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break 3;
+                    }
+                    $shadow_disclosed++;
+                    $total = count($shadowed);
+                    $findings[] = [
+                        'type'    => 'udc_preset_value_shadowed_by_role_default',
+                        'message' => sprintf(
+                            'Component "%s"%s role "%s"%s: the preset "%s" sets %s, but this role\'s own default '
+                            . 'for %s outranks a preset, so %s not applied. Write the value in your own map '
+                            . 'for this role, where it out-ranks both.',
+                            $component,
+                            $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
+                            (string) $role_name,
+                            $preset_group === '' ? '' : sprintf(' group "%s"', _pp_udc_reflect($preset_group)),
+                            _pp_udc_reflect($preset_name),
+                            // BOUNDED, through the repo's one list contract. This names
+                            // PARAMETERS, and a role may permit every group in the taxonomy —
+                            // so the list is capped and the tail carries the TRUE total, or the
+                            // next preset with a wide fragment turns a diagnostic into an
+                            // unbounded interpolation.
+                            pp_udc_bounded_list($shadowed, 6, $total),
+                            $total === 1 ? 'it' : 'them',
+                            $total === 1 ? 'it was' : 'they were'
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
                 }
-                if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
-                    break 2;
-                }
-                $shadow_disclosed++;
-                $total = count($shadowed);
-                $findings[] = [
-                    'type'    => 'udc_preset_value_shadowed_by_role_default',
-                    'message' => sprintf(
-                        'Component "%s"%s role "%s": the preset "%s" sets %s, but this role\'s own default '
-                        . 'for %s outranks a preset, so %s not applied. Write the value in your own map '
-                        . 'for this role, where it out-ranks both.',
-                        $component,
-                        $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
-                        (string) $role_name,
-                        _pp_udc_reflect($role_map[PP_UDC_PRESET_KEY]),
-                        // BOUNDED, through the repo's one list contract. This names
-                        // PARAMETERS, and a role may permit every group in the taxonomy —
-                        // so the list is capped and the tail carries the TRUE total, or the
-                        // next preset with a wide fragment turns a diagnostic into an
-                        // unbounded interpolation.
-                        pp_udc_bounded_list($shadowed, 6, $total),
-                        $total === 1 ? 'it' : 'them',
-                        $total === 1 ? 'it was' : 'they were'
-                    ),
-                    'index'   => is_int($i) ? $i : null,
-                ];
             }
         }
 

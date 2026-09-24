@@ -1586,7 +1586,14 @@ function pp_composition_pages(bool $fresh = false): array {
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
 function pp_composition_pages_for_reference_gate(): array {
-    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash']);
+    // UNCACHED (#1115). WordPress caches a WP_Query's ID list for the rest of the request,
+    // salted by `last_changed`, and nothing between delete_preset's validate and its
+    // under-lock writer moves that salt — so the writer's re-scan would get validate's
+    // page list back and never see a page another process created in between.
+    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash'], [
+        'cache_results'          => false,
+        'update_post_meta_cache' => false,
+    ]);
 }
 
 /**
@@ -1598,8 +1605,8 @@ function pp_composition_pages_for_reference_gate(): array {
  *
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
-function _pp_composition_pages_query(?array $statuses = null): array {
-    $posts = get_posts([
+function _pp_composition_pages_query(?array $statuses = null, array $query_overrides = []): array {
+    $posts = get_posts(array_merge([
         'post_type'      => 'page',
         'post_status'    => $statuses ?? ['publish', 'draft', 'pending', 'private'],
         'meta_key'       => '_wp_page_template',
@@ -1607,7 +1614,7 @@ function _pp_composition_pages_query(?array $statuses = null): array {
         'posts_per_page' => -1,
         'orderby'        => 'title',
         'order'          => 'ASC',
-    ]);
+    ], $query_overrides));
 
     $out = [];
     foreach ($posts as $post) {

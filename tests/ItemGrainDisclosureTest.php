@@ -186,6 +186,30 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('site chrome "nav"', (string) $result['error']);
     }
 
+    /**
+     * THE PAGE LIST IS READ FRESH TOO. WordPress (6.1+) caches a WP_Query's ID list for the
+     * rest of the request, salted by `last_changed`, and nothing between validate and the
+     * writer moves that salt — so without opting out, the under-lock scan would walk
+     * validate's page list and miss a page another process created in between. The stub
+     * does not model that cache, so the contract is pinned on what the gate ASKS for.
+     */
+    public function testTheReferenceGateOptsOutOfTheInRequestQueryCache(): void
+    {
+        $this->savePreset('probe-type', ['typography' => ['weight' => '800']]);
+        $GLOBALS['_pp_test_get_posts_calls'] = [];
+
+        pp_execute_action('delete_preset', ['name' => 'probe-type']);
+
+        $gate_calls = array_values(array_filter(
+            $GLOBALS['_pp_test_get_posts_calls'],
+            static fn (array $a): bool => in_array('trash', (array) ($a['post_status'] ?? []), true)
+        ));
+        $this->assertCount(2, $gate_calls, 'premise: validate and the writer each list the pages');
+        foreach ($gate_calls as $args) {
+            $this->assertFalse($args['cache_results'] ?? true, 'the reference gate lists pages uncached');
+        }
+    }
+
     // ═══ #1116 — the shadowed-preset disclosure at item grain ════════════════
 
     public function testACardPresetShadowedByTheRoleDefaultIsDisclosedWithTheItemLocator(): void
@@ -200,6 +224,32 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('item "' . $item_id . '"', $found[0]['message']);
         $this->assertStringContainsString('role "card-title"', $found[0]['message']);
         $this->assertStringContainsString('probe-shadow', $found[0]['message']);
+    }
+
+    /**
+     * GROUP GRAIN TOO. A `_preset` inside a group (`typography._preset`) ranks under the
+     * role's defaults exactly like a role-grain one, so the same suppressed parameters
+     * go unpainted — at card grain and at band grain.
+     */
+    public function testAGroupGrainPresetShadowedByTheRoleDefaultIsDisclosedAtBothGrains(): void
+    {
+        $this->savePreset('probe-gshadow', ['size' => '3rem', 'weight' => '800', 'style' => 'italic'], 'typography');
+
+        [$id, $card] = $this->page($this->grid(['card-title' => ['typography' => ['_preset' => 'probe-gshadow']]]));
+        [, $band]    = $this->page([[
+            'component' => 'grid',
+            'udc'       => ['card-title' => ['typography' => ['_preset' => 'probe-gshadow']]],
+            'props'     => ['title' => 'G', 'items' => [['title' => 'One']]],
+        ]], 'band group grain');
+
+        $item_id = (string) pp_get_composition($id)[0]['props']['items'][0]['id'];
+        $on_card = $this->findingsOfType($card, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $on_card);
+        $this->assertStringContainsString('item "' . $item_id . '"', $on_card[0]['message']);
+        $this->assertStringContainsString('group "typography"', $on_card[0]['message']);
+        $this->assertStringContainsString('typography.size', $on_card[0]['message']);
+        $this->assertStringNotContainsString('typography.style', $on_card[0]['message'], 'italic paints: no role default for it');
+        $this->assertCount(1, $this->findingsOfType($band, 'udc_preset_value_shadowed_by_role_default'));
     }
 
     /** Control: the band grain keeps its disclosure, with no item locator. */
