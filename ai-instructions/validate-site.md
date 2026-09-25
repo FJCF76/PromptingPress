@@ -60,8 +60,9 @@ This checks:
      not with one the band's map sets for the same role — and a scrim on the band's map
      with no image of its own there reaches no card that sets its own image for that role.
      (A band scrim over a band image also misses such cards, and that is NOT reported.)
-     A raw `background` in `_css` also drops the scrim at the coordinate (state and width) it
-     wins, because it resets the image under it (contract §2'.3). The reason then names the raw
+     A raw `background` in `_css` also drops the scrim at the width where it wins at rest, because it
+     resets the image under it (contract §2'.3); a scrim inside a state always gets the state reason
+     above. The reason then names the raw
      background, not a missing image. A raw desktop `background` that removes the image drops a scrim
      set only at a narrower width with no image of its own (its own fill included) the same way.
      The reason states facts, not fixes: which raw background, at which declared width, removed the

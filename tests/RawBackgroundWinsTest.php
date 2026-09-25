@@ -522,4 +522,54 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringContainsString('would reset one at this width', $plain);
         $this->assertSame($plain, $preset, 'an unrelated preset does not change the facts');
     }
+
+    /**
+     * FACT: THE WIDTHS WHERE THE SCRIM STILL PAINTS ignore role DEFAULTS (final scoped design check). A `_band` default
+     * fill keyed per width sits in the authored buckets when a preset is in play, but emission drops it, so a width
+     * that inherits the desktop image and scrim still paints them. A scratch component: no shipped one keys its default.
+     */
+    public function testTheStillPaintsWidthsIgnoreRoleDefaults(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-scrimdef-' . uniqid();
+        mkdir($root . '/components/ppscrim', 0777, true);
+        file_put_contents($root . '/components/ppscrim/ppscrim.php', '<?php echo "<section data-pp-component=\"ppscrim\"></section>";');
+        file_put_contents($root . '/components/ppscrim/schema.json', (string) json_encode([
+            'component' => 'ppscrim', 'description' => 'scratch', 'props' => ['id' => ['type' => 'string', 'required' => false, 'description' => 'id', 'default' => '']],
+            'roles' => ['_band' => ['selector' => '', 'groups' => ['background'], 'description' => 'the band', 'obligations' => [],
+                'defaults' => ['background' => ['fill' => ['d' => '#111111', 'p' => '#222222']]]]],
+        ]));
+        $previous = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+        try {
+            $saved = pp_execute_action('save_preset', ['name' => 'img', 'grain' => 'role', 'udc' => ['background' => ['image' => 9001]]]);
+            $this->assertTrue($saved['ok'], 'premise: preset saved: ' . ($saved['error'] ?? ''));
+            $o     = 'rgba(0,0,0,0.6)';
+            $drops = [];
+            pp_udc_compile_band(['component' => 'ppscrim', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['_band' => [PP_UDC_PRESET_KEY => 'img',
+                'background' => ['overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]]]], 'authored', $drops);
+            $reason = implode(' ', array_column(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'), 'reason'));
+            $this->assertStringContainsString('The scrim still paints at the desktop and phone widths', $reason);
+        } finally {
+            if ($previous === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previous;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            array_map('unlink', glob($root . '/components/ppscrim/*'));
+            rmdir($root . '/components/ppscrim');
+            rmdir($root . '/components');
+            rmdir($root);
+        }
+    }
+
+    /** FACT: a width with its own raw background is named by that width, not by the desktop one (final scoped design check). */
+    public function testAWidthsOwnRawBackgroundIsTheOneNamed(): void
+    {
+        $o       = 'rgba(0,0,0,0.6)';
+        $reasons = $this->rawWonReasons(['background' => ['image' => 9001, 'overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['d' => '#ffffff', 't' => '#eeeeee']]]);
+        $tablet  = array_values(array_filter($reasons, static fn (string $r): bool => str_contains($r, 'at the tablet width')));
+        $this->assertCount(1, $tablet, 'the tablet drop names the tablet raw background');
+    }
 }

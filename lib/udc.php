@@ -2643,7 +2643,10 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
             if ($bp !== 'd' && !isset($declarations['background-image'])
                 && is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
                 $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
-                $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at']             = 'd';
+                // The width's OWN raw background, where it has one, is the one named (final scoped design check).
+                if (empty($declarations['background']['raw'])) {
+                    $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at'] = 'd';
+                }
             }
         }
     }
@@ -5383,7 +5386,10 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     && empty($d[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won']) && isset($d['background-image']);
                 $scrim_at = [];
                 foreach (array_keys(pp_udc_breakpoints()) as $bp) {
-                    $bucket = $by_bp[$bp] ?? [];
+                    // As emission reads it: role DEFAULTS in an authored bucket (present when presets are in play) are
+                    // dropped there, so they are not a background of the width's own (final scoped design check).
+                    $bucket = array_filter($by_bp[$bp] ?? [], static fn ($entry): bool => !$defaults_rank_only
+                        || !is_array($entry) || ($entry['source'] ?? '') !== 'defaults');
                     // A width with no carrier and no background of its own inherits the desktop layers (the cascade).
                     $paints = ($bp === 'd' || isset($bucket[PP_UDC_BACKGROUND_OVERLAY_CARRIER]) || isset($bucket['background']) || isset($bucket['background-image']))
                         ? $composes($bucket) : $composes($by_bp['d'] ?? []);
