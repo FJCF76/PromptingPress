@@ -9525,6 +9525,41 @@ function pp_udc_composition_findings(array $items): array {
                                 $shown = $shown ?? $surface;
                             }
                         }
+                        // A BAND STATE IS A CELL FOR WHAT INHERITS FROM IT (ruling A1 = A). A colour the band
+                        // sets only in a state (`[data-pp-band]:hover{color}`) applies whenever the band is in
+                        // that state, so an element with no colour of its own shows it AT REST, on its own
+                        // resting surface. The band root encloses every role, so no containment model is
+                        // needed. Keyed 'band:<state>'. Where the element's own ink covers that state, the
+                        // own-ink cell above already names the clash: one clash, one finding.
+                        if (isset($band_ink_reaches[$element['role']])) {
+                            foreach ($band_ink_cells as $band_cell_key => $unused_band_cell) {
+                                [$band_state, $band_bp] = explode('|', (string) $band_cell_key, 2) + ['', 'd'];
+                                if ($band_state === '') {
+                                    continue;
+                                }
+                                foreach (array_keys($breakpoints_meta) as $bp) {
+                                    if ($band_bp !== 'd' && $band_bp !== (string) $bp) {
+                                        continue;
+                                    }
+                                    $rest = $element['paint'][''][$bp] ?? null;
+                                    if ($rest === null || $rest['surface'] === null
+                                        || !in_array($rest['surface']['tier'], ['defaults', 'overlay'], true)
+                                        || ($rest['color'] !== null && strcasecmp(trim((string) $rest['color']['literal']), 'currentColor') !== 0)) {
+                                        continue;
+                                    }
+                                    $own_state_ink = $element['paint'][$band_state][$bp]['color'] ?? null;
+                                    if ($own_state_ink !== null && in_array($own_state_ink['tier'], ['band', 'item'], true)) {
+                                        continue;
+                                    }
+                                    $band_key = 'band:' . $band_state;
+                                    if (!in_array((string) $bp, $fired[$band_key] ?? [], true)) {
+                                        $fired[$band_key][] = (string) $bp;
+                                    }
+                                    $kinds['band'] = true;
+                                    $shown = $shown ?? $rest['surface'];
+                                }
+                            }
+                        }
                         if ($fired === []) {
                             continue;
                         }
@@ -9576,9 +9611,13 @@ function pp_udc_composition_findings(array $items): array {
                         $all_widths = count($breakpoints_meta);
                         $phrases    = [];
                         foreach ($fired as $state => $bps) {
-                            $where = $state === '' ? 'at rest' : (str_contains($state, '+')
+                            $band_state_labels = [':hover' => 'while the pointer is over the band',
+                                ':focus-visible' => 'while the band has keyboard focus', ':active' => 'while the band is pressed'];
+                            $where = strncmp((string) $state, 'band:', 5) === 0
+                                ? ($band_state_labels[substr((string) $state, 5)] ?? sprintf('while the band is %s', _pp_udc_reflect(substr((string) $state, 5))))
+                                : ($state === '' ? 'at rest' : (str_contains($state, '+')
                                 ? sprintf('in the %s states together', implode(' and ', array_map('_pp_udc_reflect', explode('+', $state))))
-                                : sprintf('in the %s state', _pp_udc_reflect($state)));
+                                : sprintf('in the %s state', _pp_udc_reflect($state))));
                             $phrases[] = count($bps) === $all_widths ? $where : $where . ' at the ' . $widths($bps);
                         }
                         // "At rest" is said whenever the element HAS another state cell that did not fire
@@ -9599,14 +9638,16 @@ function pp_udc_composition_findings(array $items): array {
                         $fill_where = [];
                         // A combined cell's fill goes on the author's OWN state (the later one: an
                         // `:active` or `:focus-visible` fill prints after the default `:hover` fill).
+                        // A band-state cell ('band:<state>') is the element AT REST: its fix is the resting fill.
                         $named_states = array_values(array_unique(array_map(static function (string $s): string {
                             $parts = explode('+', $s);
                             return (string) end($parts);
-                        }, array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== '')))));
+                        }, array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== '' && strncmp($s, 'band:', 5) !== 0)))));
+                        $rest_fired = isset($fired['']) || array_filter(array_keys($fired), static fn ($s): bool => strncmp((string) $s, 'band:', 5) === 0) !== [];
                         if ($named_states !== []) {
                             // Rest fired TOO: the resting fill is needed as well, or following the advice
                             // leaves the resting clash (cycle 2, testing).
-                            $fill_where[] = isset($fired[''])
+                            $fill_where[] = $rest_fired
                                 ? sprintf('at rest and inside %s (background: {"fill": ..., "%s": {"fill": ...}})',
                                     implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]))
                                 : sprintf('inside %s (background: {"%s": {"fill": ...}})',

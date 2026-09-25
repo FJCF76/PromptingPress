@@ -884,6 +884,35 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringContainsString(self::BAND_INK, $found[0]['message']);
     }
 
+    /**
+     * A BAND STATE IS A CELL FOR WHAT INHERITS FROM IT (ruling A1 = A): a colour the band sets only on
+     * `:hover` applies whenever the pointer is over the band, so hero `surface` shows it at rest on its own
+     * fill. Named with the band's state; the advice is the resting fill.
+     */
+    public function testABandStateInkReachesRolesAtRest(): void
+    {
+        $props = ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>'];
+        $band  = ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]];
+        [, $found] = $this->write(['_band' => $band], 'hero', $props);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "surface"', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface) while the pointer is over the band, and the band background', $found[0]['message']);
+        $this->assertStringContainsString('Set background.fill for this role as well', $found[0]['message'], 'the resting fill');
+
+        // A role with its own colour does not inherit the band state ink: no band-state cell. (Its own ink
+        // over its own default fill is the own-ink finding by design, so the negative is asserted on the
+        // band-state cell, not as an empty list.)
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => ['color' => '#101828']]], 'hero', $props);
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('while the pointer is over the band', $found[0]['message']);
+        $this->assertStringContainsString('the text colour you set for this role', $found[0]['message']);
+
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#eeeeee']]]], 'hero', $props);
+        $this->assertCount(1, $found, 'one clash, one finding');
+        $this->assertStringContainsString('in the :hover state', $found[0]['message'], 'the own-ink cell');
+        $this->assertStringNotContainsString('while the pointer is over the band', $found[0]['message'], 'not a duplicate band-state cell');
+    }
+
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
     public function testASingleWidthIsNamedInTheSingular(): void
     {
