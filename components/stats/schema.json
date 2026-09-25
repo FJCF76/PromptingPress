@@ -197,6 +197,7 @@
           "line-height": "1"
         }
       },
+      "overlay_defaults": { "typography": { "color": "@color-accent-on-overlay" } },
       "obligations": []
     },
     "label": {

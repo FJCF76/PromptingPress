@@ -143,6 +143,35 @@ test.describe('#1010 overlay tier of accent inks / #1125 a role\'s own surface',
     expect(accent).toBe(await token(page, '--color-accent'));
   });
 
+  test('#1010 a light scrim is disclosed and the stats number re-lights on a dark one', async ({ page }) => {
+    attachmentId = importTestImage('pp-1010-stats');
+    pageId = createPage('E2E 1010 Off Scrim');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec03', body: '<p>b</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const stats = (overlay: string) => [
+      {
+        component: 'stats',
+        props: { id: 'pp-stat01', title: 'Numbers', items: [{ number: '42', label: 'Answers' }] },
+        udc: { _band: { background: { image: attachmentId, overlay } } },
+      },
+    ];
+    const light = await updateComposition(page, pageId, stats('rgba(255,255,255,0.8)'));
+    expect(light.success, `write: ${JSON.stringify(light)}`).toBe(true);
+    const off = ((light.data && light.data.findings) || []).filter((f: any) => f.type === 'udc_overlay_accent_off_scrim');
+    expect(off.length, JSON.stringify(light.data)).toBe(1);
+    expect(off[0].message).toContain('"number"');
+    expect(off[0].message).toContain('the scrim you set is light');
+
+    const dark = await updateComposition(page, pageId, stats('rgba(6,10,28,0.72)'));
+    expect(dark.success).toBe(true);
+    expect(((dark.data && dark.data.findings) || []).filter((f: any) => f.type === 'udc_overlay_accent_off_scrim')).toEqual([]);
+    await page.goto(`/?page_id=${pageId}`);
+    const number = page.locator('.stats__number').first();
+    await expect(number).toBeVisible({ timeout: 10000 });
+    expect(await number.evaluate((el: Element) => getComputedStyle(el).color)).toBe(await token(page, '--color-accent-on-overlay'));
+  });
+
   test('#1125 recolouring the eyebrow on a darkened band is disclosed on the write', async ({ page }) => {
     pageId = createPage('E2E 1125 Own Surface');
     setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec02', body: '<p>b</p>' } }]);

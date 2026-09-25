@@ -66,10 +66,18 @@ final class OverlayTierDefaultsTest extends TestCase
         $relit = 0;
         foreach ($this->markerComponents() as $component) {
             foreach (pp_udc_component_roles($component) as $role => $definition) {
-                // The accent INKS the ruling names (`title-accent`, `heading-accent`): the
-                // accented words of a heading. A secondary button's accent is not in scope.
+                // EVERY accent-ink default on a marker component (ruling D4 = B, faithfully
+                // applied: stats `number` is one), with two stated exclusions:
+                //   faq `question-open` sits on its item's own light fill, not on the scrim, so
+                //     the near-white ink would vanish there;
+                //   cta `button-secondary` is a set (ink, border, hover fill) that a partial
+                //     re-light would break; it has its own issue.
                 $ink = $definition['defaults']['typography']['color'] ?? null;
-                if ($ink !== '@color-accent' || !str_ends_with((string) $role, '-accent')) {
+                if ($ink !== '@color-accent') {
+                    continue;
+                }
+                if (in_array($component . '.' . $role, ['faq.question-open', 'cta.button-secondary'], true)) {
+                    $this->assertArrayNotHasKey('overlay_defaults', $definition, "{$component}.{$role} is a stated exclusion");
                     continue;
                 }
                 $relit++;
@@ -81,7 +89,7 @@ final class OverlayTierDefaultsTest extends TestCase
                 );
             }
         }
-        $this->assertSame(4, $relit, 'premise: hero title-accent + cta/faq/stats heading-accent');
+        $this->assertSame(5, $relit, 'premise: hero title-accent, cta/faq/stats heading-accent, stats number');
     }
 
     /** The tier prints AFTER the element default it outranks: equal weight, source order. */
@@ -113,7 +121,7 @@ final class OverlayTierDefaultsTest extends TestCase
                 $seen++;
             }
         }
-        $this->assertSame(4, $seen, 'premise: the four accent inks declare the tier');
+        $this->assertSame(5, $seen, 'premise: the five accent inks declare the tier');
     }
 
     /** Components without an overlay tier emit exactly what they did before. */
@@ -140,7 +148,7 @@ final class OverlayTierDefaultsTest extends TestCase
                     "{$component}.{$role} overlay_defaults must validate: " . (is_wp_error($result) ? $result->get_error_message() : ''));
             }
         }
-        $this->assertSame(4, $checked);
+        $this->assertSame(5, $checked);
     }
 
     /** `overlay_defaults` is a map of groups the role permits; anything else is refused at CI. */
@@ -217,12 +225,14 @@ final class OverlayTierDefaultsTest extends TestCase
         foreach (['AI_CONTEXT.md', 'ai-instructions/retheme.md', 'ai-instructions/style-component.md'] as $doc) {
             $text = (string) preg_replace('/\s+/', ' ', (string) file_get_contents($root . '/' . $doc));
             $this->assertStringContainsString("`title-accent`", $text, $doc);
+            $this->assertMatchesRegularExpression('/`stats`[^.]*`number`|`number`[^.]*`stats`/', $text, "{$doc} names stats number");
+            $this->assertMatchesRegularExpression('/`question-open`[^.]*own light fill/', $text, "{$doc} states the question-open exclusion");
             foreach (['cta', 'faq', 'stats'] as $component) {
                 $this->assertMatchesRegularExpression('/`heading-accent`[^.]*`' . $component . '`|`' . $component . '`[^.]*`heading-accent`/', $text, "{$doc} names {$component}");
             }
         }
-        $this->assertSame(['cta `heading-accent`', 'faq `heading-accent`', 'hero `title-accent`', 'stats `heading-accent`'], $expected,
-            'the docs above name these four; widen them with the schemas');
+        $this->assertSame(['cta `heading-accent`', 'faq `heading-accent`', 'hero `title-accent`', 'stats `heading-accent`', 'stats `number`'], $expected,
+            'the docs above name these five; widen them with the schemas');
     }
 
     /** An AUTHORED value still wins: the band's own block prints after the overlay tier. */

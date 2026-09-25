@@ -47,6 +47,11 @@ This checks:
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
+   - `udc_overlay_accent_off_scrim` — this band paints a scrim over an image, so its accent
+     inks re-light to the near-white `@color-accent-on-overlay`, but something you set breaks
+     the dark-scrim premise: a light (or unreadable) background on another role, a scrim set
+     only at some widths, or a light scrim. The message names the re-lit roles and the cause.
+     Where the accent sits on that surface, set its `typography.color` yourself.
    - `udc_role_ink_over_own_surface` — on a band (or a header/footer) whose background you set, you recoloured a
      role's OWN text colour but the role still sits on its OWN default `background.fill` (an eyebrow
      pill, a panel, a card), so the new ink lands on that surface. Set the role's

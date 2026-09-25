@@ -317,9 +317,13 @@ because the engine warns about a value that cannot take effect and not about a r
 that survives a change you made to a different role.
 
 **You own the contrast, and you own it per ROLE, not per band.** Nothing re-lights text for
-you, with one exception: on an image band with an overlay, `hero`'s `title-accent` and the `heading-accent` of
-`cta`, `faq` and `stats` default to `@color-accent-on-overlay` (#1010), and your own value for
-them still wins. Every other accent ink (a stats `number`, a secondary button) is still yours. Check every colour against the surface it actually sits on — which is the nearest
+you, with one exception: on an image band with an overlay, `hero`'s `title-accent`, the
+`heading-accent` of `cta`, `faq` and `stats`, and the `stats` `number` default to
+`@color-accent-on-overlay` (#1010), and your own value for them still wins. Every other accent
+ink is still yours (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary button is one set). The re-light assumes
+the accent sits on a dark scrim: a light panel you set under it, a scrim set only at some
+widths, or a light scrim is named on the write as `udc_overlay_accent_off_scrim`, and the fix is
+to set that accent's `typography.color` yourself. Check every colour against the surface it actually sits on — which is the nearest
 ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
 WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
 un-recoloured renders dark ink on dark, or light ink on light, and that is the single most

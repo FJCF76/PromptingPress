@@ -173,9 +173,12 @@ matching panel-CTA adjustment — keep `--color-accent` legible against
 
 **The FOCUS ring is automatic on a scrim band, and since #986 it follows the scrim rather
 than a class. Since #1010 so are the accent inks:** on a band carrying `data-pp-band-overlay`,
-`hero`'s `title-accent` and the `heading-accent` of `cta`, `faq` and `stats` default to
-`--color-accent-on-overlay` instead of `--color-accent` (1.05:1 over a dark scrim), and any
-value you author for those roles still wins. The engine emits `data-pp-band-overlay` when a band
+`hero`'s `title-accent`, the `heading-accent` of `cta`, `faq` and `stats`, and the `stats`
+`number` default to `--color-accent-on-overlay` instead of `--color-accent` (1.05:1 over a
+dark scrim), and any value you author for those roles still wins (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary
+button's ink, border and hover fill stay yours as one set). Where that premise does not hold
+(a light panel you set under the accent, a scrim set only at some widths, a light scrim) the
+write says so as `udc_overlay_accent_off_scrim`. The engine emits `data-pp-band-overlay` when a band
 paints both a `background.image` and a `background.overlay`, and the outline routes to
 `--color-accent-on-overlay` from there — on any v2 layout, and without the author switching
 it on. Two limits worth knowing: a band you merely DARKEN with a fill carries no such marker
