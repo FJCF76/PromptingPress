@@ -845,6 +845,45 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         }
     }
 
+    /**
+     * A PARSE THAT GIVES UP IS UNKNOWN, NOT ABSENT (adversarial pass): libxml stops at 256 nesting levels
+     * and still reports success, which read every later role as "not rendered" and dropped a real clash
+     * with no note. It is now unknown: unfiltered, and the finding says it was not checked.
+     */
+    public function testADeeplyNestedBodyIsUnknownNotSilence(): void
+    {
+        $body = str_repeat('<div>', 300) . 'deep' . str_repeat('</div>', 300);
+        $found = $this->only(pp_udc_composition_findings([['component' => 'section', 'id' => 'pp-a1b2c3d4',
+            'props' => ['title' => 'T', 'body' => $body, 'layout' => 'text-panel', 'panel_body' => 'Panel text'],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'panel' => ['typography' => ['color' => '#ffffff']]]]]));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(Not checked against the rendered page', $found[0]['message']);
+    }
+
+    /**
+     * THE SIZE BUDGET COUNTS EVERY LIST PROP, not only grid's cards (adversarial pass): a testimonials band
+     * with 600 items is past it and says so, while its small twin is checked.
+     */
+    public function testTheSizeBudgetCountsEveryListProp(): void
+    {
+        $band = static fn (string $id, int $n): array => ['component' => 'testimonials', 'id' => $id,
+            'props' => ['eyebrow' => 'E', 'items' => array_fill(0, $n, ['quote' => 'Q', 'author' => 'A'])],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
+        $found = $this->only(pp_udc_composition_findings([$band('pp-00000001', 600), $band('pp-00000002', 3)]));
+        $this->assertSame([0, 1], array_column($found, 'index'));
+        $this->assertStringContainsString('(Not checked against the rendered page', $found[0]['message']);
+        $this->assertStringNotContainsString('Not checked', $found[1]['message']);
+    }
+
+    /** An explicit `currentColor` on the role IS the inherited band ink: worded as the band's, not the role's. */
+    public function testAnExplicitCurrentColorIsTheBandsInk(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']],
+            'surface' => ['typography' => ['color' => 'currentColor']]], 'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString(self::BAND_INK, $found[0]['message']);
+    }
+
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
     public function testASingleWidthIsNamedInTheSingular(): void
     {

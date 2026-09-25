@@ -6682,15 +6682,27 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         }
         $shortcode_tags = $saved_shortcodes;
     }
-    if ($html === null || trim($html) === '') {
+    // A band whose markup is past this size is not parsed: unknown (the caller keeps the finding and
+    // says it was not checked), the same answer as the per-call budgets give.
+    if ($html === null || trim($html) === '' || strlen($html) > 524288) {
         return null;
     }
     $dom      = new \DOMDocument();
     $previous = libxml_use_internal_errors(true);
     $loaded   = $dom->loadHTML('<?xml encoding="utf-8"?><div id="pp-presence-root">' . $html . '</div>');
+    // A PARSE THAT GAVE UP IS UNKNOWN (adversarial pass): libxml stops at 256 nesting levels (author
+    // HTML can nest that deep) and still returns true, which read every later role as absent and dropped
+    // a real clash silently. Any fatal parse error answers null instead.
+    $fatal = false;
+    foreach (libxml_get_errors() as $parse_error) {
+        if ($parse_error->level === LIBXML_ERR_FATAL) {
+            $fatal = true;
+            break;
+        }
+    }
     libxml_clear_errors();
     libxml_use_internal_errors($previous);
-    if (!$loaded) {
+    if (!$loaded || $fatal) {
         return null;
     }
     $xpath = new \DOMXPath($dom);
@@ -9469,8 +9481,9 @@ function pp_udc_composition_findings(array $items): array {
                     // an untested branch behind a guard is the green-over-unreachable shape).
                     // ON THE PAGE (ruling E1-A): asked of the component's own template, once per band and
                     // only when a finding is about to be emitted; null means unknown and filters nothing.
-                    $presence       = null;
-                    $presence_asked = false;
+                    $presence        = null;
+                    $presence_asked  = false;
+                    $presence_reason = '';
                     foreach ($paint_elements as $element) {
                         // ONLY WHERE THE INK CAN SHOW (ruling A): a role whose own element renders author
                         // text, schema data set by a Chromium measurement (`text_content`). A container whose
@@ -9490,7 +9503,8 @@ function pp_udc_composition_findings(array $items): array {
                                 if ($surface === null || !in_array($surface['tier'], ['defaults', 'overlay'], true)) {
                                     continue;
                                 }
-                                if ($ink !== null && in_array($ink['tier'], ['band', 'item'], true)) {
+                                if ($ink !== null && in_array($ink['tier'], ['band', 'item'], true)
+                                    && strcasecmp(trim((string) $ink['literal']), 'currentColor') !== 0) {
                                     // A RESTATED DEFAULT (ruling, cycle 2 api-contract): the author's ink compiles
                                     // to the very value the role's default ink puts in this cell, so the designed
                                     // pair is unchanged and there is nothing to name. Read off the compiled tiers;
@@ -9525,15 +9539,24 @@ function pp_udc_composition_findings(array $items): array {
                                     $asked[(string) $asked_role] = (string) ($asked_def['selector'] ?? '');
                                 }
                             }
-                            $item_decl_here = pp_udc_item_roles($component);
-                            $band_entries   = $item_decl_here !== null ? ($item['props'][$item_decl_here['prop']] ?? []) : [];
-                            $band_cards     = is_array($band_entries) ? count($band_entries) : 0;
-                            $presence       = ($presence_renders_left > 0 && $band_cards <= $presence_cards_left)
-                                ? _pp_udc_rendered_roles($item, $asked) : null;
-                            if ($presence !== null) {
-                                $presence_cards_left -= $band_cards;
+                            // The band's SIZE is every list prop's entries (cards, testimonials, rows...),
+                            // not only the item-role prop: a render costs in proportion to all of them.
+                            $band_cards = 0;
+                            foreach ((array) ($item['props'] ?? []) as $prop_value) {
+                                if (is_array($prop_value)) {
+                                    $band_cards += count($prop_value);
+                                }
                             }
-                            $presence_renders_left--;
+                            $presence_reason = 'budget';
+                            $presence        = null;
+                            if (pp_udc_is_chrome($component)) {
+                                $presence_reason = 'chrome';
+                            } elseif ($presence_renders_left > 0 && $band_cards <= $presence_cards_left) {
+                                $presence = _pp_udc_rendered_roles($item, $asked);
+                                $presence_renders_left--;
+                                $presence_cards_left -= $band_cards;
+                                $presence_reason = $presence === null ? 'unrenderable' : '';
+                            }
                         }
                         if ($presence !== null) {
                             $on_page = $presence[$element['role']] ?? ['band' => false, 'items' => []];
@@ -9623,8 +9646,12 @@ function pp_udc_composition_findings(array $items): array {
                                 $qualifier,
                                 $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where)
                             ) . ($presence === null
-                                ? ' (Not checked against the rendered page: this band is past the check\'s size budget or '
-                                  . 'could not be rendered here, so this role may not be rendered with these props.)'
+                                ? ' (Not checked against the rendered page: ' . ($presence_reason === 'chrome'
+                                    ? 'the header and footer are not rendered by this check'
+                                    : ($presence_reason === 'unrenderable'
+                                        ? 'this band could not be rendered or read here'
+                                        : 'this band is past the check\'s size budget'))
+                                  . ', so this role may not be rendered with these props.)'
                                 : ''),
                             'index'   => is_int($i) ? $i : null,
                         ];
@@ -9774,8 +9801,19 @@ function pp_udc_composition_findings(array $items): array {
             $own_fill = [];
             if ((string) $property === 'color') {
                 foreach ($names as $name) {
-                    $fill = $roles[$name]['defaults']['background']['fill'] ?? null;
-                    foreach (is_array($fill) ? $fill : [$fill] as $tier_fill) {
+                    // The resting fill and any state's fill (cta `button-secondary` fills only on :hover).
+                    $bg    = (array) ($roles[$name]['defaults']['background'] ?? []);
+                    $fills = [$bg['fill'] ?? null];
+                    foreach (pp_udc_states() as $state_key => $unused_state) {
+                        $fills[] = is_array($bg[$state_key] ?? null) ? ($bg[$state_key]['fill'] ?? null) : null;
+                    }
+                    $fill = [];
+                    foreach ($fills as $one_fill) {
+                        foreach (is_array($one_fill) ? $one_fill : [$one_fill] as $tier_one) {
+                            $fill[] = $tier_one;
+                        }
+                    }
+                    foreach ($fill as $tier_fill) {
                         if (is_string($tier_fill) && $tier_fill !== '' && strcasecmp(trim($tier_fill), 'transparent') !== 0) {
                             $own_fill[] = $name;
                             break;
