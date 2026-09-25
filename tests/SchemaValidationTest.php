@@ -6640,7 +6640,8 @@ class SchemaValidationTest extends TestCase
      *   1. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
      *               contributes ROOT--<v> for every declared layout enum value.
      *   2. LITERAL  any `'ROOT--x'` string in the template (the conditional
-     *               modifiers, e.g. --steps, --stack, --text-panel).
+     *               modifiers, e.g. grid's ' grid--steps' and testimonials'
+     *               ' testimonials--stack').
      *
      * A THIRD RULE RETIRED AT #1111: "THEME — a pp_theme_class($theme, 'PREFIX') call
      * contributes PREFIX--dark and PREFIX--inverted". The helper and the whole

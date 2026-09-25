@@ -20,8 +20,9 @@ when `grid` is rebuilt."** `grid` was rebuilt at #1101 and the slot engine was r
 it, so the first half happened exactly as written — the slot map, the recipes and every
 suite that targeted them are gone from this directory and from the repo.
 
-**The second half did not, and the difference is the point.** Deleting the whole fixture
-would have taken down test methods whose subject is NOT the slot engine and which have no
+**The second half did not, and the difference is the point** — as measured AT #1101; the
+next section records what changed since. Deleting the whole fixture would have taken down
+test methods whose subject is NOT the slot engine and which have no
 shipped component to run against. Measured before the sweep began: stripping the
 fixture's slots broke 157 methods, deleting the fixture outright broke 181, and that
 twenty-four-method delta is the set with no other home. That is the #1038 class — a test
@@ -49,11 +50,12 @@ whole `--dark` / `--inverted` output-name vocabulary: nothing ships that vocabul
 so a fixture emitting it would pin a contract no component keeps.
 
 **What is left is FILLER.** Measured at PR-3 of #1145 by deleting this directory in a scratch
-copy: 26 methods still fail, and none of them is about this component. They need *a*
-registered, composable band with a required prop and do not care which one —
-`WriteEnvelopeFindingsTest` (10), `CompositionFindingsBoundsTest` (9),
-`StoredCompositionAliasRenderTest` (4), `FixtureThemeSeamTest` (2, the seam itself) and
-`StyleSlotContractTest` (2, pinning that this schema declares no slots or recipes). That is
+copy of the shipped state: 24 methods still fail, and none of them is about this component.
+They need *a* registered, composable band with a required prop and do not care which one —
+`WriteEnvelopeFindingsTest` (10), `CompositionFindingsBoundsTest` (8),
+`StoredCompositionAliasRenderTest` (2), `FixtureThemeSeamTest` (2, the seam itself) and
+`StyleSlotContractTest` (2, pinning that this schema declares no slots or recipes). So the
+#1101 section's "no shipped component to run against" no longer holds for any of them. That is
 the "third thing" the section below forbids *new* claims from doing; these arrived before the
 rule and have not been re-homed.
 

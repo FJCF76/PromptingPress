@@ -38,7 +38,7 @@ class ComponentPropsTest extends TestCase
      * own output buffers" (a RISKY test) on top of the real error, and the orphaned
      * buffer can swallow output later in the same process. Closing it here means a
      * regression arrives as a clean, readable failure. Same reasoning, same shape as
-     * StoredBackgroundImageRenderGuardTest::renderStored().
+     * StoredTitleRenderGuardTest::renderStored().
      */
     private function render(string $component, array $props): string
     {
@@ -1373,21 +1373,10 @@ class ComponentPropsTest extends TestCase
      * render as the default band — never as an unstyled `faq--<garbage>` class, and
      * never as a class whose CSS no longer exists.
      *
-     * The `muted` -> `--dark` OUTPUT NAMING that #570 DG-4 pinned is not weakened by
-     * faq leaving — but the count this note used to give was wrong, and the correction
-     * lives beside the surviving row (see the block above
-     * testGridMutedThemeEmitsLegacyDarkClass). It claimed four render-layer carriers
-     * here; grepping found ONE (`grid--dark`), with `stats--dark` appearing only in a
-     * NEGATIVE assertion elsewhere and `logos--dark` / `embed--dark` asserted nowhere.
-     * The rule kept exactly two carriers: grid's render-layer row, and the helper's own
-     * unit tests in tests/ThemeClassHelperTest.php. BOTH ARE GONE NOW: grid's row left
-     * with its `theme` prop at #1101, and the rule itself — the `--dark`/`--inverted`
-     * output-name vocabulary, pp_theme_class() and that test file — retired at #1111.
-     *
-     * RESTATED AT #1066 because embed was one of the four this note named, and embed's
-     * `theme` retired with this rebuild — so leaving the sentence would have re-asserted
-     * a carrier that had just stopped existing, in the one file that already records why
-     * the number was wrong. Two halves of one claim, repriced together (#1038).
+     * The `muted` -> `--dark` OUTPUT NAMING that #570 DG-4 pinned outlived faq on grid's
+     * render row (gone with grid's `theme` at #1101) and pp_theme_class()'s own unit
+     * test; the whole `--dark`/`--inverted` vocabulary, the helper and that test retired
+     * at #1111. Nothing is left for this note to count.
      */
     public function testAStoredFaqThemeEmitsNoVariantClassAtAll(): void
     {
@@ -3623,8 +3612,9 @@ class ComponentPropsTest extends TestCase
     // prop: a stored `background_image` of any shape — the non-scalars that used to fatal,
     // and the falsy scalars — renders the band with its content and paints no background,
     // no modifier and no overlay. They are retired-prop inertness pins now, not guard
-    // pins: each is anchored on the band actually rendering, and each fails if a band
-    // starts painting from the stored key again, guarded or not.
+    // pins, and each is anchored on the band actually rendering. The non-scalar and falsy
+    // inputs fail only on an UNGUARDED read; the truthy-scalar pin after them is the one
+    // that fails if a band starts painting from the stored key again, guarded or not.
 
     /**
      * The shapes that actually FATALED under #705. Every one is a non-scalar and
@@ -3671,6 +3661,32 @@ class ComponentPropsTest extends TestCase
             $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component}: no background-image modifier");
             $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component}: no overlay div");
             $this->assertStringNotContainsString('Array', $html, "{$component}: the value is degraded, never coerced");
+        }
+    }
+
+    /**
+     * The inputs that WOULD paint if a band read the key again — a real URL and the
+     * truthy scalars #705's guard let through — on every band that once declared it.
+     * This is the pin the two above cannot be: a re-introduced read behind the old
+     * `is_scalar` guard turns arrays and falsy values into '' and stays silent on them,
+     * but it paints each of these.
+     */
+    public function testATruthyStoredBackgroundImageOnAShippedBandPaintsNothing(): void
+    {
+        foreach (['https://example.com/bg.jpg', 42, true] as $truthy) {
+            $label = var_export($truthy, true);
+            foreach ([
+                ['cta',     $this->ctaProps(['background_image' => $truthy]),     'cta'],
+                ['stats',   $this->statsProps(['background_image' => $truthy]),   'stats'],
+                ['section', $this->sectionProps(['background_image' => $truthy]), 'section'],
+            ] as [$component, $props, $prefix]) {
+                $html = $this->render($component, $props);
+                $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component} {$label}: the band renders");
+                $this->assertStringNotContainsString('background-image', $html, "{$component} {$label}: no background");
+                $this->assertStringNotContainsString('example.com/bg.jpg', $html, "{$component} {$label}: the stored value is not reflected");
+                $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
+                $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
+            }
         }
     }
 

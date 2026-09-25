@@ -59,10 +59,10 @@ class StoredCompositionAliasRenderTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). The mechanism under test
-        // is the slot engine; which component carries the slots is incidental, which is
-        // why this whole set was re-homed hero -> section -> stats over three rebuilds.
-        // It targets `ppfixture` now, so stats' rebuild is the last one that moved it.
+        // THE BAND HERE IS A FIXTURE, NOT A SUBJECT (#1025). This set was re-homed
+        // hero -> section -> stats -> `ppfixture` while the slot engine was its subject;
+        // the engine retired at #1101 and the fixture declares no slots, so the band is
+        // now plain filler (tests/fixtures/components/ppfixture/README.md).
         FixtureTheme::activate();
         $GLOBALS['_pp_test_store'] = [
             'post_meta'  => [],
@@ -620,9 +620,6 @@ class StoredCompositionAliasRenderTest extends TestCase
     // coerces to the prop default, which is the base render contract for every enum,
     // not an alias.
     //
-    // The output-name half — `theme: "muted"` emitting the legacy `<root>--dark` class
-    // (#570 DG-4) — was kept here until #1111 retired the whole `--dark`/`--inverted`
-    // vocabulary; see the class docblock.
 
     public function testAStoredRemovedThemeValueRendersTheDefaultBandNotTheMutedOne(): void
     {
@@ -635,8 +632,12 @@ class StoredCompositionAliasRenderTest extends TestCase
 
         // The band renders — the page is not broken — but it renders as DEFAULT.
         $this->assertStringContainsString('Stale', $html, 'the page still renders');
-        $this->assertStringNotContainsString('pp-section--dark', $html, 'no muted surface');
-        $this->assertStringNotContainsString('pp-section--inverted', $html);
+        // No `--dark` / `--inverted` class of ANY prefix: the stored `theme` is unread
+        // (section retired the prop at #1023) and the output-name vocabulary itself is
+        // gone (#1111). Prefix-free on purpose — `pp-section--*` was never going to
+        // reappear, a re-introduced tone class under the current root would.
+        $this->assertStringNotContainsString('--dark', $html, 'no muted surface');
+        $this->assertStringNotContainsString('--inverted', $html);
 
         // Storage is never rewritten behind the author.
         $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
@@ -743,6 +744,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
         $html = $this->renderStored($id);
         $this->assertStringContainsString('Legacy', $html, 'the page still renders');
-        $this->assertStringNotContainsString('pp-section--dark', $html, 'but not as the muted band');
+        $this->assertStringNotContainsString('--dark', $html, 'but not as the muted band (no tone class of any prefix, #1111)');
     }
 }

@@ -21,8 +21,9 @@ $id               = $props['id']               ?? '';
 // (coercive mode), and the write path stores a scalar title raw (#707), so is_string()
 // would silently drop an accepted value. Full reasoning in components/hero/hero.php.
 // Local specifics: the heading is the only thing `$title` drives here, so a malformed
-// one costs exactly the `<h2>` — the numbers below still render. The background_image
-// guard below is #705's, a different prop into a different typed helper.
+// one costs exactly the `<h2>` — the numbers below still render. (#705's background_image
+// guard, a different prop into a different typed helper, retired with the prop at #1066;
+// see the forwarding note below.)
 $raw_title        = $props['title']            ?? '';
 $title            = is_scalar($raw_title) ? (string) $raw_title : '';
 $raw_title_accent = $props['title_accent']     ?? '';

@@ -43,9 +43,11 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 
 ### Upgrading
 
-- A theme extension that called `pp_theme_class()` now fatals with an undefined function.
-  Express a band's tone with the `_band` role's `background.fill` and `typography.color`
-  instead.
+- A theme extension or child-theme component that called `pp_theme_class()` now fatals
+  with an undefined function, and because a component renders without a try/catch the
+  fatal takes down the WHOLE public page, not just its band. Before upgrading, run
+  `grep -rn "pp_theme_class(" wp-content/themes/` against any custom components. Express a
+  band's tone with the `_band` role's `background.fill` and `typography.color` instead.
 
 ### Docs
 
@@ -62,8 +64,19 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 - The two surviving #705 methods in `ComponentPropsTest` are re-described as what they now
   are: they pin that a stored retired `background_image` paints nothing on section, cta and
   stats.
-- Retired: `ThemeClassHelperTest` and five methods, as listed above.
-- The test fixture survives as a filler band for 26 write-path methods. Re-homing those and
+- Retired: `ThemeClassHelperTest` and six methods: the three #1108 pins, the two
+  fixture-hosted `muted` → `--dark` pins, and `SchemaTruthfulnessTest::testOnlyComponentsWithAnInvertedVariantClaimOne`.
+  The last one tied schema text to an `--inverted` variant class that no schema can declare
+  any more, and its loop has not run since style slots retired.
+- New: `ComponentPropsTest::testATruthyStoredBackgroundImageOnAShippedBandPaintsNothing`.
+  A stored URL, `42` or `true` on section, cta or stats paints nothing. This is the one case
+  a re-introduced read behind the old guard would paint, so it is the pin the two older
+  methods could not be. The InvariantTest tripwire also fails if any component template calls
+  `pp_esc_image_src()` directly, which is #705's crash shape under any prop name.
+- The stored-`theme` negatives in `StoredCompositionAliasRenderTest` now assert that no
+  `--dark` or `--inverted` class of any prefix appears. The old `pp-section--*` spelling
+  could never reappear.
+- The test fixture survives as a filler band for 24 write-path methods. Re-homing those and
   deleting it is tracked separately.
 
 ## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)

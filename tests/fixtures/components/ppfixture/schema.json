@@ -11,7 +11,7 @@
     "title": {
       "type": "string",
       "required": false,
-      "description": "A heading, so the fixture renders something when the hosted claims need a band on the page.",
+      "description": "A heading, so the filler band renders visible content.",
       "default": ""
     },
     "items": {

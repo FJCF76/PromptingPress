@@ -1249,8 +1249,9 @@ class InvariantTest extends TestCase
      * drift catcher asserting that any component reading `$props['background_image']`
      * did so through #705's `is_scalar` guard before the typed pp_esc_image_src(). Once
      * stats retired the prop at #1066 the roster of readers was empty, so the idiom
-     * checks could never run (any reader failed the closing roster assertion first), and
-     * nothing floored the scan itself — an empty `components/` read passed too. #1108
+     * checks had nothing to run on, any new reader (guarded or not) would have failed the
+     * closing roster assertion, and nothing floored the scan itself — an empty
+     * `components/` read passed too. #1108
      * named it: "needs either an anti-vacuity floor or deletion; it cannot stay as-is".
      *
      * The owner then RETIRED THE PROP-GRAIN GUARD BY DECISION on #1108 (2026-09-24): no
@@ -1268,11 +1269,21 @@ class InvariantTest extends TestCase
      */
     public function testNoShippedComponentReadsTheRetiredBackgroundImageProp(): void
     {
-        $scanned = $this->phpFilesIn($this->themeRoot . '/components');
-        $readers = [];
+        $scanned  = $this->phpFilesIn($this->themeRoot . '/components');
+        $readers  = [];
+        $escapers = [];
         foreach ($scanned as $file) {
-            if (str_contains($this->stripPhpComments((string) file_get_contents($file)), "\$props['background_image']")) {
+            $code = $this->stripPhpComments((string) file_get_contents($file));
+            if (str_contains($code, "\$props['background_image']")) {
                 $readers[] = substr($file, strlen($this->themeRoot) + 1);
+            }
+            // THE CRASH CLASS, NOT THE NAME. #705's fatal was a text prop reaching the
+            // typed pp_esc_image_src() from a template; a new prop under ANY name doing
+            // that is the same defect. No component template calls it today — every band
+            // background resolves through the engine (lib/udc.php) and every <img> through
+            // pp_render_responsive_image() — so a direct call from a template is new.
+            if (str_contains($code, 'pp_esc_image_src(')) {
+                $escapers[] = substr($file, strlen($this->themeRoot) + 1);
             }
         }
 
@@ -1299,6 +1310,14 @@ class InvariantTest extends TestCase
             . '(a raw read, then `is_scalar ? (string) : \'\'` before pp_esc_image_src()) and '
             . 'its tests were retired by decision on #1108 because no component had this prop; '
             . 'a component that declares a text-URL image prop brings them back with it.'
+        );
+        $this->assertSame(
+            [],
+            $escapers,
+            'a component template calls pp_esc_image_src() directly again. That is the #705 '
+            . 'shape under any prop name: a raw prop value must be guarded (`is_scalar ? (string) '
+            . ': \'\'`) before the typed call, and the guard\'s tests retired with the last such '
+            . 'prop (#1108) — bring both back with the new read.'
         );
     }
 

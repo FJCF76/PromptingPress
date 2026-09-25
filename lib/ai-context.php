@@ -1083,9 +1083,10 @@ function _pp_bg_annotation_value(string $value): string {
  *      inherited background, so it resolves to null like the default.
  *   3. `theme` prop bucket, component-independent so section vs grid compare equal:
  *      `inverted` -> the dark inverted band; `muted` -> the light muted surface.
- *      NOTHING PAINTS EITHER ANY MORE: `theme` is retired on every component and the
- *      `--dark`/`--inverted` classes that rendered it retired at #1111, so this bucket
- *      describes a band the page does not draw — the defect tracked in #1070.
+ *      NOTHING PAINTS EITHER ANY MORE: `theme` stopped painting as each component
+ *      retired it (the last at #1101), and the `--dark`/`--inverted` vocabulary with
+ *      its pp_theme_class() helper was retired at #1111, so this bucket describes a
+ *      band the page does not draw — the defect tracked in #1070.
  *   4. Otherwise (default/absent/unknown theme, including a `dark` stored before
  *      #605) -> null (inherited body background).
  *
@@ -1105,9 +1106,10 @@ function _pp_resolve_component_bg(array $item): ?array {
     // component declares that prop now (section #1023, cta #1026, stats #1066), and
     // nothing migrates stored props — so the branch was not unreachable, it was
     // reachable and WRONG. An aged page still storing `background_image` renders no
-    // image at all (a retired prop is unread at render), so the band paints whatever
-    // its `--{name}-bg` slot or `theme` says, and calling it image-backed would have
-    // silenced a hint that is now correct.
+    // image at all (a retired prop is unread at render), so calling it image-backed
+    // would describe paint that is not there. (The slot and `theme` buckets below have
+    // since lost their paint too — style slots at #1101, `theme` on every component by
+    // #1101 — and still describing them is the defect tracked in #1070.)
     //
     // THE PRECEDENT IS #605, three steps down: a `theme` value stored before the
     // vocabulary freeze falls through to the default bucket. Same rule, same reason.
@@ -1120,8 +1122,8 @@ function _pp_resolve_component_bg(array $item): ?array {
     // component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
     // band falls through every step to null — the annotation stays silent about it
     // rather than describing it wrongly. A v2 band with a flat `background.fill` is
-    // therefore under-described, never mis-described. That is now true of NINE of the
-    // TEN composable components; teaching this function to read `udc` is a v2-wide
+    // therefore under-described, never mis-described. That is true of all TEN
+    // composable components since grid's rebuild (#1101); teaching this function to read `udc` is a v2-wide
     // change to what the chat AI is told, tracked as its own issue rather than
     // widened here.
 

@@ -1285,10 +1285,11 @@ class ActionsTest extends TestCase
      *   - per-card typography is an item `udc` map now, pinned end to end through the real
      *     authoring surface in tests/GridItemUdcTest.php.
      *
-     * NOT RE-HOMED ONTO `ppfixture`, deliberately: its `theme` prop exists to exercise
-     * enum COERCION and the legacy `--dark` output name, not the #605 freeze, and its
-     * nested fields sit under an `item_fields` key no engine code reads. Re-homing would
-     * have moved seven tests into PR2's delete pile and proved nothing new.
+     * NOT RE-HOMED ONTO `ppfixture`, deliberately: its `theme` prop was non-strict and
+     * existed for the legacy `--dark` output name, not the #605 freeze (it retired at
+     * #1111 with that vocabulary), and its nested fields sat under an `item_fields` key
+     * no engine code read. Re-homing would have moved seven tests into PR2's delete pile
+     * and proved nothing new.
      */
 
     public function testAStoredOutOfSetNestedTextRoleBlocksAnEditToADifferentBand(): void
