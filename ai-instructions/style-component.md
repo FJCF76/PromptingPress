@@ -345,7 +345,11 @@ nothing (a `fill` is a colour, not an image), and the write says so with a
 `udc_overlay_without_image` finding naming the role, and the card when it is one. Keep the
 `overlay` out of states: a `:hover` overlay never paints, even over a base image, because
 `image` cannot be set inside a state. And keep a card's `overlay` with its own `image`: an
-overlay on one card's map does not combine with an image set on the band's map.
+overlay on one card's map does not combine with an image set on the band's map. The reverse
+holds too: an overlay on the band's map reaches no card that sets its own `image` for that
+role, because the card's image replaces its whole background — put the overlay on each such
+card's map. A `udc_preset_value_shadowed_by_role_default` finding leaves out any value you
+already set in that same map: it paints.
 
 ---
 
