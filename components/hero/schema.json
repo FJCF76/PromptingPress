@@ -274,7 +274,7 @@
     },
     "title-accent": {
       "selector": ".hero__title-accent",
-      "description": "The accented substring inside the headline, rendered only when title_accent matches. Over a dark band or a background image, set this explicitly — the v1 cover variant used to re-colour it for you and v2 does not.",
+      "description": "The accented substring inside the headline, rendered only when title_accent matches. Over a dark fill, set this explicitly: the v1 cover variant used to re-colour it for you and v2 does not. Over a background image WITH an overlay it defaults to `@color-accent-on-overlay` (#1010, `overlay_defaults`).",
       "groups": [
         "typography",
         "spacing",
@@ -293,6 +293,7 @@
           "color": "@color-accent-on-overlay"
         }
       },
+      "within": ["inner", "content", "title"],
       "obligations": []
     },
     "subtitle": {

@@ -153,6 +153,7 @@
         }
       },
       "overlay_defaults": { "typography": { "color": "@color-accent-on-overlay" } },
+      "within": ["heading"],
       "obligations": []
     },
     "list": {

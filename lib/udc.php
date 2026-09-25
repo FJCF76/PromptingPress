@@ -135,9 +135,9 @@
  *
  * ALSO THE FINDINGS CAP. pp_udc_composition_findings() bounds each of its multiplying
  * `udc_*` arms at this value across one composition (the `_css` pair and the token pair
- * share one budget each; overlay, preset-skip, preset-shadow, item-shadow and
- * role-ink-over-own-surface have their own), and ai-instructions/operating-loop.md tells the model the number. Changing it
- * changes both.
+ * share one budget each; overlay, preset-skip, preset-shadow, item-shadow,
+ * role-ink-over-own-surface and overlay-accent-off-scrim have their own), and
+ * ai-instructions/operating-loop.md tells the model the number. Changing it changes both.
  */
 const PP_UDC_MAX_EMIT_DROPS = 200;
 
@@ -2575,22 +2575,33 @@ function _pp_udc_role_own_surface_fill(array $role_def): ?array {
 }
 
 /**
- * Whether a role map authors a text colour, at rest or in any state (#1125): in the map
- * itself, or from a preset it applies at role grain or inside `typography` (the emitter
- * paints a preset's ink exactly as the map's own).
+ * The typography groups whose `color` the emitter paints on a role (#1125, #1010 review): the
+ * map's own `typography`, a `typography._preset` fragment, a role-grain `_preset`'s
+ * `typography`, and the raw-CSS valve's `_css` map (an authored `color` there wins in the
+ * cascade exactly as `typography.color` does).
+ *
+ * @return array<int, array>
  */
-function _pp_udc_map_sets_ink(array $role_map): bool {
+function _pp_udc_ink_groups(array $role_map): array {
     $typography = isset($role_map['typography']) && is_array($role_map['typography']) ? $role_map['typography'] : [];
-    $candidates = [$typography];
+    $groups     = [$typography];
     foreach ([[$typography[PP_UDC_PRESET_KEY] ?? null, 'typography'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
         $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
         $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
         $group    = $grain === 'role' ? ($fragment['typography'] ?? null) : $fragment;
         if (is_array($group)) {
-            $candidates[] = $group;
+            $groups[] = $group;
         }
     }
-    foreach ($candidates as $group) {
+    if (isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY])) {
+        $groups[] = $role_map[PP_UDC_CSS_KEY];
+    }
+    return $groups;
+}
+
+/** Whether a role map authors a text colour, at rest or in any state (#1125). */
+function _pp_udc_map_sets_ink(array $role_map): bool {
+    foreach (_pp_udc_ink_groups($role_map) as $group) {
         if (array_key_exists('color', $group)) {
             return true;
         }
@@ -2598,6 +2609,19 @@ function _pp_udc_map_sets_ink(array $role_map): bool {
             if (isset($group[$state]) && is_array($group[$state]) && array_key_exists('color', $group[$state])) {
                 return true;
             }
+        }
+    }
+    return false;
+}
+
+/**
+ * Whether a role map authors its text colour AT REST (#1010 review). The overlay tier
+ * re-lights the resting colour, so an ink set only for `:hover` leaves the rest re-lit.
+ */
+function _pp_udc_map_sets_rest_ink(array $role_map): bool {
+    foreach (_pp_udc_ink_groups($role_map) as $group) {
+        if (array_key_exists('color', $group)) {
+            return true;
         }
     }
     return false;
@@ -2630,6 +2654,39 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
         }
     }
     return false;
+}
+
+/**
+ * The background colours a role map paints, as strings, in the emitter's precedence (#1010
+ * review): its own `background.fill` (every breakpoint tier), else a group-grain then a
+ * role-grain preset's fill, plus any `_css` background value. The caller reads each one.
+ *
+ * @return array<int, string>
+ */
+function _pp_udc_role_map_surface_values(array $role_map): array {
+    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
+    $fill       = $background['fill'] ?? null;
+    if ($fill === null) {
+        foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+            $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
+            $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+            $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
+            if (is_array($group) && array_key_exists('fill', $group)) {
+                $fill = $group['fill'];
+                break;
+            }
+        }
+    }
+    $values = array_values(array_filter(is_array($fill) ? $fill : [$fill], 'is_string'));
+    $raw    = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
+    foreach (['background', 'background-color', 'background-image'] as $property) {
+        foreach ((array) ($raw[$property] ?? []) as $value) {
+            if (is_string($value)) {
+                $values[] = $value;
+            }
+        }
+    }
+    return $values;
 }
 
 /**
@@ -8751,23 +8808,24 @@ function pp_udc_composition_findings(array $items): array {
 
         // THE OVERLAY TIER'S RESIDUAL, DISCLOSED (#1010 review, 7A ruling 1 = A). On a band the
         // engine marks overlaid, the accent inks re-light to the near-white on-overlay ink on
-        // the premise that they sit on a dark scrim. Three authored shapes break the premise,
-        // and the engine names each rather than outguessing the author: a light background
-        // the author set on another role (a white panel under the heading), a scrim set only
-        // at some widths, and a light scrim. Authored wins: an accent role whose ink the
-        // author set is not re-lit and not named, and with none left there is nothing to say.
+        // the premise that they sit on a dark scrim. Authored shapes that break the premise
+        // are named rather than outguessed: a scrim set only at some widths; a scrim that is
+        // light, partly transparent, or unreadable; and a light (or unreadable) surface the
+        // author set on a role that ENCLOSES a re-lit accent, which each accent's schema
+        // declares as data (`within`), so a light button beside the heading is not named.
+        // Authored wins: an accent whose resting ink the author set is not re-lit and not named.
         if ($relit_disclosed < PP_UDC_MAX_EMIT_DROPS && pp_udc_band_has_overlay($item)) {
             $relit = [];
             foreach ($roles as $role_name => $definition) {
                 if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults'])
                     && $definition['overlay_defaults'] !== []
-                    && !_pp_udc_map_sets_ink(is_array($item['udc'][$role_name] ?? null) ? $item['udc'][$role_name] : [])) {
+                    && !_pp_udc_map_sets_rest_ink(is_array($item['udc'][$role_name] ?? null) ? $item['udc'][$role_name] : [])) {
                     $relit[] = (string) $role_name;
                 }
             }
             if ($relit !== []) {
                 $band_tokens = is_array($item['udc']['_tokens'] ?? null) ? $item['udc']['_tokens'] : [];
-                $conditions  = [];
+                $conditions  = []; // [condition text, the re-lit roles it concerns]
                 $overlay     = _pp_udc_band_overlay_value($item['udc']['_band']);
                 // A breakpoint map without the base tier paints the scrim only at the widths it names.
                 if (is_array($overlay) && !array_key_exists('d', $overlay)) {
@@ -8775,42 +8833,60 @@ function pp_udc_composition_findings(array $items): array {
                     $named   = array_values(array_intersect(array_keys($breakpoints), array_map('strval', array_keys($overlay))));
                     $missing = array_values(array_diff(array_keys($breakpoints), $named));
                     if ($named !== [] && $missing !== []) {
-                        $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys));
-                        $conditions[] = sprintf('the scrim is set only at the %s width, so at the %s width the accent sits on the unscrimmed image',
-                            $label($named), $label($missing));
+                        $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
+                            . (count($keys) === 1 ? ' width' : ' widths');
+                        $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
+                            $label($named), $label($missing)), $relit];
                     }
                 }
                 foreach (is_array($overlay) ? $overlay : [$overlay] as $scrim) {
-                    if (is_string($scrim) && _pp_udc_value_is_light($scrim, $band_tokens) === true) {
-                        $conditions[] = sprintf('the scrim you set is light (%s)', _pp_udc_reflect($scrim));
+                    if (!is_string($scrim)) {
+                        continue;
+                    }
+                    $colours = _pp_udc_value_colours($scrim, $band_tokens);
+                    $shown   = _pp_udc_reflect($scrim);
+                    if ($colours === []) {
+                        $conditions[] = [sprintf('the engine cannot read the scrim you set (%s), so it cannot tell whether it is dark', $shown), $relit];
+                        break;
+                    }
+                    if (_pp_udc_value_is_light($scrim, $band_tokens) === true) {
+                        $conditions[] = [sprintf('the scrim you set is light (%s)', $shown), $relit];
+                        break;
+                    }
+                    if (array_filter($colours, static fn (array $c): bool => $c[3] < 0.3) !== []) {
+                        $conditions[] = [sprintf('the scrim you set (%s) is transparent in part, so part of the band shows the unscrimmed image', $shown), $relit];
                         break;
                     }
                 }
-                // Another role's surface the author painted: light, or unreadable (an image).
+                // A surface the author painted on a role that encloses a re-lit accent.
+                $enclosing = [];
+                foreach ($relit as $accent) {
+                    foreach ((array) ($roles[$accent]['within'] ?? []) as $outer) {
+                        $enclosing[(string) $outer][] = $accent;
+                    }
+                }
                 foreach ($preset_maps as [$locator, $map]) {
                     foreach ($map as $role_name => $role_map) {
                         $role_name = (string) $role_name;
-                        if ($role_name === '_band' || in_array($role_name, $relit, true) || !is_array($role_map)
-                            || !isset($roles[$role_name])
+                        if (!isset($enclosing[$role_name]) || !is_array($role_map)
                             || ($locator !== '' && !in_array($role_name, $preset_item_roles, true))) {
                             continue;
                         }
                         $where = ($locator === '' ? '' : sprintf('item "%s" ', _pp_udc_reflect($locator))) . sprintf('role "%s"', $role_name);
-                        $fill  = $role_map['background']['fill'] ?? null;
-                        foreach (is_array($fill) ? $fill : [$fill] as $tier_fill) {
-                            if (is_string($tier_fill) && strtolower($tier_fill) !== 'transparent'
-                                && _pp_udc_value_is_light($tier_fill, $band_tokens) !== false) {
-                                $conditions[] = sprintf('%s has a background.fill you set (%s) that is light or that the engine cannot read',
-                                    $where, _pp_udc_reflect($tier_fill));
+                        foreach (_pp_udc_role_map_surface_values($role_map) as $surface) {
+                            if (strtolower($surface) !== 'transparent' && _pp_udc_value_is_light($surface, $band_tokens) !== false) {
+                                $conditions[] = [sprintf('%s, which encloses it, has a background you set (%s) that is light or that the engine cannot read',
+                                    $where, _pp_udc_reflect($surface)), $enclosing[$role_name]];
                                 continue 2;
                             }
                         }
                         if (_pp_udc_role_map_background_image($role_map) !== null) {
-                            $conditions[] = sprintf('%s has a background image you set, whose lightness the engine cannot read', $where);
+                            $conditions[] = [sprintf('%s, which encloses it, has a background image you set, whose lightness the engine cannot read', $where),
+                                $enclosing[$role_name]];
                         }
                     }
                 }
-                foreach ($conditions as $condition) {
+                foreach ($conditions as [$condition, $concerned]) {
                     if ($relit_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                         break;
                     }
@@ -8822,9 +8898,9 @@ function pp_udc_composition_findings(array $items): array {
                             . '@color-accent-on-overlay, but %s. Where the accent sits on that surface, set its '
                             . 'typography.color yourself: your value wins.',
                             $component,
-                            count($relit) === 1 ? 'role' : 'roles',
-                            implode(', ', array_map(static fn ($r) => '"' . $r . '"', $relit))
-                                . (count($relit) === 1 ? ' re-lights' : ' re-light'),
+                            count($concerned) === 1 ? 'role' : 'roles',
+                            implode(', ', array_map(static fn ($r) => '"' . $r . '"', $concerned))
+                                . (count($concerned) === 1 ? ' re-lights' : ' re-light'),
                             $condition
                         ),
                         'index'   => is_int($i) ? $i : null,
@@ -10082,18 +10158,21 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
  * is no longer a harmless focus-ring detail: it turns an accent near-white on a light
  * band. So the image is taken in the emitter's own precedence and resolve-checked
  * (_pp_udc_role_map_background_image(): the map's own image, then a group-grain, then a
- * role-grain preset's; a deleted attachment paints nothing), and the overlay is taken
- * from the map or from those same presets, which the emitter merges into the map.
+ * role-grain preset's; a deleted attachment paints nothing), the overlay is taken from
+ * the map or from those same presets, which the emitter merges into the map, and a band
+ * without a usable id is never marked (the emitter writes no CSS for it).
  */
 function pp_udc_band_has_overlay(array $item): bool {
-    $band_map = $item['udc']['_band'] ?? null;
-    if (!is_array($band_map) || _pp_udc_role_map_background_image($band_map) === null) {
+    // No usable band id, no band CSS (pp_udc_band_css() returns ''): nothing paints, so
+    // no marker, the same gate pp_udc_promote_band_identity() puts on `__pp_udc_band`.
+    if (!isset($item['id']) || !is_scalar($item['id']) || !pp_udc_valid_band_id((string) $item['id'])) {
         return false;
     }
-    $overlay = _pp_udc_band_overlay_value($band_map);
-    // A scalar is the plain form; an array is a breakpoint map or a state map, and any
-    // non-empty leaf in it still paints somewhere.
-    return is_scalar($overlay) ? (string) $overlay !== '' : (is_array($overlay) && $overlay !== []);
+    $band_map = $item['udc']['_band'] ?? null;
+    // The scrim first: it is a map read, and a band with no scrim (an image-only hero, the
+    // common case) then never pays for the attachment lookups on the render path.
+    return is_array($band_map) && _pp_udc_band_overlay_value($band_map) !== null
+        && _pp_udc_role_map_background_image($band_map) !== null;
 }
 
 /**
@@ -10123,22 +10202,44 @@ function _pp_udc_band_overlay_value(array $band_map) {
 /**
  * The colours a CSS colour or gradient value paints, as [[r, g, b, alpha], ...] (#1010
  * review), after resolving `@token` references (band `_tokens`, then site tokens) and one
- * level of `var(--token)`. Reads hex, rgb()/rgba() and the keywords white/black; any other
- * colour syntax is not read, and the caller treats an unread value as unknown.
+ * level of `var(--token)`. Reads hex, rgb()/rgba(), hsl()/hsla() and the keywords
+ * white/black/transparent, inside a plain colour or a gradient. Anything else (another
+ * colour function such as color-mix(), an unresolved reference, a value over
+ * PP_UDC_COLOUR_READ_MAX_BYTES before or after expansion) is NOT read: the result is [],
+ * which callers treat as unknown. The bound matters because this reads stored maps that
+ * never passed the write gate (restore, raw meta), where `_tokens` can amplify.
  *
  * @return array<int, array{0: int, 1: int, 2: int, 3: float}>
  */
 function _pp_udc_value_colours(string $value, array $band_tokens): array {
+    if (strlen($value) > PP_UDC_COLOUR_READ_MAX_BYTES) {
+        return [];
+    }
     $value = (string) preg_replace_callback('/@([a-z0-9][a-z0-9-]*)/i', static function (array $m) use ($band_tokens): string {
         $resolved = pp_udc_resolve_reference($m[1], $band_tokens);
-        return $resolved === null ? $m[0] : $resolved['value'];
+        return $resolved === null ? $m[0] : substr($resolved['value'], 0, PP_UDC_COLOUR_READ_MAX_BYTES + 1);
     }, $value);
+    if (strlen($value) > PP_UDC_COLOUR_READ_MAX_BYTES) {
+        return [];
+    }
     $value = (string) preg_replace_callback('/var\(\s*(--[a-z0-9-]+)\s*\)/i', static function (array $m): string {
         $site = pp_design_tokens();
-        return isset($site[$m[1]]['value']) ? (string) $site[$m[1]]['value'] : $m[0];
+        return isset($site[$m[1]]['value']) ? substr((string) $site[$m[1]]['value'], 0, PP_UDC_COLOUR_READ_MAX_BYTES + 1) : $m[0];
     }, $value);
+    if (strlen($value) > PP_UDC_COLOUR_READ_MAX_BYTES || str_contains($value, '@') || stripos($value, 'var(') !== false) {
+        return [];
+    }
+    // Only colour and gradient functions are read; any other function changes what the
+    // colours inside it mean (color-mix(white 50%, black) is grey), so the value is unread.
+    preg_match_all('/([a-z-]+)\(/i', $value, $functions);
+    $readable = ['rgb', 'rgba', 'hsl', 'hsla', 'linear-gradient', 'radial-gradient', 'conic-gradient',
+        'repeating-linear-gradient', 'repeating-radial-gradient', 'repeating-conic-gradient'];
+    if (array_diff(array_map('strtolower', $functions[1]), $readable) !== []) {
+        return [];
+    }
     $colours = [];
-    if (preg_match_all('/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b|rgba?\(([^)]*)\)|(?<![\w.-])(white|black)(?![\w.-])/i', $value, $found, PREG_SET_ORDER)) {
+    $alpha_of = static fn (?string $a): float => $a === null ? 1.0 : (str_ends_with($a, '%') ? (float) $a / 100 : (float) $a);
+    if (preg_match_all('/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b|rgba?\(([^)]*)\)|hsla?\(([^)]*)\)|(?<![\w.-])(white|black|transparent)(?![\w.-])/i', $value, $found, PREG_SET_ORDER)) {
         foreach ($found as $m) {
             if (($m[1] ?? '') !== '') {
                 $hex = strtolower($m[1]);
@@ -10150,15 +10251,42 @@ function _pp_udc_value_colours(string $value, array $band_tokens): array {
             } elseif (($m[2] ?? '') !== '') {
                 $parts = preg_split('/[\s,\/]+/', trim($m[2]));
                 if (count($parts) >= 3 && is_numeric($parts[0]) && is_numeric($parts[1]) && is_numeric($parts[2])) {
-                    $alpha = isset($parts[3]) ? (str_ends_with($parts[3], '%') ? (float) $parts[3] / 100 : (float) $parts[3]) : 1.0;
-                    $colours[] = [(int) $parts[0], (int) $parts[1], (int) $parts[2], $alpha];
+                    $colours[] = [(int) $parts[0], (int) $parts[1], (int) $parts[2], $alpha_of($parts[3] ?? null)];
+                }
+            } elseif (($m[3] ?? '') !== '') {
+                $parts = preg_split('/[\s,\/]+/', trim($m[3]));
+                $h = isset($parts[0]) ? rtrim(strtolower($parts[0]), 'deg') : '';
+                $sat = isset($parts[1]) ? rtrim($parts[1], '%') : '';
+                $lig = isset($parts[2]) ? rtrim($parts[2], '%') : '';
+                if (is_numeric($h) && is_numeric($sat) && is_numeric($lig)) {
+                    [$r, $g, $b] = _pp_udc_hsl_to_rgb((float) $h, (float) $sat / 100, (float) $lig / 100);
+                    $colours[] = [$r, $g, $b, $alpha_of($parts[3] ?? null)];
                 }
             } else {
-                $colours[] = strtolower($m[3]) === 'white' ? [255, 255, 255, 1.0] : [0, 0, 0, 1.0];
+                $word = strtolower($m[4]);
+                $colours[] = $word === 'white' ? [255, 255, 255, 1.0] : ($word === 'black' ? [0, 0, 0, 1.0] : [0, 0, 0, 0.0]);
             }
         }
     }
     return $colours;
+}
+
+/** Longest value the colour reader reads (#1010 review); no real colour or scrim is longer. */
+const PP_UDC_COLOUR_READ_MAX_BYTES = 512;
+
+/** HSL (hue in degrees, saturation and lightness 0..1) to sRGB bytes. */
+function _pp_udc_hsl_to_rgb(float $h, float $s, float $l): array {
+    $h = fmod(fmod($h, 360) + 360, 360) / 360;
+    $s = max(0.0, min(1.0, $s));
+    $l = max(0.0, min(1.0, $l));
+    $q = $l < 0.5 ? $l * (1 + $s) : $l + $s - $l * $s;
+    $p = 2 * $l - $q;
+    $channel = static function (float $t) use ($p, $q): int {
+        $t = $t < 0 ? $t + 1 : ($t > 1 ? $t - 1 : $t);
+        $v = $t < 1 / 6 ? $p + ($q - $p) * 6 * $t : ($t < 1 / 2 ? $q : ($t < 2 / 3 ? $p + ($q - $p) * (2 / 3 - $t) * 6 : $p));
+        return (int) round($v * 255);
+    };
+    return [$channel($h + 1 / 3), $channel($h), $channel($h - 1 / 3)];
 }
 
 /**

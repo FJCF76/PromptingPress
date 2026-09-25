@@ -179,12 +179,19 @@ final class OverlayTierDefaultsTest extends TestCase
     public function testADeletedImageDoesNotMarkTheBand(): void
     {
         $this->liveImage(9001);
-        $band = static fn (int $image): array => ['component' => 'hero',
+        $band = static fn (int $image): array => ['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['image' => $image, 'overlay' => 'rgba(0,0,0,0.55)']]]];
         $this->assertTrue(pp_udc_band_has_overlay($band(9001)), 'premise: a live image under a scrim is marked');
         $this->assertFalse(pp_udc_band_has_overlay($band(9002)), 'no attachment 9002: nothing paints, no marker');
-        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero',
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['image' => 9001]]]]), 'an image with no scrim is not an overlay');
+        // No usable band id: the emitter writes no CSS for the band, so nothing paints.
+        $idless = $band(9001);
+        unset($idless['id']);
+        $this->assertFalse(pp_udc_band_has_overlay($idless), 'no band id, no band CSS, no marker');
+        $this->assertFalse(pp_udc_band_has_overlay(['id' => 'bad id"'] + $band(9001)), 'an invalid band id');
+        $this->assertArrayNotHasKey('__pp_udc_overlay', pp_udc_promote_band_identity($idless, []));
+        $this->assertSame('1', pp_udc_promote_band_identity($band(9001), [])['__pp_udc_overlay'] ?? null, 'premise: the valid band is marked');
     }
 
     /** An image and a scrim a preset supplies paint like the map's own, so they mark the band. */
@@ -194,9 +201,9 @@ final class OverlayTierDefaultsTest extends TestCase
         $saved = pp_execute_action('save_preset', ['name' => 'photo-scrim', 'grain' => 'background',
             'udc' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.55)']]);
         $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
-        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['_preset' => 'photo-scrim']]]]));
-        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'photo-scrim']]]]), 'own image, preset scrim');
     }
 
@@ -207,19 +214,19 @@ final class OverlayTierDefaultsTest extends TestCase
         $saved = pp_execute_action('save_preset', ['name' => 'photo-role', 'grain' => 'role',
             'udc' => ['background' => ['image' => 9001, 'overlay' => ['p' => 'rgba(0,0,0,0.55)']]]]);
         $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
-        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'udc' => ['_band' => ['_preset' => 'photo-role']]]),
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'udc' => ['_band' => ['_preset' => 'photo-role']]]),
             'role-grain preset image and breakpoint-map scrim');
-        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['overlay' => ''], '_preset' => 'photo-role']]]),
             'an empty own scrim falls through to the preset\'s');
 
-        $band = static fn ($overlay): array => ['component' => 'hero', 'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => $overlay]]]];
+        $band = static fn ($overlay): array => ['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => $overlay]]]];
         $this->assertFalse(pp_udc_band_has_overlay($band('')), 'an empty scrim paints nothing');
         $this->assertFalse(pp_udc_band_has_overlay($band([])), 'an empty map paints nothing');
         $this->assertTrue(pp_udc_band_has_overlay($band(['t' => '#000000'])), 'a scrim at one width still marks');
-        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'udc' => ['_band' => 'x']]), 'a non-map _band');
-        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero']), 'no udc at all');
-        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero',
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'udc' => ['_band' => 'x']]), 'a non-map _band');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4']), 'no udc at all');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'id' => 'pp-a1b2c3d4',
             'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'no-such-preset']]]]), 'an unresolved preset supplies nothing');
     }
 
@@ -267,15 +274,59 @@ final class OverlayTierDefaultsTest extends TestCase
         $root = dirname(__DIR__);
         foreach (['AI_CONTEXT.md', 'ai-instructions/retheme.md', 'ai-instructions/style-component.md'] as $doc) {
             $text = (string) preg_replace('/\s+/', ' ', (string) file_get_contents($root . '/' . $doc));
-            $this->assertStringContainsString("`title-accent`", $text, $doc);
-            $this->assertMatchesRegularExpression('/`stats`[^.]*`number`|`number`[^.]*`stats`/', $text, "{$doc} names stats number");
-            $this->assertMatchesRegularExpression('/`question-open`[^.]*own light fill/', $text, "{$doc} states the question-open exclusion");
-            foreach (['cta', 'faq', 'stats'] as $component) {
-                $this->assertMatchesRegularExpression('/`heading-accent`[^.]*`' . $component . '`|`' . $component . '`[^.]*`heading-accent`/', $text, "{$doc} names {$component}");
+            // Anchored to the rule's own sentence, not to any mention in the file: the exclusion
+            // is stated verbatim, and the re-lit roles are named in the 600 bytes before it (the
+            // same sentence), so older text that merely mentions these roles cannot satisfy it.
+            $exclusion = "faq `question-open` is not re-lit because it sits on its item's own light fill";
+            $at = strpos($text, $exclusion);
+            $this->assertNotFalse($at, "{$doc} states the question-open exclusion verbatim");
+            $window = substr($text, max(0, (int) $at - 600), 600);
+            $this->assertStringContainsString('#1010', substr($text, max(0, (int) $at - 900), 900), "{$doc}: the #1010 rule");
+            foreach (['`title-accent`', '`heading-accent`', '`cta`', '`faq`', '`stats`', '`number`'] as $name) {
+                $this->assertStringContainsString($name, $window, "{$doc} names {$name} in the rule's sentence");
             }
         }
         $this->assertSame(['cta `heading-accent`', 'faq `heading-accent`', 'hero `title-accent`', 'stats `heading-accent`', 'stats `number`'], $expected,
             'the docs above name these five; widen them with the schemas');
+    }
+
+    /**
+     * `within` names the roles whose elements enclose a re-lit accent (the off-scrim finding
+     * reads a surface only on those). Every name is a role of the same component, the shape
+     * is refused otherwise, and each re-lit role declares it.
+     */
+    public function testEveryReLitRoleDeclaresTheRolesThatEncloseIt(): void
+    {
+        $declared = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            $roles     = pp_udc_component_roles($component);
+            foreach ($roles as $role => $definition) {
+                if (!isset($definition['within'])) {
+                    continue;
+                }
+                foreach ($definition['within'] as $outer) {
+                    $this->assertArrayHasKey($outer, $roles, "{$component}.{$role} within names a role of {$component}");
+                    $this->assertNotSame($role, $outer);
+                }
+                $declared[$component . '.' . $role] = $definition['within'];
+            }
+        }
+        ksort($declared);
+        $this->assertSame([
+            'cta.heading-accent'   => ['inner', 'text', 'heading'],
+            'faq.heading-accent'   => ['heading'],
+            'hero.title-accent'    => ['inner', 'content', 'title'],
+            'stats.heading-accent' => ['heading'],
+            'stats.number'         => ['list', 'item'],
+        ], $declared, 'the enclosing roles, read off each template\'s markup');
+
+        $role = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $this->assertSame([], pp_schema_definition_errors($role + ['within' => ['x', 'y']], 'role', 'r'));
+        foreach ([['within' => 'x'], ['within' => ['a' => 'x']], ['within' => ['']], ['within' => [3]]] as $bad) {
+            $this->assertStringContainsString('`within` must be a LIST of role names',
+                implode(' | ', pp_schema_definition_errors($role + $bad, 'role', 'r')), json_encode($bad));
+        }
     }
 
     /** An AUTHORED value still wins: the band's own block prints after the overlay tier. */

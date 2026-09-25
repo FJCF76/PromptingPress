@@ -143,6 +143,16 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertCount(1, $found, 'no attachment 9002 in the store');
     }
 
+    /** An ink written through the raw-CSS valve is an authored ink too. */
+    public function testARawCssInkIsDisclosed(): void
+    {
+        [, $found] = $this->write([
+            '_band'   => ['background' => ['fill' => '@color-bg-inverted']],
+            'eyebrow' => ['_css' => ['color' => '#ffffff']],
+        ]);
+        $this->assertCount(1, $found);
+    }
+
     /** A band darkened through a preset the author applied is an authored band surface. */
     public function testABandDarkenedByAPresetIsAnAuthoredBandSurface(): void
     {

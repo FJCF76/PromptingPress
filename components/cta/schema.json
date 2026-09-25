@@ -226,6 +226,7 @@
           "color": "@color-accent-on-overlay"
         }
       },
+      "within": ["inner", "text", "heading"],
       "obligations": []
     },
     "body": {

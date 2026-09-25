@@ -231,6 +231,7 @@ function pp_role_definition_keys(): array {
         'groups',        // required — the UDC groups this role permits
         'defaults',      // the role's own default values, per group
         'overlay_defaults', // #1010 — defaults re-lit on a band the engine marks `data-pp-band-overlay`
+        'within',        // #1010 review — the roles whose elements enclose this one (a LIST of role names)
         'obligations',   // #1087 — MODEL-facing pairing/contrast obligations, bounded
     ];
 }
@@ -843,6 +844,11 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not one of this role's `groups`.";
                 }
             }
+        }
+        if (array_key_exists('within', $definition)
+            && (!is_array($definition['within']) || !pp_is_list($definition['within'])
+                || array_filter($definition['within'], static fn ($r): bool => !is_string($r) || $r === '') !== [])) {
+            $errors[] = "{$label}: `within` must be a LIST of role names.";
         }
         if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
             $errors[] = "{$label}: `description` must be a string.";

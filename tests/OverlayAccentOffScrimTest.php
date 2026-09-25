@@ -60,7 +60,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => '#ffffff']]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "heading-accent" re-lights', $found[0]['message']);
-        $this->assertStringContainsString('role "text" has a background.fill you set (#ffffff)', $found[0]['message']);
+        $this->assertStringContainsString('role "text", which encloses it, has a background you set (#ffffff)', $found[0]['message']);
         $this->assertSame(0, $found[0]['index']);
 
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => '#101828']]]),
@@ -76,7 +76,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     {
         $found = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => ['p' => 'rgba(0,0,0,0.6)']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('the scrim is set only at the phone width, so at the desktop and tablet width', $found[0]['message']);
+        $this->assertStringContainsString('the scrim is set only at the phone width, so at the desktop and tablet widths the accent sits', $found[0]['message']);
 
         $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001,
             'overlay' => ['d' => 'rgba(0,0,0,0.6)', 'p' => 'rgba(0,0,0,0.7)']]]]), 'a base-tier scrim covers every width');
@@ -89,8 +89,9 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $found);
         $this->assertStringContainsString('the scrim you set is light (rgba(255,255,255,0.8))', $found[0]['message']);
         $this->assertCount(1, $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => '@color-bg']]]));
-        $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.1)']]]),
-            'a thin wash is the image, not the colour');
+        $thin = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.1)']]]);
+        $this->assertCount(1, $thin, 'a thin wash is the image, not the colour: named as partly transparent, not as light');
+        $this->assertStringContainsString('is transparent in part', $thin[0]['message']);
     }
 
     /** Authored wins: an accent whose ink the author set is neither re-lit nor named. */
@@ -164,7 +165,11 @@ final class OverlayAccentOffScrimTest extends TestCase
             'var(--color-bg)'               => true,
             '@color-bg-inverted'            => false,
             // unread syntax: unknown, never a guess
-            'hsl(0 0% 100%)'                => null,
+            'hsl(0 0% 100%)'                => true,
+            'hsla(0, 0%, 100%, 0.7)'        => true,
+            'hsl(220, 40%, 10%)'            => false,
+            'hsl(220deg 40% 10% / 50%)'     => false,
+            'color-mix(in srgb, white 50%, black)' => null,
             'rgb(var(--x), 1, 1)'           => null,
             'currentColor'                  => null,
             '@no-such-token'                => null,
@@ -178,14 +183,17 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame([[255, 255, 255, 1.0], [0, 0, 0, 1.0]], _pp_udc_value_colours('white black', []));
     }
 
-    /** An unreadable scrim is not guessed light; an unreadable panel fill is named as unreadable. */
-    public function testAnUnreadableScrimIsSilentButAnUnreadablePanelIsNamed(): void
+    /** An unreadable scrim and an unreadable enclosing panel are both named: the engine cannot tell they are dark. */
+        public function testAnUnreadableScrimAndAnUnreadablePanelAreBothNamed(): void
     {
-        $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'hsl(0 0% 100% / 0.8)']]]),
-            'the scrim trigger fires only on a value read as light');
-        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'hsl(0 0% 10%)']]]);
+        $scrim = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'color-mix(in srgb, white 50%, black)']]]);
+        $this->assertCount(1, $scrim, 'a scrim the engine cannot read is named: it cannot tell it is dark');
+        $this->assertStringContainsString('the engine cannot read the scrim you set', $scrim[0]['message']);
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'color-mix(in srgb, white 50%, black)']]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(hsl(0 0% 10%)) that is light or that the engine cannot read', $found[0]['message']);
+        $this->assertStringContainsString('that is light or that the engine cannot read', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'hsl(0 0% 10%)']]]),
+            'a dark hsl() panel is read as dark');
     }
 
     /** A transparent panel is no surface; a breakpoint-map panel is named once, on its light tier. */
@@ -220,7 +228,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $found = $this->found(['_band' => ['background' => ['image' => 9001,
             'overlay' => ['t' => 'rgba(0,0,0,0.6)', 'p' => 'rgba(0,0,0,0.6)']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('only at the tablet and phone width, so at the desktop width', $found[0]['message']);
+        $this->assertStringContainsString('only at the tablet and phone widths, so at the desktop width', $found[0]['message']);
     }
 
     /** A scrim a preset supplies is read like the map's own, band tokens included. */
@@ -239,11 +247,91 @@ final class OverlayAccentOffScrimTest extends TestCase
     /** A colour keyword inside a name is part of the name, not a colour: the value stays unread. */
     public function testAColourKeywordInsideANameIsNotReadAsAColour(): void
     {
+        $this->assertFalse(_pp_udc_value_is_light('linear-gradient(off-white, black)', []), 'off-white is a name, not white');
         foreach (['var(--no-such-white)', 'url(white.png)', '@not-a-black-token', 'offwhite'] as $value) {
             $this->assertNull(_pp_udc_value_is_light($value, []), $value);
         }
         $this->assertTrue(_pp_udc_value_is_light('white', []));
         $this->assertFalse(_pp_udc_value_is_light('linear-gradient(black, transparent)', []));
+    }
+
+    /** An accent inked only for :hover is still re-lit at rest, so it is still named. */
+    public function testAStateOnlyAccentInkIsStillReLitAtRestAndNamed(): void
+    {
+        $light = ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.8)'];
+        $found = $this->found(['_band' => ['background' => $light], 'heading-accent' => ['typography' => [':hover' => ['color' => '#111111']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "heading-accent" re-lights', $found[0]['message']);
+    }
+
+    /** An accent inked through the raw-CSS valve is authored: not re-lit, not named. */
+    public function testARawCssAccentInkIsAuthored(): void
+    {
+        $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.8)']],
+            'heading-accent' => ['_css' => ['color' => '#111111']]]));
+    }
+
+    /** Only a role that ENCLOSES the accent counts: a light button beside the heading is not named. */
+    public function testOnlyAnEnclosingRolesSurfaceIsNamed(): void
+    {
+        foreach (['button', 'button-secondary', 'eyebrow', 'body'] as $beside) {
+            $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], $beside => ['background' => ['fill' => '#ffffff']]]), $beside);
+        }
+        foreach (['inner', 'text', 'heading'] as $outer) {
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], $outer => ['background' => ['fill' => '#ffffff']]]), $outer);
+        }
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'cta-secondary' => ['background' => ['fill' => '#ffffff']]],
+            'hero', ['title' => 'T', 'title_accent' => 'A', 'layout' => 'centered']), 'hero secondary CTA sits beside the title');
+
+        // stats: the item card encloses the number, not the heading accent, so only "number" is named.
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'item' => ['background' => ['fill' => '#ffffff']]],
+            'stats', ['title' => 'S', 'title_accent' => 'A', 'items' => []]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "number" re-lights', $found[0]['message']);
+        $this->assertStringNotContainsString('heading-accent', $found[0]['message']);
+    }
+
+    /** A light panel a preset or the raw-CSS valve paints is read like the map's own fill. */
+    public function testAPresetOrRawCssPanelIsRead(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'white-panel', 'grain' => 'background', 'udc' => ['fill' => '#ffffff']])['ok']);
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'white-role', 'grain' => 'role', 'udc' => ['background' => ['fill' => '#ffffff']]])['ok']);
+        foreach ([['background' => ['_preset' => 'white-panel']], ['_preset' => 'white-role'], ['_css' => ['background-color' => '#ffffff']]] as $text) {
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => $text]), json_encode($text));
+        }
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => '#101828']]]),
+            'a dark raw-CSS panel is read as dark');
+    }
+
+    /** A light scrim written as a breakpoint map is read tier by tier. */
+    public function testALightScrimInABreakpointMapIsNamed(): void
+    {
+        $found = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.6)', 't' => 'rgba(255,255,255,0.8)']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('the scrim you set is light (rgba(255,255,255,0.8))', $found[0]['message']);
+    }
+
+    /** A scrim that fades to transparent leaves part of the band unscrimmed. */
+    public function testAFadingScrimIsNamedAsPartlyTransparent(): void
+    {
+        $found = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('is transparent in part', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.4))']]]),
+            'a dark gradient with every stop opaque enough is the premise holding');
+    }
+
+    /** The reader gives up on oversized or amplifying values instead of expanding them. */
+    public function testTheColourReaderIsBounded(): void
+    {
+        $this->assertSame([], _pp_udc_value_colours(str_repeat('#ffffff ', 100), []), 'over the byte bound: unread');
+        $this->assertSame([], _pp_udc_value_colours(str_repeat('@x', 40), ['x' => str_repeat('a', 1000)]), 'expansion past the bound: unread');
+        $before = memory_get_usage();
+        $found  = pp_udc_composition_findings([['component' => 'cta', 'id' => 'pp-a1b2c3d4',
+            'udc' => ['_tokens' => ['x' => str_repeat('a', 100000)], '_band' => ['background' => ['image' => 9001, 'overlay' => str_repeat('@x', 5000)]]],
+            'props' => []]]);
+        $this->assertIsArray($found);
+        $this->assertLessThan(16 * 1048576, memory_get_usage() - $before);
     }
 
     /** Bounded across the composition like its sibling arms. */

@@ -61,7 +61,7 @@
   "retired_props": {
     "_note": "Props this component declared on 1.x that the v2 rebuild retired (#1066). Each value names the v2 surface that replaced it, so a refusal can offer a route instead of a list of live prop names. Guarded by SchemaValidationTest, which fails in BOTH directions: a key here that still exists in props, or a route naming a role this component does not declare, is a test failure rather than a message that lies.",
     "theme": "the `_band` role, and it takes THREE groups rather than one. MEASURED, every value, at 375/768/1280 before the prop went: `default` painted NOTHING (`rgba(0, 0, 0, 0)`) with no border on any edge, which is why `_band` declares no `background.fill`; `muted` painted `@color-surface` plus a 1px solid `@color-border` rule top and bottom; `inverted` painted `@color-bg-inverted`, re-coloured the heading to `@color-bg` and re-routed the NUMBER to `@color-accent-on-inverted` (the light-surface accent measures only 3.23:1 there). So: the tone is `background.fill`; the `muted` framing is `border.width-top` / `width-bottom` = \"1px\" with `style-top` / `style-bottom` = \"solid\" and `color` = \"@color-border\"; the `inverted` ink is `typography.color` on `_band`, which `heading` follows through `currentColor`. WHAT THE ROUTE DOES NOT REACH: `number` and `label` pin their own colours as direct declarations, so a band ink write does not move them — a dark stats band is four writes, not two. v1's inverted label also carried `opacity: 0.75`, which has no UDC group; it ports as the measured composite `rgb(192, 195, 201)`. `dark` was never an accepted input (removed at #605, clamped to `default`).",
-    "background_image": "the `_band` role's `background.image` — a Media Library attachment id, NOT a url string — with its scrim on `background.overlay` and its focal point on `background.position`. Two v1 behaviours are explicit now: write `background.size: \"cover\"` and `background.repeat: \"no-repeat\"`. AND SETTING A BACKGROUND NO LONGER RE-INKS THE BAND: v1 keyed three contrast corrections on `.stats--has-bg-image` (#461 number, #463 heading-accent, #577 label) and they retire with the class, exactly as hero's, section's and cta's did. In the SAME write, put `typography.color` on `heading` (`@color-bg`), on `heading-accent` and `number` (`@color-accent-on-overlay`) and on `label` (`@color-muted-on-overlay`). The overlay <div> is gone too — the scrim composes into the band's own background layer list. Full reasoning in components/stats/README.md and docs/howto-migrate-a-stats-band-to-v2.md."
+    "background_image": "the `_band` role's `background.image` — a Media Library attachment id, NOT a url string — with its scrim on `background.overlay` and its focal point on `background.position`. Two v1 behaviours are explicit now: write `background.size: \"cover\"` and `background.repeat: \"no-repeat\"`. AND SETTING A BACKGROUND NO LONGER RE-INKS THE BAND: v1 keyed three contrast corrections on `.stats--has-bg-image` (#461 number, #463 heading-accent, #577 label) and they retire with the class, exactly as hero's, section's and cta's did. In the SAME write, put `typography.color` on `heading` (`@color-bg`) and on `label` (`@color-muted-on-overlay`); `heading-accent` and `number` default to `@color-accent-on-overlay` on an image-plus-overlay band since #1010, so writing them is optional there. The overlay <div> is gone too — the scrim composes into the band's own background layer list. Full reasoning in components/stats/README.md and docs/howto-migrate-a-stats-band-to-v2.md."
   },
   "roles": {
     "_band": {
@@ -120,7 +120,7 @@
     },
     "heading-accent": {
       "selector": ".stats__heading-accent",
-      "description": "The accented substring inside the heading, the <span> `title_accent` produces. IT EARNS A DEFAULT WHERE THE HEADING'S WEIGHT DOES NOT, and the difference is the whole of rule 2: `@color-accent` here was a declaration in stats' OWN block (`.stats__heading-accent { color: var(--stats-heading-accent-color, var(--color-accent)) }`), not a value inherited from a global rule, so porting it is transcription rather than promotion. Measured rgb(49, 87, 244) on every band v1 could render. IT DOES NOT FOLLOW THE HEADING, which is the thing that surprises people: the accent paints its own colour at (0,1,0) and does NOT inherit a colour set on the <h2> above it, so re-inking `heading` for a dark band leaves this span on the light-surface accent. On an authored `@color-bg-inverted` band that measures 3.23:1 - which clears the 3:1 large-text bar at this size and fails it at any smaller one. Over a background image it was 1.16:1, which is why v1 carried a `.stats--has-bg-image` correction (#463) that retires with the class: write `typography.color: \"@color-accent-on-overlay\"` here in the same map as the image.",
+      "description": "The accented substring inside the heading, the <span> `title_accent` produces. IT EARNS A DEFAULT WHERE THE HEADING'S WEIGHT DOES NOT, and the difference is the whole of rule 2: `@color-accent` here was a declaration in stats' OWN block (`.stats__heading-accent { color: var(--stats-heading-accent-color, var(--color-accent)) }`), not a value inherited from a global rule, so porting it is transcription rather than promotion. Measured rgb(49, 87, 244) on every band v1 could render. IT DOES NOT FOLLOW THE HEADING, which is the thing that surprises people: the accent paints its own colour at (0,1,0) and does NOT inherit a colour set on the <h2> above it, so re-inking `heading` for a dark band leaves this span on the light-surface accent. On an authored `@color-bg-inverted` band that measures 3.23:1 - which clears the 3:1 large-text bar at this size and fails it at any smaller one. Over a background image it was 1.16:1, which is why v1 carried a `.stats--has-bg-image` correction (#463); that class retired, and since #1010 the engine re-lights this role to `@color-accent-on-overlay` on an image-plus-overlay band (`overlay_defaults`). On a dark fill, still write `typography.color: \"@color-accent-on-overlay\"` here in the same map as the image.",
       "groups": [
         "typography",
         "spacing",
@@ -136,6 +136,7 @@
         }
       },
       "overlay_defaults": { "typography": { "color": "@color-accent-on-overlay" } },
+      "within": ["heading"],
       "obligations": []
     },
     "list": {
@@ -198,6 +199,7 @@
         }
       },
       "overlay_defaults": { "typography": { "color": "@color-accent-on-overlay" } },
+      "within": ["list", "item"],
       "obligations": []
     },
     "label": {
