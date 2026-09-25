@@ -143,6 +143,55 @@ final class OverlayTierDefaultsTest extends TestCase
         $this->assertSame(4, $checked);
     }
 
+    /** `overlay_defaults` is a map of groups the role permits; anything else is refused at CI. */
+    public function testOverlayDefaultsMustBeAMapOfPermittedGroups(): void
+    {
+        $role = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $this->assertSame([], pp_schema_definition_errors($role + ['overlay_defaults' => []], 'role', 'r'));
+        $this->assertSame([], pp_schema_definition_errors($role + ['overlay_defaults' => ['typography' => ['color' => '#fff']]], 'role', 'r'));
+        foreach ([[['typography' => []]], 'x'] as $bad) {
+            $this->assertStringContainsString('`overlay_defaults` must be a MAP',
+                implode(' | ', pp_schema_definition_errors($role + ['overlay_defaults' => $bad], 'role', 'r')));
+        }
+        $this->assertStringContainsString('`overlay_defaults` group `shadow` is not one of this role\'s `groups`',
+            implode(' | ', pp_schema_definition_errors($role + ['overlay_defaults' => ['shadow' => ['x' => 'y']]], 'role', 'r')));
+    }
+
+    private function liveImage(int $id): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][$id]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][$id] = true;
+    }
+
+    /**
+     * The marker says what the emitter paints: a deleted attachment paints no image and no
+     * scrim, so the band is not marked and the tier cannot turn its accent near-white on the
+     * light fill underneath (1.01:1).
+     */
+    public function testADeletedImageDoesNotMarkTheBand(): void
+    {
+        $this->liveImage(9001);
+        $band = static fn (int $image): array => ['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['image' => $image, 'overlay' => 'rgba(0,0,0,0.55)']]]];
+        $this->assertTrue(pp_udc_band_has_overlay($band(9001)), 'premise: a live image under a scrim is marked');
+        $this->assertFalse(pp_udc_band_has_overlay($band(9002)), 'no attachment 9002: nothing paints, no marker');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['image' => 9001]]]]), 'an image with no scrim is not an overlay');
+    }
+
+    /** An image and a scrim a preset supplies paint like the map's own, so they mark the band. */
+    public function testAPresetSuppliedImageAndScrimMarkTheBand(): void
+    {
+        $this->liveImage(9001);
+        $saved = pp_execute_action('save_preset', ['name' => 'photo-scrim', 'grain' => 'background',
+            'udc' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.55)']]);
+        $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['_preset' => 'photo-scrim']]]]));
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'photo-scrim']]]]), 'own image, preset scrim');
+    }
+
     /** An AUTHORED value still wins: the band's own block prints after the overlay tier. */
     public function testAnAuthoredAccentInkStillWinsOverTheTier(): void
     {

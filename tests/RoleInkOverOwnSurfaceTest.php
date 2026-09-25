@@ -94,6 +94,89 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([], $found);
     }
 
+    /** A background-grain preset that supplies the fill covers it too. */
+    public function testNoFindingWhenABackgroundGrainPresetSuppliesTheRoleFill(): void
+    {
+        $saved = pp_execute_action('save_preset', ['name' => 'probe-bg', 'grain' => 'background', 'udc' => ['fill' => '#222222']]);
+        $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
+        [, $found] = $this->write([
+            '_band'   => ['background' => ['fill' => '@color-bg-inverted']],
+            'eyebrow' => ['background' => ['_preset' => 'probe-bg'], 'typography' => ['color' => '@color-accent-on-inverted']],
+        ]);
+        $this->assertSame([], $found);
+    }
+
+    /** An image the author puts on the role replaces its own surface as a fill would. */
+    public function testNoFindingWhenTheRoleCarriesItsOwnImage(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $found] = $this->write([
+            '_band' => ['background' => ['fill' => '@color-bg-inverted']],
+            'panel' => ['background' => ['image' => 9001], 'typography' => ['color' => '@color-bg']],
+        ]);
+        $this->assertSame([], $found);
+    }
+
+    /** A band darkened through a preset the author applied is an authored band surface. */
+    public function testABandDarkenedByAPresetIsAnAuthoredBandSurface(): void
+    {
+        $saved = pp_execute_action('save_preset', ['name' => 'probe-dark', 'grain' => 'background', 'udc' => ['fill' => '#101828']]);
+        $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
+        [, $found] = $this->write([
+            '_band'   => ['background' => ['_preset' => 'probe-dark']],
+            'eyebrow' => ['typography' => ['color' => '@color-bg']],
+        ]);
+        $this->assertCount(1, $found);
+    }
+
+    private function gridFindings(array $band_udc, array $item_udcs): array
+    {
+        $items = [];
+        foreach ($item_udcs as $n => $udc) {
+            $items[] = ['id' => sprintf('it-0000ab%02d', $n), 'title' => 'T' . $n] + ($udc === null ? [] : ['udc' => $udc]);
+        }
+        return array_values(array_filter(pp_udc_composition_findings([[
+            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']]] + $band_udc,
+            'props'     => ['title' => 'G', 'items' => $items],
+        ]]), static fn ($f) => $f['type'] === self::TYPE));
+    }
+
+    /** One card, two grains: the band's `card` fill covers a per-card ink. */
+    public function testABandGrainFillCoversAnItemGrainInk(): void
+    {
+        $this->assertSame([], $this->gridFindings(
+            ['card' => ['background' => ['fill' => '#1d2939']]],
+            [['card' => ['typography' => ['color' => '#ffffff']]]]
+        ));
+        $this->assertCount(1, $this->gridFindings([], [['card' => ['typography' => ['color' => '#ffffff']]]]),
+            'premise: the same ink with no fill at either grain is disclosed');
+    }
+
+    /** The band's `card` ink is covered only when EVERY card sets its own fill. */
+    public function testABandGrainInkIsCoveredOnlyWhenEveryCardSetsItsFill(): void
+    {
+        $filled = ['card' => ['background' => ['fill' => '#1d2939']]];
+        $ink    = ['card' => ['typography' => ['color' => '#ffffff']]];
+        $this->assertSame([], $this->gridFindings($ink, [$filled, $filled]));
+        $one = $this->gridFindings($ink, [$filled, null]);
+        $this->assertCount(1, $one, 'the second card keeps its own light surface under the band ink');
+        $this->assertStringNotContainsString('item "', $one[0]['message'], 'a band-grain finding');
+    }
+
+    /** A surface that exists at one width only is named with that width. */
+    public function testATierOnlySurfaceIsNamedWithItsBreakpoint(): void
+    {
+        $found = array_values(array_filter(pp_udc_composition_findings([[
+            'component' => 'nav', 'id' => 'nav',
+            'udc'       => ['_band' => ['background' => ['fill' => '#101828']], 'menu' => ['typography' => ['color' => '#f7f8fa']]],
+            'props'     => [],
+        ]]), static fn ($f) => $f['type'] === self::TYPE));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(@color-bg at the "p" breakpoint)', $found[0]['message']);
+    }
+
     /** A role with no surface of its own (or a transparent one) is not this trap. */
     public function testNoFindingForARoleWithoutAnOwnSurface(): void
     {

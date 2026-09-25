@@ -196,8 +196,9 @@ your CSS classes, so the roles you declare *are* the component's styling API.
 }
 ```
 
-**The five keys are the whole surface** (`pp_role_definition_keys()`, `lib/admin.php`),
-and all 125 shipped roles declare all five — write all five. An unknown key fails CI,
+**Five keys are required in practice and a sixth is optional** (`pp_role_definition_keys()`,
+`lib/admin.php`): every shipped role declares the five below, so write all five, and add
+`overlay_defaults` only where it applies. An unknown key fails CI,
 exactly as it does on a prop. Requiredness is enforced for `obligations` alone today;
 the other four are load-bearing rather than policed, so omitting `groups` or `selector`
 buys you a role that passes CI and styles nothing.
@@ -234,6 +235,13 @@ buys you a role that passes CI and styles nothing.
   band props live in a second `:root` block the token registry does not read, so they
   are reachable as a shipped default and not as an author's value. Copy them into
   `defaults` freely; never put one in a doc example of a `udc` map.
+- **`overlay_defaults`** (optional, #1010) — values that replace the role's `defaults` on a
+  band the engine marks `data-pp-band-overlay` (an image under a scrim). Only the seven
+  components whose template prints that marker (hero, cta, faq, stats, logos, embed, table)
+  ever apply it; the shipped use is the accent inks (`"typography": {"color":
+  "@color-accent-on-overlay"}`). It is a map of groups the role permits (CI refuses any
+  other group), and it is compiled as an AUTHORED map, not as `defaults`: the band-rhythm
+  props above do NOT resolve in it. An author's own value for the role still wins.
 
 **`obligations` is required on every role, and `[]` is a real answer** (#1087,
 `SchemaValidationTest`). It is the one part of the role that IS model-facing, so it

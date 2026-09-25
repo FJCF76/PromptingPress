@@ -135,8 +135,8 @@
  *
  * ALSO THE FINDINGS CAP. pp_udc_composition_findings() bounds each of its multiplying
  * `udc_*` arms at this value across one composition (the `_css` pair and the token pair
- * share one budget each; overlay, preset-skip, preset-shadow and item-shadow have their
- * own), and ai-instructions/operating-loop.md tells the model the number. Changing it
+ * share one budget each; overlay, preset-skip, preset-shadow, item-shadow and
+ * role-ink-over-own-surface have their own), and ai-instructions/operating-loop.md tells the model the number. Changing it
  * changes both.
  */
 const PP_UDC_MAX_EMIT_DROPS = 200;
@@ -2556,15 +2556,19 @@ function _pp_udc_authored_value_labels(array $role_map): array {
 }
 
 /**
- * A role's own default surface (#1125): the first non-transparent `background.fill` its
- * defaults declare, at any breakpoint tier, or null when it has none. A transparent fill
- * is no surface: the band shows through, which is what the author just set.
+ * A role's own default surface (#1125): [value, breakpoint tier] for the first
+ * non-transparent `background.fill` its defaults declare, at any tier, or null when it has
+ * none. A transparent fill is no surface: the band shows through, which is what the author
+ * just set. The tier is returned so the finding can say a surface exists only at one width
+ * (nav `menu` is transparent on desktop and `@color-bg` on phones).
+ *
+ * @return array{0: string, 1: string}|null
  */
-function _pp_udc_role_own_surface_fill(array $role_def): ?string {
+function _pp_udc_role_own_surface_fill(array $role_def): ?array {
     $fill = $role_def['defaults']['background']['fill'] ?? null;
-    foreach (is_array($fill) ? $fill : [$fill] as $tier_value) {
+    foreach (is_array($fill) ? $fill : ['d' => $fill] as $tier => $tier_value) {
         if (is_string($tier_value) && $tier_value !== '' && strtolower($tier_value) !== 'transparent') {
-            return $tier_value;
+            return [$tier_value, (string) $tier];
         }
     }
     return null;
@@ -8633,21 +8637,46 @@ function pp_udc_composition_findings(array $items): array {
         // no contrast maths, it names the pairing and the author judges it.
         //
         // GATED ON AN AUTHORED BAND SURFACE (the ruling): only a band whose `_band` map
-        // authors a background fill or image, i.e. the author changed what the band sits on.
-        // A light band keeping its light roles is the design working, not a trap.
-        $band_background = isset($item['udc']['_band']['background']) && is_array($item['udc']['_band']['background'])
-            ? $item['udc']['_band']['background'] : [];
-        if ((array_key_exists('fill', $band_background) || array_key_exists('image', $band_background))
+        // authors a background fill or image, directly or through a preset it applies (the
+        // author chose that preset), i.e. the author changed what the band sits on. A light
+        // band keeping its light roles is the design working, not a trap.
+        //
+        // ONE CARD, TWO GRAINS. A card's fill and its ink may be written at different grains
+        // (band-level `card` fill, per-card ink, or the reverse), and the card renders both.
+        // So an item map's ink counts as covered by a fill on the band map's same role, and a
+        // band map's ink is covered when every card of the band covers that role's fill itself.
+        $band_map_roles = is_array($item['udc']) ? $item['udc'] : [];
+        $item_entries   = pp_udc_item_roles($component) === null ? []
+            : (array) ($item['props'][pp_udc_item_roles($component)['prop']] ?? []);
+        if (_pp_udc_map_covers_fill(is_array($band_map_roles['_band'] ?? null) ? $band_map_roles['_band'] : [])
             && $ink_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             foreach ($preset_maps as [$locator, $map]) {
                 foreach ($map as $role_name => $role_map) {
-                    if ((string) $role_name === '_band' || !is_array($role_map) || !isset($roles[(string) $role_name])
-                        || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
+                    $role_name = (string) $role_name;
+                    if ($role_name === '_band' || !is_array($role_map) || !isset($roles[$role_name])
+                        || ($locator !== '' && !in_array($role_name, $preset_item_roles, true))) {
                         continue;
                     }
-                    $own_fill = _pp_udc_role_own_surface_fill($roles[(string) $role_name]);
+                    [$own_fill, $own_tier] = _pp_udc_role_own_surface_fill($roles[$role_name]) ?? [null, null];
                     if ($own_fill === null || !_pp_udc_map_sets_ink($role_map) || _pp_udc_map_covers_fill($role_map)) {
                         continue;
+                    }
+                    if ($locator !== '' && is_array($band_map_roles[$role_name] ?? null)
+                        && _pp_udc_map_covers_fill($band_map_roles[$role_name])) {
+                        continue;
+                    }
+                    if ($locator === '' && in_array($role_name, $preset_item_roles, true) && $item_entries !== []) {
+                        $every_card_covers = true;
+                        foreach ($item_entries as $entry) {
+                            $entry_role = is_array($entry) ? ($entry[PP_UDC_ITEM_MAP_KEY][$role_name] ?? null) : null;
+                            if (!is_array($entry_role) || !_pp_udc_map_covers_fill($entry_role)) {
+                                $every_card_covers = false;
+                                break;
+                            }
+                        }
+                        if ($every_card_covers) {
+                            continue;
+                        }
                     }
                     if ($ink_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                         break 2;
@@ -8662,8 +8691,9 @@ function pp_udc_composition_findings(array $items): array {
                             . 'the pair reads (AA: 4.5:1 for body text, 3:1 for large text).',
                             $component,
                             $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
-                            (string) $role_name,
+                            $role_name,
                             _pp_udc_reflect($own_fill)
+                                . ($own_tier === 'd' ? '' : sprintf(' at the "%s" breakpoint', _pp_udc_reflect($own_tier)))
                         ),
                         'index'   => is_int($i) ? $i : null,
                     ];
@@ -9914,10 +9944,18 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
  *
  * Breakpoint maps count: an overlay declared only at one width still darkens the
  * band there, and a focus ring that is legible at some widths is not legible.
+ *
+ * THE MARKER MUST SAY WHAT THE EMITTER PAINTS (#1010 review). Since the overlay tier of
+ * role defaults re-lights accent inks off this attribute, a marker with no scrim under it
+ * is no longer a harmless focus-ring detail: it turns an accent near-white on a light
+ * band. So the image is taken in the emitter's own precedence and resolve-checked
+ * (_pp_udc_role_map_background_image(): the map's own image, then a group-grain, then a
+ * role-grain preset's; a deleted attachment paints nothing), and the overlay is taken
+ * from the map or from those same presets, which the emitter merges into the map.
  */
 function pp_udc_band_has_overlay(array $item): bool {
-    $band = $item['udc']['_band']['background'] ?? null;
-    if (!is_array($band)) {
+    $band_map = $item['udc']['_band'] ?? null;
+    if (!is_array($band_map) || _pp_udc_role_map_background_image($band_map) === null) {
         return false;
     }
     $has = static function ($value): bool {
@@ -9928,5 +9966,17 @@ function pp_udc_band_has_overlay(array $item): bool {
         }
         return is_array($value) && $value !== [];
     };
-    return $has($band['image'] ?? null) && $has($band['overlay'] ?? null);
+    $background = isset($band_map['background']) && is_array($band_map['background']) ? $band_map['background'] : [];
+    if ($has($background['overlay'] ?? null)) {
+        return true;
+    }
+    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$band_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+        $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
+        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+        $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
+        if (is_array($group) && $has($group['overlay'] ?? null)) {
+            return true;
+        }
+    }
+    return false;
 }

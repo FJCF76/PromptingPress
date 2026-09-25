@@ -834,6 +834,15 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['overlay_defaults'])
                 || ($definition['overlay_defaults'] !== [] && pp_is_list($definition['overlay_defaults'])))) {
             $errors[] = "{$label}: `overlay_defaults` must be a MAP of groups, not a list.";
+        } elseif (isset($definition['overlay_defaults']) && is_array($definition['groups'] ?? null)) {
+            // Compiled as an AUTHORED map (_pp_udc_overlay_tier_css), so a group the role does
+            // not permit would be dropped at render with no message on any surface. Refuse it
+            // here, where the schema author will see it.
+            foreach (array_keys($definition['overlay_defaults']) as $group) {
+                if (!in_array($group, $definition['groups'], true)) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not one of this role's `groups`.";
+                }
+            }
         }
         if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
             $errors[] = "{$label}: `description` must be a string.";
