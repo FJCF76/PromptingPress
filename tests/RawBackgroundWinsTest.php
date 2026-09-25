@@ -113,7 +113,7 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertNotSame([], $rows, json_encode($overlay));
             foreach ($rows as $row) {
                 $this->assertStringNotContainsString('Set background.image', $row['reason'], json_encode($overlay));
-                $this->assertStringContainsString('the raw background in _css resets the background here', $row['reason'], json_encode($overlay));
+                $this->assertStringContainsString('removed the image, so background.image and', $row['reason'], json_encode($overlay));
             }
         }
     }
@@ -214,7 +214,7 @@ final class RawBackgroundWinsTest extends TestCase
             $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'));
             $this->assertCount(1, $rows, $label);
             $this->assertStringNotContainsString('Set background.image', $rows[0]['reason'], $label);
-            $this->assertStringContainsString('the raw background in _css resets the background here, so background.image and this scrim do not paint', $rows[0]['reason'], $label);
+            $this->assertStringContainsString('removed the image, so background.image and this scrim do not paint at this width', $rows[0]['reason'], $label);
             $this->assertStringNotContainsString('put the whole treatment in it', $rows[0]['reason'], 'a raw background cannot carry an image (design review)');
             $this->assertStringContainsString('a raw background cannot carry an image', $rows[0]['reason'], $label);
             // Only where no width paints a scrim: in the narrower case the desktop scrim still paints and the band
@@ -281,7 +281,7 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertNotSame([], $reasons);
         foreach ($reasons as $reason) {
             $this->assertStringNotContainsString('Set background.image', $reason);
-            $this->assertStringContainsString('the raw background in _css resets the background here', $reason);
+            $this->assertStringContainsString('removed the image, so background.image and', $reason);
         }
     }
 
@@ -310,13 +310,13 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertCount(1, $cta);
         $this->assertStringNotContainsString('finding', $cta[0]);
         $this->assertStringContainsString('accent', $cta[0], 'cta has overlay-tier roles');
-        // Followable (cycle 3, design): the drop row clears only when the overlay at this width goes too.
-        $this->assertStringContainsString("remove the overlay at this width (and background.image, if it paints at no other width) and set the accents' typography.color for this width", $cta[0]);
+        // FACTS ONLY (ruling A, terminal form): the one advice line is source-independent.
+        $this->assertStringContainsString('Write the whole treatment in one place: a raw background cannot carry an image', $cta[0]);
         foreach ([$band, ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]] as $map) {
             $section = $this->rawWonReasons($map, 'section');
             $this->assertCount(1, $section);
             $this->assertStringNotContainsString('accent', $section[0], 'section has no overlay-tier roles');
-            $this->assertStringContainsString('the raw background in _css resets the background here', $section[0]);
+            $this->assertStringContainsString('removed the image, so background.image and', $section[0]);
         }
     }
 
@@ -368,7 +368,7 @@ final class RawBackgroundWinsTest extends TestCase
             $reasons = $this->rawWonReasons(['background' => ['overlay' => 'rgba(0,0,0,0.6)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']], $component);
             $this->assertCount(1, $reasons, $component);
             $this->assertStringContainsString('no usable background.image', $reasons[0], $component);
-            $this->assertStringNotContainsString('resets the background here', $reasons[0], $component);
+            $this->assertStringNotContainsString('removed the image', $reasons[0], $component);
             $this->assertStringNotContainsString('re-lit', $reasons[0], $component);
         }
     }
@@ -390,22 +390,22 @@ final class RawBackgroundWinsTest extends TestCase
                 $reasons = $this->rawWonReasons($band, $component);
                 $this->assertCount(1, $reasons, "{$label} {$component}");
                 $this->assertStringNotContainsString('Set background.image (an attachment id)', $reasons[0], "{$label} {$component}");
-                $this->assertStringContainsString('no usable background.image here, and the raw background in _css would reset one', $reasons[0], "{$label} {$component}");
-                $this->assertStringContainsString('Put the tint in the raw background at this width, or replace the raw background with background.fill, then set background.image', $reasons[0], "{$label} {$component}");
+                $this->assertStringContainsString('no usable background.image here; the raw background in _css at the', $reasons[0], "{$label} {$component}");
+                $this->assertStringContainsString('would reset one at this width, so this scrim was dropped. Write the whole treatment in one place', $reasons[0], "{$label} {$component}");
             }
         }
         // A narrower width with its own fill under a raw DESKTOP background: the fill paints there, not the raw background, so
         // the tint goes in that fill (/ship pass 3 design).
         $fill = $this->rawWonReasons(['background' => ['overlay' => ['t' => $o], 'fill' => ['t' => '#222222']], PP_UDC_CSS_KEY => ['background' => '#ffffff']]);
         $this->assertCount(1, $fill);
-        $this->assertStringNotContainsString('Put the tint in the raw background', $fill[0]);
-        $this->assertStringContainsString('Put the tint in background.fill at this width, or move the desktop raw background into background.fill, then set background.image', $fill[0]);
+        $this->assertStringNotContainsString('would reset one at this width', $fill[0]);
+        $this->assertStringContainsString('at the desktop width would reset one before it reached this width, so this scrim was dropped', $fill[0]);
         // A role other than `_band` gets the same reason (/ship pass 3 testing).
         $drops = [];
         pp_udc_compile_band(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['text' => ['background' => ['overlay' => $o],
             PP_UDC_CSS_KEY => ['background' => '#ffffff']]]], 'authored', $drops);
         $text = implode(' ', array_column(array_filter($drops, static fn (array $d): bool => ($d['code'] ?? '') === 'overlay_without_image'), 'reason'));
-        $this->assertStringContainsString('the raw background in _css would reset one', $text);
+        $this->assertStringContainsString('the raw background in _css at the desktop width would reset one at this width', $text);
         $this->assertStringNotContainsString('Set background.image (an attachment id)', $text);
         // Control: a narrower fill that is NOT under a raw background keeps the plain no-image advice (an image set there paints).
         $plain = $this->rawWonReasons(['background' => ['overlay' => ['t' => $o], 'fill' => ['t' => '#222222']]]);
@@ -422,9 +422,9 @@ final class RawBackgroundWinsTest extends TestCase
         pp_udc_compile_band(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['text' => ['background' => ['image' => 9001,
             'overlay' => ['d' => 'rgba(0,0,0,0.7)', 't' => 'rgba(0,0,0,0.6)']], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]]]], 'authored', $drops);
         $reason = implode(' ', array_column(array_filter($drops, static fn (array $d): bool => ($d['code'] ?? '') === 'overlay_without_image'), 'reason'));
-        $this->assertStringContainsString('the raw background in _css resets the background here', $reason);
+        $this->assertStringContainsString('removed the image, so background.image and', $reason);
         $this->assertStringNotContainsString('remove background.image and the overlay', $reason);
-        $this->assertStringContainsString('remove the overlay at this width (and background.image, if it paints at no other width)', $reason);
+        $this->assertStringContainsString('Write the whole treatment in one place', $reason);
     }
 
     /**
@@ -446,10 +446,80 @@ final class RawBackgroundWinsTest extends TestCase
         // ONE ALWAYS-TRUE ADVICE (ruling A): never "remove background.image and the overlay", which would also remove an image
         // that paints without a scrim at another width.
         $this->assertStringNotContainsString('remove background.image and the overlay', $cta[0]);
-        $this->assertStringContainsString("remove the overlay at this width (and background.image, if it paints at no other width) and set the accents' typography.color for this width", $cta[0]);
+        $this->assertStringContainsString('the accent roles it re-lit (those whose colour you have not set) go back to their own colours. Write the whole treatment in one place', $cta[0]);
         $section = $this->rawWonReasons($alone, 'section');
-        $this->assertStringContainsString('remove the overlay at this width (and background.image, if it paints at no other width): a raw background cannot carry an image', $section[0]);
+        $this->assertStringContainsString('Write the whole treatment in one place: a raw background cannot carry an image', $section[0]);
         $this->assertStringNotContainsString('typography.color', $section[0]);
         $this->assertStringNotContainsString('marked', $section[0]);
+    }
+
+    /**
+     * FACTS ONLY, THE TERMINAL FORM (ruling A, /ship scoped verification). The reason states which raw background, at
+     * which declared width, removed the image; that the scrim (with its named source) does not paint there; where it
+     * still paints; the accent fact where roles re-light. The one advice line is source-independent, so no preset,
+     * card, inheritance or default can falsify it.
+     */
+    public function testTheRawBackgroundReasonStatesFactsOnly(): void
+    {
+        $o = 'rgba(0,0,0,0.6)';
+        $cases = [
+            'same width'        => [['background' => ['image' => 9001, 'overlay' => $o], PP_UDC_CSS_KEY => ['background' => '#ffffff']], 'at the desktop width removed the image'],
+            'raw at tablet'     => [['background' => ['image' => 9001, 'overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]], 'at the tablet width removed the image'],
+            // Inherited from desktop, the phone width setting its own fill (scoped design, case c): the declared width is named.
+            'inherited + fill'  => [['background' => ['image' => 9001, 'overlay' => ['p' => $o], 'fill' => ['p' => '#222222']], PP_UDC_CSS_KEY => ['background' => '#ffffff']], 'at the desktop width removed the image'],
+        ];
+        foreach ($cases as $label => [$band, $fact]) {
+            $reasons = $this->rawWonReasons($band);
+            $this->assertNotSame([], $reasons, $label);
+            foreach ($reasons as $reason) {
+                $this->assertStringContainsString('the raw background in _css ' . $fact, $reason, $label);
+                foreach (['Remove the raw background', 'remove the overlay', 'Put the tint', 'Set background.image', 'replace the raw background', 'move the desktop'] as $advice) {
+                    $this->assertStringNotContainsString($advice, $reason, "{$label}: no per-case advice ({$advice})");
+                }
+                $this->assertStringContainsString('Write the whole treatment in one place', $reason, $label);
+            }
+        }
+    }
+
+    /** The scrim's source is named when a preset supplies it (scoped design, case a). */
+    public function testThePresetSourceOfTheScrimIsNamed(): void
+    {
+        $saved = pp_execute_action('save_preset', ['name' => 'ps', 'grain' => 'role', 'udc' => ['background' =>
+            ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.6)', 't' => 'rgba(0,0,0,0.6)']]]]);
+        $this->assertTrue($saved['ok'], 'premise: preset saved: ' . ($saved['error'] ?? ''));
+        $reasons = $this->rawWonReasons([PP_UDC_PRESET_KEY => 'ps', PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]]);
+        $this->assertNotSame([], $reasons);
+        $this->assertStringContainsString('so background.image and the scrim from preset "ps" do not paint at this width', $reasons[0]);
+    }
+
+    /** FACT BUG 1 (scoped design, case b): a raw background that removed a band image is named even where cards set their own image. */
+    public function testTheRawFlagIsReadBeforeTheCardImageBranch(): void
+    {
+        $drops = [];
+        pp_udc_compile_band(['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'props' => ['items' => [
+            ['id' => 'it-0000000a', 'title' => 'A', 'udc' => ['card' => ['background' => ['image' => 9002]]]], ['id' => 'it-0000000b', 'title' => 'B']]],
+            'udc' => ['card' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.6)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]]], 'authored', $drops);
+        $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image' && str_contains((string) ($r['where'] ?? ''), 'card')));
+        $this->assertNotSame([], $rows);
+        $this->assertStringContainsString('the raw background in _css at the desktop width removed the image', $rows[0]['reason']);
+        $this->assertStringNotContainsString('none is set', $rows[0]['reason']);
+    }
+
+    /**
+     * FACT BUG 2 (scoped red team, case 4): a role DEFAULT is not the author's background. The same nav `menu` map gives
+     * the same reason with or without an unrelated preset that pulls the defaults into the authored buckets.
+     */
+    public function testRoleDefaultsDoNotCountAsTheAuthorsBackground(): void
+    {
+        $map    = ['background' => ['overlay' => ['p' => 'rgba(0,0,0,0.5)']], PP_UDC_CSS_KEY => ['background' => '#123456']];
+        $reason = static function (array $m): string {
+            $drops = [];
+            pp_udc_compile_band(['component' => 'nav', 'id' => 'nav', 'udc' => ['menu' => $m]], 'authored', $drops);
+            return implode(' ', array_column(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'), 'reason'));
+        };
+        $plain  = $reason($map);
+        $preset = $reason($map + [PP_UDC_PRESET_KEY => 'link']); // the shipped typography-only system preset
+        $this->assertStringContainsString('would reset one at this width', $plain);
+        $this->assertSame($plain, $preset, 'an unrelated preset does not change the facts');
     }
 }

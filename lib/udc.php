@@ -2631,6 +2631,7 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
         // that never had one is flagged `raw_background_blocks_image` below instead (/ship red team, pass 2).
         if (($image_removed || ((string) $bp !== 'd' && $base_had_image)) && is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null) && !isset($by_bp[$bp]['background-image'])) {
             $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at']             = (string) $bp; // where it is declared
         }
     }
     // A raw desktop background that removed the image leaves a scrim set only at a narrower width with no image to
@@ -2642,6 +2643,7 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
             if ($bp !== 'd' && !isset($declarations['background-image'])
                 && is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
                 $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+                $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at']             = 'd';
             }
         }
     }
@@ -2656,9 +2658,12 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
             && (!empty($declarations['background']['raw']) || ((string) $bp !== 'd' && $desktop_raw))) {
             $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_blocks_image'] = true;
             // Whether the raw background is what paints at this width: its own, or a desktop one this width inherits
-            // because it declares no background of its own.
-            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_paints_here'] = !empty($declarations['background']['raw'])
-                || !isset($declarations['background']);
+            // because the AUTHOR set no background there. A role DEFAULT in the bucket is not the author's (it can be
+            // present when a preset pulls defaults into the authored layer): fact bug, /ship scoped red team.
+            $own_raw = !empty($declarations['background']['raw']);
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_paints_here'] = $own_raw
+                || !isset($declarations['background']) || ($declarations['background']['source'] ?? '') === 'defaults';
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at'] = $own_raw ? (string) $bp : 'd';
         }
     }
     return $by_bp;
@@ -2720,6 +2725,11 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
         // `code` so the write-time findings walk can surface THIS discard and no other,
         // and it names the `fill` pairing because that is the mistake an author will
         // actually make: a scrim over a colour is a reasonable thing to expect.
+        // THE FACTS A RAW-BACKGROUND REASON STATES (ruling A, terminal form): the scrim's named source and the width
+        // the raw background that removed or would reset the image is declared at.
+        $scrim_label   = is_array($overlay) && is_string($overlay['source'] ?? null) && strncmp($overlay['source'], 'preset:', 7) === 0
+            ? sprintf('the scrim from preset "%s"', _pp_udc_reflect(substr($overlay['source'], 7))) : 'this scrim';
+        $raw_at_phrase = _pp_udc_widths_phrase([is_array($overlay) ? (string) ($overlay['raw_at'] ?? 'd') : 'd']);
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
             $drops[] = [
                 // THE LOCATOR SAYS WHEN THE OVERLAY CAME FROM A PRESET (#1016), exactly as
@@ -2739,6 +2749,32 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     ? 'an overlay inside a state paints only over an image in that same state, and '
                       . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
                       . 'role has a base image. Move the overlay out of the state, or remove it'
+                    // A RAW `_css` BACKGROUND REMOVED THE IMAGE (#1141). FACTS ONLY, the terminal form (/ship, ruling A):
+                    // five rounds falsified five generations of per-case advice, because advice must assume where the
+                    // conflicting value was written, and that is what varies across presets, cards, inheritance and
+                    // defaults. The reason states only what the compile knows: which raw background, at which declared
+                    // width, removed the image; that the scrim (with its named source) does not paint here; where it still
+                    // paints; the accent fact where roles re-light. The one advice line is the neighbouring finding's,
+                    // true whatever the source. Checked BEFORE the card branches (fact bug, /ship scoped design): the
+                    // raw flag is the cause even where cards set their own images.
+                    : (is_array($overlay) && !empty($overlay['raw_background_won'])
+                    ? sprintf('the raw background in _css at the %s removed the image, so background.image and %s do not '
+                      . 'paint at this width', $raw_at_phrase, $scrim_label)
+                      . (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
+                          ? sprintf('. The scrim still paints at the %s', _pp_udc_widths_phrase($overlay['band_scrim_at']))
+                            . (!empty($overlay['band_relights'])
+                                ? ', so the band stays marked and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background'
+                                : '')
+                          : (isset($overlay['band_scrim_at']) && !empty($overlay['band_relights'])
+                              ? ', and with no scrim the band is not marked, so the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
+                              : ''))
+                      . '. Write the whole treatment in one place: a raw background cannot carry an image'
+                    // No image, under a raw background that would reset one: the same facts, in the conditional.
+                    : (is_array($overlay) && !empty($overlay['raw_background_blocks_image'])
+                    ? sprintf('an overlay paints only over an image, and there is no usable background.image here; the raw '
+                      . 'background in _css at the %s would reset one %s, so %s was dropped. Write the whole treatment in one '
+                      . 'place: a raw background cannot carry an image', $raw_at_phrase,
+                      !empty($overlay['raw_paints_here']) ? 'at this width' : 'before it reached this width', $scrim_label)
                     // A CARD's scrim composes only with the card's own image: the item
                     // compile does not combine the band map's image for the same role, so
                     // "set background.image" would be wrong advice to an author who did.
@@ -2759,42 +2795,6 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       // replaced on exactly these cards, silently (#1133).
                     // A raw `_css` background WON this coordinate (#1141): the author may well have set the image,
                     // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
-                    : (!empty($overlay['raw_background_won'])
-                    // ONE ALWAYS-TRUE WORDING (/ship pass 3, ruling A). Three review passes each falsified one branch of
-                    // case-enumerated advice; the branching was the defect. The advice is the one action that is true for
-                    // every raw-won scrim on every role (remove the overlay at this width, and the image only if it paints
-                    // nowhere else). Only the facts vary: the widths where the band's resting scrim still paints
-                    // (`band_scrim_at`, band at rest only) and, on a component whose roles re-light (`band_relights`), what
-                    // that means for the accents whose colour the author has not set (their inks are not compiled yet here).
-                    // No other finding is named (red team cycle 2 D).
-                    ? 'the raw background in _css resets the background here, so background.image and this scrim do not '
-                      . 'paint at this width'
-                      . (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
-                          ? sprintf('. The scrim still paints at the %s', _pp_udc_widths_phrase($overlay['band_scrim_at']))
-                            . (!empty($overlay['band_relights'])
-                                ? ', so the band stays marked and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background'
-                                : '')
-                          : (isset($overlay['band_scrim_at']) && !empty($overlay['band_relights'])
-                              ? ', and with no scrim the band is not marked, so the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
-                              : ''))
-                      . '. Remove the raw background at this width (put a colour in background.fill beside the image '
-                      . 'instead), or, if the raw background is what you want here, remove the overlay at this width (and '
-                      . 'background.image, if it paints at no other width)'
-                      . (!empty($overlay['band_relights']) ? ' and set the accents\' typography.color for this width' : '')
-                      . ': a raw background cannot carry an image'
-                    // No image, under a raw background that would reset one (/ship pass 2 red team): "Set background.image"
-                    // alone would paint nothing, so the reason names both steps.
-                    : (!empty($overlay['raw_background_blocks_image'])
-                    // The tint is offered in the raw background only where that raw background is what paints at this
-                    // width; a narrower width with its own fill paints the fill (/ship pass 3 design).
-                    ? (!empty($overlay['raw_paints_here'])
-                    ? 'an overlay paints only over an image, and there is no usable background.image here, and the raw '
-                      . 'background in _css would reset one at this width, so the scrim was dropped. Put the tint in the raw '
-                      . 'background at this width, or replace the raw background with background.fill, then set background.image'
-                    : 'an overlay paints only over an image, and there is no usable background.image here, and the raw '
-                      . 'background in _css at the desktop width would reset one before it reaches this width, so the scrim was '
-                      . 'dropped. Put the tint in background.fill at this width, or move the desktop raw background into '
-                      . 'background.fill, then set background.image')
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])

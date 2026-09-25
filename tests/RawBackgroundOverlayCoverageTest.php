@@ -52,7 +52,7 @@ final class RawBackgroundOverlayCoverageTest extends TestCase
         pp_udc_compile_band($this->item(['text' => ['background' => ['image' => 9001, 'overlay' => self::DARK], PP_UDC_CSS_KEY => ['background' => '#ffffff']]]), 'authored', $drops);
         $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'));
         $this->assertCount(1, $rows);
-        $this->assertStringContainsString('the raw background in _css resets the background here, so background.image and this scrim do not paint at this width. Remove the raw background', $rows[0]['reason']);
+        $this->assertStringContainsString('removed the image, so background.image and this scrim do not paint at this width. Write the whole treatment in one place', $rows[0]['reason']);
         $this->assertStringNotContainsString('Set background.image', $rows[0]['reason']);
         $this->assertStringNotContainsString('marked', $rows[0]['reason'], 'the band marker is not this role\'s');
         $this->assertStringNotContainsString('accent', $rows[0]['reason'], 'band_relights is read for _band only');
@@ -220,7 +220,7 @@ final class RawBackgroundOverlayCoverageTest extends TestCase
         $this->assertContains('role "_band" "_css" background-image', $wheres, 'the stored per-width raw image is ledgered');
         $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'));
         $this->assertCount(1, $rows);
-        $this->assertStringContainsString('the raw background in _css resets the background here', $rows[0]['reason']);
+        $this->assertStringContainsString('removed the image, so background.image and', $rows[0]['reason']);
         $this->assertSame('[data-pp-band="pp-a1b2c3d4"]{background:#ffffff;}', pp_udc_band_css($item));
     }
 
