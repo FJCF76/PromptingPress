@@ -357,4 +357,43 @@ final class RawBackgroundWinsTest extends TestCase
         $found = $this->collision($this->band([PP_UDC_CSS_KEY => ['background' => 'linear-gradient(#000,#fff)'], 'background' => ['size' => '20px 20px']]));
         $this->assertStringContainsString('so the background.size you also set does not paint', $found[0]['message'], 'the message and the page agree');
     }
+
+    /**
+     * ONLY A SCRIM WHOSE IMAGE THE RAW BACKGROUND REMOVED GETS THE RAW-BACKGROUND REASON (/ship red team): an overlay
+     * with no image at all beside a raw background keeps the no-image reason it had on main, on every component.
+     */
+    public function testAScrimWithNoImageBesideARawBackgroundKeepsTheNoImageReason(): void
+    {
+        foreach (['cta', 'section'] as $component) {
+            $reasons = $this->rawWonReasons(['background' => ['overlay' => 'rgba(0,0,0,0.6)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']], $component);
+            $this->assertCount(1, $reasons, $component);
+            $this->assertStringContainsString('no usable background.image', $reasons[0], $component);
+            $this->assertStringNotContainsString('resets the background here', $reasons[0], $component);
+            $this->assertStringNotContainsString('re-lit', $reasons[0], $component);
+        }
+    }
+
+    /**
+     * THE MARKER IS NOT CLAIMED WHERE NO TEMPLATE PRINTS IT (/ship red team): only the accent claim, on a component whose
+     * roles re-light, speaks of the marked band; section says only where the scrim still paints. And the unmarked
+     * arm's advice tail is pinned for both (/ship testing).
+     */
+    public function testTheDropReasonClaimsTheMarkerOnlyWhereAccentsRelightAndPinsItsAdvice(): void
+    {
+        $o     = 'rgba(0,0,0,0.7)';
+        $split = ['background' => ['image' => 9001, 'overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]];
+        $section = $this->rawWonReasons($split, 'section');
+        $this->assertStringContainsString('The scrim still paints at the desktop and phone widths', $section[0]);
+        $this->assertStringNotContainsString('marked', $section[0]);
+        $cta = $this->rawWonReasons($split);
+        $this->assertStringContainsString('so the band stays marked and the accent roles it re-lights', $cta[0]);
+        $alone = ['background' => ['image' => 9001, 'overlay' => $o], PP_UDC_CSS_KEY => ['background' => '#ffffff']];
+        $cta = $this->rawWonReasons($alone);
+        $this->assertStringContainsString('remove background.image and the overlay if the raw background is what you want', $cta[0]);
+        $this->assertStringContainsString("On a dark background, set the accents' typography.color", $cta[0]);
+        $section = $this->rawWonReasons($alone, 'section');
+        $this->assertStringContainsString('remove background.image and the overlay', $section[0]);
+        $this->assertStringNotContainsString('On a dark background', $section[0]);
+        $this->assertStringNotContainsString('marked', $section[0]);
+    }
 }

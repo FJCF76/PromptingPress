@@ -2604,22 +2604,28 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  */
 function _pp_udc_raw_background_wins(array $by_bp): array {
     $desktop_image_removed = false;
+    // Whether the desktop bucket carries an image a narrower width would inherit or borrow, read before this pass.
+    $base_had_image = isset($by_bp['d']['background-image']);
     foreach ($by_bp as $bp => $declarations) {
         if (empty($declarations['background']['raw'])) {
             continue;
         }
+        $image_removed = false;
         foreach ($declarations as $property => $entry) {
             if (strncmp((string) $property, 'background-', 11) === 0 && empty($entry['raw'])) {
-                if ($property === 'background-image' && (string) $bp === 'd') {
-                    $desktop_image_removed = true;
+                if ($property === 'background-image') {
+                    $image_removed = true;
                 }
                 unset($by_bp[$bp][$property]);
             }
         }
+        $desktop_image_removed = $desktop_image_removed || ((string) $bp === 'd' && $image_removed);
         // The scrim left here is dropped by the compose stage; this tells it WHY, so its ledger row names the raw
         // background rather than asking for an image the author did set (PR-2 review, api-contract). Only where no
         // image is left: a raw background-image beside the raw background keeps the scrim painting (red team cycle 2 A).
-        if (is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null) && !isset($by_bp[$bp]['background-image'])) {
+        // And only where an image existed at this width (removed from this bucket, or inherited from desktop's): a scrim
+        // that never had one keeps the no-image reason (/ship red team).
+        if (($image_removed || ((string) $bp !== 'd' && $base_had_image)) && is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null) && !isset($by_bp[$bp]['background-image'])) {
             $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
         }
     }
@@ -2741,17 +2747,18 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // other finding is named (it would lie the next time a gate changes), and accents are spoken of only
                     // on a component whose roles re-light (red team cycle 2 D).
                     ? sprintf('the raw background in _css resets the background here, so background.image and this scrim do '
-                      . 'not paint at this width. The scrim still paints at the %s, so the band stays marked%s. Remove the raw '
+                      . 'not paint at this width. The scrim still paints at the %s%s. Remove the raw '
                       . 'background at this width (put a colour in background.fill beside the image instead), or, if the raw '
                       . 'background is what you want here, %s: a raw background cannot carry an image',
                       _pp_udc_widths_phrase($overlay['band_scrim_at']),
-                      !empty($overlay['band_relights']) ? ' and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background' : '',
+                      // The marker is printed only by templates whose roles re-light (and a few without), so it is
+                      // claimed only beside the accent claim that depends on it (/ship red team).
+                      !empty($overlay['band_relights']) ? ', so the band stays marked and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background' : '',
                       !empty($overlay['band_relights']) ? 'remove the overlay at this width and set the accents\' typography.color for this width' : 'remove the overlay at this width')
                     : 'the raw background in _css resets the background here, so background.image and this scrim do not '
                       . 'paint at this width'
-                      . (isset($overlay['band_scrim_at'])
-                          ? ', and with no scrim the band is not marked'
-                            . (!empty($overlay['band_relights']) ? ', so the accent roles it re-lit (those whose colour you have not set) go back to their own colours' : '')
+                      . (isset($overlay['band_scrim_at']) && !empty($overlay['band_relights'])
+                          ? ', and with no scrim the band is not marked, so the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
                           : '')
                       . '. Remove the raw background (put a colour in background.fill beside the image '
                       . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
