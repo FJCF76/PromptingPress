@@ -1215,4 +1215,52 @@ final class ItemGrainDisclosureTest extends TestCase
 
         $this->assertSame([], $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default'));
     }
+
+    /** The shadow memo is keyed by preset name: two presets on the same component and role. */
+    public function testTheShadowMemoIsKeyedByPresetName(): void
+    {
+        $this->savePreset('probe-a', ['typography' => ['weight' => '800']]);
+        $this->savePreset('probe-b', ['border' => ['radius' => '4px']]);
+        foreach ([['probe-b', 'probe-a'], ['probe-a', 'probe-b']] as $n => $order) {
+            $bands = array_map(static fn (string $p): array => ['component' => 'grid', 'udc' => ['heading' => ['_preset' => $p]],
+                'props' => ['title' => 'G', 'items' => [['title' => 'One']]]], $order);
+            [, $r] = $this->page($bands, 'order ' . $n);
+            $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+            $this->assertCount(1, $found);
+            $this->assertStringContainsString('"probe-a"', $found[0]['message']);
+        }
+    }
+
+    /** Each check-8e pass starts its own band budget. */
+    public function testEachCheck8ePassHasItsOwnBandBudget(): void
+    {
+        $c = [];
+        for ($b = 0; $b < 20; $b++) {
+            $c[] = ['component' => 'section', 'udc' => ['_band' => ['background' => ['fill' => '#111111']]], 'props' => ['title' => 'S', 'body' => 'b']];
+        }
+        for ($b = 0; $b < 10; $b++) {
+            $c[] = ['component' => 'grid', 'props' => ['title' => 'G', 'items' => [
+                ['title' => 'One', 'udc' => ['card' => ['background' => ['fill' => '#111111', 'overlay' => '#112233']]]],
+            ]]];
+        }
+        [$id] = $this->page($c);
+
+        $rows = (string) json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
+        $this->assertStringContainsString('band 30', $rows);
+        $this->assertStringNotContainsString('Only the first', $rows);
+    }
+
+    /** A scalar item in a stored composition (raw meta, restore) does not break the reference gate. */
+    public function testAScalarStoredItemDoesNotBreakTheReferenceGate(): void
+    {
+        $this->savePreset('probe-a', ['typography' => ['weight' => '800']]);
+        [$id] = $this->page([['component' => 'grid', 'udc' => ['heading' => ['_preset' => 'probe-a']],
+            'props' => ['title' => 'G', 'items' => [['title' => 'One']]]]]);
+        $stored = pp_get_composition($id);
+        array_unshift($stored, 'junk');
+        $GLOBALS['_pp_test_store']['post_meta'][$id]['_pp_composition'] = (string) json_encode($stored);
+
+        $result = pp_execute_action('delete_preset', ['name' => 'probe-a']);
+        $this->assertSame('preset_in_use', $result['error_code'] ?? null);
+    }
 }
