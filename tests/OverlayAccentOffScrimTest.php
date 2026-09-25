@@ -731,7 +731,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $this->found($fill('#ffffff')), 'a light fill set at the phone width is named');
         $this->assertCount(1, $this->found($fill('currentColor')), 'an unreadable one is named');
         $found = $this->found($partial('#ffffff'));
-        $this->assertStringContainsString('size the image cover, or set its repeat to repeat, and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
+        $this->assertStringContainsString('size the image cover, or set its repeat to repeat, where you set them (background.size and background.repeat, or background-size and background-repeat in _css), and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
     }
 
     /**

@@ -219,7 +219,7 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertStringContainsString('a raw background cannot carry an image', $rows[0]['reason'], $label);
             // Only where no width paints a scrim: in the narrower case the desktop scrim still paints and the band
             // stays marked, so the earlier pin here asserted a false sentence (corrected, PR-2 review cycle 2, design).
-            $this->assertStringContainsString($label === 'same width' ? 'the accent roles it re-lit go back to their own colours'
+            $this->assertStringContainsString($label === 'same width' ? 'the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
                 : 'The scrim still paints at the desktop and tablet widths, so the band stays marked', $rows[0]['reason'], $label);
         }
         $drops = [];
@@ -317,6 +317,28 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertCount(1, $section);
             $this->assertStringNotContainsString('accent', $section[0], 'section has no overlay-tier roles');
             $this->assertStringContainsString('the raw background in _css resets the background here', $section[0]);
+        }
+    }
+
+    /**
+     * TRUE WHETHER OR NOT THE AUTHOR INKED THE ACCENT (red team cycle 3, message-only): the drop reason is written while
+     * the band compiles, before the accents' own inks are known, so it scopes its claim to the accents whose colour
+     * the author has not set rather than asserting they re-light.
+     */
+    public function testTheDropReasonScopesItsAccentClaimToAccentsNotInked(): void
+    {
+        $o = 'rgba(6,10,28,0.72)';
+        foreach ([
+            'stays marked' => [['background' => ['image' => 9001, 'overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]],
+                "accent roles it re-lights (those whose colour you have not set) stay near-white on this background"],
+            'not marked'   => [['background' => ['image' => 9001, 'overlay' => $o], PP_UDC_CSS_KEY => ['background' => '#ffffff']],
+                'the accent roles it re-lit (those whose colour you have not set) go back to their own colours'],
+        ] as $label => [$band, $claim]) {
+            $drops = [];
+            pp_udc_compile_band(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [],
+                'udc' => ['_band' => $band, 'heading-accent' => ['typography' => ['color' => '#111111']]]], 'authored', $drops);
+            $reason = implode(' ', array_column(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'), 'reason'));
+            $this->assertStringContainsString($claim, $reason, $label);
         }
     }
 }

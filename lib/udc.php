@@ -2735,7 +2735,9 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
                     : (!empty($overlay['raw_background_won'])
                     ? (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
-                    // The band stays marked from the widths that still paint a scrim (PR-2 review cycle 2, design). No
+                    // The band stays marked from the widths that still paint a scrim (PR-2 review cycle 2, design). The
+                    // accents' own inks are not compiled yet here, so the claim is scoped to accents not inked (red team
+                    // cycle 3). No
                     // other finding is named (it would lie the next time a gate changes), and accents are spoken of only
                     // on a component whose roles re-light (red team cycle 2 D).
                     ? sprintf('the raw background in _css resets the background here, so background.image and this scrim do '
@@ -2743,13 +2745,13 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'background at this width (put a colour in background.fill beside the image instead), or, if the raw '
                       . 'background is what you want here, %s: a raw background cannot carry an image',
                       _pp_udc_widths_phrase($overlay['band_scrim_at']),
-                      !empty($overlay['band_relights']) ? ' and the accent roles it re-lights stay near-white on this background' : '',
+                      !empty($overlay['band_relights']) ? ' and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background' : '',
                       !empty($overlay['band_relights']) ? 'remove the overlay at this width and set the accents\' typography.color for this width' : 'remove the overlay at this width')
                     : 'the raw background in _css resets the background here, so background.image and this scrim do not '
                       . 'paint at this width'
                       . (isset($overlay['band_scrim_at'])
                           ? ', and with no scrim the band is not marked'
-                            . (!empty($overlay['band_relights']) ? ', so the accent roles it re-lit go back to their own colours' : '')
+                            . (!empty($overlay['band_relights']) ? ', so the accent roles it re-lit (those whose colour you have not set) go back to their own colours' : '')
                           : '')
                       . '. Remove the raw background (put a colour in background.fill beside the image '
                       . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
@@ -9806,7 +9808,7 @@ function pp_udc_composition_findings(array $items): array {
                     foreach ($partial_by_size as $shown_size => $size_bps) {
                         $sized[] = $shown_size . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
                     }
-                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or set its repeat to repeat, and the scrim covers the band)',
+                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or set its repeat to repeat, where you set them (background.size and background.repeat, or background-size and background-repeat in _css), and the scrim covers the band)',
                         implode(' and ', $sized)), $relit];
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
