@@ -2598,6 +2598,12 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
     if (array_key_exists('fill', $background) || array_key_exists('image', $background)) {
         return true;
     }
+    // The raw-CSS valve paints a surface too: a `_css` background names the surface the
+    // author chose, exactly as `background.fill` would.
+    $raw = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
+    if (array_intersect(array_map('strval', array_keys($raw)), ['background', 'background-color', 'background-image']) !== []) {
+        return true;
+    }
     foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
         $preset = is_string($name) ? pp_udc_resolve_preset($name) : null;
         $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
@@ -6374,6 +6380,26 @@ function pp_udc_component_defaults_css(string $component): string {
 }
 
 /**
+ * The roles the overlay tier re-lights, as prompt prose (#1010 review): "hero `title-accent`,
+ * cta `heading-accent`, ...". DERIVED from the schemas' `overlay_defaults`, the same data
+ * _pp_udc_overlay_tier_css() compiles, so the runtime prompt cannot name a role the engine
+ * does not re-light or miss one it does. Same posture as pp_udc_chrome_own_ink_summary().
+ */
+function pp_udc_overlay_tier_summary(): string {
+    $parts = [];
+    foreach (array_keys(pp_composable_components()) as $component) {
+        $component = (string) $component;
+        foreach (pp_udc_component_roles($component) as $role_name => $definition) {
+            if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults'])
+                && $definition['overlay_defaults'] !== []) {
+                $parts[] = $component . ' `' . $role_name . '`';
+            }
+        }
+    }
+    return implode(', ', $parts);
+}
+
+/**
  * The OVERLAY TIER of a component's role defaults (#1010, ruling D4 = B).
  *
  * A band that paints an image under a scrim is marked `data-pp-band-overlay` by the engine
@@ -8666,9 +8692,13 @@ function pp_udc_composition_findings(array $items): array {
                         continue;
                     }
                     if ($locator === '' && in_array($role_name, $preset_item_roles, true) && $item_entries !== []) {
+                        // Each card as the EMITTER sees it: the map pp_udc_item_maps() keeps for
+                        // its id (none for a card without a valid id, the first for a duplicate).
                         $every_card_covers = true;
                         foreach ($item_entries as $entry) {
-                            $entry_role = is_array($entry) ? ($entry[PP_UDC_ITEM_MAP_KEY][$role_name] ?? null) : null;
+                            $entry_id   = is_array($entry) && is_scalar($entry[PP_UDC_ITEM_ID_KEY] ?? null)
+                                ? (string) $entry[PP_UDC_ITEM_ID_KEY] : '';
+                            $entry_role = $band_item_maps[$entry_id][$role_name] ?? null;
                             if (!is_array($entry_role) || !_pp_udc_map_covers_fill($entry_role)) {
                                 $every_card_covers = false;
                                 break;

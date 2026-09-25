@@ -162,8 +162,9 @@ old `theme: "inverted"` did the recolouring as a bundle and it is retired, so a 
 alone leaves the heading at the inherited `@color-text` and renders near-black on
 near-black. The button is its own pair again — a fill and an ink — because a role's
 colours do not follow the band's. So is any role that ships its own surface (the eyebrow
-pill, a `panel`, a card): recolour its ink without its fill and the write reports
-`udc_role_ink_over_own_surface`.
+pill, a `panel`, a card): recolour that role's own ink without its fill and the write reports
+`udc_role_ink_over_own_surface`. A text role inside it (a testimonial `quote` in its `card`)
+is not reported: check that pair yourself.
 
 **And write the role that OWNS the text, not the one that contains it.** cta has both a
 `text` role (`.cta__text`, the wrapper around eyebrow + heading + body) and a `body` role

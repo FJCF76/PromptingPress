@@ -192,6 +192,39 @@ final class OverlayTierDefaultsTest extends TestCase
             'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'photo-scrim']]]]), 'own image, preset scrim');
     }
 
+    /**
+     * The prompt names the re-lit roles from the schemas, and every hand-written doc that
+     * lists them lists exactly those: adding `overlay_defaults` to a role breaks this test
+     * until the docs say so.
+     */
+    public function testThePromptAndDocsNameExactlyTheReLitRoles(): void
+    {
+        $expected = [];
+        foreach ($this->markerComponents() as $component) {
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                if (isset($definition['overlay_defaults'])) {
+                    $expected[] = $component . ' `' . $role . '`';
+                }
+            }
+        }
+        sort($expected);
+        $summary = explode(', ', pp_udc_overlay_tier_summary());
+        sort($summary);
+        $this->assertSame($expected, $summary);
+        $this->assertStringContainsString(': ' . pp_udc_overlay_tier_summary() . '.', pp_ai_system_prompt());
+
+        $root = dirname(__DIR__);
+        foreach (['AI_CONTEXT.md', 'ai-instructions/retheme.md', 'ai-instructions/style-component.md'] as $doc) {
+            $text = (string) preg_replace('/\s+/', ' ', (string) file_get_contents($root . '/' . $doc));
+            $this->assertStringContainsString("`title-accent`", $text, $doc);
+            foreach (['cta', 'faq', 'stats'] as $component) {
+                $this->assertMatchesRegularExpression('/`heading-accent`[^.]*`' . $component . '`|`' . $component . '`[^.]*`heading-accent`/', $text, "{$doc} names {$component}");
+            }
+        }
+        $this->assertSame(['cta `heading-accent`', 'faq `heading-accent`', 'hero `title-accent`', 'stats `heading-accent`'], $expected,
+            'the docs above name these four; widen them with the schemas');
+    }
+
     /** An AUTHORED value still wins: the band's own block prints after the overlay tier. */
     public function testAnAuthoredAccentInkStillWinsOverTheTier(): void
     {

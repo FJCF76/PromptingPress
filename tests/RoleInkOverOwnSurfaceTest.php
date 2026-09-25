@@ -165,6 +165,36 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringNotContainsString('item "', $one[0]['message'], 'a band-grain finding');
     }
 
+    /** The raw-CSS valve paints a surface too, on the role and on the band. */
+    public function testARawCssBackgroundCountsOnBothSides(): void
+    {
+        [, $found] = $this->write([
+            '_band'   => ['background' => ['fill' => '@color-bg-inverted']],
+            'eyebrow' => ['typography' => ['color' => '@color-bg'], '_css' => ['background-color' => '#000000']],
+        ]);
+        $this->assertSame([], $found, 'a _css background on the role is its fill');
+
+        [, $found] = $this->write([
+            '_band'   => ['_css' => ['background-color' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '@color-bg']],
+        ]);
+        $this->assertCount(1, $found, 'a _css background on _band is an authored band surface');
+    }
+
+    /** A card whose id the emitter cannot use renders without its map, so its fill covers nothing. */
+    public function testACardTheEmitterCannotAddressDoesNotCoverTheBandInk(): void
+    {
+        $found = array_values(array_filter(pp_udc_composition_findings([[
+            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'card' => ['typography' => ['color' => '#ffffff']]],
+            'props'     => ['title' => 'G', 'items' => [
+                ['id' => 'it-0000ab01', 'title' => 'A', 'udc' => ['card' => ['background' => ['fill' => '#1d2939']]]],
+                ['id' => 'not an id', 'title' => 'B', 'udc' => ['card' => ['background' => ['fill' => '#1d2939']]]],
+            ]],
+        ]]), static fn ($f) => $f['type'] === self::TYPE));
+        $this->assertCount(1, $found);
+    }
+
     /** A surface that exists at one width only is named with that width. */
     public function testATierOnlySurfaceIsNamedWithItsBreakpoint(): void
     {
