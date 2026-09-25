@@ -6724,6 +6724,11 @@ class SchemaValidationTest extends TestCase
      * Comments are stripped on every surface, because the retirement history is written
      * down in comments on purpose and names these classes. A floor on each surface keeps
      * an empty scan from passing.
+     *
+     * WHAT IT DOES NOT SEE, stated so nobody leans on it for more: a class BUILT at
+     * runtime (`ROOT--<?php echo $tone ?>`, `'stats--' . 'dark'` — the shape the retired
+     * helper itself used) and a CSS attribute selector (`[class*="--dark"]`). It pins the
+     * written-out spellings, which is how every retired rule and declaration was written.
      */
     public function testTheRetiredToneVocabularyStaysGone(): void
     {

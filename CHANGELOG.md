@@ -77,11 +77,12 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 - New: `SchemaValidationTest::testTheRetiredToneVocabularyStaysGone` enforces the #1111 ruling.
   It fails if a shipped schema declares a `--dark`/`--inverted` variant class, if a component
   template emits one, or if a stylesheet selects one. Comments are ignored, and each surface
-  has a floor so an empty scan cannot pass.
+  has a floor so an empty scan cannot pass. It catches written-out class names only; a class
+  built at runtime or matched by a CSS attribute selector is out of its reach.
 - The stored-`theme` negatives in `StoredCompositionAliasRenderTest` now assert that no
   `--dark` or `--inverted` class of any prefix appears. The old `pp-section--*` spelling
   could never reappear.
-- The test fixture survives as a filler band for 25 write-path methods (24 fail without it; a
+- The test fixture survives as a filler band for 25 test methods (24 fail without it; a
   25th goes risky). Re-homing those and deleting it is tracked in #1164.
 
 ## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)

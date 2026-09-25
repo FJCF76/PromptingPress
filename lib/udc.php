@@ -7488,7 +7488,8 @@ function _pp_udc_overlay_tier_compile(string $component): ?array {
  * because custom properties only contend on the SAME element: nothing in components.css
  * declares a `--pp-*` on a `[data-pp-component=…]` selector (its one `--pp-*` is the
  * site header's `--pp-header-height`; the legacy `--inverted` roots that once declared
- * the rest retired with their components, and the vocabulary for good at #1111), so
+ * the rest retired with each component's `theme` prop, and the vocabulary for good at
+ * #1111), so
  * there is no rule positioned to beat
  * a token default. It is latent rather than broken, and it is written down here because
  * the split's tests assert the root/element RULE division and say nothing about which
