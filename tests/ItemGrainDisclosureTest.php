@@ -859,6 +859,27 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringNotContainsString("card's own map", $overlay[0]['message'], 'heading is not an item role');
     }
 
+    /**
+     * LINEAR IN THE ROLE MAP. A raw-stored role map with thousands of group keys, each a
+     * group-grain `_preset`, must not rebuild the authored-label list per reference
+     * (measured O(G^2): 2.7 s at 4,000 keys, 0 ms on main). Groups the role does not permit
+     * are not resolved at all — the shadow helper ignores them anyway.
+     */
+    public function testAHostileRoleMapOfPresetGroupsStaysLinear(): void
+    {
+        $this->savePreset('probe-grp', ['size' => '3rem'], 'typography');
+        $role_map = [];
+        for ($k = 0; $k < 4000; $k++) {
+            $role_map['g' . $k] = ['_preset' => 'probe-grp', 'size' => '1rem'];
+        }
+        $band = ['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'udc' => ['heading' => $role_map],
+                 'props' => ['title' => 'G', 'items' => [['id' => 'it-0000abcd', 'title' => 'One']]]];
+
+        $started = microtime(true);
+        pp_udc_composition_findings([$band]);
+        $this->assertLessThan(0.3, microtime(true) - $started);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

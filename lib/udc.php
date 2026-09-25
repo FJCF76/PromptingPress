@@ -8331,9 +8331,14 @@ function pp_udc_composition_findings(array $items): array {
                         $preset_refs[] = [$role_map[PP_UDC_PRESET_KEY], $fragment, ''];
                     }
                 }
+                // Only a group this role PERMITS can be shadowed (the helper skips the rest),
+                // so a stored map's other keys are not resolved at all — a raw row can carry
+                // thousands of them.
+                $permitted_groups = (array) ($roles[(string) $role_name]['groups'] ?? []);
                 foreach ($role_map as $group_name => $group_map) {
                     if (!is_array($group_map) || !isset($group_map[PP_UDC_PRESET_KEY])
-                        || !is_string($group_map[PP_UDC_PRESET_KEY])) {
+                        || !is_string($group_map[PP_UDC_PRESET_KEY])
+                        || !in_array((string) $group_name, $permitted_groups, true)) {
                         continue;
                     }
                     $preset   = pp_udc_resolve_preset($group_map[PP_UDC_PRESET_KEY]);
@@ -8342,6 +8347,8 @@ function pp_udc_composition_findings(array $items): array {
                         $preset_refs[] = [$group_map[PP_UDC_PRESET_KEY], [(string) $group_name => $fragment], (string) $group_name];
                     }
                 }
+                // The author's own labels, once per role map (not once per reference).
+                $authored_labels = $preset_refs === [] ? [] : array_flip(_pp_udc_authored_value_labels($role_map));
                 foreach ($preset_refs as [$preset_name, $fragment, $preset_group]) {
                     $shadow_key = $component . "\0" . $role_name . "\0" . $preset_group . "\0" . $preset_name;
                     if (!array_key_exists($shadow_key, $shadow_memo)) {
@@ -8352,9 +8359,9 @@ function pp_udc_composition_findings(array $items): array {
                     }
                     // A value THIS map already sets paints — the author's own value outranks
                     // both the preset and the default — so it is not "not applied".
-                    $shadowed = array_values(array_diff(
+                    $shadowed = array_values(array_filter(
                         $shadow_memo[$shadow_key],
-                        _pp_udc_authored_value_labels($role_map)
+                        static fn (string $label): bool => !isset($authored_labels[$label])
                     ));
                     if ($shadowed === []) {
                         continue;
