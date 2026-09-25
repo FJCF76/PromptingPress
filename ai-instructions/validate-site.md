@@ -64,15 +64,17 @@ This checks:
      wins, because it resets the image under it (contract §2'.3). The reason then names the raw
      background, not a missing image. A raw desktop `background` that removes the image drops a scrim
      set only at a narrower width with no image of its own (its own fill included) the same way.
-     A scrim that never had an image, under a raw background that would reset one, is told to put the
-     tint in that raw background, or replace it with `background.fill` and then set `background.image`
-     (setting the image alone would paint nothing). On the band, where the scrim still paints at another
-     width the reason names those widths ("The scrim still paints at the …") and advises removing the
-     raw background at this width, or removing the overlay there; where no width paints one it advises
-     removing the raw background, or `background.image` and the overlay. On any other role the advice
-     stays at this width. Only on a component whose roles re-light (those declaring `overlay_defaults`)
-     does it speak of the marked band and of the accents whose colour you have not set, and there the
-     alternative adds setting the accents' `typography.color`. `wp pp check page` reports it as this finding; the readiness report
+     The advice is one sentence, true on every role: remove the raw background at this width (a colour
+     in `background.fill` beside the image instead), or remove the overlay at this width (and
+     `background.image`, if it paints at no other width). On the band at rest the reason also names the
+     widths where the scrim still paints ("The scrim still paints at the …"). Only on a component whose
+     roles re-light (those declaring `overlay_defaults`) does it speak of the marked band and of the
+     accents whose colour you have not set, and add setting their `typography.color` for this width.
+     A scrim that never had an image, under a raw background that would reset one, is not told to set
+     `background.image` alone (that would paint nothing): where the raw background paints at this width
+     it says to put the tint in it at this width, or replace it with `background.fill` and then set the
+     image; where a narrower width's own fill paints instead, to put the tint in that fill, or move the
+     desktop raw background into `background.fill` first. `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
@@ -87,7 +89,7 @@ This checks:
        its scrim";
      - a scrim that covers only part of the band ("sized 50% without tiling", "sized 100% 50% and
        tiled only across", "… tiled only down", "… spaced, which can leave gaps"), so the rest shows the
-       band's own background. The fix leads the message: size the image `cover`, or set its repeat
+       band's own background. The message names the fix before the `typography.color` advice: size the image `cover`, or set its repeat
        to `repeat`, where you set them (`background.size` / `background.repeat`, or `background-size` /
        `background-repeat` in `_css`);
      - a scrim that is light, fades to transparent or cannot be read.

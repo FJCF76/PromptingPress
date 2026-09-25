@@ -51,20 +51,21 @@ band's design. The engine now discards both before it decides.
 - `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
   gives a reason naming the raw background, not "Set background.image". A raw desktop background that
   removes the image drops a scrim set only at a narrower width (its own fill there included) with
-  the same reason. A scrim that never had an image, under a raw background that would reset one, is not
-  told to set `background.image` alone: the reason says to put the tint in the raw background, or replace
-  it with `background.fill` and then set the image. On the band, where the scrim still paints at other
-  widths the reason says "The scrim still paints at the …" and advises removing the raw background at
-  this width, or removing the overlay there; where no width paints a scrim it advises removing the raw
-  background, or `background.image` and the overlay. On any other role the advice stays at this width.
-  Only on a component whose roles re-light (those declaring `overlay_defaults`) does it speak of the
-  marked band and of the accents whose colour you have not set, and there the alternative adds setting
-  the accents' `typography.color`.
+  the same reason. Its advice is one sentence, true on every role: remove the raw background at this
+  width (a colour in `background.fill` beside the image instead), or remove the overlay at this width
+  (and `background.image`, if it paints at no other width). On the band at rest it also says where the
+  scrim still paints ("The scrim still paints at the …"). Only on a component whose roles re-light
+  (those declaring `overlay_defaults`) does it speak of the marked band and of the accents whose colour
+  you have not set, and add setting their `typography.color` for this width. A scrim that never had an
+  image, under a raw background that would reset one, is not told to set `background.image` alone: where
+  the raw background paints at this width the reason says to put the tint in it at this width, or replace
+  it with `background.fill` and then set the image; where a narrower width's own fill paints instead, it
+  says to put the tint in that fill, or move the desktop raw background into `background.fill` first.
 - `udc_overlay_accent_off_scrim`: the two new causes above. "Unreadable" is no colour, or any colour
   under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient fading into
   one); only a background whose every colour is an opaque-enough dark keeps it silent. Where the
   image still paints, only the colour it leaves visible counts, so a gradient-only `background.fill`
-  under a partial scrim fires. The partial cause leads with its fix: size the image `cover`, or set
+  under a partial scrim fires. The partial cause names its fix before the `typography.color` advice: size the image `cover`, or set
   its repeat to `repeat`, in `background.*` or in `_css`. Uncovered widths are now named by cause
   instead of always "unscrimmed image". A light background enclosing the accent is read with the same
   surface rule as `udc_role_ink_over_own_surface` (`transparent`, `none`, `initial`, `unset` and a
@@ -74,7 +75,7 @@ band's design. The engine now discards both before it decides.
 - Role-schema gate: `overlay_defaults` refuses a group the UDC registry does not know ("is not a
   UDC group"), a group value that is not a map of parameters ("must be a MAP of parameters"), a state
   key inside the tier, a key that is no parameter of the group, and a value that is not a single-line
-  string or a `d`/`t`/`p` map of them. CI's schema walk also refuses a `within` name that is not one of
+  string or a number, or a `d`/`t`/`p` map of them. CI's schema walk also refuses a `within` name that is not one of
   the component's roles.
 - `wp pp schema <component>`: `roles[].overlay_defaults`, `roles[].within` (filtered to the
   component's role names) and `roles[].text_content`, each only when declared.

@@ -246,7 +246,7 @@ buys you a role that passes CI and styles nothing.
   anything else: each key is a registered UDC group ("is not a UDC group") that the role's
   `groups` permits; each group's value is a MAP of that group's parameters ("must be a MAP of
   parameters"), never a scalar or a list; no state keys (`":hover"`: the tier is a resting
-  default); and each value is a single-line string or a `d`/`t`/`p` breakpoint map of them. It
+  default); and each value is a single-line string or a number, or a `d`/`t`/`p` breakpoint map of them. It
   is compiled as an AUTHORED map, not as `defaults`: the band-rhythm props above do NOT resolve
   in it. An author's own value for the role still wins. `wp pp schema <component>` prints it.
 - **`within`** (optional, #1010 review) — a LIST of this component's role names whose
