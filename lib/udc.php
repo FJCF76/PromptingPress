@@ -8796,7 +8796,10 @@ function pp_udc_composition_findings(array $items): array {
             }
         }
         $scrim_tiers = $band_compiled === null ? [] : _pp_udc_compiled_scrim_tiers($band_compiled);
-        if ($scrim_tiers !== []) {
+        // The marker's own predicate: some tier paints a scrim. An image-only band (an
+        // overlay the emitter dropped, e.g. one set only inside `:hover`) is not marked, so
+        // nothing re-lights and there is nothing to disclose.
+        if (array_filter($scrim_tiers, static fn (array $t): bool => $t[0] !== '') !== []) {
             $blocks = (array) ($band_compiled['blocks'] ?? []);
             $rest_inked = [];
             foreach ($blocks as $block) {
@@ -8841,6 +8844,15 @@ function pp_udc_composition_findings(array $items): array {
                     }
                     if (array_filter($colours, static fn (array $c): bool => $c[3] < PP_UDC_SCRIM_MIN_ALPHA) !== []) {
                         $conditions[] = [sprintf('%s (%s) is transparent in part, so part of the band shows the unscrimmed image', $scrim_label, $shown), $relit];
+                        break;
+                    }
+                }
+                // A `_band` state that repaints the background (`background[":hover"].fill`)
+                // covers the scrimmed image in that state while the tier keeps re-lighting.
+                foreach ($blocks as $block) {
+                    if (($block['role'] ?? '') === '_band' && ($block['item'] ?? '') === '' && ($block['state'] ?? '') !== ''
+                        && (isset($block['decls']['background']) || isset($block['decls']['background-image']))) {
+                        $conditions[] = [sprintf('in the %s state the band\'s own background replaces the scrimmed image', _pp_udc_reflect((string) $block['state'])), $relit];
                         break;
                     }
                 }
@@ -10195,8 +10207,9 @@ function pp_udc_band_has_overlay(array $item): bool {
  * '' when that tier paints the image alone, the declaration's source]. Read off the
  * compiled output, never re-derived: the emitter has already merged author and preset
  * tiers, resolved the image (a deleted attachment paints nothing and so has no entry),
- * dropped an overlay with no image, and chosen each reference's token scope. A tier with
- * no entry inherits the base tier at render.
+ * dropped an overlay with no image, and chosen each reference's token scope. A tier whose
+ * block replaces the background (the shorthand, or an image-less background-image) is an
+ * entry with '' layers; a tier with no entry inherits the base tier at render.
  *
  * @return array<string, array{0: string, 1: string}>
  */
@@ -10207,11 +10220,18 @@ function _pp_udc_compiled_scrim_tiers(array $compiled): array {
             continue;
         }
         $image = $block['decls']['background-image'] ?? null;
-        if (!is_array($image) || !is_string($image['css'] ?? null) || stripos($image['css'], 'url(') === false) {
+        if (is_array($image) && is_string($image['css'] ?? null) && stripos($image['css'], 'url(') !== false) {
+            $layers = trim((string) preg_replace('/,?\s*url\(\s*"[^"]*"\s*\)|,?\s*url\([^)]*\)/i', '', $image['css']), " ,");
+            $tiers[(string) ($block['bp'] ?? 'd')] = [$layers, (string) ($image['source'] ?? '')];
             continue;
         }
-        $layers = trim((string) preg_replace('/,?\s*url\(\s*"[^"]*"\s*\)|,?\s*url\([^)]*\)/i', '', $image['css']), " ,");
-        $tiers[(string) ($block['bp'] ?? 'd')] = [$layers, (string) ($image['source'] ?? '')];
+        // A tier that declares the `background` shorthand, or a background-image with no
+        // image, REPLACES the scrimmed image at that width: an unscrimmed tier, not an
+        // inherited one (`fill: {"p": "#fff"}` emits `background:#fff` at the phone width).
+        $replaced = $block['decls']['background'] ?? (is_array($image) ? $image : null);
+        if (is_array($replaced)) {
+            $tiers[(string) ($block['bp'] ?? 'd')] = ['', (string) ($replaced['source'] ?? '')];
+        }
     }
     return $tiers;
 }

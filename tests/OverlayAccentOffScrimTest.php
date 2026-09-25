@@ -546,6 +546,33 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertContains('udc_overlay_without_image', $types, 'the text overlay has no image: the emitter drops it and says so');
     }
 
+    /** Post-rebuild: an overlay the emitter drops (set only inside :hover) paints no scrim, marks nothing, names nothing. */
+    public function testAStateOnlyBandOverlayIsNoScrimAndNamesNothing(): void
+    {
+        $udc = ['_band' => ['background' => ['image' => 9001, ':hover' => ['overlay' => 'rgba(0,0,0,0.7)']]], 'text' => ['background' => ['fill' => '#ffffff']]];
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => $udc]));
+        $this->assertSame([], $this->found($udc));
+    }
+
+    /** Post-rebuild: a band tier or state that REPLACES the scrimmed image leaves the accent re-lit on the new surface. */
+    public function testABandTierOrStateThatReplacesTheImageIsNamed(): void
+    {
+        foreach ([['fill' => ['p' => '#ffffff']], [':hover' => ['fill' => '#ffffff']]] as $extra) {
+            $udc = ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'] + $extra]];
+            $css = pp_udc_band_css(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => $udc]);
+            $this->assertStringContainsString('background:#ffffff', $css, 'premise: the page repaints the band there');
+            $this->assertTrue(pp_udc_band_has_overlay(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => $udc]), 'premise: still marked');
+            $found = $this->found($udc);
+            $this->assertCount(1, $found, json_encode($extra));
+        }
+        $tier = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', 'fill' => ['p' => '#ffffff']]]]);
+        $this->assertStringContainsString('so at the phone width the accent sits on the unscrimmed image', $tier[0]['message']);
+        $state = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', ':hover' => ['fill' => '#ffffff']]]]);
+        $this->assertStringContainsString("in the :hover state the band's own background replaces the scrimmed image", $state[0]['message']);
+        $raw = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], '_css' => ['background' => ['p' => '#ffffff']]]]);
+        $this->assertCount(1, $raw, 'the raw-CSS shorthand at one width');
+    }
+
     /** Bounded across the composition like its sibling arms. */
     public function testTheFindingIsBoundedAcrossTheComposition(): void
     {
