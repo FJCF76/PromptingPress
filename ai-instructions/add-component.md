@@ -239,7 +239,8 @@ buys you a role that passes CI and styles nothing.
   band the engine marks `data-pp-band-overlay` (an image under a scrim). Only the seven
   components whose template prints that marker (hero, cta, faq, stats, logos, embed, table)
   ever apply it; the shipped use is the accent inks (`"typography": {"color":
-  "@color-accent-on-overlay"}`). The definition gate (CI's `SchemaValidationTest`) refuses
+  "@color-accent-on-overlay"}`). The definition gate (in CI's `SchemaValidationTest`, and at runtime, where a failing
+  role is left out of the AI prompt and reported `unreportable` by `wp pp schema`) refuses
   anything else: each key is a registered UDC group ("is not a UDC group") that the role's
   `groups` permits; each group's value is a MAP of that group's parameters ("must be a MAP of
   parameters"), never a scalar or a list; no state keys (`":hover"`: the tier is a resting

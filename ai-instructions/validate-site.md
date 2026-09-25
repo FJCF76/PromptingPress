@@ -64,12 +64,13 @@ This checks:
      wins, because it resets the image under it (contract §2'.3). The reason then names the raw
      background, not a missing image. A raw desktop `background` that removes the image drops a scrim
      set only at a narrower width with no image of its own (its own fill included) the same way.
-     Where the scrim still paints at another width the reason names those widths ("The scrim still
-     paints at the …, so the band stays marked") and advises removing the raw background at this width,
-     or removing the overlay at this width and setting the accents' `typography.color` for it; where no
-     width paints one it says the band is not marked. It speaks of accent roles only on a component
-     whose roles re-light (those declaring `overlay_defaults`); elsewhere it advises removing the
-     overlay at this width. `wp pp check page` reports it as this finding; the readiness report
+     A scrim that never had an image keeps the no-image reason. Where the scrim still paints at another
+     width the reason names those widths ("The scrim still paints at the …") and advises removing the
+     raw background at this width, or removing the overlay there; where no width paints one it advises
+     removing the raw background, or `background.image` and the overlay. Only on a component whose
+     roles re-light (those declaring `overlay_defaults`) does it speak of the marked band and of the
+     accents whose colour you have not set, and there the alternative adds setting the accents'
+     `typography.color`. `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.

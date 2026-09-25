@@ -51,12 +51,12 @@ band's design. The engine now discards both before it decides.
 - `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
   gives a reason naming the raw background, not "Set background.image". A raw desktop background that
   removes the image drops a scrim set only at a narrower width (its own fill there included) with
-  the same reason. Where the scrim still paints at other widths the reason says "The scrim still
-  paints at the …, so the band stays marked" and advises removing the raw background at this width,
-  or removing the overlay at this width and setting the accents' `typography.color` for it. Where no
-  width paints a scrim it says the band is not marked. Accent roles are mentioned only on components
-  whose roles re-light (those declaring `overlay_defaults`), and only as the accents whose colour you
-  have not set.
+  the same reason; a scrim that never had an image keeps the no-image reason. Where the scrim still
+  paints at other widths the reason says "The scrim still paints at the …" and advises removing the raw
+  background at this width, or removing the overlay there. Where no width paints a scrim it advises
+  removing the raw background, or `background.image` and the overlay. Only on a component whose roles
+  re-light (those declaring `overlay_defaults`) does it speak of the marked band and of the accents
+  whose colour you have not set, and there the alternative adds setting the accents' `typography.color`.
 - `udc_overlay_accent_off_scrim`: the two new causes above. "Unreadable" is no colour, or any colour
   under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient fading into
   one); only a background whose every colour is an opaque-enough dark keeps it silent. Where the
@@ -68,7 +68,7 @@ band's design. The engine now discards both before it decides.
   zero-alpha colour paint nothing; `currentColor` and `inherit` stay named, with words true of them).
 - `udc_css_overrides_group_value`: the message is chosen from what compiled (the "cannot be emitted"
   wording above). It does not yet name widths (#1159).
-- Role-schema gate (CI): `overlay_defaults` refuses a group the UDC registry does not know ("is not a
+- Role-schema gate: `overlay_defaults` refuses a group the UDC registry does not know ("is not a
   UDC group"), a group value that is not a map of parameters ("must be a MAP of parameters"), a state
   key inside the tier, a key that is no parameter of the group, and a value that is not a single-line
   string or a `d`/`t`/`p` map of them. CI's schema walk also refuses a `within` name that is not one of
@@ -89,7 +89,8 @@ band's design. The engine now discards both before it decides.
   size the image `cover`, or remove what replaces it.
 - `__pp_udc_overlay` and `__pp_udc_band` were never inputs; a stored copy is now ignored.
 - A custom component's `overlay_defaults` must follow the stricter gate; a `within` must name its own
-  roles.
+  roles. The gate runs in CI and at runtime: a role that fails it is left out of the AI prompt's
+  catalog and printed by `wp pp schema` as `unreportable` with the errors, until it is fixed.
 
 ### Docs
 
