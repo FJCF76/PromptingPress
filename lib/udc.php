@@ -6601,8 +6601,11 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
 
 /**
  * The paint longhands one compiled declaration sets (#1125): [longhand => [css, literal]].
- * A `background` shorthand sets BOTH: a colour resets the image to `none`, a gradient or
- * `url()` resets the colour to `transparent` (CSS resets every longhand a shorthand omits).
+ * A `background` shorthand sets BOTH (CSS resets every longhand a shorthand omits): a colour
+ * alone resets the image to `none`; a value carrying a gradient or `url()` is read IMAGE-FIRST,
+ * with the colour taken as `transparent`. That is exact for an image-only shorthand; for a
+ * mixed one (`#fff url(...)`) the colour component is not tracked, which cannot change the
+ * surface answer because the image longhand paints (no shipped default is mixed, evidence-t2).
  */
 function _pp_udc_paint_longhands(string $property, array $decl): array {
     $css     = (string) $decl['css'];
