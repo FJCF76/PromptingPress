@@ -198,6 +198,7 @@ final class UdcRolePaintTest extends TestCase
             $this->assertTrue(_pp_udc_paints_surface($value, 'background-color'), $value);
         }
         $this->assertFalse(_pp_udc_paints_surface('none', 'background-image'));
+        $this->assertFalse(_pp_udc_paints_surface('transparent', 'background-image'), 'the keyword list alone decides for an image');
         $this->assertTrue(_pp_udc_paints_surface('linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))', 'background-image'), 'a gradient is an image');
     }
 

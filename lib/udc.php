@@ -6379,12 +6379,11 @@ function _pp_udc_effective_paints_scrim(array $effective): bool {
  * counted a preset fill as painting when the role's default outranked it. This reads what the
  * renderer emits and ranks it the way the browser does:
  *
- *   1. cascade layer: a defaults ROOT rule sits in `pp-zero`, under every unlayered rule;
- *   2. specificity, computed from the selector the renderer prints for the block
+ *   1. specificity, computed from the selector the renderer prints for the block
  *      (_pp_udc_emission_scopes() + _pp_udc_emitted_selector() + the state suffix), so a
  *      state beats rest and an item rule beats a band rule exactly when the page's own
  *      selectors say so;
- *   3. source order: tier, then state, then base before `@media` (narrow-first), then block,
+ *   2. source order: tier, then state, then base before `@media` (narrow-first), then block,
  *      then declaration order. Breakpoint tiers are disjoint ranges, so at a width only the
  *      base (`d`) blocks and that width's blocks apply.
  *
@@ -6392,6 +6391,11 @@ function _pp_udc_effective_paints_scrim(array $effective): bool {
  * resets `background-image` to `none`; a gradient or `url()` sets the image and resets the
  * colour to `transparent`. The painted surface is the image when it paints, else the colour
  * when it paints (_pp_udc_paints_surface()).
+ *
+ * NO CASCADE-LAYER TERM, deliberately: the only layered engine rules are the defaults tier's
+ * ROOT rules (`pp-zero`), and the only root-selector role is `_band`, which this does not
+ * answer for (pp_udc_band_effective_background() does). A planted-defect run proved a layer
+ * term here unreachable, so it is not carried as dead weight.
  *
  * WHAT IT DOES NOT SEE, stated so nobody reads more into it: rules in the layered v1
  * stylesheet (`@layer pp-v1`) rank under every tier here and paint only where no tier
@@ -6424,22 +6428,28 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
     $tiers[] = ['authored', $authored, $scopes['authored']];
 
     $state_rank = array_flip(pp_udc_states_in_emit_order());
+    $paint_properties = ['color' => true, 'background' => true, 'background-color' => true, 'background-image' => true];
     $bp_meta    = pp_udc_breakpoints();
 
     // Every declaration that can reach a role, as [role, item, state, bp, rank key, longhands].
-    $by_role = [];
+    // Specificity is parsed once per distinct emitted selector (a role's blocks share one across
+    // widths): measured, parsing it per declaration was most of this function's cost.
+    $by_role      = [];
+    $spec_memo    = [];
+    $surface_memo = []; // the colour reader, once per distinct value (a default repeats per width)
     foreach ($tiers as $tier_index => [$tier_name, $compiled, [$scope, $root_scope]]) {
         foreach ((array) ($compiled['blocks'] ?? []) as $block_index => $block) {
             $role = (string) ($block['role'] ?? '');
-            if ($role === '_band' || !isset($roles[$role]) || !is_array($block['decls'] ?? null)) {
-                continue;
+            if ($role === '_band' || !isset($roles[$role]) || !is_array($block['decls'] ?? null)
+                || array_intersect_key($block['decls'], $paint_properties) === []) {
+                continue; // Most default blocks carry only type and spacing: nothing to rank.
             }
             $block_item = (string) ($block['item'] ?? '');
             $state      = (string) ($block['state'] ?? '');
             $bp         = (string) ($block['bp'] ?? 'd');
             $selector   = (string) ($block['selector'] ?? '');
-            $layer      = ($tier_name === 'defaults' && $selector === '' && $block_item === '') ? 0 : 1;
             $emitted    = _pp_udc_emitted_selector($scope, $root_scope, $selector, $block_item) . $state;
+            $spec_memo[$emitted] = $spec_memo[$emitted] ?? _pp_udc_selector_specificity($emitted);
             $bp_rank    = ($bp_meta[$bp]['media'] ?? null) === null ? 0 : 1 + (int) ($bp_meta[$bp]['emit_order'] ?? 0);
             $tier       = $tier_name === 'authored' ? ($block_item === '' ? 'band' : 'item') : $tier_name;
             $decl_index = 0;
@@ -6455,7 +6465,7 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                     'item'  => $block_item,
                     'state' => $state,
                     'bp'    => $bp,
-                    'key'   => array_merge([$layer], _pp_udc_selector_specificity($emitted),
+                    'key'   => array_merge($spec_memo[$emitted],
                         [$tier_index, $state_rank[$state] ?? 0, $bp_rank, $block_index, $decl_index++]),
                     'tier'  => $tier,
                     'compiled' => $tier_name,
@@ -6517,7 +6527,12 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                     }
                     $surface = null;
                     foreach (['background-image', 'background-color'] as $longhand) {
-                        if (isset($winners[$longhand]) && _pp_udc_paints_surface($winners[$longhand]['literal'], $longhand)) {
+                        if (!isset($winners[$longhand])) {
+                            continue;
+                        }
+                        $memo_key = $longhand . "\0" . $winners[$longhand]['literal'];
+                        $surface_memo[$memo_key] = $surface_memo[$memo_key] ?? _pp_udc_paints_surface($winners[$longhand]['literal'], $longhand);
+                        if ($surface_memo[$memo_key]) {
                             $surface = ['property' => $longhand] + $winners[$longhand];
                             break;
                         }
