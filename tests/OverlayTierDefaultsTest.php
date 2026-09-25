@@ -1,0 +1,162 @@
+<?php
+/**
+ * tests/OverlayTierDefaultsTest.php — the overlay tier of role defaults (#1010, ruling D4 = B).
+ *
+ * THE DEFECT. A band that paints an image under a scrim is marked `data-pp-band-overlay` by
+ * the engine, and the focus ring already re-lights off that marker (#986). The accent-ink
+ * roles did not: `title-accent` over a dark scrim measured 1.05:1 in Chromium (#1010), and
+ * 2.27:1 on this sprint's probe page.
+ *
+ * THE RULING (D4 = B). Every accent-ink role default (`title-accent`, `heading-accent`) on a
+ * component that emits the overlay marker is re-lit to `--color-accent-on-overlay` when the
+ * band carries the marker. Muted and inherited inks stay as they are. An authored value
+ * always wins.
+ *
+ * THE MECHANISM, prototyped in Chromium before it was built (evidence-1127/prc/
+ * overlay-tier-prototype*). A role declares `overlay_defaults` in its schema; the engine
+ * emits them after the element defaults under
+ * `:where([data-pp-component="X"])[data-pp-band-overlay] <role selector>`: the same (0,2,0)
+ * as the element default, so it wins on source order; the band's authored blocks print
+ * later at the same weight, so the author still wins. The engine names no component.
+ */
+
+use PHPUnit\Framework\TestCase;
+
+final class OverlayTierDefaultsTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $GLOBALS['_pp_test_store'] = ['post_meta' => [], 'posts' => [], 'options' => [], 'next_id' => 100];
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['wpdb']);
+        parent::tearDown();
+    }
+
+    /** The components whose template renders the engine's overlay marker. */
+    private function markerComponents(): array
+    {
+        $out = [];
+        foreach (glob(dirname(__DIR__) . '/components/*/*.php') as $file) {
+            if (str_contains((string) file_get_contents($file), "__pp_udc_overlay")) {
+                $out[] = basename(dirname($file));
+            }
+        }
+        sort($out);
+        return array_values(array_unique($out));
+    }
+
+    private function overlayTierRule(string $component, string $selector): string
+    {
+        return ':where([data-pp-component="' . $component . '"])[data-pp-band-overlay] ' . $selector
+            . '{color:var(--color-accent-on-overlay);}';
+    }
+
+    public function testTheMarkerComponentsAreTheSevenTheRulingNames(): void
+    {
+        $this->assertSame(['cta', 'embed', 'faq', 'hero', 'logos', 'stats', 'table'], $this->markerComponents());
+    }
+
+    public function testEveryAccentInkRoleOnAMarkerComponentIsReLitOnOverlay(): void
+    {
+        $relit = 0;
+        foreach ($this->markerComponents() as $component) {
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                // The accent INKS the ruling names (`title-accent`, `heading-accent`): the
+                // accented words of a heading. A secondary button's accent is not in scope.
+                $ink = $definition['defaults']['typography']['color'] ?? null;
+                if ($ink !== '@color-accent' || !str_ends_with((string) $role, '-accent')) {
+                    continue;
+                }
+                $relit++;
+                $css = pp_udc_component_defaults_css($component);
+                $this->assertStringContainsString(
+                    $this->overlayTierRule($component, (string) $definition['selector']),
+                    $css,
+                    "{$component}.{$role} is an accent ink and must re-light on an overlay band"
+                );
+            }
+        }
+        $this->assertSame(4, $relit, 'premise: hero title-accent + cta/faq/stats heading-accent');
+    }
+
+    /** The tier prints AFTER the element default it outranks: equal weight, source order. */
+    public function testTheOverlayTierPrintsAfterTheElementDefault(): void
+    {
+        $css      = pp_udc_component_defaults_css('hero');
+        $default  = strpos($css, '[data-pp-component="hero"] .hero__title-accent{');
+        $tier     = strpos($css, ':where([data-pp-component="hero"])[data-pp-band-overlay] .hero__title-accent{');
+        $this->assertNotFalse($default, 'premise: the element default is emitted');
+        $this->assertNotFalse($tier);
+        $this->assertGreaterThan($default, $tier);
+    }
+
+    /** Muted/inherited inks and non-accent roles are untouched (ruling D4 = B, not C). */
+    public function testOnlyAccentInksCarryAnOverlayTier(): void
+    {
+        $seen = 0;
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                if (!isset($definition['overlay_defaults'])) {
+                    continue;
+                }
+                $this->assertContains($component, $this->markerComponents(),
+                    "{$component}.{$role}: an overlay tier on a component that never emits the marker is dead CSS");
+                $this->assertSame('@color-accent', $definition['defaults']['typography']['color'] ?? null,
+                    "{$component}.{$role}: only accent-ink defaults are re-lit");
+                $this->assertSame(['typography' => ['color' => '@color-accent-on-overlay']], $definition['overlay_defaults']);
+                $seen++;
+            }
+        }
+        $this->assertSame(4, $seen, 'premise: the four accent inks declare the tier');
+    }
+
+    /** Components without an overlay tier emit exactly what they did before. */
+    public function testAComponentWithNoOverlayTierEmitsNone(): void
+    {
+        foreach (['grid', 'section', 'logos', 'table', 'embed'] as $component) {
+            $this->assertStringNotContainsString('[data-pp-band-overlay]', pp_udc_component_defaults_css($component), $component);
+        }
+    }
+
+    /** Every declared overlay default is a value the authored grammar accepts on that role. */
+    public function testEveryOverlayDefaultIsAValidAuthoredValue(): void
+    {
+        $checked = 0;
+        foreach (glob(dirname(__DIR__) . '/components/*/schema.json') as $file) {
+            $component = basename(dirname($file));
+            foreach (pp_udc_component_roles($component) as $role => $definition) {
+                if (!isset($definition['overlay_defaults'])) {
+                    continue;
+                }
+                $checked++;
+                $result = pp_udc_validate_map([$role => $definition['overlay_defaults']], $component);
+                $this->assertNull($result,
+                    "{$component}.{$role} overlay_defaults must validate: " . (is_wp_error($result) ? $result->get_error_message() : ''));
+            }
+        }
+        $this->assertSame(4, $checked);
+    }
+
+    /** An AUTHORED value still wins: the band's own block prints after the overlay tier. */
+    public function testAnAuthoredAccentInkStillWinsOverTheTier(): void
+    {
+        $composition = [[
+            'component' => 'hero',
+            'id'        => 'pp-a1b2c3d4',
+            'udc'       => ['title-accent' => ['typography' => ['color' => '#8fd0ff']]],
+            'props'     => ['title' => 'T', 'title_accent' => 'A', 'layout' => 'centered'],
+        ]];
+        $css    = pp_udc_page_css($composition);
+        $tier   = strpos($css, '[data-pp-band-overlay] .hero__title-accent{');
+        $author = strpos($css, '[data-pp-band="pp-a1b2c3d4"] .hero__title-accent{');
+        $this->assertNotFalse($tier, 'premise: the page carries the overlay tier');
+        $this->assertNotFalse($author);
+        $this->assertGreaterThan($tier, $author, 'the authored block prints later at the same weight');
+    }
+}

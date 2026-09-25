@@ -230,6 +230,7 @@ function pp_role_definition_keys(): array {
         'description',   // required — MAINTAINER-facing prose; reaches `wp pp schema`, NEVER the prompt
         'groups',        // required — the UDC groups this role permits
         'defaults',      // the role's own default values, per group
+        'overlay_defaults', // #1010 — defaults re-lit on a band the engine marks `data-pp-band-overlay`
         'obligations',   // #1087 — MODEL-facing pairing/contrast obligations, bounded
     ];
 }
@@ -828,6 +829,11 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['defaults'])
                 || ($definition['defaults'] !== [] && pp_is_list($definition['defaults'])))) {
             $errors[] = "{$label}: `defaults` must be a MAP of groups, not a list.";
+        }
+        if (array_key_exists('overlay_defaults', $definition)
+            && (!is_array($definition['overlay_defaults'])
+                || ($definition['overlay_defaults'] !== [] && pp_is_list($definition['overlay_defaults'])))) {
+            $errors[] = "{$label}: `overlay_defaults` must be a MAP of groups, not a list.";
         }
         if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
             $errors[] = "{$label}: `description` must be a string.";

@@ -6315,7 +6315,51 @@ function pp_udc_component_defaults_css(string $component): string {
     // order, so a plugin reordering the enqueues can no longer invert it either.
     $scope = '[data-pp-component="' . $component . '"]';
 
-    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero');
+    return _pp_udc_render_blocks($compiled, $scope, ':where(' . $scope . ')', 'pp-zero')
+        . _pp_udc_overlay_tier_css($component, $scope);
+}
+
+/**
+ * The OVERLAY TIER of a component's role defaults (#1010, ruling D4 = B).
+ *
+ * A band that paints an image under a scrim is marked `data-pp-band-overlay` by the engine
+ * (#986), and the focus ring already re-lights off that marker. A role may declare
+ * `overlay_defaults` in its schema — values that replace its `defaults` on such a band. The
+ * shipped use is the accent inks: `--color-accent` measured 1.05:1 over a dark scrim, and
+ * `--color-accent-on-overlay` is the theme's ink tuned for exactly that surface.
+ *
+ * RANKED BY WEIGHT AND ORDER, prototyped in Chromium before it was built:
+ *
+ *   element default   [data-pp-component="X"] .role                           (0,2,0)
+ *   overlay tier      :where([data-pp-component="X"])[data-pp-band-overlay] .role (0,2,0), later
+ *   authored          [data-pp-band="b"] .role                                (0,2,0), later still
+ *
+ * so the tier beats the default it re-lights on source order, and anything the author wrote
+ * for that role still wins. It is compiled through the AUTHORED layer of the one engine — the
+ * same grammar, reference resolution and state/breakpoint handling a band's own map gets —
+ * under a placeholder id the render never prints, and rendered under the overlay scope. The
+ * engine names no component: which roles re-light is data, in the schema.
+ */
+function _pp_udc_overlay_tier_css(string $component, string $scope): string {
+    $overlay_map = [];
+    foreach (pp_udc_component_roles($component) as $role_name => $definition) {
+        if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults'])
+            && $definition['overlay_defaults'] !== []) {
+            $overlay_map[(string) $role_name] = $definition['overlay_defaults'];
+        }
+    }
+    if ($overlay_map === []) {
+        return '';
+    }
+    $compiled = pp_udc_compile_band(
+        ['component' => $component, 'id' => 'pp-00000000', 'udc' => $overlay_map],
+        'authored'
+    );
+    if ($compiled['id'] === '') {
+        return '';
+    }
+    $overlay_scope = ':where(' . $scope . ')[data-pp-band-overlay]';
+    return _pp_udc_render_blocks($compiled, $overlay_scope);
 }
 
 /**

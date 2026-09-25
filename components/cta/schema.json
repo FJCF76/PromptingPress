@@ -221,6 +221,11 @@
           "color": "@color-accent"
         }
       },
+      "overlay_defaults": {
+        "typography": {
+          "color": "@color-accent-on-overlay"
+        }
+      },
       "obligations": []
     },
     "body": {
