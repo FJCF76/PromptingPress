@@ -9377,8 +9377,13 @@ function pp_udc_composition_findings(array $items): array {
                             return (string) end($parts);
                         }, array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== '')))));
                         if ($named_states !== []) {
-                            $fill_where[] = sprintf('inside %s (background: {"%s": {"fill": ...}})',
-                                implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]));
+                            // Rest fired TOO: the resting fill is needed as well, or following the advice
+                            // leaves the resting clash (cycle 2, testing).
+                            $fill_where[] = isset($fired[''])
+                                ? sprintf('at rest and inside %s (background: {"fill": ..., "%s": {"fill": ...}})',
+                                    implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]))
+                                : sprintf('inside %s (background: {"%s": {"fill": ...}})',
+                                    implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]));
                         }
                         $partial_bps = [];
                         foreach ($fired as $bps) {

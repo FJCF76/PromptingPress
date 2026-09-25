@@ -442,38 +442,48 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     }
 
     /**
-     * The arm keeps a card's own root colour from being blamed on the band for a card PART. With the
-     * measured key that branch has no shipped subject: no item part has its own default surface, no
-     * colour default AND renders its own text. When a schema adds one, this fails so the branch gets a
-     * real test instead of a green suite over an unreachable path.
+     * THE BAND-INK SUBJECTS, CENSUSED THROUGH THE ACCESSOR (cycle 2, testing). Every composable and
+     * chrome role that renders its own text, compiled on a band whose `_band` sets a fill and a colour:
+     * the cells where its own DEFAULT (or overlay) surface paints under no ink of its own, or a
+     * `currentColor` one. That is exactly where the band's ink can be named. Pinned to hero `surface`
+     * alone, so: a card PART becoming a subject (the card-root interception branch goes live), a
+     * `currentColor` default under a surface, or a header/footer role with its own fill under its own
+     * text (the chrome prompt sentence) each fail here instead of passing over an unreachable branch.
      */
     public function testNoShippedItemPartYetTakesTheBandInkThroughItsCard(): void
     {
-        $checked = 0;
-        foreach (array_keys(pp_composable_components()) as $component) {
-            $decl = pp_udc_item_roles((string) $component);
-            if ($decl === null) {
-                continue;
-            }
-            foreach ($decl['roles'] as $role) {
-                if ($role === $decl['root']) {
+        $subjects = [];
+        foreach (array_merge(array_keys(pp_composable_components()), pp_udc_chrome_names()) as $component) {
+            $component = (string) $component;
+            $item      = ['component' => $component, 'id' => pp_udc_is_chrome($component) ? $component : 'pp-a1b2c3d4', 'props' => [],
+                'udc' => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]]];
+            $roles     = pp_udc_component_roles($component);
+            $compiled  = pp_udc_compile_band($item, 'authored');
+            foreach (pp_udc_role_paint($item, $compiled, pp_udc_compile_band(['component' => $component], 'defaults'), false) as $element) {
+                if (($roles[$element['role']]['text_content'] ?? false) !== true) {
                     continue;
                 }
-                $checked++;
-                $def  = pp_udc_component_roles((string) $component)[$role];
-                $fill = $def['defaults']['background']['fill'] ?? null;
-                $own_surface = $fill !== null && $fill !== 'transparent';
-                $no_colour   = !isset($def['defaults']['typography']['color']);
-                $this->assertFalse($own_surface && $no_colour && ($def['text_content'] ?? false) === true, $component . ' ' . $role);
+                foreach ($element['paint'] as $by_bp) {
+                    foreach ($by_bp as $cell) {
+                        $surface = $cell['surface'];
+                        $ink     = $cell['color'];
+                        if ($surface !== null && in_array($surface['tier'], ['defaults', 'overlay'], true)
+                            && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)) {
+                            $subjects[$component . '.' . $element['role']] = true;
+                        }
+                    }
+                }
             }
         }
-        $this->assertGreaterThan(5, $checked, 'vacuity floor: the item parts were read');
+        $this->assertSame(['hero.surface'], array_keys($subjects));
     }
 
     /**
-     * THE TWO FINDINGS NEVER CONTRADICT (D3 condition 2, extended under ruling A): a role this finding
-     * names as reached by the band's ink is never one the sibling names as NOT reached, and it is always a
-     * role that renders its own text (text_content); no container role is ever named.
+     * THE TWO FINDINGS NEVER CONTRADICT (D3 condition 2, extended under ruling A), asserted as an OUTCOME
+     * over these shapes: a role this finding names as reached by the band's ink is never one the sibling
+     * names as NOT reached, and it is always a role that renders its own text. (Today the agreement is
+     * also implied by the null-ink check; the shared predicate keeps it true when a role gains a colour
+     * default.)
      */
     public function testTheBandInkNeverContradictsTheSiblingDisclosure(): void
     {
@@ -528,6 +538,11 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             }
         }
         sort($flagged);
+        $total = 0;
+        foreach (array_merge(array_keys(pp_composable_components()), pp_udc_chrome_names()) as $component) {
+            $total += count(pp_udc_component_roles((string) $component)) - 1; // `_band` is not measured
+        }
+        $this->assertSame(131, $total, 'a role added or renamed must be measured and its key decided');
         $this->assertSame([
             'cta.body', 'cta.body-link', 'cta.button', 'cta.button-secondary', 'cta.eyebrow', 'cta.heading',
             'cta.heading-accent', 'cta.inner', 'cta.text', 'embed.content', 'embed.content-link', 'embed.heading',
@@ -555,6 +570,33 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             $this->assertStringContainsString('`text_content` must be true',
                 implode(' | ', pp_schema_definition_errors($role + ['text_content' => $bad], 'role', 'r')), json_encode($bad));
         }
+    }
+
+    /**
+     * MIXED: the role inks only :hover, the band's ink reaches it at rest (cycle 2, testing). The wording
+     * names both moves, and the advice names BOTH places the fill goes, so following it clears the finding.
+     */
+    public function testAMixedRestAndStateClashNamesBothMovesAndBothFills(): void
+    {
+        $props = ['layout' => 'split', 'title' => 'H', 'proof' => '<p>Proof</p>'];
+        $band  = ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']];
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#eeeeee']]]], 'hero', $props);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('the text colour you set for this role (typography.color, a preset you applied, or _css), and where it sets none the one you set on the whole band', $found[0]['message']);
+        $this->assertStringContainsString('at rest and inside :hover (background: {"fill": ..., ":hover": {"fill": ...}})', $found[0]['message']);
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#eeeeee']],
+            'background' => ['fill' => '#1d2939', ':hover' => ['fill' => '#1d2939']]]], 'hero', $props);
+        $this->assertSame([], $found, 'the two fills the advice names clear it');
+    }
+
+    /** A single width left on the default is named in the singular, with its one breakpoint key. */
+    public function testASingleWidthIsNamedInTheSingular(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => ['t' => '#101828', 'p' => '#101828']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(@color-surface-accent) at the desktop width, on any text', $found[0]['message']);
+        $this->assertStringContainsString('at that width (a breakpoint map, e.g. {"d": ...})', $found[0]['message']);
     }
 
     // ── Widths ───────────────────────────────────────────────────────────────────────────
