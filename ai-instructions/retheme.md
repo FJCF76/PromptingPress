@@ -206,9 +206,9 @@ made `--section-bg` win over the `muted` / `inverted` theme paint (before, the t
 literal silently defeated it), which meant an `inverted` section painted light by
 `--section-bg` kept its `pp-section--inverted` class and therefore its near-white heading,
 body and link routing — light-on-light. Both the slot and the class retired with #1023.
-The same trap is still live on `grid` until its own rebuild — it is the last v1 component
-in the theme. `cta` left that list at #1026 and `stats` and `logos` at #1066, each the same
-way and for the same reason.
+`cta` left the same trap at #1026, `stats` and `logos` at #1066 and `grid`, the last, at
+#1101; the `--dark`/`--inverted` class vocabulary itself retired at #1111. No component
+carries the trap now.
 
 Example retheme — warm neutral:
 ```css
