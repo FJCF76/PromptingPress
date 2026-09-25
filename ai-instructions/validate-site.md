@@ -35,7 +35,8 @@ This checks:
      is listed with `at breakpoint …`.
      Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
      group-grain `_preset` (inside `typography`, say), naming the group.
-   - `udc_role_ink_over_own_surface` — on a band (or a header/footer) whose background you set,
+   - `udc_role_ink_over_own_surface` — on a band whose background you set (a header or footer
+     reports it on the `pp_site_udc` write envelope instead, not here),
      the text colour you set on a role paints over that role's OWN default background (an eyebrow
      pill, a panel, a card), which your band background does not replace. It names the card, the
      state or the width when the clash is only there. Set the role's `background.fill` too, or

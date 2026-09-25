@@ -6237,11 +6237,13 @@ function pp_udc_valid_band_id(string $id): bool {
  * base declarations followed by `@media` blocks narrow-first; then the engine's
  * own `prefers-reduced-motion` guard, last.
  *
- * Every tier sits at identical specificity by construction, so ORDER IS THE
+ * The three STATES sit at identical specificity, so among them ORDER IS THE
  * RANKING — `:active` beats `:hover` because it prints after it, and the guard
- * neutralizes the motion above it for the same reason. Every selector is
- * `[data-pp-band="<id>"]` plus the role's own selector, so specificity is flat
- * and `!important` never appears.
+ * neutralizes the motion above it for the same reason. A state suffix does add
+ * specificity over the resting rule, and an item scope adds it over the band's
+ * (pp_udc_role_paint() ranks by both). Every selector is the band's scope from
+ * _pp_udc_emission_scopes() plus the role's own selector; `!important` never
+ * appears.
  */
 function pp_udc_band_css(array $item): string {
     $compiled = pp_udc_compile_band($item, 'authored');
@@ -6370,8 +6372,12 @@ function _pp_udc_effective_paints_scrim(array $effective): bool {
  *
  *   defaults   pp_udc_component_defaults_css() / chrome defaults   printed first
  *   overlay    _pp_udc_overlay_tier_css(), only on a marked band   printed second
- *   band       pp_udc_band_css() / chrome authored, band blocks    printed third
- *   item       pp_udc_band_css(), item blocks                      printed last
+ *   band       pp_udc_band_css() / chrome authored, band blocks    printed third, sharing one
+ *   item       pp_udc_band_css(), item blocks                      stylesheet: by state, then
+ *                                                                  breakpoint, then block
+ *
+ * (so a band `:hover` rule prints AFTER an item's resting rule; an item rule usually wins on
+ * specificity, 0,3,0 over 0,2,0, not by printing last)
  *
  * and the authored compile DROPS every declaration a role default wins (the rung order is
  * site tokens, presets, role defaults, the author's map), so "the surface under this ink"
@@ -6468,9 +6474,7 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                     'key'   => array_merge($spec_memo[$emitted],
                         [$tier_index, $state_rank[$state] ?? 0, $bp_rank, $block_index, $decl_index++]),
                     'tier'  => $tier,
-                    'compiled' => $tier_name,
                     'longhands' => $longhands,
-                    'source' => (string) ($decl['source'] ?? ''),
                 ];
             }
         }
@@ -6520,8 +6524,7 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                         }
                         foreach ($row['longhands'] as $longhand => [$css, $literal]) {
                             if (!isset($winners[$longhand]) || ($row['key'] <=> $winners[$longhand]['key']) > 0) {
-                                $winners[$longhand] = ['key' => $row['key'], 'css' => $css, 'literal' => $literal,
-                                    'source' => $row['source'], 'tier' => $row['tier'], 'compiled' => $row['compiled']];
+                                $winners[$longhand] = ['key' => $row['key'], 'css' => $css, 'literal' => $literal, 'tier' => $row['tier']];
                             }
                         }
                     }
@@ -6569,8 +6572,7 @@ function _pp_udc_paint_longhands(string $property, array $decl): array {
 }
 
 /**
- * Whether a background longhand's value paints a surface (#1125, shared with the off-scrim
- * surface read): `transparent`, `none`, `initial`, `unset` and a fully transparent colour do
+ * Whether a background longhand's value paints a surface (#1125): `transparent`, `none`, `initial`, `unset` and a fully transparent colour do
  * not (for `background-color` all of them resolve to a transparent box; none of these is
  * inherited). Everything else does, INCLUDING a value the engine cannot read: `currentColor`
  * paints the ink's own colour behind the ink, and `inherit` takes the parent's background,
@@ -6683,7 +6685,7 @@ function pp_udc_component_defaults_css(string $component): string {
     [$scope, $root_scope] = _pp_udc_emission_scopes($component, '')['defaults'];
 
     return _pp_udc_render_blocks($compiled, $scope, $root_scope, 'pp-zero')
-        . _pp_udc_overlay_tier_css($component, $scope);
+        . _pp_udc_overlay_tier_css($component);
 }
 
 /**
@@ -6727,7 +6729,7 @@ function pp_udc_overlay_tier_summary(): string {
  * under a placeholder id the render never prints, and rendered under the overlay scope. The
  * engine names no component: which roles re-light is data, in the schema.
  */
-function _pp_udc_overlay_tier_css(string $component, string $scope): string {
+function _pp_udc_overlay_tier_css(string $component): string {
     $compiled = _pp_udc_overlay_tier_compile($component);
     if ($compiled === null) {
         return '';
@@ -9226,7 +9228,6 @@ function pp_udc_composition_findings(array $items): array {
                         } else {
                             $qualifier = ' ' . implode(', and ', $phrases);
                         }
-                        $shown_compiled = $shown['compiled'] === 'authored' ? $band_compiled : [];
                         $ink_disclosed++;
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
@@ -9238,7 +9239,8 @@ function pp_udc_composition_findings(array $items): array {
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
-                                _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], $shown_compiled)),
+                                // A defaults or overlay surface: those compiles mint no band tokens.
+                                _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], [])),
                                 $qualifier
                             ),
                             'index'   => is_int($i) ? $i : null,
