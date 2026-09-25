@@ -6480,20 +6480,18 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
         }
     }
 
-    // The elements a role renders on: one per card with a usable map of its own (item roles),
-    // and one for every other element of the role — a card with no map, or no card at all.
+    // The elements a role renders on: one per card whose own rules reach THIS role (item roles),
+    // and one band-level element for every other card of the role — a card with no map, a card
+    // whose map says nothing about this role, an id the emitter cannot use — or for the role when
+    // there is no card at all. A card with no rules of its own for the role IS that band-level
+    // element: answering (and reporting) it once per card repeated one fact per card and could
+    // spend the shared findings budget on a single band (performance pass, cycle 1).
     $item_declaration = pp_udc_item_roles($component);
     $item_roles       = (array) ($item_declaration['roles'] ?? []);
-    $card_ids         = array_map('strval', array_keys(pp_udc_item_maps($item)));
     $entries          = $item_declaration !== null ? ($item['props'][$item_declaration['prop']] ?? []) : [];
-    $needs_generic    = !is_array($entries) || $entries === [];
-    $card_id_set      = array_fill_keys($card_ids, true);
+    $entry_ids        = [];
     foreach (is_array($entries) ? $entries : [] as $entry) {
-        $entry_id = is_array($entry) && is_scalar($entry[PP_UDC_ITEM_ID_KEY] ?? null) ? (string) $entry[PP_UDC_ITEM_ID_KEY] : '';
-        if (!isset($card_id_set[$entry_id])) { // a set, not in_array: this loop runs once per card
-            $needs_generic = true;
-            break;
-        }
+        $entry_ids[] = is_array($entry) && is_scalar($entry[PP_UDC_ITEM_ID_KEY] ?? null) ? (string) $entry[PP_UDC_ITEM_ID_KEY] : '';
     }
 
     $out = [];
@@ -6502,10 +6500,6 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
         if ($role === '_band' || !isset($by_role[$role])) {
             continue;
         }
-        $locators = [''];
-        if (in_array($role, $item_roles, true)) {
-            $locators = $needs_generic ? array_merge([''], $card_ids) : $card_ids;
-        }
         // INDEXED BY CARD, so an element ranks only the band-level rows and ITS OWN card's rows.
         // Walking every card's rows for every card was quadratic in the card count, and `items`
         // declares no maximum: the security pass measured 15.6 s at 2,400 styled cards on a
@@ -6513,6 +6507,21 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
         $rows_by_item = [];
         foreach ($by_role[$role] as $row) {
             $rows_by_item[$row['item']][] = $row;
+        }
+        $locators = [''];
+        if (in_array($role, $item_roles, true)) {
+            $own      = array_diff_key($rows_by_item, ['' => true]); // cards with rules for this role
+            $locators = array_map('strval', array_keys($own));
+            $generic  = $entry_ids === [];
+            foreach ($entry_ids as $entry_id) {
+                if (!isset($own[$entry_id])) { // a set lookup: this runs once per card
+                    $generic = true;
+                    break;
+                }
+            }
+            if ($generic) {
+                array_unshift($locators, '');
+            }
         }
         foreach ($locators as $locator) {
             $rows = $rows_by_item[''] ?? [];

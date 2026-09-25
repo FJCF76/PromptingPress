@@ -482,6 +482,19 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'background' => ['fill' => '#1d2939']]]]));
     }
 
+    /**
+     * A card whose own map says nothing about the role is the SAME element as a card with no map: a
+     * band-level clash is reported once, band-grain, not once per card (performance pass, cycle 1: 20
+     * copies were reported, and at 200 cards one band would spend the whole shared budget).
+     */
+    public function testACardWithAnUnrelatedMapDoesNotCopyTheBandFinding(): void
+    {
+        $unrelated = array_fill(0, 20, ['card-text' => ['typography' => ['size' => '1rem']]]);
+        $found = $this->gridFindings(['card' => ['typography' => ['color' => '#ffffff']]], $unrelated);
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('item "', $found[0]['message'], 'a band-grain finding');
+    }
+
     /** A card map speaks only for item roles: a band-only role there paints nothing and is not reported. */
     public function testABandOnlyRoleInACardMapIsNotReported(): void
     {
