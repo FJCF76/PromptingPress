@@ -714,6 +714,44 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         }
         $found = $this->only(pp_udc_composition_findings($bands));
         $this->assertSame([25, 26, 27, 28, 29], array_column($found, 'index'));
+        foreach ($found as $f) {
+            $this->assertStringContainsString('(Not checked against the rendered page:', $f['message'], 'unfiltered, and it says so');
+        }
+    }
+
+    /**
+     * THE BUDGET COUNTS CARDS TOO (ruling R2-A): a band past 500 rendered cards per call is not rendered;
+     * its finding stays unfiltered and names that, while a small band beside it is checked (no note).
+     */
+    public function testABandPastTheCardBudgetIsUnfilteredAndSaysSo(): void
+    {
+        $cards = static fn (int $n): array => array_map(static fn (int $k): array => ['id' => sprintf('it-%08x', $k + 1), 'number' => (string) $k, 'title' => 'T'], range(0, $n - 1));
+        $grid  = static fn (string $id, int $n): array => ['component' => 'grid', 'id' => $id, 'props' => ['layout' => 'steps', 'title' => 'G', 'items' => $cards($n)],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'step-number' => ['typography' => ['color' => '#101828']]]];
+        $found = $this->only(pp_udc_composition_findings([$grid('pp-00000001', 600), $grid('pp-00000002', 3)]));
+        $this->assertSame([0, 1], array_column($found, 'index'));
+        $this->assertStringContainsString('(Not checked against the rendered page:', $found[0]['message'], '600 cards: past the budget');
+        $this->assertStringNotContainsString('Not checked', $found[1]['message'], '3 cards: checked');
+    }
+
+    /**
+     * THE RED TEAM'S COMPOSITION (R2-A timing pin): 25 grid bands x 2,400 cards, each darkened with an
+     * inked eyebrow, took the findings walk 7.31 s when every band was rendered. Bounded by cards now.
+     */
+    public function testTwentyFiveHugeBandsStayBounded(): void
+    {
+        $items = [];
+        for ($k = 0; $k < 2400; $k++) {
+            $items[] = ['id' => sprintf('it-%08x', $k + 1), 'title' => 'T', 'text' => 'x'];
+        }
+        $bands = [];
+        for ($b = 0; $b < 25; $b++) {
+            $bands[] = ['component' => 'grid', 'id' => sprintf('pp-%08x', $b + 1), 'props' => ['title' => 'G', 'eyebrow' => 'E', 'items' => $items],
+                'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
+        }
+        $start = hrtime(true);
+        pp_udc_composition_findings($bands);
+        $this->assertLessThan(3.0, (hrtime(true) - $start) / 1e9);
     }
 
     /**
@@ -739,7 +777,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertMatchesRegularExpression('/\$saved_shortcodes = \$shortcode_tags \?\? null;\n\s+\$shortcode_tags\s+= \[\];/', $source);
     }
 
-    /** The selector-to-XPath reader covers the shipped selector grammar and refuses anything else. */
+    /** The selector reader covers the shipped selector grammar and refuses anything else; the matcher is CSS's. */
     public function testTheRoleSelectorReaderCoversTheShippedGrammar(): void
     {
         $count = 0;
@@ -749,14 +787,35 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
                     continue;
                 }
                 $count++;
-                $this->assertNotNull(_pp_udc_selector_xpath((string) $definition['selector']), $component . ' ' . $role);
+                $this->assertNotNull(_pp_udc_selector_steps((string) $definition['selector']), $component . ' ' . $role);
             }
         }
         $this->assertSame(131, $count);
-        $this->assertSame("//*[contains(concat(' ', normalize-space(@class), ' '), ' faq__item ')][@open]/*[contains(concat(' ', normalize-space(@class), ' '), ' faq__question ')]",
-            _pp_udc_selector_xpath('.faq__item[open] > .faq__question'));
-        $this->assertNull(_pp_udc_selector_xpath('a:hover'));
-        $this->assertNull(_pp_udc_selector_xpath(''));
+        $this->assertSame([
+            ['axis' => 'descendant', 'tag' => '*', 'classes' => ['faq__item'], 'attrs' => ['open']],
+            ['axis' => 'child', 'tag' => '*', 'classes' => ['faq__question'], 'attrs' => []],
+        ], _pp_udc_selector_steps('.faq__item[open] > .faq__question'));
+        $this->assertNull(_pp_udc_selector_steps('a:hover'));
+        $this->assertNull(_pp_udc_selector_steps(''));
+        $this->assertNull(_pp_udc_selector_steps('> .a'));
+
+        // The matcher honours the child axis and the band scope.
+        $dom = new DOMDocument();
+        $previous = libxml_use_internal_errors(true); // HTML5 tags (details, summary): quiet, as the engine is
+        $dom->loadHTML('<div data-pp-band="b"><details class="faq__item" open><summary class="faq__question">Q</summary>'
+            . '<div><span class="faq__question">deep</span></div></details><p class="x"><a>l</a></p></div>');
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $root = $dom->getElementsByTagName('div')->item(0);
+        $steps = _pp_udc_selector_steps('.faq__item[open] > .faq__question');
+        $hits = 0;
+        foreach ($dom->getElementsByTagName('*') as $el) {
+            $hits += _pp_udc_steps_match($el, $steps, 1, $root) ? 1 : 0;
+        }
+        $this->assertSame(1, $hits, 'the child axis: the grandchild question does not match');
+        $a = $dom->getElementsByTagName('a')->item(0);
+        $this->assertTrue(_pp_udc_steps_match($a, _pp_udc_selector_steps('.x a'), 1, $root));
+        $this->assertFalse(_pp_udc_steps_match($a, _pp_udc_selector_steps('.y a'), 1, $root));
     }
 
     /**

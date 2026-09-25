@@ -6699,15 +6699,35 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         return null;
     }
     $root = $band->item(0);
-    $out  = [];
+    // ONE WALK, ONE INDEX (cycle 2, red team): every element under the band by class and by tag, so each
+    // role is matched against its candidates instead of a whole-subtree scan per role (the per-role
+    // XPath scans made a 2,400-card render cost 260-346 ms).
+    $by_class = [];
+    $by_tag   = [];
+    foreach ($root->getElementsByTagName('*') as $el) {
+        $by_tag[strtolower($el->nodeName)][] = $el;
+        foreach (preg_split('/\s+/', trim($el->getAttribute('class'))) as $class) {
+            if ($class !== '') {
+                $by_class[$class][] = $el;
+            }
+        }
+    }
+    $out = [];
     foreach ($roles as $role => $selector) {
-        $path = _pp_udc_selector_xpath((string) $selector);
-        if ($path === null) {
+        $steps = _pp_udc_selector_steps((string) $selector);
+        if ($steps === null) {
             return null; // A selector outside the small grammar: do not guess.
         }
-        $found = $xpath->query('.' . $path, $root);
+        $last       = $steps[count($steps) - 1];
+        $candidates = $last['classes'] !== [] ? ($by_class[$last['classes'][0]] ?? []) : ($by_tag[$last['tag']] ?? []);
+        $found      = [];
+        foreach ($candidates as $candidate) {
+            if (_pp_udc_steps_match($candidate, $steps, count($steps) - 1, $root)) {
+                $found[] = $candidate;
+            }
+        }
         $items = [];
-        foreach ($found === false ? [] : $found as $node) {
+        foreach ($found as $node) {
             for ($up = $node; $up instanceof \DOMElement && $up !== $root; $up = $up->parentNode) {
                 if ($up->hasAttribute('data-pp-item')) {
                     $items[$up->getAttribute('data-pp-item')] = true;
@@ -6715,43 +6735,96 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
                 }
             }
         }
-        $out[(string) $role] = ['band' => $found !== false && $found->length > 0, 'items' => $items];
+        $out[(string) $role] = ['band' => $found !== [], 'items' => $items];
     }
     return $out;
 }
 
 /**
- * A role selector as a descendant XPath (#1125, E1-A). Role selectors are schema-owned and charset-
- * gated (_pp_udc_selector_is_emittable(): `[A-Za-z0-9_ .>[]-]`, presence-only attribute terms), so the
- * grammar is compounds of an optional tag, `.class` and `[attr]` terms, joined by descendant spaces
- * or `>`. Anything else returns null.
+ * A role selector as matching steps (#1125, E1-A): [['axis' => 'descendant'|'child', 'tag' => '*'|name,
+ * 'classes' => [...], 'attrs' => [...]], ...]. Role selectors are schema-owned and charset-gated
+ * (_pp_udc_selector_is_emittable(): `[A-Za-z0-9_ .>[]-]`, presence-only attribute terms), so the grammar
+ * is compounds of an optional tag, `.class` and `[attr]` terms, joined by descendant spaces or `>`.
+ * Anything else returns null (callers then do not guess).
+ *
+ * @return array<int, array{axis: string, tag: string, classes: string[], attrs: string[]}>|null
  */
-function _pp_udc_selector_xpath(string $selector): ?string {
+function _pp_udc_selector_steps(string $selector): ?array {
     $selector = trim((string) preg_replace('/\s*>\s*/', ' > ', $selector));
     if ($selector === '') {
         return null;
     }
-    $path = '';
-    $axis = '//';
+    $steps = [];
+    $axis  = 'descendant';
     foreach (preg_split('/\s+/', $selector) as $token) {
         if ($token === '>') {
-            $axis = '/';
+            if ($steps === []) {
+                return null;
+            }
+            $axis = 'child';
             continue;
         }
         if (!preg_match('/^([A-Za-z][A-Za-z0-9]*)?((?:\.[A-Za-z0-9_-]+|\[[A-Za-z][A-Za-z0-9_-]*\])*)\z/', $token, $m) || $token === '') {
             return null;
         }
-        $step = $m[1] !== '' ? strtolower($m[1]) : '*';
         preg_match_all('/\.([A-Za-z0-9_-]+)|\[([A-Za-z][A-Za-z0-9_-]*)\]/', $m[2], $terms, PREG_SET_ORDER);
+        $classes = [];
+        $attrs   = [];
         foreach ($terms as $term) {
-            $step .= ($term[1] ?? '') !== ''
-                ? "[contains(concat(' ', normalize-space(@class), ' '), ' " . $term[1] . " ')]"
-                : '[@' . $term[2] . ']';
+            if (($term[1] ?? '') !== '') {
+                $classes[] = $term[1];
+            } else {
+                $attrs[] = $term[2];
+            }
         }
-        $path .= $axis . $step;
-        $axis = '//';
+        $steps[] = ['axis' => $axis, 'tag' => $m[1] !== '' ? strtolower($m[1]) : '*', 'classes' => $classes, 'attrs' => $attrs];
+        $axis    = 'descendant';
     }
-    return $path;
+    return $steps;
+}
+
+/** Whether a DOM element matches one compound step (tag, every class, every attribute). */
+function _pp_udc_step_matches(\DOMElement $el, array $step): bool {
+    if ($step['tag'] !== '*' && strtolower($el->nodeName) !== $step['tag']) {
+        return false;
+    }
+    if ($step['classes'] !== []) {
+        $have = array_flip(preg_split('/\s+/', trim($el->getAttribute('class'))));
+        foreach ($step['classes'] as $class) {
+            if (!isset($have[$class])) {
+                return false;
+            }
+        }
+    }
+    foreach ($step['attrs'] as $attr) {
+        if (!$el->hasAttribute($attr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Whether `$el` matches steps[0..$i], matching right to left inside `$root` (the band, which is the scope
+ * the renderer prefixes: `[data-pp-band] .selector`), as CSS does.
+ */
+function _pp_udc_steps_match(\DOMElement $el, array $steps, int $i, \DOMElement $root): bool {
+    if (!_pp_udc_step_matches($el, $steps[$i])) {
+        return false;
+    }
+    if ($i === 0) {
+        return $el !== $root;
+    }
+    $parent = $el->parentNode;
+    if ($steps[$i]['axis'] === 'child') {
+        return $parent instanceof \DOMElement && $parent !== $root && _pp_udc_steps_match($parent, $steps, $i - 1, $root);
+    }
+    for ($up = $parent; $up instanceof \DOMElement && $up !== $root; $up = $up->parentNode) {
+        if (_pp_udc_steps_match($up, $steps, $i - 1, $root)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -8890,6 +8963,10 @@ function pp_udc_composition_findings(array $items): array {
     // grid is 4.8 ms. The bound is Check 8e's named lever class (25 bands). Past it, presence is unknown
     // and the finding keeps its unfiltered answer: unknown is never silence (evidence-t2/compile-cost).
     $presence_renders_left = 25;
+    // AND BY SIZE (ruling R2-A): a render costs in proportion to its cards (a 2,400-card band measured
+    // 260-346 ms), so the budget also counts rendered cards per call. A band past either budget is not
+    // rendered: its findings stay unfiltered and SAY so (a named note), never silence.
+    $presence_cards_left   = 500;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -9448,7 +9525,14 @@ function pp_udc_composition_findings(array $items): array {
                                     $asked[(string) $asked_role] = (string) ($asked_def['selector'] ?? '');
                                 }
                             }
-                            $presence = $presence_renders_left > 0 ? _pp_udc_rendered_roles($item, $asked) : null;
+                            $item_decl_here = pp_udc_item_roles($component);
+                            $band_entries   = $item_decl_here !== null ? ($item['props'][$item_decl_here['prop']] ?? []) : [];
+                            $band_cards     = is_array($band_entries) ? count($band_entries) : 0;
+                            $presence       = ($presence_renders_left > 0 && $band_cards <= $presence_cards_left)
+                                ? _pp_udc_rendered_roles($item, $asked) : null;
+                            if ($presence !== null) {
+                                $presence_cards_left -= $band_cards;
+                            }
                             $presence_renders_left--;
                         }
                         if ($presence !== null) {
@@ -9538,7 +9622,10 @@ function pp_udc_composition_findings(array $items): array {
                                 _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], [])),
                                 $qualifier,
                                 $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where)
-                            ),
+                            ) . ($presence === null
+                                ? ' (Not checked against the rendered page: this band is past the check\'s size budget or '
+                                  . 'could not be rendered here, so this role may not be rendered with these props.)'
+                                : ''),
                             'index'   => is_int($i) ? $i : null,
                         ];
                     }
