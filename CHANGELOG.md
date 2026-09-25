@@ -48,7 +48,7 @@ stays live and pinned on the v2 `_band` → `background.image` path.
   database. A call made while a page renders takes down that page, and a call made at load
   time takes down the whole site, wp-admin included. To find such code before upgrading,
   search the files and the whole database, then review every hit:
-  `grep -rn "pp_theme_class" wp-content/ --exclude-dir=<your PromptingPress theme folder>`
+  `grep -Rni "pp_theme_class" wp-content/ --exclude-dir=<your PromptingPress theme folder>`
   and `wp db search pp_theme_class --all-tables`.
 
 ### Upgrading
