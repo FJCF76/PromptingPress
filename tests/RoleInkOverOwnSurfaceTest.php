@@ -1233,4 +1233,114 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $count = count($this->only(pp_udc_composition_findings($bands)));
         $this->assertSame(PP_UDC_MAX_EMIT_DROPS, $count, 'capped exactly at the shared bound');
     }
+
+    // ── Ship audit: the presence reader's unknown answers and the remaining wording arms ─────
+
+    /**
+     * The presence reader answers null (unknown, filters nothing) for what it cannot render or read:
+     * chrome, an unusable id, no component, a component that renders no markup, a selector outside
+     * its grammar.
+     */
+    public function testThePresenceReaderAnswersUnknownForWhatItCannotRead(): void
+    {
+        $this->assertNull(_pp_udc_rendered_roles(['component' => 'nav', 'id' => 'nav'], ['link' => 'a']), 'chrome is not rendered here');
+        $this->assertNull(_pp_udc_rendered_roles(['component' => 'section', 'id' => 'not an id'], ['body' => '.section__content']));
+        $this->assertNull(_pp_udc_rendered_roles(['component' => '', 'id' => 'pp-a1b2c3d4'], ['body' => '.section__content']));
+        $this->assertNull(_pp_udc_rendered_roles(['component' => 'nope', 'id' => 'pp-a1b2c3d4'], ['body' => '.x']), 'no markup');
+        $this->assertNull(_pp_udc_rendered_roles(['component' => 'section', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'T', 'body' => '<p>b</p>']],
+            ['body' => 'a:hover']), 'a selector outside the grammar: do not guess');
+    }
+
+    /** A role selector whose last step is a bare tag (section `body-link`: `.section__content a`) is matched by tag. */
+    public function testAPresenceSelectorEndingInATagIsMatchedByTag(): void
+    {
+        $selector = (string) pp_udc_component_roles('section')['body-link']['selector'];
+        $this->assertSame('.section__content a', $selector, 'premise: the shipped selector ends in a tag');
+        $read = static fn (string $body): ?array => _pp_udc_rendered_roles(['component' => 'section', 'id' => 'pp-a1b2c3d4',
+            'props' => ['title' => 'T', 'body' => $body]], ['body-link' => $selector]);
+        $this->assertTrue($read('<p><a href="/x">link</a></p>')['body-link']['band']);
+        $this->assertFalse($read('<p>no link</p>')['body-link']['band']);
+    }
+
+    /**
+     * A band whose markup is past the 512 KB parse bound is not parsed: presence is unknown, the finding
+     * stays unfiltered and says the band could not be read (never silence).
+     */
+    public function testABandPastTheMarkupSizeBoundIsUnknownAndSaysSo(): void
+    {
+        $band = static fn (string $body): array => ['component' => 'section', 'id' => 'pp-a1b2c3d4',
+            'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => '<p>' . $body . '</p>'],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
+        $found = $this->only(pp_udc_composition_findings([$band(str_repeat('x', 600000))]));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(Not checked against the rendered page: this band could not be rendered or read here', $found[0]['message']);
+        $found = $this->only(pp_udc_composition_findings([$band('small')]));
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('Not checked', $found[0]['message'], 'premise: the small twin is checked');
+    }
+
+    /** Each band state has its own words (ruling A1 = A): keyboard focus and press, not only the pointer. */
+    public function testEveryBandStateIsNamedInItsOwnWords(): void
+    {
+        $props = ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>'];
+        foreach ([':focus-visible' => 'while the band has keyboard focus', ':active' => 'while the band is pressed'] as $state => $words) {
+            [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => [$state => ['color' => '#ffffff']]]], 'hero', $props);
+            $this->assertCount(1, $found, $state);
+            $this->assertStringContainsString('(@color-surface) ' . $words . ', and the band background', $found[0]['message'], $state);
+        }
+    }
+
+    /** A band state ink set at one width only is named with that width, and the advice names its breakpoint key. */
+    public function testABandStateInkAtOneWidthIsNamedWithThatWidth(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => ['p' => '#ffffff']]]]],
+            'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('while the pointer is over the band at the phone width, and the band background', $found[0]['message']);
+        $this->assertStringContainsString('at that width (a breakpoint map, e.g. {"p": ...})', $found[0]['message']);
+    }
+
+    /**
+     * A band with no usable id emits nothing, so the sibling keeps its raw-map read (no compile) and the
+     * own-surface arm stays silent.
+     */
+    public function testTheSiblingReadsTheRawMapForABandWithNoUsableId(): void
+    {
+        $all = pp_udc_composition_findings([['component' => 'hero', 'id' => 'not an id', 'props' => ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>'],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]]]]);
+        $this->assertSame([], $this->only($all));
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertCount(1, $sibling);
+        $this->assertStringContainsString('the "color" you set on the whole band does not reach', $sibling[0]['message'], 'no width phrase from a raw read');
+    }
+
+    /** The sibling names several widths in the plural (a band ink set at the tablet and phone widths only). */
+    public function testTheSiblingNamesSeveralWidthsInThePlural(): void
+    {
+        [, , $all] = $this->write(['_band' => ['typography' => ['color' => ['t' => '#ffffff', 'p' => '#ffffff']]]],
+            'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertCount(1, $sibling);
+        $this->assertStringContainsString('on the whole band at the tablet and phone widths does not reach', $sibling[0]['message']);
+    }
+
+    /**
+     * The sibling's own-fill parenthetical: a fill shipped only in a state counts (cta `button-secondary`
+     * fills on :hover), one role is named in the singular, and none named means no parenthetical.
+     */
+    public function testTheSiblingOwnFillAdviceCoversStateFillsAndNumber(): void
+    {
+        $sibling = static function (string $component): string {
+            foreach (pp_udc_composition_findings([['component' => $component, 'id' => 'pp-a1b2c3d4', 'props' => [],
+                'udc' => ['_band' => ['typography' => ['color' => '#ffffff']]]]]) as $f) {
+                if ($f['type'] === 'udc_band_value_shadowed_by_role_default') {
+                    return (string) $f['message'];
+                }
+            }
+            return '';
+        };
+        $this->assertStringContainsString('(button-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour)', $sibling('cta'));
+        $this->assertStringContainsString('(eyebrow ships its own fill, so set its background.fill with the colour)', $sibling('faq'));
+        $this->assertStringEndsWith('Set it on those roles directly.', $sibling('stats'));
+    }
 }

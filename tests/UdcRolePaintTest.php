@@ -238,4 +238,99 @@ final class UdcRolePaintTest extends TestCase
         $item = ['component' => 'hero', 'id' => 'not an id', 'udc' => ['eyebrow' => ['typography' => ['color' => '#fff']]]];
         $this->assertSame([], pp_udc_role_paint($item, pp_udc_compile_band($item, 'authored'), pp_udc_compile_band(['component' => 'hero'], 'defaults'), false));
     }
+
+    /** A component with no roles (unregistered) is answered with nothing, whatever the compile says. */
+    public function testAnUnknownComponentReadsNothing(): void
+    {
+        $this->assertSame([], pp_udc_role_paint(['component' => 'nope', 'id' => 'pp-a1b2c3d4'],
+            ['id' => 'pp-a1b2c3d4', 'blocks' => [['role' => 'eyebrow', 'decls' => ['color' => ['css' => '#fff']]]]], ['blocks' => []], false));
+        $this->assertSame([], pp_udc_role_paint(['component' => ['not', 'scalar'], 'id' => 'pp-a1b2c3d4'], ['id' => 'pp-a1b2c3d4'], ['blocks' => []], false));
+    }
+
+    /**
+     * A band marked for the overlay whose component declares no `overlay_defaults` has no overlay tier to
+     * read: the answer is the unmarked one, and no cell names an `overlay` tier.
+     */
+    public function testAMarkedBandWithNoOverlayDefaultsReadsNoOverlayTier(): void
+    {
+        $this->assertNull(_pp_udc_overlay_tier_compile('section'), 'premise: section declares no overlay_defaults');
+        $this->assertNotNull(_pp_udc_overlay_tier_compile('hero'), 'premise: hero does');
+        $item = $this->band('section', ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]],
+            ['eyebrow' => 'E', 'title' => 'T']);
+        [$marked]   = $this->read($item, true);
+        [$unmarked] = $this->read($item, false);
+        $this->assertSame($unmarked, $marked);
+        $this->assertStringNotContainsString('"overlay"', (string) json_encode($marked));
+    }
+
+    /** A malformed declaration in a compile (not an array, or no string css) is skipped, never fatal. */
+    public function testAMalformedDeclarationIsSkipped(): void
+    {
+        $item     = $this->band('hero', ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
+        $authored = pp_udc_compile_band($item, 'authored');
+        $authored['blocks'][] = ['role' => 'eyebrow', 'selector' => '.hero__eyebrow', 'state' => '', 'bp' => 'd', 'item' => '',
+            'decls' => ['color' => 'junk', 'background' => ['css' => ['nested']]]];
+        $by = [];
+        foreach (pp_udc_role_paint($item, $authored, pp_udc_compile_band(['component' => 'hero'], 'defaults'), false) as $element) {
+            $by[$element['item'] . '|' . $element['role']] = $element['paint'];
+        }
+        $this->assertSame('#ffffff', $by['|eyebrow']['']['d']['color']['css'], 'the well-formed ink still wins');
+        $this->assertSame('defaults', $by['|eyebrow']['']['d']['surface']['tier'], 'the malformed background paints nothing');
+    }
+
+    /** An author gradient on the role is its surface: the image longhand wins over the default colour. */
+    public function testAnAuthoredGradientIsTheRolesSurface(): void
+    {
+        [$by, , $band_css] = $this->read($this->band('hero', [
+            '_band'   => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], '_css' => ['background' => 'linear-gradient(#000,#111)']],
+        ]));
+        $this->assertStringContainsString('linear-gradient(#000,#111)', $band_css, 'premise: emitted');
+        $surface = $by['|eyebrow']['']['d']['surface'];
+        $this->assertSame('band', $surface['tier']);
+        $this->assertSame('background-image', $surface['property']);
+        $this->assertTrue(_pp_udc_paints_surface('url(x.png)', 'background-color'), 'a url() literal is not read as a colour');
+        $this->assertSame(['background-image' => ['url(x.png)', 'url(x.png)'], 'background-color' => ['transparent', 'transparent']],
+            _pp_udc_paint_longhands('background', ['css' => 'url(x.png)']));
+    }
+
+    /** Ids count in the first column, pseudo-elements in the last. */
+    public function testSpecificityCountsIdsAndPseudoElements(): void
+    {
+        $this->assertSame([1, 1, 1], _pp_udc_selector_specificity('#a .b::before'));
+        $this->assertSame([0, 1, 1], _pp_udc_selector_specificity(':where(#x .y) .b a'));
+    }
+
+    /** Which band cells apply in a state and width (R1-A): base at every width, a state only in that state. */
+    public function testBandCellsCover(): void
+    {
+        $this->assertTrue(_pp_udc_band_cells_cover(['|d' => true], '', 'p'), 'a base value applies at every width');
+        $this->assertTrue(_pp_udc_band_cells_cover(['|d' => true], ':hover', 't'), 'and in every state');
+        $this->assertTrue(_pp_udc_band_cells_cover(['|p' => true], '', 'p'));
+        $this->assertFalse(_pp_udc_band_cells_cover(['|p' => true], '', 't'), 'a phone value does not reach the tablet width');
+        $this->assertFalse(_pp_udc_band_cells_cover([':hover|d' => true], '', 'd'), 'a state value does not apply at rest');
+        $this->assertTrue(_pp_udc_band_cells_cover([':active|d' => true], ':hover+:active', 'd'), 'a combined cell is in each of its states');
+        $this->assertFalse(_pp_udc_band_cells_cover([':focus-visible|d' => true], ':hover+:active', 'd'));
+        $this->assertFalse(_pp_udc_band_cells_cover([], '', 'd'));
+    }
+
+    /**
+     * What `_band` EMITS (R1-A): authored inherited values per state|width, read off the compile; engine
+     * defaults and companions, item blocks and non-inherited properties are not the author's band ink.
+     */
+    public function testBandInheritedEmittedReadsOnlyAuthoredBandRootValues(): void
+    {
+        $compiled = pp_udc_compile_band($this->band('hero', ['_band' => ['background' => ['fill' => '#101828'],
+            'typography' => ['color' => ['p' => '#fff'], ':hover' => ['color' => '#eee']]]]), 'authored');
+        $this->assertSame(['color' => ['|p' => true, ':hover|d' => true]], _pp_udc_band_inherited_emitted($compiled), 'background is not inherited');
+
+        $this->assertSame([], _pp_udc_band_inherited_emitted(['blocks' => [
+            ['role' => '_band', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => ['css' => '#fff', 'source' => 'defaults']]],
+            ['role' => '_band', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => ['css' => '#fff', 'source' => 'engine-companion']]],
+            ['role' => '_band', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => ['css' => '#fff']]],
+            ['role' => '_band', 'item' => 'it-0000ab01', 'state' => '', 'bp' => 'd', 'decls' => ['color' => ['css' => '#fff', 'source' => 'udc']]],
+            ['role' => 'eyebrow', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => ['css' => '#fff', 'source' => 'udc']]],
+            ['role' => '_band', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => 'junk']],
+        ]]));
+    }
 }
