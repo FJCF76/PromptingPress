@@ -6731,8 +6731,10 @@ class SchemaValidationTest extends TestCase
      *
      * WHAT IT DOES NOT SEE, stated so nobody leans on it for more: a class BUILT at
      * runtime from pieces (`ROOT--<?php echo $tone ?>`, `'stats--' . 'dark'`) and a CSS
-     * attribute selector (`[class*="--dark"]`). It pins the written-out spellings, which
-     * is how every retired rule and declaration was written.
+     * attribute selector (`[class*="--dark"]`), and — in JS only — code hidden by a `/*`
+     * inside a string or regex literal, which the crude comment stripper would swallow up
+     * to the next block-comment close (no current script has one). It pins the written-out spellings,
+     * which is how every retired rule and declaration was written.
      */
     public function testTheRetiredToneVocabularyStaysGone(): void
     {
@@ -6786,7 +6788,9 @@ class SchemaValidationTest extends TestCase
             );
         }
 
-        // 2b. Front-end scripts: no tone class added at runtime (JS comments stripped).
+        // 2b. Front-end scripts: no tone class added at runtime. Block comments and
+        //     whole-line // comments are stripped; a trailing // comment is still scanned
+        //     (it fails safe).
         $scripts = glob($this->themeRoot . '/assets/js/*.js') ?: [];
         $this->assertGreaterThanOrEqual(2, count($scripts), 'the script scan found fewer than two files');
         foreach ($scripts as $script) {
