@@ -30,6 +30,23 @@ This checks:
    - `udc_preset_value_shadowed_by_role_default` — you applied a preset, but the role's
      OWN default outranks a preset for that parameter, so the preset's value is not
      applied. Write the value directly in your map for that role, where it outranks both.
+     A value you already set for desktop (a single value, or a breakpoint map with `d`)
+     in that same map is not listed: it paints. A value that loses only some breakpoints
+     is listed with `at breakpoint …`.
+     Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
+     group-grain `_preset` (inside `typography`, say), naming the group.
+   - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
+     under it, one finding per dropped value (a responsive overlay names each breakpoint). The scrim is dropped: an overlay only paints over an image, and a
+     `background.fill` is a colour, not an image. Set `background.image`, put the tint
+     in the fill, or remove the overlay. An overlay inside a state (`:hover`) is always
+     dropped, even over a base image, because `background.image` cannot be set inside a
+     state. A scrim on a CARD's own map composes only with an image on that card's map,
+     not with one the band's map sets for the same role — and a scrim on the band's map
+     with no image of its own there reaches no card that sets its own image for that role.
+     (A band scrim over a band image also misses such cards, and that is NOT reported.) `wp pp check page` reports it as this finding; the readiness report
+     (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
+     for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
+     `run_id` that `wp pp operate inspect` returns, not any UUID.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle

@@ -132,6 +132,12 @@
  * restated relationship goes stale silently: 200 entries is far past any report
  * that could be rendered, so a composition that reaches this cap is pathological
  * rather than merely untidy.
+ *
+ * ALSO THE FINDINGS CAP. pp_udc_composition_findings() bounds each of its multiplying
+ * `udc_*` arms at this value across one composition (the `_css` pair and the token pair
+ * share one budget each; overlay, preset-skip, preset-shadow and item-shadow have their
+ * own), and ai-instructions/operating-loop.md tells the model the number. Changing it
+ * changes both.
  */
 const PP_UDC_MAX_EMIT_DROPS = 200;
 
@@ -1573,14 +1579,19 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * "no references found" and "I could not look" are different answers, and only
  * one of them makes a delete safe. That is invariant I9 at the scan level.
  *
- * Bounded to the delete verb. It reads one option and one meta row per
- * composition page, which is a site-sized walk on a verb an author runs rarely —
+ * Walks the band map AND every item (card) map of each band (#1115), naming a card
+ * reference as `item "<id>"`.
+ *
+ * Bounded to the delete verb. It reads one option (or scans the site map its caller
+ * passes as $site — the under-lock writer's row, read past the cache) and one meta row
+ * per composition page, which is a site-sized walk on a verb an author runs rarely —
  * never on a render path, never in preflight.
  *
  * BOUNDED AT THE SOURCE, not by its reader — the rule _pp_udc_place()'s drop ledger
  * states in this same file ("Bounding here is the only place that bounds the
  * ALLOCATION"), and the one collector that had not applied it. Its one consumer,
- * delete_preset's validate arm, renders at most twenty reference locators and ten
+ * pp_udc_preset_delete_reference_refusal() (run by delete_preset's validate arm AND
+ * again under the writer's lock, #1115), renders at most twenty reference locators and ten
  * unreadable pages, but BOTH arrays grew one entry per occurrence: 60,000 entries
  * and 48 MB of heap on a thousand-page site with a widely-used preset, to print
  * twenty of them. No malice needed — a popular preset on a large site is the
@@ -1592,7 +1603,7 @@ function pp_udc_validate_preset_definition(string $name, $preset): ?WP_Error {
  * @return array{references: array<int, string>, references_total: int,
  *               unreadable: array<int, string>, unreadable_total: int}
  */
-function pp_udc_preset_references(string $name): array {
+function pp_udc_preset_references(string $name, ?array $site = null): array {
     $out = [
         'references' => [], 'references_total' => 0,
         'unreadable' => [], 'unreadable_total' => 0,
@@ -1604,7 +1615,12 @@ function pp_udc_preset_references(string $name): array {
     // wrote — and they ride an operator-facing refusal. A title carrying an escape
     // sequence or five thousand characters would otherwise reach a terminal
     // through a delete that was refused for an unrelated reason.
-    $site = pp_udc_site_map();
+    // THE CALLER MAY HAND IN THE ROW IT HOLDS (#1115). The under-lock writer passes the
+    // site map it just read past the cache, because pp_udc_site_map() answers from the
+    // request's option cache — right for rendering, and exactly the staleness a backstop
+    // cannot have: a chrome reference committed after this request loaded its options
+    // would otherwise be missed under the very lock that exists to catch it.
+    $site = $site ?? pp_udc_site_map();
     foreach (($site['chrome'] ?? []) as $chrome_name => $map) {
         foreach (_pp_udc_map_references_preset(is_array($map) ? $map : [], $name) as $where) {
             $out['references_total']++;
@@ -1655,25 +1671,94 @@ function pp_udc_preset_references(string $name): array {
             continue;
         }
         foreach ((array) ($result['composition'] ?? []) as $i => $item) {
-            if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc'])) {
+            if (!is_array($item)) {
                 continue;
             }
             $band = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : ('index ' . $i);
-            foreach (_pp_udc_map_references_preset($item['udc'], $name) as $where) {
-                $out['references_total']++;
-                if (count($out['references']) < PP_UDC_MAX_PRESET_REFERENCES) {
-                    $out['references'][] = sprintf(
-                        'page %d ("%s") band %s %s',
-                        $id,
-                        $title,
-                        _pp_udc_reflect($band),
-                        $where
-                    );
+            // BOTH GRAINS (#1115). This walked only `$item['udc']`, so a preset a CARD
+            // referenced was invisible here: delete_preset answered ok:true, findings:[],
+            // and the card silently stopped painting. The two sources are the same list
+            // the findings walk builds for `udc_preset_groups_skipped` (#1101) — the band
+            // map with no locator, then each item map keyed by its id — so the gate and
+            // the disclosure agree about where a reference can live.
+            $maps = [];
+            if (isset($item['udc']) && is_array($item['udc'])) {
+                $maps[] = ['', $item['udc']];
+            }
+            foreach (pp_udc_item_maps($item) as $item_id => $item_map) {
+                $maps[] = [(string) $item_id, $item_map];
+            }
+            foreach ($maps as [$locator, $map]) {
+                foreach (_pp_udc_map_references_preset($map, $name) as $where) {
+                    $out['references_total']++;
+                    if (count($out['references']) < PP_UDC_MAX_PRESET_REFERENCES) {
+                        $out['references'][] = sprintf(
+                            'page %d ("%s") band %s%s %s',
+                            $id,
+                            $title,
+                            _pp_udc_reflect($band),
+                            $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
+                            $where
+                        );
+                    }
                 }
             }
         }
     }
     return $out;
+}
+
+/**
+ * The reverse dangling-reference refusal for delete_preset (#1016), or null when nothing
+ * blocks the delete (#1115: shared by the action's validate arm and the under-lock writer).
+ *
+ * Refuses when any band, CARD or chrome role still references the preset, and when a page
+ * that might reference it cannot be read ("I could not look" is never "there is nothing
+ * there", invariant I9). The caller decides the shadowed-row exemption first: a site row
+ * a theme preset shadows can always be deleted, because every reference resolves to the
+ * theme's bundle before and after.
+ *
+ * @param array|null $site The site map to scan for chrome references; the under-lock
+ *                         writer passes the row it read past the cache. Null reads the
+ *                         cached option, which is right for validate and preview.
+ */
+function pp_udc_preset_delete_reference_refusal(string $name, ?array $site = null): ?WP_Error {
+    $scan = pp_udc_preset_references($name, $site);
+    if ($scan['unreadable'] !== []) {
+        $unreadable_total = (int) $scan['unreadable_total'];
+        return new WP_Error('preset_scan_unreadable', sprintf(
+            'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
+            . 'not be read, and a preset may not be deleted while a page that might reference it is '
+            . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
+            . 'delete again.',
+            $name,
+            // BOUNDED LIKE ITS SIBLING ELEVEN LINES DOWN. Each fragment is
+            // cleaned by _pp_udc_reflect(), but the LIST was not, and its
+            // length is linear in the number of unreadable composition pages —
+            // so a site with many of them turned every refusal into a
+            // tens-of-KB message on the terminal, the chat envelope and the
+            // model's context. The count is stated separately, so nothing
+            // diagnostic is lost by showing ten names instead of all of them.
+            pp_udc_bounded_list($scan['unreadable'], 10, $unreadable_total),
+            $unreadable_total === 1 ? 'it' : 'those pages'
+        ));
+    }
+    if ($scan['references'] !== []) {
+        // THE COUNT IS THE TOTAL, THE LIST IS THE SAMPLE. The collector caps
+        // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
+        // while `references_total` is exact — and it is the total an operator
+        // needs to know, not how many the collector chose to hold.
+        $total = (int) $scan['references_total'];
+        return new WP_Error('preset_in_use', sprintf(
+            'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
+            . 'those references first — deleting now would leave each of them pointing at a preset '
+            . 'that does not exist, and those declarations would stop painting with nothing to say why.',
+            $name,
+            $total === 1 ? '1 place' : $total . ' places',
+            pp_udc_bounded_list($scan['references'], 20, $total, '; ')
+        ));
+    }
+    return null;
 }
 
 /**
@@ -2287,6 +2372,204 @@ function pp_udc_background_image_url($id): ?string {
 }
 
 /**
+ * Whether a `udc` map could make the emitter drop an overlay (#1117): true when it names
+ * an `overlay` key anywhere, directly or inside the bundle of a `_preset` it references.
+ * A cheap necessary condition that lets the findings walk skip compiling bands that
+ * cannot write that row; it never decides the case itself. Deeper than any real map is
+ * answered true, so a shape it cannot see through is compiled rather than skipped.
+ *
+ * READ THROUGH THE PRESET, not merely at it: `button` and `link` sit on most bands, and
+ * counting every `_preset` as a candidate compiled nearly every band on every write.
+ * A preset cannot reference another preset, so one level of resolution is the whole
+ * answer; a dangling name is refused at write and has nothing to compile.
+ */
+function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = false, ?array &$memo = null): bool {
+    if (!is_array($map)) {
+        return false;
+    }
+    if ($depth > 8) {
+        return true;
+    }
+    foreach ($map as $key => $value) {
+        if ($key === 'overlay') {
+            return true;
+        }
+        if ($key === PP_UDC_PRESET_KEY) {
+            // ONE LEVEL, ENFORCED rather than assumed. No write path can store a preset that
+            // references another, but the row can be written raw and is not re-validated on
+            // read — and following nested references let a stored chain of wide bundles cost
+            // O(width^depth) on every findings call. A reference found INSIDE a bundle is
+            // answered "compile", which costs one compile of this band and cannot be wrong.
+            if ($in_preset) {
+                return true;
+            }
+            if (!is_string($value)) {
+                continue;
+            }
+            // ONCE PER PRESET PER CALL, when the caller keeps a memo: the answer depends on
+            // the bundle alone, and a bundle may be as large as the row allows while cards
+            // may reference it without limit — references x bundle size otherwise.
+            if ($memo === null || !array_key_exists($value, $memo)) {
+                $preset = pp_udc_resolve_preset($value);
+                $answer = $preset !== null
+                    && _pp_udc_map_may_carry_overlay($preset['udc'] ?? [], $depth + 1, true);
+                if ($memo === null) {
+                    if ($answer) {
+                        return true;
+                    }
+                    continue;
+                }
+                $memo[$value] = $answer;
+            }
+            if ($memo[$value]) {
+                return true;
+            }
+            continue;
+        }
+        if (is_array($value) && _pp_udc_map_may_carry_overlay($value, $depth + 1, $in_preset, $memo)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The background image a role map resolves to, in the emitter's precedence: the map's own
+ * `background.image`, else a group-grain `background._preset`'s, else a role-grain
+ * `_preset`'s (a preset never references another). Null when there is none. Used so the
+ * cross-grain overlay reason sees a preset-supplied card image as the image it is (#1117).
+ *
+ * @return mixed The stored image value, or null.
+ */
+function _pp_udc_role_map_background_image(array $role_map) {
+    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
+    // The map's own image wins — while it RESOLVES. One whose attachment was deleted is
+    // dropped at place time, and the emitter then paints the preset's image beneath it.
+    if (array_key_exists('image', $background) && pp_udc_background_image_url($background['image']) !== null) {
+        return $background['image'];
+    }
+    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+        $preset = is_string($name) ? pp_udc_resolve_preset($name) : null;
+        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+        if (!is_array($fragment)) {
+            continue;
+        }
+        $group = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
+        // Every rung is resolve-checked, like the map's own image: a deleted attachment
+        // is dropped at place time and the next rung paints beneath it.
+        if (is_array($group) && array_key_exists('image', $group)
+            && pp_udc_background_image_url($group['image']) !== null) {
+            return $group['image'];
+        }
+    }
+    return null;
+}
+
+/**
+ * The breakpoint tiers a value occupies: a single value is the base tier only, a
+ * breakpoint map is its keys. The emitter ranks per (state, tier, property), so this is
+ * where a preset and a role default actually meet.
+ *
+ * @return array<int, string>
+ */
+function _pp_udc_value_tiers($value): array {
+    return is_array($value) ? array_map('strval', array_keys($value)) : ['d'];
+}
+
+/**
+ * The shadow entry for one preset value against one role default, per tier (#1116): null
+ * when the default covers none of the preset's tiers (the preset paints there), otherwise
+ * [label, lost tiers, preset tiers] — worded by _pp_udc_shadow_entry_label().
+ */
+function _pp_udc_shadow_entry_for_tiers(string $label, $preset_value, $default_value): ?array {
+    $preset_tiers = _pp_udc_value_tiers($preset_value);
+    $lost = array_values(array_intersect($preset_tiers, _pp_udc_value_tiers($default_value)));
+    return $lost === [] ? null : [$label, $lost, $preset_tiers];
+}
+
+/**
+ * Words one shadow entry: the plain label when every preset tier is lost (the value is
+ * not applied anywhere), otherwise the label naming the lost tiers.
+ */
+function _pp_udc_shadow_entry_label(array $entry): string {
+    [$label, $lost, $preset_tiers] = $entry;
+    if (count($lost) === count($preset_tiers)) {
+        return $label;
+    }
+    return $label . ' at breakpoint ' . implode('/', array_map('_pp_udc_reflect', $lost));
+}
+
+/**
+ * The tiers an authored value covers against a role default: `true` (all) when it paints
+ * at the base tier, otherwise the narrower tiers it names.
+ *
+ * @return array<int, string>|true
+ */
+function _pp_udc_authored_tiers($value) {
+    return _pp_udc_value_covers_base_tier($value) ? true : _pp_udc_value_tiers($value);
+}
+
+/**
+ * Whether an authored value paints at the base (desktop) tier: a single value does, and a
+ * breakpoint map does only when it carries `d`. A value written only for narrower tiers
+ * leaves the base tier to whatever outranks the preset there, so it cannot stand in for
+ * the preset's value in the shadow finding (#1116).
+ */
+function _pp_udc_value_covers_base_tier($value): bool {
+    return !is_array($value) || array_key_exists('d', $value);
+}
+
+/**
+ * The `group.param` / `group.param (state)` labels a role map sets itself, in the shape
+ * of the base label of each _pp_udc_preset_values_shadowed_entries() entry (the label
+ * without any "at breakpoint …" suffix), so the shadow finding can
+ * leave out what the author already wrote (their value outranks preset and default).
+ *
+ * Keyed by label; each value is the tiers the author's value covers, where a value
+ * covering the base tier covers them all (it is band-scoped and prints after the
+ * component-scoped defaults, so it wins at every width the default takes).
+ *
+ * @return array<string, array<int, string>|true>  true = every tier
+ */
+function _pp_udc_authored_value_labels(array $role_map): array {
+    $states = pp_udc_states();
+    $labels = [];
+    foreach ($role_map as $group => $group_map) {
+        if (!is_array($group_map) || str_starts_with((string) $group, '_')) {
+            continue;
+        }
+        foreach ($group_map as $key => $value) {
+            $key = (string) $key;
+            if ($key === PP_UDC_PRESET_KEY) {
+                continue;
+            }
+            if (isset($states[$key])) {
+                foreach (is_array($value) ? $value : [] as $param => $state_value) {
+                    $labels[$group . '.' . (string) $param . ' (' . $key . ')'] = _pp_udc_authored_tiers($state_value);
+                }
+                continue;
+            }
+            $labels[$group . '.' . $key] = _pp_udc_authored_tiers($value);
+        }
+    }
+    return $labels;
+}
+
+/**
+ * The ledger locator for a dropped overlay (#1117): the card when there is one, the role,
+ * and the state / breakpoint bucket it was dropped from — each fragment cleaned, because
+ * these are stored keys riding an operator-facing row (the rule _pp_udc_place() states).
+ */
+function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state, string $bp): string {
+    return trim(
+        ($item_id !== '' ? sprintf('item "%s" ', _pp_udc_reflect($item_id)) : '')
+        . sprintf('role "%s"', _pp_udc_reflect($role))
+        . ($state !== '' ? sprintf(' (%s)', _pp_udc_reflect($state)) : '')
+        . ($bp !== '' && $bp !== 'd' ? sprintf(' at breakpoint %s', _pp_udc_reflect($bp)) : '')
+    );
+}
+
+/**
  * Folds the resolved `image` and `overlay` entries into the one CSS declaration
  * that can express them, and removes the carrier.
  *
@@ -2304,12 +2587,29 @@ function pp_udc_background_image_url($id): ?string {
  * flat-scrim idiom — while an overlay the author already wrote as a gradient IS
  * a layer and is used as-is. Wrapping a gradient in a gradient would be invalid.
  *
- * AN OVERLAY WITH NO IMAGE EMITS NOTHING. It is not an error — a band can carry
- * an overlay whose image was dropped at emit because the attachment was deleted,
- * and that band should keep painting its `fill`, not grow a mystery scrim over
- * it. Emitting the scrim alone would be a declaration the author never asked for.
+ * AN OVERLAY WITH NO IMAGE EMITS NOTHING — and, since #1117, is not SILENT. The
+ * render is unchanged: a band can carry an overlay whose image was dropped at emit
+ * because the attachment was deleted, and that band should keep painting its
+ * `fill`, not grow a mystery scrim over it; emitting the scrim alone would be a
+ * declaration the author never asked for. What changed is that the discard writes
+ * a drop-ledger row (code `overlay_without_image`), which the write-envelope
+ * findings walk surfaces as `udc_overlay_without_image`. Its reason never claims
+ * the author set no image, because a deleted attachment reaches this branch too.
+ *
+ * @param array       $declarations One bucket's resolved declarations.
+ * @param array|null  $drops        The compile's drop ledger; null on render paths.
+ * @param string      $where        The ledger locator (card, role, state, breakpoint).
+ * @param bool        $in_state     True for a state bucket (`:hover`), whose scrim
+ *                                  can never have an image of its own.
+ * @param bool        $in_item      True at item (card) grain, whose compile does not
+ *                                  combine the band map's image for the same role.
+ * @param bool        $cards_set_image True at band grain when some card's map resolves
+ *                                  a usable background image for this item role (its
+ *                                  own background.image, or one a preset supplies):
+ *                                  that card's image replaces its whole background, so
+ *                                  the band scrim reaches no such card.
  */
-function _pp_udc_compose_background_layers(array $declarations): array {
+function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false, bool $in_item = false, bool $cards_set_image = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
         return $declarations;
     }
@@ -2317,7 +2617,69 @@ function _pp_udc_compose_background_layers(array $declarations): array {
     unset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]);
 
     if (!isset($declarations['background-image'])) {
-        return $declarations; // Scrim over nothing: drop it.
+        // Scrim over nothing: dropped — and, since #1117, SAID so. This was the one
+        // parameter the write gate accepts and the emitter discards with no ledger row
+        // and no finding; an exhaustive item-grain sweep found it to be the only
+        // accepted-and-silent cell in the whole grammar. The render behaviour stays as it
+        // was (a scrim needs an image); the silence was the defect. The row carries a
+        // `code` so the write-time findings walk can surface THIS discard and no other,
+        // and it names the `fill` pairing because that is the mistake an author will
+        // actually make: a scrim over a colour is a reasonable thing to expect.
+        if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+            $drops[] = [
+                // THE LOCATOR SAYS WHEN THE OVERLAY CAME FROM A PRESET (#1016), exactly as
+                // _pp_udc_place() says it for every other preset-sourced drop: otherwise the
+                // row points at a role in the author's own map that holds no overlay.
+                'where'  => trim($where . ' background.overlay'
+                    . (is_array($overlay) && is_string($overlay['source'] ?? null)
+                        && strncmp($overlay['source'], 'preset:', 7) === 0
+                        ? sprintf(' (via preset "%s")', _pp_udc_reflect(substr($overlay['source'], 7)))
+                        : '')),
+                // A STATE's scrim has its own reason. `background.image` is refused
+                // inside a state, so a `:hover` bucket never holds an image of its
+                // own and its overlay is dropped even when the role HAS a base image
+                // (states do not borrow it the way narrower breakpoints do). Saying
+                // "declares no background.image" there would be false.
+                'reason' => $in_state
+                    ? 'an overlay inside a state paints only over an image in that same state, and '
+                      . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
+                      . 'role has a base image. Move the overlay out of the state, or remove it'
+                    // A CARD's scrim composes only with the card's own image: the item
+                    // compile does not combine the band map's image for the same role, so
+                    // "set background.image" would be wrong advice to an author who did.
+                    : ($in_item
+                    ? 'an overlay on a card paints only over a background.image in that card\'s own map (an '
+                      . 'image set for this role on the band\'s map is not combined with it), and this card has '
+                      . 'no usable one (none is set, or its attachment was deleted), so the scrim was dropped. '
+                      . 'Set background.image on this card, or remove the overlay'
+                    // The reverse: a BAND scrim over images the cards set for this role. A
+                    // card's own image replaces that card's whole background layer list, so
+                    // the band's scrim reaches none of them.
+                    : ($cards_set_image
+                    ? 'an overlay on the band\'s map is layered only over a background.image on the band\'s '
+                      . 'map, and this role has no usable one there (none is set, or the attachment it names was '
+                      . 'deleted); the image a card sets for this role replaces that card\'s whole background, so '
+                      . 'this scrim reaches no card. Put the overlay on each card\'s own map'
+                      // Not "set background.image on the band's map": a band image would still be
+                      // replaced on exactly these cards, silently (#1133).
+                    // `background` is also where a raw `_css` shorthand lands, so this names
+                    // both rather than claiming a background.fill the author may never have written.
+                    : (isset($declarations['background'])
+                    ? 'an overlay is layered only over background.image, and this role declares a background '
+                      . '(background.fill, one supplied by a preset, or a raw background in _css) but no usable '
+                      . 'background.image, so '
+                      . 'the scrim was dropped. Set background.image (an attachment id), or put the tint in '
+                      . 'that background itself'
+                    // "NO USABLE", not "declares no": an image whose attachment was deleted after
+                    // the write is dropped at place time (check 8c owns that drop), so this
+                    // branch cannot tell the two causes apart and must not blame the author.
+                    : 'an overlay paints only over an image, and this role has no usable background.image '
+                      . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
+                      . 'background.image (an attachment id), or remove the overlay'))),
+                'code'   => 'overlay_without_image',
+            ];
+        }
+        return $declarations;
     }
 
     // DECIDE FROM THE LITERAL, EMIT THE CSS. The two are different strings whenever
@@ -4362,8 +4724,11 @@ function _pp_udc_selector_is_emittable(string $selector): bool {
  * @param array|null $drops  Pass an array to collect what this compile DISCARDED.
  *                           Filled with ['where' => string, 'reason' => string]
  *                           entries, bounded at PP_UDC_MAX_EMIT_DROPS, both fields
- *                           already cleaned for reflection. Left untouched at null,
- *                           which is what every render path passes.
+ *                           already cleaned for reflection. A row MAY also carry a
+ *                           `code`: the dropped-overlay row carries
+ *                           'overlay_without_image', and pp_udc_composition_findings()
+ *                           selects exactly those rows by it (#1117). Left untouched
+ *                           at null, which is what every render path passes.
  */
 function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null): array {
     $out = ['id' => '', 'tokens' => [], 'blocks' => []];
@@ -4393,8 +4758,12 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
     // to produce no CSS at all.
     $id = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
     if ($layer !== 'defaults' && !pp_udc_valid_band_id($id)) {
+        // A band styled only at ITEM grain is styled too (#1117): its cards' designs are
+        // lost to the same missing id. Only asked when a ledger is being kept, so the
+        // render path still never touches the registry here.
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS
-            && isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== []) {
+            && ((isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [])
+                || pp_udc_item_maps($item) !== [])) {
             $drops[] = [
                 'where'  => 'the whole band',
                 'reason' => $id === ''
@@ -4914,7 +5283,32 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // author wrote `image` and `overlay` in, so the composed layer
                 // list is deterministic too.
                 $declarations = _pp_udc_sort_declarations($declarations);
-                $declarations = _pp_udc_compose_background_layers($declarations);
+                // Which roles a card's own map gives an image — asked once per compile, and
+                // only when a ledger is kept (render paths never pay for it).
+                if ($drops !== null && !isset($card_image_roles)) {
+                    $card_image_roles = [];
+                    // Item roles only: any other role on a card is dropped whole at item
+                    // grain, so its image never paints and cannot be what hides the scrim.
+                    $card_item_roles = (array) (pp_udc_item_roles((string) ($item['component'] ?? ''))['roles'] ?? []);
+                    foreach (pp_udc_item_maps($item) as $card_map) {
+                        foreach ($card_map as $card_role => $card_role_map) {
+                            // A card image counts only if it RESOLVES: an attachment deleted
+                            // since the write paints nothing and hides no scrim.
+                            if (is_array($card_role_map) && in_array((string) $card_role, $card_item_roles, true)
+                                && pp_udc_background_image_url(_pp_udc_role_map_background_image($card_role_map)) !== null) {
+                                $card_image_roles[(string) $card_role] = true;
+                            }
+                        }
+                    }
+                }
+                $declarations = _pp_udc_compose_background_layers(
+                    $declarations,
+                    $drops,
+                    $drops === null ? '' : _pp_udc_overlay_drop_where('', (string) $role_name, (string) $state, (string) $bp),
+                    (string) $state !== '',
+                    false,
+                    $drops !== null && isset($card_image_roles[(string) $role_name])
+                );
                 // AFTER the compose, so the overlay has already been folded into
                 // background-image and the companions see the final layer list.
                 $declarations = _pp_udc_background_image_companions($declarations);
@@ -5204,7 +5598,13 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                                 );
                             }
                             $declarations = _pp_udc_sort_declarations($declarations);
-                            $declarations = _pp_udc_compose_background_layers($declarations);
+                            $declarations = _pp_udc_compose_background_layers(
+                                $declarations,
+                                $drops,
+                                $drops === null ? '' : _pp_udc_overlay_drop_where((string) $item_id, (string) $role_name, (string) $state, (string) $bp),
+                                (string) $state !== '',
+                                true
+                            );
                             $declarations = _pp_udc_background_image_companions($declarations);
                             $declarations = _pp_udc_grid_columns_companion(
                                 $declarations,
@@ -6899,7 +7299,9 @@ function _pp_udc_site_findings_unguarded(): array {
     $items = [];
     foreach (pp_udc_chrome_names() as $name) {
         if (isset($site['chrome'][$name]) && is_array($site['chrome'][$name])) {
-            $items[] = ['component' => $name, 'udc' => $site['chrome'][$name]];
+            // `id` as the readiness probe wraps it (pp_check_udc_emit_drops): chrome renders
+            // under its own selector, so the findings walk must not read it as an id-less band.
+            $items[] = ['component' => $name, 'id' => $name, 'udc' => $site['chrome'][$name]];
         }
     }
     if ($items === []) {
@@ -7760,12 +8162,27 @@ function pp_udc_format_obligation_groups(array $groups): string {
  * GROUPS THE ROLE DOES NOT PERMIT ARE SKIPPED, because `udc_preset_groups_skipped`
  * already owns them. Two findings for one cause is how an author learns to ignore both.
  *
- * Returns human-readable labels rather than structured tuples: the one consumer
- * interpolates them into a sentence, and the caller bounds the list.
+ * Returns human-readable labels: a label view over
+ * _pp_udc_preset_values_shadowed_entries(), compared per state AND per breakpoint tier
+ * (a partial loss is labelled "at breakpoint …"). The findings walk uses the entries
+ * directly, so it can subtract what the author covers per tier before wording them.
  *
  * @return array<int, string>  e.g. ['typography.color', 'typography.color (:hover)']
  */
 function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array $role_def): array {
+    return array_map(
+        '_pp_udc_shadow_entry_label',
+        _pp_udc_preset_values_shadowed_entries($fragment, $role_def)
+    );
+}
+
+/**
+ * The shadow entries behind the labels above: [base label, lost tiers, preset tiers], so a
+ * caller can subtract what the author covers PER TIER before wording the label (#1116).
+ *
+ * @return array<int, array{0: string, 1: array<int, string>, 2: array<int, string>}>
+ */
+function _pp_udc_preset_values_shadowed_entries(array $fragment, array $role_def): array {
     $defaults  = isset($role_def['defaults']) && is_array($role_def['defaults'])
         ? $role_def['defaults']
         : [];
@@ -7801,16 +8218,26 @@ function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array 
                 $state_defaults = isset($group_defaults[$key]) && is_array($group_defaults[$key])
                     ? $group_defaults[$key]
                     : [];
-                foreach (array_keys($value) as $param) {
+                foreach ($value as $param => $state_value) {
                     if (isset($state_defaults[(string) $param])) {
-                        $shadowed[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                        $entry = _pp_udc_shadow_entry_for_tiers(
+                            $group . '.' . (string) $param . ' (' . $key . ')',
+                            $state_value,
+                            $state_defaults[(string) $param]
+                        );
+                        if ($entry !== null) {
+                            $shadowed[] = $entry;
+                        }
                     }
                 }
                 continue;
             }
 
             if (isset($group_defaults[$key])) {
-                $shadowed[] = $group . '.' . $key;
+                $entry = _pp_udc_shadow_entry_for_tiers($group . '.' . $key, $value, $group_defaults[$key]);
+                if ($entry !== null) {
+                    $shadowed[] = $entry;
+                }
             }
         }
     }
@@ -7836,6 +8263,17 @@ function pp_udc_composition_findings(array $items): array {
     // from a counter whose own comment claimed 200.
     $item_disclosed   = 0;
     $tokens_disclosed = 0;
+    // THE SAME BOUND FOR EVERY ARM THAT WALKS ITEM MAPS (#1116, #1117). Each multiplies by
+    // the card count, and `items` declares no maximum: measured at 50 bands x 20 cards,
+    // 3,000 overlay findings and 1,000 each of the two preset disclosures before these.
+    $skipped_disclosed = 0;
+    $shadow_disclosed  = 0;
+    $overlay_disclosed = 0;
+    // PER-CALL MEMOS for the two arms whose per-reference work depends only on the preset
+    // (and the role): without them, one large preset referenced from every card is walked
+    // once per card. Per call, not static, so a preset saved mid-request is never stale.
+    $overlay_preset_memo = [];
+    $shadow_memo         = [];
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -7909,10 +8347,19 @@ function pp_udc_composition_findings(array $items): array {
         foreach ($band_item_maps as $preset_item_id => $preset_item_map) {
             $preset_maps[] = [(string) $preset_item_id, $preset_item_map];
         }
+        // A CARD MAP SPEAKS ONLY FOR THE COMPONENT'S ITEM ROLES. The emitter drops any other
+        // role at item grain whole ("not settable on a single item"), so the preset arms
+        // below must not advise writing a value there — one predicate with the compiler,
+        // which walks exactly this list.
+        $preset_item_roles = (array) (pp_udc_item_roles($component)['roles'] ?? []);
         foreach ($preset_maps as [$locator, $map]) {
+            if ($skipped_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break; // Capped: stop the WORK too, not only the output.
+            }
             foreach ($map as $role_name => $role_map) {
                 if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
-                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+                    || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])
+                    || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
                     continue;
                 }
                 $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
@@ -7930,6 +8377,10 @@ function pp_udc_composition_findings(array $items): array {
                 if ($split['skipped'] === [] || $split['applied'] === []) {
                     continue; // Nothing skipped, or refused outright at write.
                 }
+                if ($skipped_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    break 2;
+                }
+                $skipped_disclosed++;
                 $findings[] = [
                     'type'    => 'udc_preset_groups_skipped',
                     'message' => sprintf(
@@ -7976,44 +8427,176 @@ function pp_udc_composition_findings(array $items): array {
         // identically on the post-write envelope, on `wp pp check page`, and on restore.
         // That last one is what reaches a map written BEFORE this change, which is the
         // only channel that can.
-        foreach ($item['udc'] as $role_name => $role_map) {
-            if (!is_array($role_map) || !isset($role_map[PP_UDC_PRESET_KEY])
-                || !is_string($role_map[PP_UDC_PRESET_KEY]) || !isset($roles[(string) $role_name])) {
+        //
+        // BOTH GRAINS, FROM THE SAME LIST (#1116). This walked `$item['udc']` alone while
+        // its sibling above was widened at #1101, so a card-level `_preset` whose values the
+        // role also defaults was accepted, stored, reported ok:true with findings:[], and
+        // painted nothing — the exact sentence that sibling's comment says must not happen.
+        // It now reads `$preset_maps`, the band map plus every item map, and names the card.
+        //
+        // AND BOTH PRESET GRAINS. A `_preset` inside a group (`"typography": {"_preset": …}`)
+        // ranks under the role's defaults exactly like a role-grain one, so it loses the
+        // same parameters; its fragment is resolved at that group and checked as a one-group
+        // map, and the message names the group.
+        foreach ($preset_maps as [$locator, $map]) {
+            if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break; // Capped: stop the WORK too, not only the output.
+            }
+            foreach ($map as $role_name => $role_map) {
+                if (!is_array($role_map) || !isset($roles[(string) $role_name])
+                    || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
+                    continue;
+                }
+                // [preset name, role-shaped fragment, group or '' for role grain]
+                $preset_refs = [];
+                if (isset($role_map[PP_UDC_PRESET_KEY]) && is_string($role_map[PP_UDC_PRESET_KEY])) {
+                    $preset   = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
+                    $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, 'role');
+                    if (is_array($fragment) && $fragment !== []) {
+                        $preset_refs[] = [$role_map[PP_UDC_PRESET_KEY], $fragment, ''];
+                    }
+                }
+                // Only a group this role PERMITS can be shadowed (the helper skips the rest),
+                // so a stored map's other keys are not resolved at all — a raw row can carry
+                // thousands of them.
+                $permitted_groups = (array) ($roles[(string) $role_name]['groups'] ?? []);
+                foreach ($role_map as $group_name => $group_map) {
+                    if (!is_array($group_map) || !isset($group_map[PP_UDC_PRESET_KEY])
+                        || !is_string($group_map[PP_UDC_PRESET_KEY])
+                        || !in_array((string) $group_name, $permitted_groups, true)) {
+                        continue;
+                    }
+                    $preset   = pp_udc_resolve_preset($group_map[PP_UDC_PRESET_KEY]);
+                    $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, (string) $group_name);
+                    if (is_array($fragment) && $fragment !== []) {
+                        $preset_refs[] = [$group_map[PP_UDC_PRESET_KEY], [(string) $group_name => $fragment], (string) $group_name];
+                    }
+                }
+                // The author's own labels, once per role map (not once per reference).
+                $authored_labels = $preset_refs === [] ? [] : _pp_udc_authored_value_labels($role_map);
+                foreach ($preset_refs as [$preset_name, $fragment, $preset_group]) {
+                    $shadow_key = $component . "\0" . $role_name . "\0" . $preset_group . "\0" . $preset_name;
+                    if (!array_key_exists($shadow_key, $shadow_memo)) {
+                        $shadow_memo[$shadow_key] = _pp_udc_preset_values_shadowed_entries(
+                            $fragment,
+                            $roles[(string) $role_name]
+                        );
+                    }
+                    // A value THIS map already sets paints — the author's own value outranks
+                    // both the preset and the default — so it is not "not applied".
+                    // PER TIER: an authored value covers the lost tiers it names (all of them
+                    // when it paints at the base tier); what is left is still lost.
+                    $shadowed = [];
+                    foreach ($shadow_memo[$shadow_key] as [$entry_label, $entry_lost, $entry_tiers]) {
+                        $covered = $authored_labels[$entry_label] ?? [];
+                        if ($covered === true) {
+                            continue;
+                        }
+                        $still_lost = array_values(array_diff($entry_lost, $covered));
+                        if ($still_lost !== []) {
+                            $shadowed[] = _pp_udc_shadow_entry_label([$entry_label, $still_lost, $entry_tiers]);
+                        }
+                    }
+                    if ($shadowed === []) {
+                        continue;
+                    }
+                    if ($shadow_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break 3;
+                    }
+                    $shadow_disclosed++;
+                    $total = count($shadowed);
+                    $findings[] = [
+                        'type'    => 'udc_preset_value_shadowed_by_role_default',
+                        'message' => sprintf(
+                            'Component "%s"%s role "%s"%s: the preset "%s" sets %s, but this role\'s own default '
+                            . 'for %s outranks a preset, so %s not applied. Write the value in your own map '
+                            . 'for this role, where it out-ranks both.',
+                            $component,
+                            $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
+                            (string) $role_name,
+                            $preset_group === '' ? '' : sprintf(' group "%s"', _pp_udc_reflect($preset_group)),
+                            _pp_udc_reflect($preset_name),
+                            // BOUNDED, through the repo's one list contract. This names
+                            // PARAMETERS, and a role may permit every group in the taxonomy —
+                            // so the list is capped and the tail carries the TRUE total, or the
+                            // next preset with a wide fragment turns a diagnostic into an
+                            // unbounded interpolation.
+                            pp_udc_bounded_list($shadowed, 6, $total),
+                            $total === 1 ? 'it' : 'them',
+                            $total === 1 ? 'it was' : 'they were'
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
+                }
+            }
+        }
+
+        // THE DROPPED-OVERLAY DISCLOSURE (#1117, invariant I35). `background.overlay` with no
+        // `background.image` is accepted by the write gate and discarded by the emitter.
+        //
+        // ONE PREDICATE WITH THE EMITTER, literally: this compiles the band through
+        // pp_udc_compile_band() with a drop ledger and reports the rows that emitter wrote
+        // for this discard, rather than re-deriving "is there an image under this overlay"
+        // here. A second derivation would miss what the emitter actually does — a narrower
+        // breakpoint borrowing the base image, a preset's overlay, a state bucket — and the
+        // two would disagree (the I29 class). Only rows carrying this code surface: every
+        // other ledger row stays on the readiness channel it always had.
+        //
+        // A BAND WITH NO USABLE ID IS NOT PROBED. The emitter renders nothing for it (its id
+        // gate), so there is no overlay drop to report — the whole band is the drop, and the
+        // readiness ledger says so. Compiling it under an invented id would describe a
+        // render that never happens (I29). Every authoring path runs this walk after ids are
+        // minted, so this only ever meets a stored band from raw meta or restore (#233).
+        // What it costs is one compile per band that passes the pre-filter below, on the
+        // findings paths only (never render), and none once the cap is reached.
+        $overlay_probe = $item;
+        $overlay_probe_has_id = isset($overlay_probe['id']) && is_scalar($overlay_probe['id'])
+            && pp_udc_valid_band_id((string) $overlay_probe['id']);
+        // Once the cap is reached the compile is skipped too: bounding the findings but not
+        // the work would leave the write path paying for disclosures nobody will see.
+        //
+        // A NECESSARY CONDITION FIRST, NOT A SECOND PREDICATE. Only a map that names an
+        // `overlay`, or a `_preset` whose bundle might, can make the emitter write this
+        // row, so every other band skips the compile; the emitter still decides every band
+        // that reaches it. Without this the common case, no overlay anywhere, compiled
+        // every band on every write: measured 3.3 -> 40 ms at 50 bands x 20 cards.
+        $overlay_drops = [];
+        $overlay_candidate = _pp_udc_map_may_carry_overlay($item['udc'], 0, false, $overlay_preset_memo);
+        foreach ($band_item_maps as $candidate_map) {
+            if ($overlay_candidate) {
+                break;
+            }
+            $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map, 0, false, $overlay_preset_memo);
+        }
+        if ($overlay_probe_has_id && $overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+            try {
+                pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
+            } catch (\Throwable $e) {
+                // The readiness channel owns compile failures, but it walks a bounded window
+                // of bands, so a failure past it would vanish without this line (I29) — the
+                // same developer-facing log its sibling probe writes.
+                error_log(
+                    'PromptingPress: overlay findings probe failed for band ' . (string) $overlay_probe['id']
+                    . ': ' . get_class($e) . ': ' . $e->getMessage()
+                );
+                $overlay_drops = [];
+            }
+        }
+        foreach ($overlay_drops as $drop) {
+            if (($drop['code'] ?? '') !== 'overlay_without_image') {
                 continue;
             }
-            $preset = pp_udc_resolve_preset($role_map[PP_UDC_PRESET_KEY]);
-            if ($preset === null) {
-                continue;
+            if ($overlay_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                break;
             }
-            $fragment = _pp_udc_preset_fragment($preset, 'role');
-            if (!is_array($fragment) || $fragment === []) {
-                continue;
-            }
-            $shadowed = _pp_udc_preset_values_shadowed_by_role_defaults(
-                $fragment,
-                $roles[(string) $role_name]
-            );
-            if ($shadowed === []) {
-                continue;
-            }
-            $total = count($shadowed);
+            $overlay_disclosed++;
             $findings[] = [
-                'type'    => 'udc_preset_value_shadowed_by_role_default',
+                'type'    => 'udc_overlay_without_image',
                 'message' => sprintf(
-                    'Component "%s" role "%s": the preset "%s" sets %s, but this role\'s own default '
-                    . 'for %s outranks a preset, so %s not applied. Write the value in your own map '
-                    . 'for this role, where it out-ranks both.',
+                    'Component "%s" %s: %s.',
                     $component,
-                    (string) $role_name,
-                    _pp_udc_reflect($role_map[PP_UDC_PRESET_KEY]),
-                    // BOUNDED, through the repo's one list contract. This names
-                    // PARAMETERS, and a role may permit every group in the taxonomy —
-                    // so the list is capped and the tail carries the TRUE total, or the
-                    // next preset with a wide fragment turns a diagnostic into an
-                    // unbounded interpolation.
-                    pp_udc_bounded_list($shadowed, 6, $total),
-                    $total === 1 ? 'it' : 'them',
-                    $total === 1 ? 'it was' : 'they were'
+                    (string) ($drop['where'] ?? ''),
+                    (string) ($drop['reason'] ?? '')
                 ),
                 'index'   => is_int($i) ? $i : null,
             ];

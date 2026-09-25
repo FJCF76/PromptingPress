@@ -340,7 +340,18 @@ A background image is an attachment id, never a URL:
 
 `import_media` returns the id. Pair an image with an `overlay` whenever text sits on it, or the text
 is illegible over whatever the photograph happens to contain. The scrim is not automatic, and
-neither are `size` and `repeat`.
+neither are `size` and `repeat`. The reverse does not work: an `overlay` with no `image` paints
+nothing (a `fill` is a colour, not an image), and the write says so with a
+`udc_overlay_without_image` finding naming the role, and the card when it is one. Keep the
+`overlay` out of states: a `:hover` overlay never paints, even over a base image, because
+`image` cannot be set inside a state. And keep a card's `overlay` with its own `image`: an
+overlay on one card's map does not combine with an image set on the band's map. The reverse
+holds too: an overlay on the band's map reaches no card that sets its own `image` for that
+role, because the card's image replaces its whole background — put the overlay on each such
+card's map. A `udc_preset_value_shadowed_by_role_default` finding leaves out any value you
+already set for desktop (a single value, or a breakpoint map with `d`) in that same map: it
+paints. It also compares per breakpoint: a preset value only a narrower tier sets paints there,
+and a value that loses only some tiers is listed with `at breakpoint …`.
 
 ---
 
@@ -455,7 +466,7 @@ exists to look a name up on.
 | testimonials | — |
 
 The v2 equivalent is a **preset**, and it is better in the way that matters: `save_preset`
-(#1016) stores a named `udc` fragment for the whole SITE, any band or chrome role can apply it
+(#1016) stores a named `udc` fragment for the whole SITE, any band, card or chrome role can apply it
 with `"_preset"`, and editing it moves every reference with no band write. A recipe could only
 ever bundle one component's slots.
 

@@ -152,6 +152,12 @@ Give it its own write if the accent must read at a smaller size.
 composes into the band's own background layer list — **no `.stats__overlay` element renders
 any more**, exactly as hero's, section's and cta's stopped at their rebuilds.
 
+**If the v1 band set `--stats-overlay-bg` but no background image**, do not carry the tint
+to `background.overlay` on its own: v2 layers a scrim only over `background.image`, so an
+overlay with nothing under it is dropped, and the write reports it as a
+`udc_overlay_without_image` finding naming the role (#1117). Put that tint in
+`background.fill` instead.
+
 Two v1 behaviours that came free are explicit now: write `background.size: "cover"` and
 `background.repeat: "no-repeat"`.
 

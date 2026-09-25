@@ -69,6 +69,65 @@ was shown to fail against a deliberately broken copy.
 the engine's own leftover token. It pre-dates this change. Sending the same edit with any band
 `udc` patch goes through.
 
+## Card styling that paints nothing is now reported, and a preset a card still uses can no longer be deleted (#1115, #1116, #1117)
+
+**Deleting a preset that a card still uses is refused.** `delete_preset` checked only band and
+chrome maps, so a preset referenced only from a card was deleted with `ok: true` and the card
+silently stopped painting it. The refusal now names the card as `item "<id>"`. The same check
+runs again inside the write, against the stored rows read fresh, so a reference saved between
+the check and the delete is caught too. A page write that lands while that re-check runs is
+still not serialized against it (#1132).
+
+**A preset value that a card's own default overrides is reported.** The
+`udc_preset_value_shadowed_by_role_default` finding now covers card maps as well as band maps,
+and presets applied inside one group (`"typography": {"_preset": …}`) as well as whole-role
+presets. It compares per breakpoint, so a preset value set only for a narrower screen, which
+does paint there, is not reported, and a value that loses only some breakpoints says which. A
+value you already set yourself in the same map is left out.
+
+**An overlay with nothing to lie over is reported instead of vanishing.** A
+`background.overlay` with no usable `background.image` under it was accepted, stored and
+dropped at render with no word. The write now returns a `udc_overlay_without_image` finding
+naming the role, the card, the state and the breakpoint, and the readiness check lists it. The
+reason names the actual cause: a fill (or raw `_css` background) is not an image, an overlay
+inside `:hover` never has an image of its own, a card's overlay does not combine with the
+band's image, a band's overlay does not reach cards that set their own image, and an image
+whose attachment was deleted. The render itself is unchanged.
+
+### Changed
+
+- `delete_preset` also counts card (item-grain) references, and re-checks under the preset
+  store's lock with a fresh read of the page list and the chrome row.
+- `udc_preset_value_shadowed_by_role_default`: card grain, group-grain presets, per-breakpoint
+  comparison, and values the same map already sets are left out.
+- New finding type `udc_overlay_without_image` on the write envelope, `wp pp check page`,
+  restore and chrome writes, with a matching `udc_value_cannot_take_effect` readiness row.
+- The readiness check (`wp pp apply preflight`) now also checks bands styled only at card
+  level, under a budget of their own, after the bands with a band-level map.
+- Each of these finding types stops at 200 per page. The runtime prompt and the operating-loop
+  instructions say so.
+
+### Docs
+
+`validate-site.md`, `style-component.md`, `build-landing-page.md`, `operating-loop.md`,
+`AI_CONTEXT.md`, the runtime prompt, the `delete_preset` and `save_preset` descriptions, the CLI
+reference and the stats migration how-to describe the new findings and the card references.
+
+### Tests
+
+`tests/ItemGrainDisclosureTest.php` (64 tests) drives every case through the real action
+surface. Each fix was shown to fail before it was written, and 76 deliberately broken copies of
+the new code were each caught by a test.
+
+### Known issues
+
+Filed, not fixed here: an overlay inside `:hover` can never paint (#1130); `delete_preset` holds
+the site-styling lock for a site-wide scan (#1131); a delete can still race a page write
+(#1132); a card overlay never combines with the band's image, and a band scrim over a band
+image misses cards that set their own image without being reported (#1133); a failed page read
+counts as an empty page (#1134); re-saving a used preset at a different grain breaks its
+references (#1135); a raw `_css` value is not counted as the author's own (#1136).
+
 ---
 
 ## [v2.0.0-alpha.2] — 2026-09-22 — v2 Sprint 2 "components": the Sprint-2 gates, author-created presets, the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling, which ends the v1 styling system (#1011, #1016, #994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)

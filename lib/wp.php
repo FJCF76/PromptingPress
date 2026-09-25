@@ -1586,7 +1586,14 @@ function pp_composition_pages(bool $fresh = false): array {
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
 function pp_composition_pages_for_reference_gate(): array {
-    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash']);
+    // UNCACHED (#1115). WordPress caches a WP_Query's ID list for the rest of the request,
+    // salted by `last_changed`, and nothing between delete_preset's validate and its
+    // under-lock writer moves that salt — so the writer's re-scan would get validate's
+    // page list back and never see a page another process created in between.
+    return _pp_composition_pages_query(['publish', 'draft', 'pending', 'private', 'trash'], [
+        'cache_results'          => false,
+        'update_post_meta_cache' => false,
+    ]);
 }
 
 /**
@@ -1598,8 +1605,8 @@ function pp_composition_pages_for_reference_gate(): array {
  *
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
-function _pp_composition_pages_query(?array $statuses = null): array {
-    $posts = get_posts([
+function _pp_composition_pages_query(?array $statuses = null, array $query_overrides = []): array {
+    $posts = get_posts(array_merge([
         'post_type'      => 'page',
         'post_status'    => $statuses ?? ['publish', 'draft', 'pending', 'private'],
         'meta_key'       => '_wp_page_template',
@@ -1607,7 +1614,7 @@ function _pp_composition_pages_query(?array $statuses = null): array {
         'posts_per_page' => -1,
         'orderby'        => 'title',
         'order'          => 'ASC',
-    ]);
+    ], $query_overrides));
 
     $out = [];
     foreach ($posts as $post) {
@@ -2586,7 +2593,9 @@ function pp_check_udc_background_images(?int $post_id = null, ?array $compositio
  * this names is what the page omits, because the same line decided both.
  *
  * WHAT IT COSTS, STATED RATHER THAN LEFT INCIDENTAL. This compiles up to
- * `$band_budget` bands through the real emitter before every mutation, and a
+ * `$band_budget` bands PER PASS through the real emitter before every mutation — band-map
+ * bands first, then card-only bands (#1117), so at most twice the budget; the figures
+ * below were measured before the card-only pass existed — and a
  * HEALTHY page pays the full walk to produce nothing. Measured on a 4-core box,
  * php 8.3 with opcache, against a preflight that did not run this check: about
  * +1.8 ms on a 10-band page, +4.7 ms on a 50-band page, +12.8 ms at 500 bands
@@ -2703,22 +2712,40 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
         // Shares the caller's decode; see the note on the sibling check above.
         $composition = $composition ?? pp_get_composition($post_id);
         if (is_array($composition)) {
-            $seen = 0;
-            foreach ($composition as $i => $item) {
-                if (count($rows) >= $row_budget) {
-                    break;
+            // TWO PASSES, EACH WITH ITS OWN BAND BUDGET (#1117). Bands with a band-level map
+            // are walked first, exactly as before item grain joined this check; bands styled
+            // only at item grain follow under a budget of their own. One shared budget let
+            // twenty-five clean card-only bands push a band-map drop the check had always
+            // reported out of the window, with no truncation notice on an otherwise empty
+            // list — widening the walk must never narrow what it already covered.
+            foreach ([true, false] as $band_map_pass) {
+                $seen = 0;
+                foreach ($composition as $i => $item) {
+                    if (count($rows) >= $row_budget) {
+                        break;
+                    }
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $has_band_map = isset($item['udc']) && is_array($item['udc']) && $item['udc'] !== [];
+                    if ($has_band_map !== $band_map_pass) {
+                        continue;
+                    }
+                    // A band styled at ITEM grain alone is styled too: this used to skip every
+                    // band without a band-level map, so a card's discards reached no channel at
+                    // all — #1117's own observed row was a card overlay with `drops=[]`.
+                    if (!$has_band_map && (!function_exists('pp_udc_item_maps') || pp_udc_item_maps($item) === [])) {
+                        continue;
+                    }
+                    if ($seen >= $band_budget) {
+                        $truncated = true;
+                        break;
+                    }
+                    $seen++;
+                    $component = isset($item['component']) && is_scalar($item['component'])
+                        ? (string) $item['component'] : '?';
+                    $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
                 }
-                if (!is_array($item) || !isset($item['udc']) || !is_array($item['udc']) || $item['udc'] === []) {
-                    continue;
-                }
-                if ($seen >= $band_budget) {
-                    $truncated = true;
-                    break;
-                }
-                $seen++;
-                $component = isset($item['component']) && is_scalar($item['component'])
-                    ? (string) $item['component'] : '?';
-                $collect($item, 'authored', sprintf('band %d ("%s")', (int) $i + 1, _pp_udc_reflect($component)));
             }
         }
     }
@@ -2788,7 +2815,9 @@ function pp_check_udc_emit_drops(?int $post_id = null, ?array $composition = nul
             'acknowledgeable' => true,
             'next_action'     => 'Run wp pp check page --post_id=' . (int) $post_id . ' for the whole composition.',
             'message'         => sprintf(
-                'Only the first %d styled bands on this page were checked, so this list may be incomplete.',
+                'Only the first %d bands with a band-level map and the first %d bands styled only at card '
+                . 'level on this page were checked, so this list may be incomplete.',
+                $band_budget,
                 $band_budget
             ),
         ];
@@ -8167,6 +8196,33 @@ function pp_update_site_preset(string $name, ?array $preset, ?int $expected_vers
                     $name,
                     pp_udc_preset_names_for_message($presets) ?: '(none)'
                 ));
+            }
+            // THE UNDER-LOCK BACKSTOP (#1115). validate runs the reference gate, but a band
+            // or card that writes a reference between validate and this lock would still be
+            // left pointing at nothing — and this writer used to re-check every other
+            // precondition (not-stored, unreadable, corrupt, conflict, ceilings) while the
+            // action's own comment claimed it re-checked references too. Same gate, same
+            // refusal, same shadowed-row exemption as validate: a row a theme preset
+            // shadows resolves to the theme's bundle before and after, so nothing can dangle.
+            //
+            // NARROWER, NOT CLOSED: the preset store and a composition take different locks,
+            // so a composition write that lands WHILE this scan runs is still not serialized
+            // against it. What this closes is every reference committed before the lock.
+            if (!isset(pp_udc_system_presets()[$name])) {
+                // FAIL CLOSED: without the gate, a delete proceeds with no reference check.
+                if (!function_exists('pp_udc_preset_delete_reference_refusal')) {
+                    return new WP_Error('preset_scan_unreadable', sprintf(
+                        'Whether "%s" is still in use cannot be determined (the reference check is not '
+                        . 'loaded), so it was not deleted.',
+                        $name
+                    ));
+                }
+                // $current is the row read under this lock, past the option cache: the chrome
+                // half of the scan must see what this writer is about to overwrite.
+                $refusal = pp_udc_preset_delete_reference_refusal($name, $current);
+                if ($refusal !== null) {
+                    return $refusal;
+                }
             }
             unset($presets[$name]);
         } else {

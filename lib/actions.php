@@ -4570,7 +4570,7 @@ function _pp_preset_definition_from_params(array $params): array {
 
 pp_register_action('save_preset', [
     'scope'       => 'site',
-    'description' => 'Creates or replaces ONE named site preset — a reusable `udc` fragment that any band or chrome role can apply by name through a `"_preset"` key. `name` is 1-64 characters of letters, digits, hyphen or underscore, written BARE at the reference site (an `@name` always means a design token, never a preset). `description` is an optional author-facing note stored beside the preset and surfaced by `wp pp operate inspect`; a blank or whitespace-only value is stored as absent rather than as an empty string. `grain` is either "role" (a bundle of groups, applied beside a role\'s own groups: `"cta": {"_preset": "brand-cta", "border": {"radius": "12px"}}`) or ONE group name (applied beside that group\'s parameters: `"quote": {"typography": {"_preset": "brand-type", "size": "1.25rem"}}`). `udc` is the fragment itself, in exactly the shape the same grain takes inside a band: for "role" a map of groups, for a group grain a map of that group\'s parameters. It is validated by the SAME engine and the SAME grammar a band\'s `udc` gets — same parameters, same units, same `@token` references, same breakpoint maps, same `:hover`/`:focus-visible`/`:active` states. `@token` references resolve against the SITE design tokens only: a preset belongs to the site, not to a band, so a band-local token name is refused here. Every group in the taxonomy may be declared; what a preset may declare is NOT narrowed by where it will be applied, because a role-grain preset applies the groups each target role permits and skips the rest (the write that applies it discloses which). A name the theme already ships (button, button-secondary, link) is REFUSED — those are theme-owned and cannot be replaced, and shadowing them would put two different bundles behind one name. Replacing an existing preset of your own is allowed and takes effect everywhere it is referenced, immediately. The store is concurrency-versioned separately from chrome styling: pass the `presets_version` you read as `expected_version` and a write that would overwrite someone else\'s newer edit is refused instead. Read the current store with `wp pp operate inspect` (under `chrome`, as `presets` and `presets_version`).',
+    'description' => 'Creates or replaces ONE named site preset — a reusable `udc` fragment that any band, card or chrome role can apply by name through a `"_preset"` key. `name` is 1-64 characters of letters, digits, hyphen or underscore, written BARE at the reference site (an `@name` always means a design token, never a preset). `description` is an optional author-facing note stored beside the preset and surfaced by `wp pp operate inspect`; a blank or whitespace-only value is stored as absent rather than as an empty string. `grain` is either "role" (a bundle of groups, applied beside a role\'s own groups: `"cta": {"_preset": "brand-cta", "border": {"radius": "12px"}}`) or ONE group name (applied beside that group\'s parameters: `"quote": {"typography": {"_preset": "brand-type", "size": "1.25rem"}}`). `udc` is the fragment itself, in exactly the shape the same grain takes inside a band: for "role" a map of groups, for a group grain a map of that group\'s parameters. It is validated by the SAME engine and the SAME grammar a band\'s `udc` gets — same parameters, same units, same `@token` references, same breakpoint maps, same `:hover`/`:focus-visible`/`:active` states. `@token` references resolve against the SITE design tokens only: a preset belongs to the site, not to a band, so a band-local token name is refused here. Every group in the taxonomy may be declared; what a preset may declare is NOT narrowed by where it will be applied, because a role-grain preset applies the groups each target role permits and skips the rest (the write that applies it discloses which). A name the theme already ships (button, button-secondary, link) is REFUSED — those are theme-owned and cannot be replaced, and shadowing them would put two different bundles behind one name. Replacing an existing preset of your own is allowed and takes effect everywhere it is referenced, immediately. The store is concurrency-versioned separately from chrome styling: pass the `presets_version` you read as `expected_version` and a write that would overwrite someone else\'s newer edit is refused instead. Read the current store with `wp pp operate inspect` (under `chrome`, as `presets` and `presets_version`).',
     // NO CONSTANT INTERPOLATION HERE. Action definitions are built when this file
     // loads, and lib/udc.php — where the two bounds live — loads after it. The
     // numbers belong to the refusals, which run at write time and can read them;
@@ -4631,7 +4631,7 @@ pp_register_action('save_preset', [
 
 pp_register_action('delete_preset', [
     'scope'       => 'site',
-    'description' => 'Removes ONE named site preset. A preset that any band or chrome role still references is REFUSED, and the refusal LISTS the references — page, band and role — so you can retarget them first. That is the reverse of the rule that refuses a band naming a preset which does not exist: deleting out from under a reference would leave every one of those bands pointing at nothing, and the declarations would silently stop painting. A theme-shipped preset cannot be deleted — UNLESS your site also stores a preset under that same name, in which case it is YOUR row that is removed and every reference keeps resolving, unchanged, to the theme\'s bundle. That is the escape route when a theme release ships a name you were already using: save your version under a new name, repoint the references, then delete the shadowed row. The store is concurrency-versioned: pass the `presets_version` you read as `expected_version`.',
+    'description' => 'Removes ONE named site preset. A preset that any band, card (item grain) or chrome role still references is REFUSED, and the refusal LISTS the references — page, band, the card as `item "<id>"`, and role — so you can retarget them first. That is the reverse of the rule that refuses a band naming a preset which does not exist: deleting out from under a reference would leave every one of those bands pointing at nothing, and the declarations would silently stop painting. A theme-shipped preset cannot be deleted — UNLESS your site also stores a preset under that same name, in which case it is YOUR row that is removed and every reference keeps resolving, unchanged, to the theme\'s bundle. That is the escape route when a theme release ships a name you were already using: save your version under a new name, repoint the references, then delete the shadowed row. The store is concurrency-versioned: pass the `presets_version` you read as `expected_version`.',
     'semantics'   => 'Delete, at one-preset grain, refused while referenced. Only the named preset is removed; every other preset, and all chrome styling in the same row, is untouched. A page whose stored composition cannot be read also refuses the delete: a reference cannot be ruled out in bytes nobody can decode, and the refusal names the page so it can be repaired first. A name that is not stored is refused rather than reported as a successful no-op.',
     'params'      => [
         'name'             => ['type' => 'string', 'required' => true],
@@ -4699,42 +4699,10 @@ pp_register_action('delete_preset', [
         if ($shadowed) {
             return null;
         }
-        $scan = pp_udc_preset_references($name);
-        if ($scan['unreadable'] !== []) {
-            $unreadable_total = (int) $scan['unreadable_total'];
-            return new WP_Error('preset_scan_unreadable', sprintf(
-                'Whether "%s" is still in use cannot be determined: the stored composition of %s could '
-                . 'not be read, and a preset may not be deleted while a page that might reference it is '
-                . 'unreadable. Repair %s first (wp pp operate composition-history --post_id=<id>), then '
-                . 'delete again.',
-                $name,
-                // BOUNDED LIKE ITS SIBLING ELEVEN LINES DOWN. Each fragment is
-                // cleaned by _pp_udc_reflect(), but the LIST was not, and its
-                // length is linear in the number of unreadable composition pages —
-                // so a site with many of them turned every refusal into a
-                // tens-of-KB message on the terminal, the chat envelope and the
-                // model's context. The count is stated separately, so nothing
-                // diagnostic is lost by showing ten names instead of all of them.
-                pp_udc_bounded_list($scan['unreadable'], 10, $unreadable_total),
-                $unreadable_total === 1 ? 'it' : 'those pages'
-            ));
-        }
-        if ($scan['references'] !== []) {
-            // THE COUNT IS THE TOTAL, THE LIST IS THE SAMPLE. The collector caps
-            // what it keeps, so `references` is at most PP_UDC_MAX_PRESET_REFERENCES
-            // while `references_total` is exact — and it is the total an operator
-            // needs to know, not how many the collector chose to hold.
-            $total = (int) $scan['references_total'];
-            return new WP_Error('preset_in_use', sprintf(
-                'The preset "%s" is still referenced by %s, so it was not deleted: %s. Change or remove '
-                . 'those references first — deleting now would leave each of them pointing at a preset '
-                . 'that does not exist, and those declarations would stop painting with nothing to say why.',
-                $name,
-                $total === 1 ? '1 place' : $total . ' places',
-                pp_udc_bounded_list($scan['references'], 20, $total, '; ')
-            ));
-        }
-        return null;
+        // ONE REFUSAL, TWO CALLERS (#1115): the same gate runs again under the writer's lock
+        // (pp_update_site_preset()), so a reference written between here and the write is
+        // still caught. Defined once so the two cannot disagree about what blocks a delete.
+        return pp_udc_preset_delete_reference_refusal($name);
     },
     'preview' => function (array $params): array {
         $name   = (string) $params['name'];

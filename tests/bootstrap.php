@@ -750,6 +750,9 @@ if (!function_exists('wp_update_nav_menu_item')) {
 
 if (!function_exists('get_posts')) {
     function get_posts(array $args = []): array {
+        // Every call's args, so a test can pin what a caller ASKS the query for (e.g. that a
+        // gate opts out of WP_Query's in-request ID cache, which this stub does not model).
+        $GLOBALS['_pp_test_get_posts_calls'][] = $args;
         $results = [];
         foreach ($GLOBALS['_pp_test_store']['posts'] as $id => $data) {
             if (isset($args['meta_key'], $args['meta_value'])) {
