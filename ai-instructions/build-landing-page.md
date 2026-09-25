@@ -163,7 +163,7 @@ alone leaves the heading at the inherited `@color-text` and renders near-black o
 near-black. The button is its own pair again — a fill and an ink — because a role's
 colours do not follow the band's. So is any role that ships its own surface (the eyebrow
 pill, a `panel`, a card): recolour its ink and it still sits on its own light fill, so set
-that fill too, to a value that stands apart from the band (the band's own colour erases the
+that fill too, to a value your text colour reads on that also stands apart from the band (the band's own colour erases the
 pill). For a role that renders its own text (the eyebrow, a `panel`, a hero
 `surface`) the write names it as `udc_role_ink_over_own_surface` when you do not, including
 when the ink is the one you set on the whole band. A container whose text roles set their own
