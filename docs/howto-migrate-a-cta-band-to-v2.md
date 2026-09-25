@@ -181,6 +181,12 @@ that element, put the value in the group that owns the property.
 | `--cta-button2-*` | `button-secondary` → the same |
 | `--cta-overlay-bg` / `--cta-bg-position` | `_band` → `background.overlay` / `background.position` |
 
+Carry `--cta-overlay-bg` only when the band also has a `background.image`. v2 layers a scrim
+only over an image, so an overlay with nothing under it is dropped and the write reports a
+`udc_overlay_without_image` finding naming the role (#1117). v1 drew its overlay element only
+when `background_image` was set, so a tint with no image painted nothing there either: leave it
+out, or put the colour in `background.fill` if you want the band tinted.
+
 Three conversions to do deliberately rather than mechanically:
 
 **`--cta-heading-measure` fed TWO elements, so it takes two roles.** It capped
