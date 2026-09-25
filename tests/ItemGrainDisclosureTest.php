@@ -478,6 +478,8 @@ final class ItemGrainDisclosureTest extends TestCase
         $found = $this->findingsOfType($result, 'udc_overlay_without_image');
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "card"', $found[0]['message']);
+        $this->assertStringContainsString('(via preset "probe-scrim")', $found[0]['message'],
+            'the author\'s map holds no overlay: the locator must say where it came from (#1016)');
     }
 
     /**

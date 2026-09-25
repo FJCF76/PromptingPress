@@ -2627,7 +2627,14 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
         // actually make: a scrim over a colour is a reasonable thing to expect.
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
             $drops[] = [
-                'where'  => trim($where . ' background.overlay'),
+                // THE LOCATOR SAYS WHEN THE OVERLAY CAME FROM A PRESET (#1016), exactly as
+                // _pp_udc_place() says it for every other preset-sourced drop: otherwise the
+                // row points at a role in the author's own map that holds no overlay.
+                'where'  => trim($where . ' background.overlay'
+                    . (is_array($overlay) && is_string($overlay['source'] ?? null)
+                        && strncmp($overlay['source'], 'preset:', 7) === 0
+                        ? sprintf(' (via preset "%s")', _pp_udc_reflect(substr($overlay['source'], 7)))
+                        : '')),
                 // A STATE's scrim has its own reason. `background.image` is refused
                 // inside a state, so a `:hover` bucket never holds an image of its
                 // own and its overlay is dropped even when the role HAS a base image
