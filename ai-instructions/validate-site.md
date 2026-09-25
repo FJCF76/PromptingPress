@@ -30,7 +30,9 @@ This checks:
    - `udc_preset_value_shadowed_by_role_default` — you applied a preset, but the role's
      OWN default outranks a preset for that parameter, so the preset's value is not
      applied. Write the value directly in your map for that role, where it outranks both.
-     A value you already set in that same map is not listed: it paints.
+     A value you already set for desktop (a single value, or a breakpoint map with `d`)
+     in that same map is not listed: it paints. A value that loses only some breakpoints
+     is listed with `at breakpoint …`.
      Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
      group-grain `_preset` (inside `typography`, say), naming the group.
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`

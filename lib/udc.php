@@ -2434,6 +2434,62 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = f
 }
 
 /**
+ * The background image a role map resolves to, in the emitter's precedence: the map's own
+ * `background.image`, else a group-grain `background._preset`'s, else a role-grain
+ * `_preset`'s (a preset never references another). Null when there is none. Used so the
+ * cross-grain overlay reason sees a preset-supplied card image as the image it is (#1117).
+ *
+ * @return mixed The stored image value, or null.
+ */
+function _pp_udc_role_map_background_image(array $role_map) {
+    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
+    if (array_key_exists('image', $background)) {
+        return $background['image'];
+    }
+    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+        $preset = is_string($name) ? pp_udc_resolve_preset($name) : null;
+        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+        if (!is_array($fragment)) {
+            continue;
+        }
+        $group = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
+        if (is_array($group) && array_key_exists('image', $group)) {
+            return $group['image'];
+        }
+    }
+    return null;
+}
+
+/**
+ * The breakpoint tiers a value occupies: a single value is the base tier only, a
+ * breakpoint map is its keys. The emitter ranks per (state, tier, property), so this is
+ * where a preset and a role default actually meet.
+ *
+ * @return array<int, string>
+ */
+function _pp_udc_value_tiers($value): array {
+    return is_array($value) ? array_map('strval', array_keys($value)) : ['d'];
+}
+
+/**
+ * The shadow label for one preset value against one role default, per tier (#1116): null
+ * when the default covers none of the preset's tiers (the preset paints there), the plain
+ * label when it covers all of them (the value is not applied anywhere), and the label
+ * naming the lost tiers when it covers some.
+ */
+function _pp_udc_shadow_label_for_tiers(string $label, $preset_value, $default_value): ?string {
+    $preset_tiers = _pp_udc_value_tiers($preset_value);
+    $lost = array_values(array_intersect($preset_tiers, _pp_udc_value_tiers($default_value)));
+    if ($lost === []) {
+        return null;
+    }
+    if (count($lost) === count($preset_tiers)) {
+        return $label;
+    }
+    return $label . ' at breakpoint ' . implode('/', array_map('_pp_udc_reflect', $lost));
+}
+
+/**
  * Whether an authored value paints at the base (desktop) tier: a single value does, and a
  * breakpoint map does only when it carries `d`. A value written only for narrower tiers
  * leaves the base tier to whatever outranks the preset there, so it cannot stand in for
@@ -5209,10 +5265,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             // A card image counts only if it RESOLVES: an attachment deleted
                             // since the write paints nothing and hides no scrim.
                             if (is_array($card_role_map) && in_array((string) $card_role, $card_item_roles, true)
-                                && isset($card_role_map['background'])
-                                && is_array($card_role_map['background'])
-                                && array_key_exists('image', $card_role_map['background'])
-                                && pp_udc_background_image_url($card_role_map['background']['image']) !== null) {
+                                && pp_udc_background_image_url(_pp_udc_role_map_background_image($card_role_map)) !== null) {
                                 $card_image_roles[(string) $card_role] = true;
                             }
                         }
@@ -8120,16 +8173,26 @@ function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array 
                 $state_defaults = isset($group_defaults[$key]) && is_array($group_defaults[$key])
                     ? $group_defaults[$key]
                     : [];
-                foreach (array_keys($value) as $param) {
+                foreach ($value as $param => $state_value) {
                     if (isset($state_defaults[(string) $param])) {
-                        $shadowed[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                        $label = _pp_udc_shadow_label_for_tiers(
+                            $group . '.' . (string) $param . ' (' . $key . ')',
+                            $state_value,
+                            $state_defaults[(string) $param]
+                        );
+                        if ($label !== null) {
+                            $shadowed[] = $label;
+                        }
                     }
                 }
                 continue;
             }
 
             if (isset($group_defaults[$key])) {
-                $shadowed[] = $group . '.' . $key;
+                $label = _pp_udc_shadow_label_for_tiers($group . '.' . $key, $value, $group_defaults[$key]);
+                if ($label !== null) {
+                    $shadowed[] = $label;
+                }
             }
         }
     }
@@ -8376,9 +8439,11 @@ function pp_udc_composition_findings(array $items): array {
                     }
                     // A value THIS map already sets paints — the author's own value outranks
                     // both the preset and the default — so it is not "not applied".
+                    // Compared on the label without its tier suffix: an authored base-tier
+                    // value outranks the preset at every tier the default took from it.
                     $shadowed = array_values(array_filter(
                         $shadow_memo[$shadow_key],
-                        static fn (string $label): bool => !isset($authored_labels[$label])
+                        static fn (string $label): bool => !isset($authored_labels[explode(' at breakpoint ', $label, 2)[0]])
                     ));
                     if ($shadowed === []) {
                         continue;

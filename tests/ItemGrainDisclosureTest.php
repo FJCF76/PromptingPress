@@ -915,6 +915,42 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringNotContainsString('replaces that card', $band[0]['message']);
     }
 
+    /**
+     * THE PRESET SIDE IS PER TIER TOO. The emitter ranks per breakpoint, so a preset value
+     * set at a tier the role default does not cover paints there. A preset tier the
+     * default never covers is not "not applied"; a value that loses only some tiers says
+     * which.
+     */
+    public function testTheShadowFindingComparesPresetAndDefaultPerBreakpoint(): void
+    {
+        // card-title's default line-height is a single (base-tier) value.
+        $this->savePreset('probe-phone', ['typography' => ['line-height' => ['p' => '2']]]);
+        [, $phone] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-phone']]));
+        $this->assertSame([], $this->findingsOfType($phone, 'udc_preset_value_shadowed_by_role_default'), 'the phone value paints');
+
+        $this->savePreset('probe-both', ['typography' => ['line-height' => ['d' => '1.9', 'p' => '2']]]);
+        [, $both] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-both']]), 'both tiers');
+        $found = $this->findingsOfType($both, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('typography.line-height at breakpoint d', $found[0]['message']);
+    }
+
+    /** A card image supplied by a card-level PRESET hides the band scrim just like an authored one. */
+    public function testAPresetSuppliedCardImageEarnsTheCardImageReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        $this->savePreset('probe-img', ['background' => ['image' => 9001]]);
+        [, $r] = $this->page($this->grid(
+            ['card' => ['_preset' => 'probe-img']],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+
+        $found = $this->findingsOfType($r, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString("card's own map", $found[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

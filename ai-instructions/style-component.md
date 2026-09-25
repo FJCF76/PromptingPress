@@ -349,7 +349,9 @@ overlay on one card's map does not combine with an image set on the band's map. 
 holds too: an overlay on the band's map reaches no card that sets its own `image` for that
 role, because the card's image replaces its whole background — put the overlay on each such
 card's map. A `udc_preset_value_shadowed_by_role_default` finding leaves out any value you
-already set in that same map: it paints.
+already set for desktop (a single value, or a breakpoint map with `d`) in that same map: it
+paints. It also compares per breakpoint: a preset value only a narrower tier sets paints there,
+and a value that loses only some tiers is listed with `at breakpoint …`.
 
 ---
 
