@@ -2650,8 +2650,9 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     ? 'an overlay on the band\'s map is layered only over a background.image on the band\'s '
                       . 'map, and this role has no usable one there (none is set, or the attachment it names was '
                       . 'deleted); the image a card sets for this role replaces that card\'s whole background, so '
-                      . 'this scrim reaches no card. Put the overlay on each card\'s own map, or set (or '
-                      . 're-import) background.image on the band\'s map'
+                      . 'this scrim reaches no card. Put the overlay on each card\'s own map'
+                      // Not "set background.image on the band's map": a band image would still be
+                      // replaced on exactly these cards, silently (#1133).
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])

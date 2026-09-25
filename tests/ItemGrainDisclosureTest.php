@@ -775,6 +775,8 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertCount(1, $found);
         $this->assertStringContainsString("card's own map", $found[0]['message']);
         $this->assertStringNotContainsString('or remove the overlay', $found[0]['message'], 'not the generic reason');
+        $this->assertStringNotContainsString('or set (or re-import)', $found[0]['message'],
+            'that advice leads to a band image the card-set images still hide, silently');
     }
 
     /** An authored STATE value is left out of the shadow finding at state grain only. */
