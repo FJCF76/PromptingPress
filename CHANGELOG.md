@@ -105,8 +105,9 @@ longer say a forged flag passes.
 shorthand winning its coordinate through the write path and in the browser; `OverlayAccentOffScrimTest`,
 `UdcEffectiveBackgroundTest`, `OverlayTierDefaultsTest`, `CliSchemaCommandTest` and
 `TableEmbedLogosMarkupTest` cover the new causes, the lightness rule, the accessor's `size` / `repeat` /
-`partial` / `raw`, the schema gate, the report keys and the forged-flag strip. Each fix was shown to
-fail first, and each new check was shown to fail against a deliberately broken copy.
+`partial` / `raw`, the schema gate, the report keys and the forged-flag strip, and
+`RawBackgroundOverlayCoverageTest` (10, new) pins the remaining new paths. Each fix was shown to fail
+first, and each check added with a fix was shown to fail against a deliberately broken copy.
 
 ### Known issues
 
