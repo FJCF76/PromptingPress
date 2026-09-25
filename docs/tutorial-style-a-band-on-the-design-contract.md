@@ -292,7 +292,9 @@ nothing and costs you the catalog, the type check and the ability to change it b
 **If you set both, the raw one wins.** A `_css` `color` outranks `typography.color` on the
 same role. That is deliberate — an escape hatch that lost to the thing it was escaping would
 be useless — but it means writing both is always a mistake, and the write envelope tells you
-so with a `udc_css_overrides_group_value` finding naming the parameter that lost.
+so with a `udc_css_overrides_group_value` finding naming the parameter that lost. A raw
+shorthand wins everything it resets: a raw `background` cancels every `background.*` value
+you set at that state and width, the image and its scrim included.
 
 **A property the vocabulary does not know is checked for safety only.** It is screened for
 anything that could break out of the declaration, and then emitted exactly as you wrote it.
@@ -323,7 +325,10 @@ unbeatable by the component's own defaults and by your own next write, so it is 
 
 And one thing the engine cannot do for you: **a raw `background` or `opacity` changes what
 your text sits on, and nothing checks the contrast.** That was true of the groups too, but
-it bites harder here, because a raw value is the one the engine understands least.
+it bites harder here, because a raw value is the one the engine understands least. The one
+place it looks: on a band with a scrimmed image, a raw `background` that replaces the image
+and leaves a light or unreadable backdrop under the re-lit accent inks is named as
+`udc_overlay_accent_off_scrim`. Every other text over a raw background is yours to check.
 
 ## What you built
 
