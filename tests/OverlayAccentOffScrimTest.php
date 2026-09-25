@@ -184,15 +184,24 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame([[255, 255, 255, 1.0], [0, 0, 0, 1.0]], _pp_udc_value_colours('white black', []));
     }
 
-    /** An unreadable scrim and an unreadable enclosing panel are both named: the engine cannot tell they are dark. */
-    public function testAnUnreadableScrimAndAnUnreadablePanelAreBothNamed(): void
+    /**
+     * The finding reads what the page paints (design ruling). A value the write gate refuses
+     * and the emitter does not paint (a color-mix() scrim or fill, an unresolved reference)
+     * leaves no scrim or surface to disclose, so there is nothing to name; the reader itself
+     * still answers "unknown" for such a value rather than guessing.
+     */
+    public function testAValueThePageDoesNotPaintIsNotNamed(): void
     {
-        $scrim = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'color-mix(in srgb, white 50%, black)']]]);
-        $this->assertCount(1, $scrim, 'a scrim the engine cannot read is named: it cannot tell it is dark');
-        $this->assertStringContainsString('the engine cannot read the scrim you set', $scrim[0]['message']);
-        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'color-mix(in srgb, white 50%, black)']]]);
-        $this->assertCount(1, $found);
-        $this->assertStringContainsString('that is light or that the engine cannot read', $found[0]['message']);
+        foreach ([['_band' => ['background' => ['image' => 9001, 'overlay' => 'color-mix(in srgb, white 50%, black)']]],
+            ['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'color-mix(in srgb, white 50%, black)']]],
+            ['_band' => ['background' => ['image' => 9001, 'overlay' => 'linear-gradient(@no-such-token, rgba(0,0,0,0.7))']]]] as $udc) {
+            $this->assertInstanceOf(WP_Error::class, pp_udc_validate_map($udc, 'cta'), 'premise: the gate refuses it');
+            $css = pp_udc_band_css(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => $udc]);
+            $this->assertStringNotContainsString('color-mix', $css, 'premise: the page does not paint it');
+            $this->assertStringNotContainsString('no-such-token', $css);
+            $this->assertSame([], $this->found($udc));
+        }
+        $this->assertNull(_pp_udc_value_is_light('color-mix(in srgb, white 50%, black)', []));
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => 'hsl(0 0% 10%)']]]),
             'a dark hsl() panel is read as dark');
     }
@@ -226,7 +235,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     /** Several re-lit roles are named together, in the plural. */
     public function testSeveralReLitRolesAreNamedInThePlural(): void
     {
-        $found = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'white']]],
+        $found = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.9)']]],
             'stats', ['title' => 'S', 'title_accent' => 'A', 'items' => []]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('roles "heading-accent", "number" re-light to', $found[0]['message']);
@@ -287,7 +296,9 @@ final class OverlayAccentOffScrimTest extends TestCase
         foreach (['button', 'button-secondary', 'eyebrow', 'body'] as $beside) {
             $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], $beside => ['background' => ['fill' => '#ffffff']]]), $beside);
         }
-        foreach (['inner', 'text', 'heading'] as $outer) {
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'inner' => ['background' => ['fill' => '#ffffff']]]),
+            '`inner` permits no background group, so the page paints no surface there');
+        foreach (['text', 'heading'] as $outer) {
             $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], $outer => ['background' => ['fill' => '#ffffff']]]), $outer);
         }
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'cta-secondary' => ['background' => ['fill' => '#ffffff']]],
@@ -377,8 +388,6 @@ final class OverlayAccentOffScrimTest extends TestCase
             'linear-gradient(@no-such-token, black)'] as $value) {
             $this->assertNull(_pp_udc_value_is_light($value, []), $value);
         }
-        $this->assertCount(1, $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'linear-gradient(@no-such-token, rgba(0,0,0,0.7))']]]),
-            'an unresolved reference beside a colour is unread, and named');
         $this->assertFalse(_pp_udc_value_is_light('linear-gradient(to bottom right, rgba(0,0,0,0.7) 0%, #000 100%)', []), 'gradient syntax around readable stops');
     }
 
@@ -407,7 +416,8 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertTrue(pp_execute_action('save_preset', ['name' => 'white-role2', 'grain' => 'role', 'udc' => ['background' => ['fill' => '#ffffff']]])['ok']);
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_preset' => 'white-role2', 'background' => ['fill' => '#101828']]]));
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background' => '#ffffff']]]));
-        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-image' => 'linear-gradient(#ffffff, #ffffff)']]]));
+        // A `_css` background-image the gate refuses (it keeps the image parameter's grammar) is not painted, so not named.
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-image' => 'linear-gradient(#ffffff, #ffffff)']]]));
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => [':hover' => ['fill' => '#ffffff']]]]), 'a state-only fill');
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => [':hover' => ['fill' => ['d' => '#ffffff']]]]]), 'a per-breakpoint state fill');
     }
@@ -467,7 +477,10 @@ final class OverlayAccentOffScrimTest extends TestCase
             'the page paints the site --overlay-bg (dark), not the band token');
 
         $this->assertTrue(pp_execute_action('save_preset', ['name' => 'lightpanel', 'grain' => 'background', 'udc' => ['fill' => '@color-bg']])['ok']);
+        // The band also USES its own `color-bg` token (a dark `body` panel), so the compiled band carries
+        // it: the preset's `var(--color-bg)` must still resolve to the SITE value, not this one.
         $found = $this->found(['_tokens' => ['color-bg' => '#000000'], '_band' => ['background' => self::DARK_SCRIM],
+            'body' => ['background' => ['fill' => '@color-bg']],
             'heading-accent' => ['background' => ['_preset' => 'lightpanel']]]);
         $this->assertCount(1, $found, 'the page paints the site --color-bg (light) behind the re-lit accent');
         $this->assertStringContainsString('has a background from preset "lightpanel" (@color-bg)', $found[0]['message']);
@@ -520,6 +533,17 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['_preset' => 'gh']]]));
         $this->assertTrue(pp_execute_action('save_preset', ['name' => 'hover-white', 'grain' => 'role', 'udc' => ['background' => [':hover' => ['fill' => '#ffffff']]]])['ok']);
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_preset' => 'hover-white']]));
+    }
+
+    /** One compile serves both disclosures: the dropped-overlay finding still speaks on an overlaid band. */
+    public function testTheSharedCompileKeepsTheDroppedOverlayDisclosure(): void
+    {
+        $all = pp_udc_composition_findings([['component' => 'cta', 'id' => 'pp-a1b2c3d4',
+            'props' => ['title' => 'C', 'title_accent' => 'A', 'button_text' => 'Go', 'button_url' => '/x'],
+            'udc'   => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(6,10,28,0.72)']],
+                        'text'  => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]]]);
+        $types = array_column($all, 'type');
+        $this->assertContains('udc_overlay_without_image', $types, 'the text overlay has no image: the emitter drops it and says so');
     }
 
     /** Bounded across the composition like its sibling arms. */

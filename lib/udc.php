@@ -2615,22 +2615,6 @@ function _pp_udc_map_sets_ink(array $role_map): bool {
 }
 
 /**
- * Whether a role map authors its text colour AT REST at every width (#1010 review). The
- * overlay tier re-lights the resting colour, so an ink set only for `:hover`, or only at
- * some breakpoints (a map without the base `d` tier), leaves the rest re-lit.
- */
-function _pp_udc_map_sets_rest_ink(array $role_map): bool {
-    foreach (_pp_udc_ink_groups($role_map) as $group) {
-        // A breakpoint map without the base tier inks only the widths it names; the tier
-        // re-lights the rest, so it is not a resting ink everywhere.
-        if (array_key_exists('color', $group) && (!is_array($group['color']) || array_key_exists('d', $group['color']))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
  * Whether a role map supplies its own surface (#1125): a `background.fill` in the map
  * itself or from a preset it applies at role grain or inside `background`, a background
  * image that RESOLVES (in the emitter's precedence, _pp_udc_role_map_background_image():
@@ -2657,32 +2641,6 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
         }
     }
     return false;
-}
-
-/**
- * The background colours a role map paints (#1010 review): its fill tiers at rest and in
- * each state, merged per tier as the emitter merges them (_pp_udc_background_param_tiers()),
- * plus any `_css` background value, each as [value, preset name or null]: a preset's
- * references resolve against site tokens only.
- *
- * @return array<int, array{0: string, 1: ?string}>
- */
-function _pp_udc_role_map_surface_values(array $role_map): array {
-    $values = [];
-    foreach (array_merge([null], array_keys(pp_udc_states())) as $state) {
-        foreach (_pp_udc_background_param_tiers($role_map, 'fill', $state === null ? null : (string) $state) as [$value, $from]) {
-            $values[] = [$value, $from];
-        }
-    }
-    $raw = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
-    foreach (['background', 'background-color', 'background-image'] as $property) {
-        foreach ((array) ($raw[$property] ?? []) as $value) {
-            if (is_string($value)) {
-                $values[] = [$value, null];
-            }
-        }
-    }
-    return $values;
 }
 
 /**
@@ -8805,50 +8763,79 @@ function pp_udc_composition_findings(array $items): array {
         // THE OVERLAY TIER'S RESIDUAL, DISCLOSED (#1010 review, 7A ruling 1 = A). On a band the
         // engine marks overlaid, the accent inks re-light to the near-white on-overlay ink on
         // the premise that they sit on a dark scrim. Authored shapes that break the premise
-        // are named rather than outguessed: a scrim set only at some widths; a scrim that is
-        // light, partly transparent, or unreadable; and a light (or unreadable) surface, at
-        // rest or in a state, on the accent itself or on a role that ENCLOSES it, which each
-        // accent's schema declares as data (`within`), so a light button beside the heading
-        // is not named. Values a preset supplies read site tokens only, as the emitter does.
-        // Authored wins: an accent whose resting ink the author set at every width (the base
-        // tier) is not re-lit and not named.
-        if ($relit_disclosed < PP_UDC_MAX_EMIT_DROPS && pp_udc_band_has_overlay($item)) {
-            $relit = [];
-            foreach ($roles as $role_name => $definition) {
-                if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults'])
-                    && $definition['overlay_defaults'] !== []
-                    && !_pp_udc_map_sets_rest_ink(is_array($item['udc'][$role_name] ?? null) ? $item['udc'][$role_name] : [])) {
-                    $relit[] = (string) $role_name;
+        // are named rather than outguessed: a scrim that leaves some widths unscrimmed; a
+        // scrim that is light, partly transparent, or unreadable; and a light (or unreadable)
+        // surface, at rest or in a state, on the accent itself or on a role that ENCLOSES it
+        // (schema data, `within`), so a light button beside the heading is not named.
+        //
+        // READ OFF THE COMPILED BAND, NEVER RE-DERIVED (design ruling, the #1117 doctrine).
+        // Four review cycles each found a place where a hand-written resolver drifted from the
+        // emitter (its responsive mint names, its site-token scope for presets, its
+        // per-breakpoint merge of author and preset tiers, its state buckets). This arm now
+        // compiles the band once through pp_udc_compile_band() and reads the declarations the
+        // page will carry: the copy cannot drift because there is no copy. The same compile
+        // serves the dropped-overlay disclosure below. Authored wins: an accent whose resting
+        // ink the compiled band declares at the base tier is not re-lit and not named.
+        $band_compiled = null;
+        $band_drops    = [];
+        $tier_roles    = [];
+        foreach ($roles as $role_name => $definition) {
+            if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults']) && $definition['overlay_defaults'] !== []) {
+                $tier_roles[] = (string) $role_name;
+            }
+        }
+        $band_has_id = isset($item['id']) && is_scalar($item['id']) && pp_udc_valid_band_id((string) $item['id']);
+        if ($tier_roles !== [] && $band_has_id && $relit_disclosed < PP_UDC_MAX_EMIT_DROPS
+            && is_array($item['udc']['_band'] ?? null) && _pp_udc_map_may_carry_overlay($item['udc']['_band'], 0, false, $overlay_preset_memo)) {
+            try {
+                $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
+            } catch (\Throwable $e) {
+                error_log('PromptingPress: off-scrim findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
+                $band_compiled = null;
+                $band_drops    = [];
+            }
+        }
+        $scrim_tiers = $band_compiled === null ? [] : _pp_udc_compiled_scrim_tiers($band_compiled);
+        if ($scrim_tiers !== []) {
+            $blocks = (array) ($band_compiled['blocks'] ?? []);
+            $rest_inked = [];
+            foreach ($blocks as $block) {
+                if (($block['item'] ?? '') === '' && ($block['state'] ?? '') === '' && ($block['bp'] ?? '') === 'd'
+                    && isset($block['decls']['color'])) {
+                    $rest_inked[(string) $block['role']] = true;
                 }
             }
+            $relit = array_values(array_filter($tier_roles, static fn (string $r): bool => !isset($rest_inked[$r])));
             if ($relit !== []) {
-                $band_tokens = is_array($item['udc']['_tokens'] ?? null) ? $item['udc']['_tokens'] : [];
                 $conditions  = []; // [condition text, the re-lit roles it concerns]
-                // The scrim tier by tier, merged as the emitter merges it (author, then presets).
-                $scrim_tiers = _pp_udc_background_param_tiers($item['udc']['_band'], 'overlay');
                 $breakpoints = pp_udc_breakpoints();
-                if (!isset($scrim_tiers['d'])) {
-                    // Without the base tier the scrim paints only at the widths it names.
-                    $named   = array_values(array_intersect(array_keys($breakpoints), array_keys($scrim_tiers)));
-                    $missing = array_values(array_diff(array_keys($breakpoints), $named));
-                    if ($named !== [] && $missing !== []) {
-                        $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
-                            . (count($keys) === 1 ? ' width' : ' widths');
-                        $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
-                            $label($named), $label($missing)), $relit];
+                $covered     = [];
+                foreach (array_keys($breakpoints) as $bp) {
+                    $tier = $scrim_tiers[$bp] ?? ($scrim_tiers['d'] ?? null);
+                    if ($tier !== null && $tier[0] !== '') {
+                        $covered[] = $bp;
                     }
                 }
-                foreach ($scrim_tiers as [$scrim, $scrim_preset]) {
-                    // The emitter resolves a preset's references against site tokens only.
-                    $scrim_tokens = $scrim_preset === null ? $band_tokens : [];
-                    $scrim_label  = $scrim_preset === null ? 'the scrim you set' : sprintf('the scrim from preset "%s"', _pp_udc_reflect($scrim_preset));
-                    $colours      = _pp_udc_value_colours($scrim, $scrim_tokens);
-                    $shown        = _pp_udc_reflect($scrim);
+                $missing = array_values(array_diff(array_keys($breakpoints), $covered));
+                if ($covered !== [] && $missing !== []) {
+                    $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
+                        . (count($keys) === 1 ? ' width' : ' widths');
+                    $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
+                        $label($covered), $label($missing)), $relit];
+                }
+                foreach ($scrim_tiers as [$layers, $source]) {
+                    if ($layers === '') {
+                        continue;
+                    }
+                    $scrim       = _pp_udc_compiled_value($layers, $band_compiled);
+                    $scrim_label = 'the scrim' . ($source === '' || strncmp($source, 'preset:', 7) !== 0 ? ' you set' : _pp_udc_source_phrase($source));
+                    $colours     = _pp_udc_value_colours($scrim, []);
+                    $shown       = _pp_udc_reflect(_pp_udc_compiled_display($layers, $band_compiled));
                     if ($colours === []) {
                         $conditions[] = [sprintf('the engine cannot read %s (%s), so it cannot tell whether it is dark', $scrim_label, $shown), $relit];
                         break;
                     }
-                    if (_pp_udc_value_is_light($scrim, $scrim_tokens) === true) {
+                    if (_pp_udc_value_is_light($scrim, []) === true) {
                         $conditions[] = [sprintf('%s is light (%s)', $scrim_label, $shown), $relit];
                         break;
                     }
@@ -8857,39 +8844,43 @@ function pp_udc_composition_findings(array $items): array {
                         break;
                     }
                 }
-                // A surface on the accent itself or on a role that encloses it.
+                // A surface on the accent itself or on a role that encloses it, as compiled.
                 $enclosing = [];
                 foreach ($relit as $accent) {
-                    // The accent's own surface too (a highlighter behind the accent word).
-                    $enclosing[$accent][] = $accent;
+                    $enclosing[$accent][] = $accent; // a highlighter behind the accent word
                     foreach ((array) ($roles[$accent]['within'] ?? []) as $outer) {
                         if (is_string($outer) && $outer !== '' && $outer !== $accent) {
                             $enclosing[$outer][] = $accent;
                         }
                     }
                 }
-                foreach ($preset_maps as [$locator, $map]) {
-                    foreach ($map as $role_name => $role_map) {
-                        $role_name = (string) $role_name;
-                        if (!isset($enclosing[$role_name]) || !is_array($role_map)
-                            || ($locator !== '' && !in_array($role_name, $preset_item_roles, true))) {
+                $named_surface = [];
+                foreach ($blocks as $block) {
+                    $role_name = (string) ($block['role'] ?? '');
+                    $locator   = (string) ($block['item'] ?? '');
+                    if (!isset($enclosing[$role_name]) || isset($named_surface[$locator . '|' . $role_name])) {
+                        continue;
+                    }
+                    $where = ($locator === '' ? '' : sprintf('item "%s" ', _pp_udc_reflect($locator))) . sprintf('role "%s"', $role_name)
+                        . ', ' . (in_array($role_name, $relit, true) ? 'the accent itself' : 'which encloses it');
+                    foreach (['background', 'background-color', 'background-image'] as $property) {
+                        $decl = $block['decls'][$property] ?? null;
+                        if (!is_array($decl) || !is_string($decl['css'] ?? null)) {
                             continue;
                         }
-                        $where = ($locator === '' ? '' : sprintf('item "%s" ', _pp_udc_reflect($locator))) . sprintf('role "%s"', $role_name);
-                        foreach (_pp_udc_role_map_surface_values($role_map) as [$surface, $surface_preset]) {
-                            if (strtolower($surface) !== 'transparent'
-                                && _pp_udc_value_is_light($surface, $surface_preset === null ? $band_tokens : []) !== false) {
-                                $conditions[] = [sprintf('%s, %s, has a background %s (%s) that is light or that the engine cannot read',
-                                    $where, in_array($role_name, $relit, true) ? 'the accent itself' : 'which encloses it',
-                                    $surface_preset === null ? 'you set' : sprintf('from preset "%s"', _pp_udc_reflect($surface_preset)),
-                                    _pp_udc_reflect($surface)), $enclosing[$role_name]];
-                                continue 2;
-                            }
+                        $css    = $decl['css'];
+                        $origin = strncmp((string) ($decl['source'] ?? ''), 'preset:', 7) === 0
+                            ? ltrim(_pp_udc_source_phrase((string) $decl['source'])) : 'you set';
+                        if (stripos($css, 'url(') !== false) {
+                            $conditions[] = [sprintf('%s, has a background image %s, whose lightness the engine cannot read', $where, $origin), $enclosing[$role_name]];
+                            $named_surface[$locator . '|' . $role_name] = true;
+                            break;
                         }
-                        if (_pp_udc_role_map_background_image($role_map) !== null) {
-                            $conditions[] = [sprintf('%s, %s, has a background image you set, whose lightness the engine cannot read',
-                                $where, in_array($role_name, $relit, true) ? 'the accent itself' : 'which encloses it'),
-                                $enclosing[$role_name]];
+                        if (strtolower(trim($css)) !== 'transparent' && _pp_udc_value_is_light(_pp_udc_compiled_value($css, $band_compiled), []) !== false) {
+                            $conditions[] = [sprintf('%s, has a background %s (%s) that is light or that the engine cannot read',
+                                $where, $origin, _pp_udc_reflect(_pp_udc_compiled_display($css, $band_compiled))), $enclosing[$role_name]];
+                            $named_surface[$locator . '|' . $role_name] = true;
+                            break;
                         }
                     }
                 }
@@ -8933,7 +8924,8 @@ function pp_udc_composition_findings(array $items): array {
         // render that never happens (I29). Every authoring path runs this walk after ids are
         // minted, so this only ever meets a stored band from raw meta or restore (#233).
         // What it costs is one compile per band that passes the pre-filter below, on the
-        // findings paths only (never render), and none once the cap is reached.
+        // findings paths only, and none once the cap is reached; when the off-scrim arm
+        // above already compiled the band, its compile and ledger are reused here.
         $overlay_probe = $item;
         $overlay_probe_has_id = isset($overlay_probe['id']) && is_scalar($overlay_probe['id'])
             && pp_udc_valid_band_id((string) $overlay_probe['id']);
@@ -8953,7 +8945,11 @@ function pp_udc_composition_findings(array $items): array {
             }
             $overlay_candidate = _pp_udc_map_may_carry_overlay($candidate_map, 0, false, $overlay_preset_memo);
         }
-        if ($overlay_probe_has_id && $overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+        if ($band_compiled !== null) {
+            // The off-scrim arm above already compiled this band with a drop ledger: reuse
+            // it rather than compiling twice (the same item, the same layer, the same call).
+            $overlay_drops = $band_drops;
+        } elseif ($overlay_probe_has_id && $overlay_candidate && $overlay_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             try {
                 pp_udc_compile_band($overlay_probe, 'authored', $overlay_drops);
             } catch (\Throwable $e) {
@@ -10175,50 +10171,82 @@ function pp_udc_band_has_overlay(array $item): bool {
     if (!isset($item['id']) || !is_scalar($item['id']) || !pp_udc_valid_band_id((string) $item['id'])) {
         return false;
     }
+    // A cheap necessary condition first: only a map that names an overlay (directly or
+    // through a preset) can paint one, so the common band never compiles here.
     $band_map = $item['udc']['_band'] ?? null;
-    // The scrim first: it is a map read, and a band with no scrim (an image-only hero, the
-    // common case) then never pays for the attachment lookups on the render path.
-    return is_array($band_map) && _pp_udc_background_param_tiers($band_map, 'overlay') !== []
-        && _pp_udc_role_map_background_image($band_map) !== null;
+    if (!is_array($band_map) || !_pp_udc_map_may_carry_overlay($band_map)) {
+        return false;
+    }
+    try {
+        foreach (_pp_udc_compiled_scrim_tiers(pp_udc_compile_band($item, 'authored')) as [$layers]) {
+            if ($layers !== '') {
+                return true;
+            }
+        }
+        return false;
+    } catch (\Throwable $e) {
+        return false;
+    }
 }
 
 /**
- * The tiers one `background` parameter paints on a role map, merged the way the EMITTER
- * merges them (#1010 review, cycle 4): per breakpoint tier, the author's own value where the
- * author set that tier, else a group-grain `background._preset`'s, else a role-grain
- * `_preset`'s. A preset tier the author did not override still paints, so a reader that
- * takes the author's value as a whole (and drops the preset's other tiers) disagrees with
- * the page. $state reads that state's bucket (`background[":hover"]`) the same way.
+ * The scrim the RENDERER paints on a compiled band (#1010 review, design ruling): per
+ * breakpoint tier whose `_band` rest block declares a background-image, [scrim layers or
+ * '' when that tier paints the image alone, the declaration's source]. Read off the
+ * compiled output, never re-derived: the emitter has already merged author and preset
+ * tiers, resolved the image (a deleted attachment paints nothing and so has no entry),
+ * dropped an overlay with no image, and chosen each reference's token scope. A tier with
+ * no entry inherits the base tier at render.
  *
- * @return array<string, array{0: string, 1: ?string}> tier => [value, preset name or null]
+ * @return array<string, array{0: string, 1: string}>
  */
-function _pp_udc_background_param_tiers(array $role_map, string $param, ?string $state = null): array {
-    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
-    $rungs      = [[$background, null]];
-    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
-        $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
-        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
-        $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
-        if (is_array($group)) {
-            $rungs[] = [$group, (string) $name];
-        }
-    }
-    $breakpoints = pp_udc_breakpoints();
-    $tiers       = [];
-    foreach ($rungs as [$group, $name]) {
-        $bucket = $state === null ? $group : ($group[$state] ?? null);
-        if (!is_array($bucket) || !array_key_exists($param, $bucket)) {
+function _pp_udc_compiled_scrim_tiers(array $compiled): array {
+    $tiers = [];
+    foreach ((array) ($compiled['blocks'] ?? []) as $block) {
+        if (($block['role'] ?? '') !== '_band' || ($block['state'] ?? '') !== '' || ($block['item'] ?? '') !== '') {
             continue;
         }
-        $value = $bucket[$param];
-        foreach (is_array($value) ? $value : ['d' => $value] as $tier => $tier_value) {
-            $tier = (string) $tier;
-            if (isset($breakpoints[$tier]) && !isset($tiers[$tier]) && is_string($tier_value) && $tier_value !== '') {
-                $tiers[$tier] = [$tier_value, $name];
-            }
+        $image = $block['decls']['background-image'] ?? null;
+        if (!is_array($image) || !is_string($image['css'] ?? null) || stripos($image['css'], 'url(') === false) {
+            continue;
         }
+        $layers = trim((string) preg_replace('/,?\s*url\(\s*"[^"]*"\s*\)|,?\s*url\([^)]*\)/i', '', $image['css']), " ,");
+        $tiers[(string) ($block['bp'] ?? 'd')] = [$layers, (string) ($image['source'] ?? '')];
     }
     return $tiers;
+}
+
+/**
+ * A compiled declaration's CSS with the band's own custom properties put back
+ * (`var(--pp-NAME)` -> the compiled band token), so the colour reader sees the value the
+ * page resolves; site-level `var(--token)` references are resolved by the reader.
+ */
+function _pp_udc_compiled_value(string $css, array $compiled): string {
+    $tokens = is_array($compiled['tokens'] ?? null) ? $compiled['tokens'] : [];
+    return (string) preg_replace_callback('/var\(\s*--pp-([a-z0-9_-]+)\s*\)/i', static function (array $m) use ($tokens): string {
+        return isset($tokens[$m[1]]) && is_scalar($tokens[$m[1]]) ? (string) $tokens[$m[1]] : $m[0];
+    }, $css);
+}
+
+/**
+ * A compiled value as the author would write it, for a message: band tokens put back, a
+ * site `var(--name)` shown as `@name`, and the emitter's `linear-gradient(c,c)` wrapping of
+ * a plain scrim colour unwrapped to `c`.
+ */
+function _pp_udc_compiled_display(string $css, array $compiled): string {
+    $value = (string) preg_replace('/var\(\s*--([a-z0-9][a-z0-9-]*)\s*\)/i', '@$1', _pp_udc_compiled_value($css, $compiled));
+    if (preg_match('/^linear-gradient\((.+)\)$/s', $value, $m)) {
+        $half = intdiv(strlen($m[1]) - 1, 2);
+        if (strlen($m[1]) % 2 === 1 && $m[1][$half] === ',' && substr($m[1], 0, $half) === substr($m[1], $half + 1)) {
+            return substr($m[1], 0, $half);
+        }
+    }
+    return $value;
+}
+
+/** How a compiled declaration's source names its origin in a message: '' for the author's own map. */
+function _pp_udc_source_phrase(string $source): string {
+    return strncmp($source, 'preset:', 7) === 0 ? sprintf(' from preset "%s"', _pp_udc_reflect(substr($source, 7))) : '';
 }
 
 /**
