@@ -188,6 +188,13 @@ final class UdcEffectiveBackgroundTest extends TestCase
         $this->assertFalse($fx['tiers']['d']['partial'], 'the short axis tiles, the other is 100%');
         [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '100% 200px', 'repeat' => 'repeat-x']));
         $this->assertTrue($fx['tiers']['d']['partial'], 'the short axis is the one that does not tile');
+        // repeat-y tiles the vertical axis only, and round tiles both (PR-2 review cycle 2, testing).
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '200px 100%', 'repeat' => 'repeat-y']));
+        $this->assertTrue($fx['tiers']['d']['partial'], 'repeat-y leaves the short horizontal axis untiled');
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '100% 200px', 'repeat' => 'repeat-y']));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'repeat-y tiles the short vertical axis');
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '200px', 'repeat' => 'round']));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'round tiles both axes');
     }
 
     /** Repeat inherits per tier like size (PR-2 review, testing). */

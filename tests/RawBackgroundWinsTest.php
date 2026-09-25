@@ -224,4 +224,20 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringContainsString('Set background.image', array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'))[0]['reason'],
             'control: a fill with no image keeps its own advice');
     }
+
+    /**
+     * An item with no usable id is not compiled for the collision message, so it keeps the collision wording and
+     * never claims the raw value "cannot be emitted" (a valid '#ffffff' can be) (PR-2 review cycle 2, testing).
+     */
+    public function testAnItemWithNoIdKeepsTheCollisionWordingForBothArms(): void
+    {
+        foreach ([
+            'shorthand' => ['_band' => ['background' => ['image' => 9001], PP_UDC_CSS_KEY => ['background' => '#ffffff']]],
+            'longhand'  => ['text' => ['background' => ['image' => 9001], PP_UDC_CSS_KEY => ['background-image' => 'linear-gradient(#000,#111)']]],
+        ] as $arm => $udc) {
+            $found = $this->collision(['component' => 'cta', 'props' => ['title' => 'C'], 'udc' => $udc]);
+            $this->assertCount(1, $found, $arm);
+            $this->assertStringNotContainsString('cannot be emitted', $found[0]['message'], $arm);
+        }
+    }
 }
