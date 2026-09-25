@@ -118,6 +118,31 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([], $found);
     }
 
+    /** An ink a preset supplies paints like the map's own, at role grain and inside `typography`. */
+    public function testAPresetSuppliedInkIsDisclosed(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'ink-role', 'grain' => 'role',
+            'udc' => ['typography' => ['color' => '#ffffff']]])['ok']);
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'ink-type', 'grain' => 'typography',
+            'udc' => ['color' => '#ffffff']])['ok']);
+        foreach ([['_preset' => 'ink-role'], ['typography' => ['_preset' => 'ink-type']]] as $eyebrow) {
+            [, $found] = $this->write(['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'eyebrow' => $eyebrow]);
+            $this->assertCount(1, $found, json_encode($eyebrow));
+        }
+    }
+
+    /** A role image whose attachment is gone paints nothing, so the default fill still shows. */
+    public function testADeletedRoleImageDoesNotCoverTheFill(): void
+    {
+        $found = array_values(array_filter(pp_udc_composition_findings([[
+            'component' => 'section', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
+                            'panel' => ['background' => ['image' => 9002], 'typography' => ['color' => '@color-bg']]],
+            'props'     => ['title' => 'T', 'body' => 'b'],
+        ]]), static fn ($f) => $f['type'] === self::TYPE));
+        $this->assertCount(1, $found, 'no attachment 9002 in the store');
+    }
+
     /** A band darkened through a preset the author applied is an authored band surface. */
     public function testABandDarkenedByAPresetIsAnAuthoredBandSurface(): void
     {

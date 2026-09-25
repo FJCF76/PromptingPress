@@ -2574,28 +2574,45 @@ function _pp_udc_role_own_surface_fill(array $role_def): ?array {
     return null;
 }
 
-/** Whether a role map authors a text colour, at rest or in any state (#1125). */
+/**
+ * Whether a role map authors a text colour, at rest or in any state (#1125): in the map
+ * itself, or from a preset it applies at role grain or inside `typography` (the emitter
+ * paints a preset's ink exactly as the map's own).
+ */
 function _pp_udc_map_sets_ink(array $role_map): bool {
     $typography = isset($role_map['typography']) && is_array($role_map['typography']) ? $role_map['typography'] : [];
-    if (array_key_exists('color', $typography)) {
-        return true;
+    $candidates = [$typography];
+    foreach ([[$typography[PP_UDC_PRESET_KEY] ?? null, 'typography'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+        $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
+        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+        $group    = $grain === 'role' ? ($fragment['typography'] ?? null) : $fragment;
+        if (is_array($group)) {
+            $candidates[] = $group;
+        }
     }
-    foreach (pp_udc_states() as $state => $unused) {
-        if (isset($typography[$state]) && is_array($typography[$state]) && array_key_exists('color', $typography[$state])) {
+    foreach ($candidates as $group) {
+        if (array_key_exists('color', $group)) {
             return true;
+        }
+        foreach (pp_udc_states() as $state => $unused) {
+            if (isset($group[$state]) && is_array($group[$state]) && array_key_exists('color', $group[$state])) {
+                return true;
+            }
         }
     }
     return false;
 }
 
 /**
- * Whether a role map supplies its own surface (#1125): a `background.fill` or `image` in the
- * map itself, or from a preset it applies at role grain or inside `background`. One level:
- * a preset never references another.
+ * Whether a role map supplies its own surface (#1125): a `background.fill` in the map
+ * itself or from a preset it applies at role grain or inside `background`, a background
+ * image that RESOLVES (in the emitter's precedence, _pp_udc_role_map_background_image():
+ * a deleted attachment paints nothing and leaves the default fill showing), or a `_css`
+ * background. One level: a preset never references another.
  */
 function _pp_udc_map_covers_fill(array $role_map): bool {
     $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
-    if (array_key_exists('fill', $background) || array_key_exists('image', $background)) {
+    if (array_key_exists('fill', $background) || _pp_udc_role_map_background_image($role_map) !== null) {
         return true;
     }
     // The raw-CSS valve paints a surface too: a `_css` background names the surface the
@@ -2608,7 +2625,7 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
         $preset = is_string($name) ? pp_udc_resolve_preset($name) : null;
         $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
         $group = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
-        if (is_array($group) && (array_key_exists('fill', $group) || array_key_exists('image', $group))) {
+        if (is_array($group) && array_key_exists('fill', $group)) {
             return true;
         }
     }
