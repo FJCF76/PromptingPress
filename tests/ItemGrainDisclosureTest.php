@@ -1040,4 +1040,71 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertSame([], $this->findingsOfType($plain, 'udc_overlay_without_image'));
         $this->assertSame([], $this->findingsOfType($narrow, 'udc_overlay_without_image'));
     }
+
+    /**
+     * A GROUP-GRAIN background preset supplies a card image too. _pp_udc_role_map_background_image()
+     * reads `background._preset` before the role-grain `_preset`, as the emitter does; a
+     * card image arriving that way hides the band scrim like any other.
+     */
+    public function testAGroupGrainBackgroundPresetImageEarnsTheCardImageReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        $this->savePreset('probe-gimg', ['image' => 9001], 'background');
+
+        $this->assertSame(9001, _pp_udc_role_map_background_image(['background' => ['_preset' => 'probe-gimg']]));
+
+        [, $r] = $this->page($this->grid(
+            ['card' => ['background' => ['_preset' => 'probe-gimg']]],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+        $found = $this->findingsOfType($r, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString("card's own map", $found[0]['message']);
+    }
+
+    /**
+     * The pre-filter's guard rails: a non-map is no candidate, a non-string `_preset` is not
+     * resolved, a map deeper than any real one is answered "compile", and the memo records
+     * one answer per preset name.
+     */
+    public function testThePreFilterGuardRailsAndMemo(): void
+    {
+        $this->assertFalse(_pp_udc_map_may_carry_overlay('not-a-map'));
+        $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => ['not', 'a', 'name']]]));
+
+        $deep = ['typography' => ['weight' => '800']];
+        for ($k = 0; $k < 10; $k++) {
+            $deep = ['n' => $deep];
+        }
+        $this->assertTrue(_pp_udc_map_may_carry_overlay($deep), 'a shape it cannot see through is compiled, not skipped');
+
+        $this->savePreset('probe-scrim', ['background' => ['overlay' => '#112233']]);
+        $this->savePreset('probe-plain', ['typography' => ['weight' => '800']]);
+        $memo = [];
+        $this->assertTrue(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'probe-scrim']], 0, false, $memo));
+        $this->assertFalse(_pp_udc_map_may_carry_overlay(['card' => ['_preset' => 'probe-plain']], 0, false, $memo));
+        $this->assertSame(['probe-scrim' => true, 'probe-plain' => false], $memo);
+    }
+
+    /**
+     * The model is told about what the engine emits: the overlay finding type (read back
+     * from a real write, not typed here) is named in the runtime prompt, and the prompt and
+     * delete_preset's description both say a CARD reference blocks a delete.
+     */
+    public function testThePromptNamesTheOverlayFindingAndCardReferences(): void
+    {
+        [, $result] = $this->page([[
+            'component' => 'section',
+            'udc'       => ['_band' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]],
+            'props'     => ['title' => 'S', 'body' => 'b'],
+        ]]);
+        $types = array_unique(array_column($result['findings'] ?? [], 'type'));
+        $this->assertContains('udc_overlay_without_image', $types, 'premise: the engine emits it');
+
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('udc_overlay_without_image', $prompt, 'a finding the model is never told about is one it ignores');
+        $this->assertStringContainsString('band, card or chrome role still references', $prompt);
+        $this->assertStringContainsString('item "<id>"', (string) pp_get_action('delete_preset')['description']);
+    }
 }
