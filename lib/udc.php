@@ -2521,7 +2521,8 @@ function _pp_udc_value_covers_base_tier($value): bool {
 
 /**
  * The `group.param` / `group.param (state)` labels a role map sets itself, in the shape
- * _pp_udc_preset_values_shadowed_by_role_defaults() reports, so the shadow finding can
+ * of the base label of each _pp_udc_preset_values_shadowed_entries() entry (the label
+ * without any "at breakpoint …" suffix), so the shadow finding can
  * leave out what the author already wrote (their value outranks preset and default).
  *
  * Keyed by label; each value is the tiers the author's value covers, where a value
@@ -2602,10 +2603,11 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  *                                  can never have an image of its own.
  * @param bool        $in_item      True at item (card) grain, whose compile does not
  *                                  combine the band map's image for the same role.
- * @param bool        $cards_set_image True at band grain when a card's own map sets
- *                                  background.image on this role: that card's image
- *                                  replaces its whole background, so the band scrim
- *                                  reaches no such card.
+ * @param bool        $cards_set_image True at band grain when some card's map resolves
+ *                                  a usable background image for this item role (its
+ *                                  own background.image, or one a preset supplies):
+ *                                  that card's image replaces its whole background, so
+ *                                  the band scrim reaches no such card.
  */
 function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false, bool $in_item = false, bool $cards_set_image = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
