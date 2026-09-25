@@ -1638,4 +1638,76 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
         $this->assertStringContainsString('choosing a fill your text colour reads on (AA: 4.5:1 for body text, 3:1 for large text) that also stands apart from the band', $found[0]['message']);
     }
+
+    /**
+     * A RESTATED DEFAULT INK THROUGH A BAND TOKEN IS NOT A CLASH (ruling A, cycle 3: F's mechanism applied to the ink
+     * side where it was missed). The surface compare puts band tokens back since cycle 2; the ink compare did not, so
+     * `_tokens: {ink: "var(--color-text)"}` restating the eyebrow's own ink fired and told the author their colour
+     * paints over the pill. Controls: the direct token (silent), a breakpoint map of it (silent), and the documented
+     * literal edge, which keeps firing (write the token).
+     */
+    public function testARestatedDefaultInkThroughABandTokenIsNotAClash(): void
+    {
+        $band = ['_band' => ['background' => ['fill' => '#101828']]];
+        [, $found] = $this->write($band + ['_tokens' => ['ink' => 'var(--color-text)'], 'eyebrow' => ['typography' => ['color' => '@ink']]]);
+        $this->assertSame([], $found, 'a band token restating the default ink');
+        [, $found] = $this->write($band + ['eyebrow' => ['typography' => ['color' => '@color-text']]]);
+        $this->assertSame([], $found, 'control: the direct token');
+        [, $found] = $this->write($band + ['eyebrow' => ['typography' => ['color' => ['d' => '@color-text', 't' => '@color-text', 'p' => '@color-text']]]]);
+        $this->assertSame([], $found, 'control: a breakpoint map of it');
+        [, $found] = $this->write($band + ['eyebrow' => ['typography' => ['color' => '#101828']]]);
+        $this->assertCount(1, $found, 'the documented literal edge keeps firing (write the token)');
+        [, $found] = $this->write($band + ['_tokens' => ['ink' => '#ffffff'], 'eyebrow' => ['typography' => ['color' => '@ink']]]);
+        $this->assertCount(1, $found, 'control: a band token that differs is the author\'s ink');
+    }
+
+    /** A band-state cell shows a restated role fill as the default it restates (cycle 3, testing). */
+    public function testABandStateCellShowsARestatedFillAsTheDefault(): void
+    {
+        $surf = sprintf('#%02x%02x%02x', ...array_slice(_pp_udc_value_colours('var(--color-surface)', [])[0], 0, 3));
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]],
+            'surface' => ['background' => ['fill' => ['d' => $surf, 't' => $surf, 'p' => $surf]]]], 'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('while the pointer is over the band', $found[0]['message']);
+        $this->assertStringContainsString('restates that default', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface)', $found[0]['message']);
+    }
+
+    /** The surface-compare memo keys on BOTH values: a cached answer never answers a different default (cycle 3, testing). */
+    public function testTheSameSurfaceMemoKeysOnBothValues(): void
+    {
+        $this->assertTrue(_pp_udc_same_surface('#fff', '#ffffff'));
+        $this->assertFalse(_pp_udc_same_surface('#fff', '#000000'));
+        $this->assertTrue(_pp_udc_same_surface('#fff', '#ffffff'), 'and the first answer still stands');
+    }
+
+    /**
+     * The item sibling's note skips a role inked through `_css`, and ANY `_css` colour (at rest or only in a state)
+     * takes a role out of the "keeps that designed pair" note: CONSERVATIVE BY CHOICE (orchestrator, cycle 3), since
+     * the pair is no longer the designed one in every state (cycle 3, testing).
+     */
+    public function testTheOwnFillNoteSkipsAnyRoleInkedThroughCss(): void
+    {
+        $items = [['id' => 'it-00000001', 'number' => '1', 'title' => 'T', 'text' => 'x', 'udc' => [
+            'card' => ['background' => ['fill' => '#1d2939'], 'typography' => ['color' => '#ffffff']],
+            'step-number' => ['_css' => ['color' => '#ffffff']]]]];
+        $all = pp_udc_composition_findings([['component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'props' => ['layout' => 'steps', 'title' => 'G', 'items' => $items], 'udc' => ['_band' => ['background' => ['fill' => '#101828']]]]]);
+        $item = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_item_value_shadowed_by_role_default'));
+        $this->assertNotEmpty($item, 'premise: the item sibling fires');
+        $this->assertStringNotContainsString('step-number ships its own fill', $item[0]['message']);
+        [, , $all] = $this->write(['_band' => ['background' => ['fill' => '#0f172a'], 'typography' => ['color' => '#ffffff']],
+            'eyebrow' => ['_css' => [':hover' => ['color' => '#ffffff']]]], 'section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertStringContainsString('(panel ships its own fill', $sibling[0]['message'], 'a state-only _css colour takes eyebrow out too');
+    }
+
+    /** An explicit currentColor takes the band's STATE ink as it takes the resting one (cycle 3, testing). */
+    public function testAnExplicitCurrentColorTakesTheBandStateInk(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]],
+            'surface' => ['typography' => ['color' => 'currentColor']]], 'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('while the pointer is over the band', $found[0]['message']);
+    }
 }

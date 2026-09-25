@@ -6708,12 +6708,23 @@ function _pp_udc_widths_phrase(array $bps): string {
 }
 
 /**
- * THE OWN-FILL NOTE on "set it on those roles" (#1125; both shadowing siblings, /ship red team RT3): of the
- * listed roles, the ones whose defaults ship a fill (at rest or in any state: cta `button-secondary` fills
- * only on :hover). They also ship the text colour the band value lost to, so they keep that designed pair
- * (/ship design pass: the note used to say "set each one's background.fill with the colour", which walked
- * authors into repainting pairs that read); recolouring one means setting its fill too, or
- * udc_role_ink_over_own_surface names it. '' when none.
+ * THE OWN-FILL NOTE on "set it on those roles" (#1125; both shadowing siblings, /ship red team RT3). Of the
+ * listed roles:
+ *   - a role whose default fill paints AT REST also ships the text colour the band value lost to, so it keeps
+ *     that designed pair; recolouring it means setting its fill too, or udc_role_ink_over_own_surface names it
+ *     (/ship design: the note used to say "set each one's background.fill with the colour", which walked
+ *     authors into repainting pairs that read);
+ *   - a role that fills only in a STATE (cta `button-secondary`, :hover) has its text on the author's band at
+ *     rest, so it is told to set its colour there (cycle 2, design);
+ *   - a role whose ink the author set through `_css`, at rest OR in any state, is left out: its pair is no
+ *     longer the designed one in every state. CONSERVATIVE BY CHOICE (orchestrator, cycle 3): widening this to
+ *     keep a role inked only in a state is a decision, not a cleanup. The listing itself counts group values
+ *     only, #1149.
+ *
+ * @param string[] $names The listed roles.
+ * @param array    $roles The component's role definitions (their `defaults`).
+ * @param array    $udc   The band's `udc` map, or the item's for the item sibling: read for `_css` colours.
+ * @return string '' when no listed role qualifies.
  */
 function _pp_udc_own_fill_note(array $names, array $roles, array $udc): string {
     $paints = static function ($fill): bool {
@@ -9760,9 +9771,12 @@ function pp_udc_composition_findings(array $items): array {
                                     && strcasecmp(trim((string) $ink['literal']), 'currentColor') !== 0) {
                                     // A RESTATED DEFAULT (ruling, cycle 2 api-contract): the author's ink compiles
                                     // to the very value the role's default ink puts in this cell, so the designed
-                                    // pair is unchanged and there is nothing to name. Read off the compiled tiers;
-                                    // a literal that merely equals a token's value still fires (write the token).
-                                    if (($cell['default_color'] ?? null) !== null && trim((string) $ink['css']) === trim((string) $cell['default_color'])) {
+                                    // pair is unchanged and there is nothing to name. Read off the compiled tiers,
+                                    // with the band's tokens put back (ruling A, cycle 3: F's mechanism on the ink
+                                    // side, so a `_tokens` value restating the default is the default too); a literal
+                                    // that merely equals a token's value still fires (write the token).
+                                    if (($cell['default_color'] ?? null) !== null
+                                        && trim(_pp_udc_compiled_value((string) $ink['css'], $band_compiled)) === trim((string) $cell['default_color'])) {
                                         continue;
                                     }
                                     $kind = 'own';
