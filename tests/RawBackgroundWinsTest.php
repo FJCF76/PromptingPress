@@ -341,4 +341,20 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertStringContainsString($claim, $reason, $label);
         }
     }
+
+    /**
+     * RAW WINS WITH NO IMAGE TOO (contract §2'.3, ruling D1 = A; Step 5.7 adversarial): a raw `background` cancels the
+     * group's background longhands at its coordinate whether or not an image is set, so the page matches what
+     * udc_css_overrides_group_value tells the author. This is a visible change from main for a raw gradient that relied
+     * on background.size / background.repeat (a CHANGELOG BREAKING line).
+     */
+    public function testARawBackgroundWithNoImageCancelsGroupBackgroundLonghands(): void
+    {
+        $this->assertSame('[data-pp-band="pp-a1b2c3d4"]{background:linear-gradient(#000,#fff);}',
+            pp_udc_band_css($this->band([PP_UDC_CSS_KEY => ['background' => 'linear-gradient(#000,#fff)'], 'background' => ['size' => '20px 20px', 'repeat' => 'repeat']])));
+        $this->assertSame('[data-pp-band="pp-a1b2c3d4"]{background:#ffffff;}',
+            pp_udc_band_css($this->band([PP_UDC_CSS_KEY => ['background' => '#ffffff'], 'background' => ['position' => 'center']])));
+        $found = $this->collision($this->band([PP_UDC_CSS_KEY => ['background' => 'linear-gradient(#000,#fff)'], 'background' => ['size' => '20px 20px']]));
+        $this->assertStringContainsString('so the background.size you also set does not paint', $found[0]['message'], 'the message and the page agree');
+    }
 }
