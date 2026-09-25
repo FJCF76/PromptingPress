@@ -9192,8 +9192,18 @@ function pp_udc_composition_findings(array $items): array {
         // and, when it has to compile itself, keeps the drop ledger the #1117 arm below reads.
         $band_udc_map = is_array($item['udc']['_band'] ?? null) ? $item['udc']['_band'] : [];
         $raw_band_css = is_array($band_udc_map[PP_UDC_CSS_KEY] ?? null) ? $band_udc_map[PP_UDC_CSS_KEY] : [];
+        // A NECESSARY CONDITION, never the decider (the compiled check below decides). It reads a
+        // raw `_css` state map too: `{"_css": {":hover": {"background": ...}}}` emits exactly what the
+        // group's state spelling emits, and two spellings of one page must get one answer (red team,
+        // cycle 1).
+        $raw_css_keys = array_map('strval', array_keys($raw_band_css));
+        foreach (pp_udc_states() as $raw_state => $unused_state) {
+            if (is_array($raw_band_css[$raw_state] ?? null)) {
+                $raw_css_keys = array_merge($raw_css_keys, array_map('strval', array_keys($raw_band_css[$raw_state])));
+            }
+        }
         $may_author_band_surface = isset($band_udc_map['background']) || isset($band_udc_map[PP_UDC_PRESET_KEY])
-            || array_intersect(array_map('strval', array_keys($raw_band_css)), ['background', 'background-color', 'background-image']) !== [];
+            || array_intersect($raw_css_keys, ['background', 'background-color', 'background-image']) !== [];
         if ($band_has_id && $may_author_band_surface && $ink_disclosed < PP_UDC_MAX_EMIT_DROPS) {
             try {
                 if ($band_compiled === null) {
@@ -9298,7 +9308,8 @@ function pp_udc_composition_findings(array $items): array {
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
                                 'Component "%s"%s role "%s": the text colour you set (typography.color, a preset you '
-                                . 'applied, or _css) paints over this role\'s own default background (%s)%s, which the '
+                                . 'applied, or _css) paints over this role\'s own default background (%s)%s, on any text '
+                                . 'in this role that inherits it, which the '
                                 . 'band background you set does not replace. Set background.fill for this role%s as well, '
                                 . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). Text roles '
                                 . 'inside this one that set their own colour keep it on whatever fill you set, so re-ink them '

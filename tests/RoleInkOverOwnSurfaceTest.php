@@ -166,6 +166,18 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertContains('udc_preset_value_shadowed_by_role_default', $this->types($all), 'premise: the band fill was not applied');
     }
 
+    /**
+     * Two spellings of one emitted page get one answer (red team, cycle 1): a band surface written
+     * inside a `_css` state emits exactly what the group's state spelling emits, so the gate must see it.
+     */
+    public function testARawCssStateBandSurfacePassesTheGateLikeTheGroupSpelling(): void
+    {
+        foreach ([['_css' => [':hover' => ['background' => '#101828']]], ['background' => [':hover' => ['fill' => '#101828']]]] as $band) {
+            [, $found] = $this->write(['_band' => $band, 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
+            $this->assertCount(1, $found, json_encode($band));
+        }
+    }
+
     /** An image counts as the band surface being authored too. */
     public function testABandImageCountsAsAnAuthoredBandBackground(): void
     {
@@ -319,7 +331,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         );
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "button-secondary"', $found[0]['message']);
-        $this->assertStringContainsString('(@color-accent) in the :hover state, which the band', $found[0]['message'], 'light only while hovered, at every width');
+        $this->assertStringContainsString('(@color-accent) in the :hover state, on any text', $found[0]['message'], 'light only while hovered, at every width');
     }
 
     /**
@@ -380,7 +392,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $found = $this->gridFindings(['card' => ['background' => [':hover' => ['fill' => '#1d2939']]]],
             [['card' => ['typography' => ['color' => '#ffffff']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-bg) at rest, which the band', $found[0]['message']);
+        $this->assertStringContainsString('(@color-bg) at rest, on any text', $found[0]['message']);
         $this->assertStringContainsString('Text roles inside this one that set their own colour keep it', $found[0]['message'],
             'a container role: its own ink does not reach text that sets its own colour');
     }
@@ -397,7 +409,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         ]]));
         $this->assertCount(1, $found);
         $this->assertStringContainsString('(@color-bg)', $found[0]['message']);
-        $this->assertStringContainsString('(@color-bg) at the phone width, which the band', $found[0]['message']);
+        $this->assertStringContainsString('(@color-bg) at the phone width, on any text', $found[0]['message']);
     }
 
     /** An authored base fill outranks a default's narrower tier (the authored rule prints later). */
@@ -423,7 +435,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         ]]));
         $this->assertCount(1, $found);
         $this->assertStringContainsString(
-            '(@color-bg) at rest at the phone width, and in the :hover state at the phone width, which the band',
+            '(@color-bg) at rest at the phone width, and in the :hover state at the phone width, on any text',
             $found[0]['message']
         );
     }
@@ -598,7 +610,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertCount(1, $found);
         $this->assertStringContainsString('Component "nav"', $found[0]['message']);
         $this->assertStringContainsString('role "submenu"', $found[0]['message']);
-        $this->assertStringContainsString('(@color-surface) at the desktop and tablet widths, which the band', $found[0]['message'], 'submenu is transparent on phones');
+        $this->assertStringContainsString('(@color-surface) at the desktop and tablet widths, on any text', $found[0]['message'], 'submenu is transparent on phones');
         $this->assertNull($found[0]['index']);
     }
 
