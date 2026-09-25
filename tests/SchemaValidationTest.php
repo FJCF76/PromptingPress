@@ -6634,17 +6634,21 @@ class SchemaValidationTest extends TestCase
      *
      * The expectation is DERIVED FROM THE TEMPLATE, never a second hand-maintained
      * copy of the answer — a pinned literal list would drift again the moment a
-     * template changed. Three derivation rules, matching the three ways a template
+     * template changed. Two derivation rules, matching the two ways a template
      * emits a root modifier:
      *
-     *   1. THEME    a pp_theme_class($theme, 'PREFIX') call contributes exactly
-     *               PREFIX--dark and PREFIX--inverted (the helper's only two
-     *               non-empty outputs; `muted` shares the legacy --dark class).
-     *   2. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
+     *   1. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
      *               contributes ROOT--<v> for every declared layout enum value.
-     *   3. LITERAL  any `'ROOT--x'` / `'PREFIX--x'` string in the template
-     *               (the conditional modifiers: --steps, --uniform, --image-icon,
-     *               --stack, --has-bg-image).
+     *   2. LITERAL  any `'ROOT--x'` string in the template (the conditional
+     *               modifiers, e.g. --steps, --stack, --text-panel).
+     *
+     * A THIRD RULE RETIRED AT #1111: "THEME — a pp_theme_class($theme, 'PREFIX') call
+     * contributes PREFIX--dark and PREFIX--inverted". The helper and the whole
+     * `--dark`/`--inverted` output-name vocabulary retired together, so the rule could
+     * never fire (#1110 had already catalogued it as dead). A template that brought the
+     * call back would fatal at render on an undefined function — and a template that
+     * hand-wrote a `ROOT--dark` literal is caught by rule 2 and the tripwire below like
+     * any other modifier.
      *
      * A component with no root modifiers declares [] — and must, so "empty" stays a
      * claim the test checks rather than a gap nobody noticed.
@@ -6657,15 +6661,7 @@ class SchemaValidationTest extends TestCase
             $expected = [];
             $prefixes = [$root];
 
-            // 1. Theme classes, from the actual pp_theme_class() prefix.
-            if (preg_match('/pp_theme_class\(\s*\$theme\s*,\s*\'([a-z0-9-]+)\'\s*\)/', $template, $m)) {
-                $prefixes[] = $m[1];
-                foreach (['dark', 'inverted'] as $slug) {
-                    $expected[] = "{$m[1]}--{$slug}";
-                }
-            }
-
-            // 2. Interpolated layout classes, one per declared enum value.
+            // 1. Interpolated layout classes, one per declared enum value.
             $interpolated = '/class="' . preg_quote($root, '/') . '\s+' . preg_quote($root, '/') . '--<\?php/';
             if (preg_match($interpolated, $template)) {
                 foreach (($schema['props']['layout']['values'] ?? []) as $value) {
@@ -6673,7 +6669,7 @@ class SchemaValidationTest extends TestCase
                 }
             }
 
-            // 3. Literal modifier strings anywhere in the template.
+            // 2. Literal modifier strings anywhere in the template.
             foreach (array_unique($prefixes) as $prefix) {
                 if (preg_match_all('/\'\s*(' . preg_quote($prefix, '/') . '--[a-z0-9-]+)\'/', $template, $lit)) {
                     $expected = array_merge($expected, $lit[1]);
@@ -6682,7 +6678,7 @@ class SchemaValidationTest extends TestCase
 
             $expected = array_values(array_unique($expected));
 
-            // TRIPWIRE. The three rules above recognize today's template idioms. A
+            // TRIPWIRE. The two rules above recognize today's template idioms. A
             // template using a shape they miss (a double-quoted literal, a
             // concatenation) would UNDER-derive, and the test would then go green
             // while forcing the schema to omit a class the component really emits —

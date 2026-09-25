@@ -1240,98 +1240,65 @@ class InvariantTest extends TestCase
         return $files;
     }
 
-    // ── #705: every component read of background_image is guarded ─────────
+    // ── #705 → #1108: no shipped component reads the retired background_image ──
 
     /**
-     * A SOURCE-LEVEL DRIFT CATCHER for the stored-shape guard family.
+     * AN ABSENCE TRIPWIRE, WITH A FLOOR ON WHAT IT READ.
      *
-     * #705 guards `background_image` at three component read sites so a stored non-scalar
-     * degrades instead of fataling the public page through the typed pp_esc_image_src().
-     * Those three guards are hand-copied lines, and every behavioural test for them is
-     * per-component: nothing fails if a FOURTH component starts reading the prop raw, or
-     * if one of the three loses its guard in a refactor. The completeness argument would
-     * then live only in prose, in a family that already runs to #641/#705/#706/#708/#730
-     * and #733 — so the next unguarded read is a matter of when.
+     * This was `testEveryComponentReadOfBackgroundImageIsScalarGuarded`: a source-level
+     * drift catcher asserting that any component reading `$props['background_image']`
+     * did so through #705's `is_scalar` guard before the typed pp_esc_image_src(). Once
+     * stats retired the prop at #1066 the roster of readers was empty, so the idiom
+     * checks could never run (any reader failed the closing roster assertion first), and
+     * nothing floored the scan itself — an empty `components/` read passed too. #1108
+     * named it: "needs either an anti-vacuity floor or deletion; it cannot stay as-is".
      *
-     * This converts that prose into a failing test, deliberately narrow: it asserts only
-     * that a component reading `$props['background_image']` assigns it through an
-     * is_scalar guard. It does not police OTHER props (their issues own that) and it does
-     * not care which components exist, so adding a new guarded background band passes
-     * without touching this test.
+     * The owner then RETIRED THE PROP-GRAIN GUARD BY DECISION on #1108 (2026-09-24): no
+     * shipped component declares a text-URL band background, so its fixture-hosted pins
+     * were deleted. What this method keeps is the cheap mitigation for that decision's
+     * stated cost ("if a component ever takes a URL-shaped image prop again, the guard is
+     * unprotected until someone remembers"): a component template that reads the prop
+     * again fails HERE, and the message says what has to come back with it. The live
+     * escaper is pinned on the v2 `_band` -> `background.image` path in
+     * UdcBackgroundImageTest, which this does not replace.
+     *
+     * THE FLOOR comes from the registry, not from the scan: every registered component's
+     * template must be among the files read, so a scan that silently finds nothing (a
+     * moved directory, a broken iterator) fails instead of proving absence over nothing.
      */
-    public function testEveryComponentReadOfBackgroundImageIsScalarGuarded(): void
+    public function testNoShippedComponentReadsTheRetiredBackgroundImageProp(): void
     {
+        $scanned = $this->phpFilesIn($this->themeRoot . '/components');
         $readers = [];
-
-        foreach ($this->phpFilesIn($this->themeRoot . '/components') as $file) {
-            $content = file_get_contents($file);
-            if (!str_contains($content, "\$props['background_image']")) {
-                continue;
+        foreach ($scanned as $file) {
+            if (str_contains($this->stripPhpComments((string) file_get_contents($file)), "\$props['background_image']")) {
+                $readers[] = substr($file, strlen($this->themeRoot) + 1);
             }
-            $readers[] = basename(dirname($file));
+        }
 
-            // The prop is read only into the raw local...
-            $this->assertMatchesRegularExpression(
-                '/\$raw_background_image\s*=\s*\$props\[\'background_image\'\]/',
-                $content,
-                basename($file) . ' reads background_image into something other than'
-                . ' $raw_background_image (#705). The guard idiom expects the raw read to land'
-                . ' in that local so the guarded value is the one every gate below sees.'
-            );
-
-            // ...and the value the template actually uses comes from the guard.
-            $this->assertMatchesRegularExpression(
-                '/\$background_image\s*=\s*is_scalar\(\$raw_background_image\)\s*\?\s*\(string\)\s*\$raw_background_image\s*:\s*\'\'/',
-                $content,
-                basename($file) . ' reads background_image but does not assign it through the'
-                . ' is_scalar guard (#705). A raw read reaches the typed pp_esc_image_src()'
-                . ' and a stored array 500s the whole public page.'
-            );
-
-            // Exactly one read of the prop, so a second raw read cannot hide below the guard.
-            $this->assertSame(
-                1,
-                substr_count($content, "\$props['background_image']"),
-                basename($file) . ' reads background_image more than once (#705). Every gate must'
-                . ' read the guarded local, not the raw prop.'
-            );
-
-            // The raw value must not reach the escaper directly, guard or no guard.
-            $this->assertStringNotContainsString(
-                'pp_esc_image_src($raw_background_image',
-                $content,
-                basename($file) . ' passes the RAW background_image to pp_esc_image_src() (#705).'
+        $registered = array_keys(pp_get_registered_components());
+        $this->assertGreaterThanOrEqual(
+            10,
+            count($registered),
+            'the registry returned fewer than ten components, so the floor below would prove '
+            . 'nothing — fix the registry read; do not lower this'
+        );
+        foreach ($registered as $component) {
+            $this->assertContains(
+                $this->themeRoot . "/components/{$component}/{$component}.php",
+                $scanned,
+                "the absence scan did not read {$component}'s template, so it cannot claim "
+                . 'that template does not read background_image'
             );
         }
 
-        // Non-vacuity: if this ever finds nothing, the regex above is silently passing.
-        // The list SHRINKS one rebuild sprint at a time: section left in #1023, where the
-        // band background became the `_band` role's `background.image` — an attachment ID
-        // resolved by the engine, so there is no URL string for a template to escape and
-        // therefore nothing for this guard to protect. cta left at #1026, which also moved
-        // the CANONICAL #705 explanation into components/stats/stats.php.
-        //
-        // AND STATS LEFT AT #1066 PR2, WHICH EMPTIES THIS ROSTER. It was the last declarer
-        // of `background_image`, so no shipped component reads the prop at all any more and
-        // the #705 guard has nothing left to guard. The reasoning did not evaporate with
-        // it: stats.php carries a forwarding note where the canonical block stood, and the
-        // GUARD ITSELF is still exercised — tests/fixtures/components/ppfixture carries the
-        // same read verbatim, so StoredBackgroundImageRenderGuardTest still proves a
-        // non-scalar degrades to "no image" instead of fataling the public page.
-        //
-        // The emptiness is asserted rather than left implicit, because an empty roster with
-        // a `foreach` above it is the vacuous-pass shape this very file exists to catch.
-        sort($readers);
         $this->assertSame(
             [],
             $readers,
-            'the set of components reading background_image changed — a new reader must carry'
-            . ' the #705 guard (add it, then update this list)'
-        );
-        $this->assertStringNotContainsString(
-            "\$props['background_image']",
-            file_get_contents($this->themeRoot . '/components/section/section.php'),
-            'section retired background_image in #1023 — a reader coming back needs the guard'
+            'a component template reads $props[\'background_image\'] again. The #705 guard '
+            . '(a raw read, then `is_scalar ? (string) : \'\'` before pp_esc_image_src()) and '
+            . 'its tests were retired by decision on #1108 because no component had this prop; '
+            . 'a component that declares a text-URL image prop brings them back with it.'
         );
     }
 

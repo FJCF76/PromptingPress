@@ -180,8 +180,8 @@ class StatsLogosV2BandContractTest extends TestCase
                 "{$component}: the root class must stand alone with a stored theme=\"{$theme}\""
             );
             // pp_theme_class() is what used to translate `muted` into the legacy `--dark`
-            // class (#570 DG-4). It is not called at all any more, and both spellings must
-            // stay gone.
+            // class (#570 DG-4). It retired at #1111 with the whole `--dark`/`--inverted`
+            // vocabulary, and both spellings must stay gone.
             $this->assertStringNotContainsString($component . '--', $html, "{$component}: no variant class survives the rebuild ({$theme})");
             // And the value itself is never reflected anywhere else either — not into an
             // attribute, not into a data-* hook someone might add as a "harmless" successor.

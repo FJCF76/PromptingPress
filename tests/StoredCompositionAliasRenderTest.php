@@ -8,12 +8,13 @@
  * pinning their ABSENCE — at the render boundary, on real stored bytes — is now the
  * whole job of the file.
  *
- * ONE THING IS DELIBERATELY KEPT, and it is not an alias. `theme: "muted"` still
- * EMITS the legacy `<root>--dark` CSS class (#570 DG-4). That is an OUTPUT NAME:
- * renaming it would change the emitted HTML of the installed base and invalidate
- * every stylesheet rule and `variant_classes` declaration for no authoring gain. Do
- * not "finish the cleanup" by removing it — input aliasing and output naming are
- * different things, and only the first one went.
+ * THE ONE THING THAT WAS KEPT HAS GONE TOO, by a separate decision. `theme: "muted"`
+ * used to EMIT the legacy `<root>--dark` CSS class (#570 DG-4) — an OUTPUT NAME, kept
+ * because input aliasing and output naming are different things. It outlived every
+ * component that declared `theme` and ended up pinned on the test fixture alone, so the
+ * owner ruled on #1111 (2026-09-24) that the `--dark`/`--inverted` output-name vocabulary
+ * is permanently gone: v2 expresses band tone through the `_band` role. The two methods
+ * that pinned it here were retired in that change, with pp_theme_class() and its test.
  *
  *   SLOT NAME   pp_legacy_slot_aliases() — REMOVED (#603). Shipped empty in #575,
  *               populated by #576 with 51 renames, deleted outright along with its two
@@ -470,7 +471,7 @@ class StoredCompositionAliasRenderTest extends TestCase
             // canonical-render contract is about PROPS surviving a round trip, and its
             // remaining props do.
             ['component' => 'testimonials', 'props' => ['title' => 'Quotes', 'layout' => 'stack', 'items' => [['quote' => 'Great.', 'author' => 'Ada']]]],
-            ['component' => 'ppfixture',        'props' => ['title' => 'Numbers', 'theme' => 'inverted', 'items' => [['number' => '10', 'label' => 'Customers']]]],
+            ['component' => 'ppfixture',        'props' => ['title' => 'Numbers', 'items' => [['number' => '10', 'label' => 'Customers']]]],
             // logos' `theme` retired at #1066 PR2, so the band carries content only — the
             // tone it used to express is the `_band` role's background in the `udc` map.
             ['component' => 'logos',        'props' => ['title' => 'Logos', 'items' => [['image_url' => 'https://example.com/acme.png', 'image_alt' => 'Acme']]]],
@@ -619,9 +620,9 @@ class StoredCompositionAliasRenderTest extends TestCase
     // coerces to the prop default, which is the base render contract for every enum,
     // not an alias.
     //
-    // What is NOT removed, and is asserted alongside every pin here: `theme: "muted"`
-    // still EMITS the legacy `<root>--dark` CSS class (#570 DG-4). Output naming and
-    // input aliasing are different things, and only the second one went.
+    // The output-name half — `theme: "muted"` emitting the legacy `<root>--dark` class
+    // (#570 DG-4) — was kept here until #1111 retired the whole `--dark`/`--inverted`
+    // vocabulary; see the class docblock.
 
     public function testAStoredRemovedThemeValueRendersTheDefaultBandNotTheMutedOne(): void
     {
@@ -641,35 +642,15 @@ class StoredCompositionAliasRenderTest extends TestCase
         $this->assertSame('dark', pp_get_composition($id)[0]['props']['theme']);
     }
 
-    public function testTheCanonicalMutedValueStillEmitsTheLegacyDarkClass(): void
-    {
-        // #570 DG-4, pinned on real stored bytes through the render loop: this is the
-        // proof the input-value removal did not touch the emitted class NAME.
-        // Re-homed to `grid` at #1023: section retired `theme` and with it the one
-        // component whose modifier prefix differed from its name. The DG-4 guarantee this
-        // pins is the emitted class NAME, which is a property of the theme prop rather
-        // than of any component — so the host moved a third time at #1101, to `ppfixture`,
-        // which is the only component left declaring a `theme` prop at all. The fixture
-        // exists for exactly this (#1025) and keeps the legacy `--dark` output name
-        // deliberately; it goes with this test in the v1 machinery sweep.
-        $id = pp_create_page('Canonical muted band', 'draft');
-        pp_update_composition($id, [
-            ['component' => 'ppfixture', 'props' => ['title' => 'Muted', 'items' => [['number' => '1', 'label' => 'a']], 'theme' => 'muted']],
-        ]);
-
-        $this->assertStringContainsString('ppfixture--dark', $this->renderStored($id));
-    }
-
     public function testANewWriteOfTheRemovedThemeValueIsRejected(): void
     {
         // THE HOST COULD NOT FOLLOW THE PROP THIS TIME, and that is worth stating because
         // every other re-homing in this file did. The claim is STRICTNESS: a `strict` enum
         // refuses an unadvertised value outright rather than coercing it, which is what
-        // #605 established when `dark` was removed from `theme`. `ppfixture` declares a
-        // `theme` prop but declares it NON-strict on purpose — its schema says it is kept
-        // "because the theme-variant and friendly-error suites exercise enum COERCION" —
-        // so hosting the strictness claim there would have asserted the opposite of what
-        // the fixture is for. And after #1101 no shipped component declares `theme` at all.
+        // #605 established when `dark` was removed from `theme`. No shipped component has
+        // declared `theme` since #1101, and the test fixture's own non-strict copy went at
+        // #1111 with the `--dark`/`--inverted` vocabulary, so there is no `theme` left to
+        // host it on.
         //
         // So the claim follows the PROPERTY rather than the prop: `layout` is `strict` on
         // five shipped components, including grid, and an unadvertised value there is
@@ -716,83 +697,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         // locator and nothing else, so there is no key through which a clamped value could
         // reach a caller that did not read the message.
         $this->assertSame(['index' => 0], $result->get_error_data());
-    }
-
-    // NAME KEPT DELIBERATELY at its original numeral, the way MeasureSurfaceTest's and
-    // ComponentPropsTest's rosters keep theirs: renaming it on every rebuild breaks
-    // `--filter` continuity for no fact. The roster inside is the fact.
-    public function testAFreshCanonicalThemeWriteValidatesReadsBackAndRendersOnTheLastThemedBand(): void
-    {
-        // SEVEN BANDS UNTIL #1066 PR2, ONE NOW. Each rebuild took its `theme` prop with it —
-        // testimonials (#958), hero (#986), section (#1023), cta (#1026), faq (#1046), embed
-        // (#1066), and stats and logos in that issue's second half. grid is the last band
-        // that can carry a canonical theme value at all, so this test asserts on the one
-        // survivor rather than on a roster that would otherwise be empty.
-        // Acceptance criterion 5: fresh-generation correctness. Every band component
-        // that carries a `theme` accepts each of the three canonical values through
-        // the REAL authoring surface, stores it verbatim, and renders the documented
-        // class — `muted` under the legacy `--dark` name, `inverted` under its own,
-        // `default` under none.
-        $bands = [
-            // grid left this roster at #1101 and `ppfixture` took its place — the roster's
-            // THIRD re-homing, and the last one available: no shipped component declares a
-            // `theme` prop any more. The fixture exists for exactly this (#1025); it keeps
-            // the legacy `--dark` output name and the same three canonical values, so the
-            // claim is unchanged and the class names move with the host.
-            'ppfixture'    => ['title' => 'G', 'items' => [['number' => '1', 'label' => 'a']]],
-            // testimonials is absent: the v2 rebuild removed its `theme` prop, whose
-            // entire effect was value-styling the structural-CSS boundary forbids.
-            // section is absent since #1023 for the same reason, and it took the one
-            // naming oddity with it: it was the only component whose modifier prefix
-            // (`pp-section--`) differed from its name, so the $prefixes map that existed
-            // solely for it is gone too. cta is absent since #1026, and its departure
-            // carries one measured fact worth keeping: on a full-width cta the `muted` and
-            // `dark` renders were BYTE-IDENTICAL to `default`, so retiring `theme` there
-            // cost exactly one rendered state (`inverted`) rather than three.
-            // faq is absent since #1046, and its departure carries a measured fact of its
-            // own, different from cta's: faq's `muted` was NOT byte-identical to `default`
-            // — it drew a 1px `--color-border` rule top and bottom — so retiring `theme`
-            // there cost two rendered states rather than one, and `retired_props` names
-            // the `border` group alongside `background` for exactly that reason.
-            // embed is absent since #1066, and its measured fact is faq's shape again with
-            // one addition: `muted` drew the same 1px framing rule, AND `inverted`
-            // re-coloured the CONTENT ink as well as the heading — which is why its route
-            // names `typography.color` on `_band` and then goes on to say what an
-            // inherited colour does NOT reach inside arbitrary author HTML. table is
-            // rebuilt in that same issue and never appears here at all: it never declared
-            // `theme`. The roster is THREE bands now and still means the same thing —
-            // every component that declares `theme` round-trips its canonical values.
-        ];
-
-        foreach ($bands as $component => $props) {
-            $prefix = $component;
-            foreach (['default' => null, 'muted' => 'dark', 'inverted' => 'inverted'] as $theme => $slug) {
-                $composition = [['component' => $component, 'props' => $props + ['theme' => $theme]]];
-
-                $this->assertTrue(
-                    pp_validate_action('create_page', ['title' => "Fresh {$component} {$theme}", 'composition' => $composition]),
-                    "{$component}.theme={$theme} must validate through the authoring surface"
-                );
-
-                $id = pp_create_page("Fresh {$component} {$theme}", 'draft');
-                pp_update_composition($id, $composition);
-                $this->assertSame($theme, pp_get_composition($id)[0]['props']['theme'],
-                    "{$component}.theme={$theme} must read back verbatim");
-
-                $html = $this->renderStored($id);
-                if ($slug === null) {
-                    // No THEME modifier. Layout modifiers (cta--full-width, and the
-                    // like) are a different axis and must be left alone.
-                    $this->assertStringNotContainsString("{$prefix}--dark", $html,
-                        "{$component}.theme=default must emit no theme modifier class");
-                    $this->assertStringNotContainsString("{$prefix}--inverted", $html,
-                        "{$component}.theme=default must emit no theme modifier class");
-                } else {
-                    $this->assertStringContainsString("{$prefix}--{$slug}", $html,
-                        "{$component}.theme={$theme} must emit {$prefix}--{$slug}");
-                }
-            }
-        }
     }
 
     public function testRestoreOfASnapshotHoldingTheRemovedThemeValueSucceedsAndReportsIt(): void

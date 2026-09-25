@@ -14,7 +14,6 @@
  */
 
 use PHPUnit\Framework\TestCase;
-use PromptingPress\Tests\Support\FixtureTheme;
 
 class ComponentPropsTest extends TestCase
 {
@@ -1380,8 +1379,10 @@ class ComponentPropsTest extends TestCase
      * testGridMutedThemeEmitsLegacyDarkClass). It claimed four render-layer carriers
      * here; grepping found ONE (`grid--dark`), with `stats--dark` appearing only in a
      * NEGATIVE assertion elsewhere and `logos--dark` / `embed--dark` asserted nowhere.
-     * The rule keeps exactly two carriers: grid's render-layer row, and the helper's own
-     * unit tests in tests/ThemeClassHelperTest.php.
+     * The rule kept exactly two carriers: grid's render-layer row, and the helper's own
+     * unit tests in tests/ThemeClassHelperTest.php. BOTH ARE GONE NOW: grid's row left
+     * with its `theme` prop at #1101, and the rule itself — the `--dark`/`--inverted`
+     * output-name vocabulary, pp_theme_class() and that test file — retired at #1111.
      *
      * RESTATED AT #1066 because embed was one of the four this note named, and embed's
      * `theme` retired with this rebuild — so leaving the sentence would have re-asserted
@@ -3597,61 +3598,38 @@ class ComponentPropsTest extends TestCase
         $this->assertSame('A.', $schema['mainEntity'][0]['acceptedAnswer']['text']);
     }
 
-    // ── #705: a stored non-scalar background_image must not fatal the page ────
+    // ── #705 → retired prop: a stored background_image paints nothing ─────────
     //
-    // The #641 block above closed this defect class for image_url/image_alt through
-    // pp_render_responsive_image(). This is the SAME class on the sibling prop, through
-    // the other typed helper:
+    // HISTORY. #705 was a fatal: `background_image` reached the typed
+    // pp_esc_image_src(string $url) behind a truthiness gate, a stored non-empty ARRAY is
+    // truthy, and one malformed value 500'd the whole public page. The fix was a raw-value
+    // `is_scalar` guard at the prop read, upstream of the prop's three gates (the
+    // --has-bg-image modifier, the inline background-image declaration, the overlay
+    // <div>), so the three moved together.
     //
-    //   lib/wp.php  pp_esc_image_src(string $url, int $depth = 0)
-    //     stats.php — the only component that still reads `background_image` raw (section's prop retired at #1023 and cta's at #1026).
+    // WHAT IS TRUE NOW. The prop retired from section (#1023), cta (#1026) and stats
+    // (#1066); a v2 band background is an attachment id on `_band` -> `background.image`,
+    // which the engine resolves, and the live escaper is pinned on that path in
+    // UdcBackgroundImageTest. The guard itself then lived on only in the test fixture,
+    // with three methods pinning it there (the scalar-still-paints pin, the ordinary-URL
+    // accept pin, and the -0.0 string-cast parity pin). The owner RETIRED THEM BY DECISION
+    // on #1108 (2026-09-24): a prop-grain guard with no shipped subject is not maintained
+    // on a fixture. That coverage was given up deliberately. If a component ever declares
+    // a text-URL image prop again,
+    // InvariantTest::testNoShippedComponentReadsTheRetiredBackgroundImageProp fails and
+    // says the guard and its tests come back with it.
     //
-    // Each is gated on truthiness, and a non-empty array is TRUTHY, so the gate passes
-    // and the typed call raises a TypeError that no caller catches.
-    // templates/composition.php calls pp_get_component() with no try/catch, so ONE
-    // malformed stored value takes the WHOLE PUBLIC PAGE down with a 500. Catchable in
-    // principle, deliberately not caught in practice — and adding a catch is not the
-    // fix, because swallowing an escaping throw can leave core filters de-registered
-    // for the rest of the request (#730). Guard BEFORE the call.
-    //
-    // WHY THE GUARD SITS AT THE READ. This prop drives THREE gates per component — the
-    // --has-bg-image modifier, the inline background-image declaration, and the overlay
-    // <div> — and the read is upstream of all three. A call-site-only guard would leave
-    // the modifier and the overlay ON with nothing painting underneath: a dark scrim
-    // over the band's own background, wearing the light on-overlay ink the modifier
-    // selects. Guarding at the read instead reuses a state that shipped long ago, so the
-    // assertions below are "renders exactly as an empty background_image does".
-    //
-    // WHY is_scalar AND NOT is_string. PHP runs COERCIVE here, so only NON-SCALARS ever
-    // fataled: a stored `42` coerced and painted `background-image:url(42)`. create_page
-    // ACCEPTS `background_image: 42` and stores it raw with no finding (#707), so an
-    // is_string() guard would silently drop a value the front door had just accepted.
-    // Stated honestly, ONE half of the #641 rationale does not carry over here:
-    // background_image has no image_id companion (it is CSS background-image, not an
-    // <img>), so there is no resolvable attachment for is_string() to discard. The
-    // stored-scalar half carries on its own. The pins below split the two halves:
-    //
-    //   NON-SCALAR  -> "" -> no background.  CHANGED: this is the fatal, now degraded.
-    //   SCALAR      -> (string) cast.        UNCHANGED: as it rendered before the guard.
-    //
-    // Ratified at gate D-B as the family standard. Scope is this prop's three read sites.
-    // The same defect through OTHER surfaces is tracked separately and is deliberately not
-    // fixed here: #706 (title/title_accent) has since LANDED with its own guards and pins;
-    // #708 (grid count()/pp_render_style_vars) has since LANDED too — see
-    // tests/StoredStyleAndItemsRenderGuardTest.php; #730 (esc_url/wp_kses_post) remains open.
-    //
-    // Reachability is #641's exactly: the write path rejects a non-scalar, but the
-    // validator gates WRITES. restore_composition reports without blocking (#233), a
-    // composition authored before the rule still carries the value, and a raw
-    // _pp_composition meta write is not gated at all. The end-to-end pin on real stored
-    // bytes lives in tests/StoredBackgroundImageRenderGuardTest.php; these hold the
-    // per-component shape.
+    // WHAT THE TWO METHODS BELOW STILL PIN, on the three SHIPPED bands that once read the
+    // prop: a stored `background_image` of any shape — the non-scalars that used to fatal,
+    // and the falsy scalars — renders the band with its content and paints no background,
+    // no modifier and no overlay. They are retired-prop inertness pins now, not guard
+    // pins: each is anchored on the band actually rendering, and each fails if a band
+    // starts painting from the stored key again, guarded or not.
 
     /**
-     * The shapes that actually FATALED, and now degrade. Every one is a non-scalar and
-     * NON-EMPTY, so it is truthy and genuinely opens the gate that reaches the typed
-     * call — an empty array is falsy and never got there, so it would pass identically
-     * with the guard removed and is not a case.
+     * The shapes that actually FATALED under #705. Every one is a non-scalar and
+     * NON-EMPTY, so it was truthy and opened the gate that reached the typed call — the
+     * shapes most likely to be sitting in an aged page's stored bytes.
      */
     public static function fatalNonScalarBackgrounds(): array
     {
@@ -3664,8 +3642,8 @@ class ComponentPropsTest extends TestCase
 
     /**
      * All three components, one assertion set. The contract is identical on each: the
-     * band still renders its own content, and every one of the three background gates
-     * stays shut — no modifier class, no overlay div, no background-image declaration.
+     * band still renders its own content, and none of the prop's three old background
+     * gates opens — no modifier class, no overlay div, no background-image declaration.
      *
      * The `Array` assertion is not redundant with the others. phpunit.xml sets
      * failOnWarning="false", and esc_html/esc_attr render a stored array as the literal
@@ -3696,106 +3674,11 @@ class ComponentPropsTest extends TestCase
         }
     }
 
-    // ── The UNCHANGED half: a non-string SCALAR still paints, exactly as before ──
-
     /**
-     * THE REGRESSION PIN, and the reason the guard is is_scalar and not is_string.
-     *
-     * create_page ACCEPTS `background_image: 42` and stores it raw, reporting nothing
-     * (#707), and in coercive mode that value has always painted `url(42)`. An
-     * is_string() guard would blank it, close all three gates, and silently drop a
-     * background the front door had just accepted. This pin fails the moment the
-     * predicate narrows.
-     *
-     * SCHEME-AGNOSTIC ON PURPOSE. The obvious assertion here would be the literal
-     * `background-image:url(42)`, and it would be WRONG about production. Core's
-     * esc_url() prepends a scheme to any value with no ':' and no leading /#?
-     * (wp-includes/formatting.php, `$url = $scheme . $url`), so a real visitor gets
-     * `url(http://42)`. The PHPUnit stub is type-faithful, not byte-faithful — it does
-     * not reproduce that character work, and tests/EscapingStubContractTest.php pins the
-     * stubs to exactly that contract. Asserting the stub's bytes would quietly enshrine
-     * them as production behaviour, so the regex tolerates the scheme either way and the
-     * assertion says only what this guard actually controls: the scalar survives to the
-     * escaper and still paints.
-     *
-     * FOR #707: this pins COMPATIBILITY, not correctness. Painting a bare number is what
-     * an accepted value does today; it is not a contract #707 must preserve. Updating
-     * this pin when the write path tightens is the expected move, not a regression.
-     */
-    public function testAScalarBackgroundImageStillPaintsExactlyAsBefore(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            foreach ([42, true, 3.14] as $scalar) {
-                $label   = var_export($scalar, true);
-                $pattern = '#background-image:url\((?:https?://)?' . preg_quote((string) $scalar, '#') . '\)#';
-
-                foreach ([
-                    // section's row left these #705 guards at #1023 and cta's at #1026: on both
-                    // the prop is retired, so there is no pp_esc_image_src() call site left to
-                    // guard. A band background is `_band` -> `background.image`, an attachment
-                    // id the ENGINE resolves — the guarded-scalar class cannot arise there,
-                    // because a non-numeric id is refused at write rather than cast at render.
-                    // stats is the last component that declares the prop, so it is the last one
-                    // that can hold these pins, and the canonical #705 explanation moved into
-                    // components/stats/stats.php with them.
-                    ['ppfixture', $this->statsProps(['background_image' => $scalar]), 'ppfixture'],
-                ] as [$component, $props, $prefix]) {
-                    $html = $this->render($component, $props);
-                    $this->assertMatchesRegularExpression($pattern, $html, "{$component} {$label}: the scalar still paints");
-                    $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: modifier still set");
-                    $this->assertStringContainsString($prefix . '__overlay', $html, "{$component} {$label}: overlay still rendered");
-                }
-            }
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    /**
-     * The accept side on an ordinary value: a real URL emits the exact style attribute
-     * it always has. A guard that quietly dropped legitimate backgrounds would pass
-     * every negative test above.
-     */
-    public function testAnOrdinaryBackgroundImageUrlIsUnchanged(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            // cta's row left at #1026 with its `background_image` prop; stats is the last
-            // component whose band background is a prop, so it is the last one that can hold
-            // this pin. See testAScalarBackgroundImageStillPaintsExactlyAsBefore for the full
-            // reasoning on why the whole guarded-scalar class cannot arise on a v2 band.
-            foreach ([
-                ['ppfixture', $this->statsProps(['background_image' => 'https://example.com/bg.jpg']), 'ppfixture'],
-            ] as [$component, $props, $prefix]) {
-                $html = $this->render($component, $props);
-                $this->assertStringContainsString(
-                    'style="background-image:url(https://example.com/bg.jpg);"',
-                    $html,
-                    "{$component}: the exact style attribute"
-                );
-                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: modifier");
-                $this->assertStringContainsString('<div class="' . $prefix . '__overlay" aria-hidden="true"></div>', $html, "{$component}: overlay");
-            }
-        } finally {
-            FixtureTheme::deactivate();
-        }
-    }
-
-    /**
-     * The falsy-scalar controls. These never reached the typed call (the gate was
-     * already shut) and must keep rendering no background — the (string) cast must not
-     * OPEN a gate that used to be closed. `0` is the one worth having: `(string) 0` is
-     * `"0"`, which is itself falsy in PHP, which is the only reason this holds.
-     *
-     * -0.0 is deliberately NOT in this list. It is the one scalar where the cast DOES
-     * open the gates, and it has its own pin below.
+     * The falsy-scalar controls: a stored falsy value on a band that no longer reads the
+     * prop renders no background. (Under #705 these were the cases the guard's `(string)`
+     * cast must not flip; the -0.0 exception to that parity was pinned on the fixture and
+     * retired with the guard at #1108.)
      */
     public function testAFalsyScalarBackgroundImageStillRendersNoBackground(): void
     {
@@ -3814,83 +3697,6 @@ class ComponentPropsTest extends TestCase
                 $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
                 $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
             }
-        }
-    }
-
-    /**
-     * THE PARITY PIN, and the honest exception to it.
-     *
-     * The guard's safety argument is that `(string)` casting a scalar cannot change
-     * WHICH of the three background gates fire — otherwise a value that rendered plain
-     * before would start painting a scrim after. That holds for every scalar except one,
-     * and the exception is measured here rather than reasoned about, because a review
-     * caught the original claim overstating it.
-     *
-     * FLOAT NEGATIVE ZERO is the exception: `-0.0` is falsy, but `(string) -0.0` is
-     * `'-0'`, and the only falsy strings in PHP are `''` and `'0'`. So a stored `-0.0`
-     * opens gates that used to be shut. Accepted, not fixed: the value still routes
-     * through pp_esc_image_src(), `-0` is inert in the CSS url() token, and
-     * special-casing it would mean inspecting and rewriting the stored value, which the
-     * D-B ruling forbids. Integer `-0` is NOT affected — PHP has no negative integer
-     * zero, so `-0` parses as plain `0`.
-     *
-     * Swept across ALL THREE guarded components, not just cta: each carries its own copy
-     * of the two-line guard, so a future divergence in stats or section would be
-     * invisible to a cta-only sweep. The marker asserted is the `--has-bg-image`
-     * modifier rather than the emitted URL, which keeps this independent of how faithful
-     * the esc_url() stub is to core's character work.
-     *
-     * REACHABILITY of the -0.0 flip is pinned separately, in
-     * StoredBackgroundImageRenderGuardTest::testNegativeZeroFlipsTheGateOnlyThroughARawMetaWrite —
-     * it does NOT survive a JSON round-trip, so the normal write path cannot produce it.
-     * This test is the renderer-level half.
-     */
-    public function testTheStringCastFlipsTheGateOnlyForNegativeZero(): void
-    {
-        // PER-TEST OPT-IN (#1025). This class is mixed: it also holds registry rosters that
-        // must see only shipped components. The engine claim below needs a slot-bearing
-        // host, and stats stopped being one at #1066 PR2.
-        FixtureTheme::activate();
-        try {
-            $scalars = [0, 0.0, -0, false, true, 42, 3.14, -1, '', '0', '0.0', '+0', 'x', '00', NAN, INF, -INF];
-
-            // cta's row left at #1026 with its `background_image` prop. The -0.0 exception this
-            // pins is a PROP-path behaviour — a stored float whose string cast opens a truthiness
-            // gate — and a v2 band has no such gate: `background.image` is an attachment id the
-            // engine resolves, and a non-numeric id is refused at write rather than cast at
-            // render. stats is the last component that can hold the pin.
-            $components = [
-                ['ppfixture', fn($v) => $this->statsProps(['background_image' => $v]), 'ppfixture'],
-            ];
-
-            foreach ($scalars as $scalar) {
-                $label     = var_export($scalar, true);
-                $rawTruthy = (bool) $scalar;
-
-                foreach ($components as [$component, $propsFor, $prefix]) {
-                    $html    = $this->render($component, $propsFor($scalar));
-                    $painted = str_contains($html, $prefix . '--has-bg-image');
-
-                    $this->assertSame(
-                        $rawTruthy,
-                        $painted,
-                        "{$component} {$label}: the (string) cast must not change whether the band paints a background"
-                    );
-                }
-            }
-
-            // The single exception, asserted head-on so it can never drift silently.
-            $this->assertFalse((bool) -0.0, 'float negative zero is falsy');
-            $this->assertTrue((bool) (string) -0.0, "...but its string cast '-0' is truthy");
-
-            foreach ($components as [$component, $propsFor, $prefix]) {
-                $html = $this->render($component, $propsFor(-0.0));
-                $this->assertStringContainsString($prefix . '--has-bg-image', $html, "{$component}: -0.0 opens the modifier gate");
-                $this->assertStringContainsString($prefix . '__overlay', $html, "{$component}: -0.0 opens the overlay gate");
-                $this->assertMatchesRegularExpression('#background-image:url\((?:https?://)?-0\)#', $html, "{$component}: -0.0 paints, where before the guard it did not");
-            }
-        } finally {
-            FixtureTheme::deactivate();
         }
     }
 }

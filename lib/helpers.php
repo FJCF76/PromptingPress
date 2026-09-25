@@ -119,8 +119,8 @@ function pp_footer_linkify_contact(string $contact): string {
  *     through wp_allowed_protocols() (http, https, mailto, tel, relative, anchors)
  *     and drops javascript:/vbscript:/data: and their obfuscated variants.
  *   - Non-string input (null / number / array from a malformed JSON payload)
- *     coerces to '' rather than tripping a type error — matches pp_theme_class's
- *     defensive coercion.
+ *     coerces to '' rather than tripping a type error — the defensive coercion every
+ *     render-time helper in this file applies to raw prop input.
  *
  * NOTE ON "plain text unchanged": markup-free copy round-trips unchanged, but
  * wp_kses normalizes entities exactly as WordPress does elsewhere (a bare `&`
@@ -148,47 +148,4 @@ function pp_kses_inline($content): string {
         'br'     => [],
     ];
     return wp_kses($content, $allowed);
-}
-
-/**
- * Builds the tonal `theme` modifier class for a band-level component (#442).
- *
- * The public `theme` enum is `default | muted | inverted`:
- *   - `default`  — no tone override; the band keeps its own default background.
- *   - `muted`    — the light tinted surface band: `--color-surface` (#f4f7fb, a
- *                  pale near-white) with framing top/bottom borders.
- *   - `inverted` — the genuinely dark band: `--color-bg-inverted` (#0f172a).
- *
- * The tinted `muted` band ships under the LEGACY `--dark` CSS class NAME (#570 DG-4:
- * renaming the class would change the emitted HTML of the installed base for no
- * authoring gain), so `muted` resolves to the `{prefix}--dark` class. That is an
- * OUTPUT NAME, not an accepted input: `dark` was removed as an input VALUE (#605)
- * because its name mispredicts its output — it rendered a LIGHT band, so an agent
- * asked for a dark band would write the one value that silently produced a light
- * one. `theme` now accepts exactly `default | muted | inverted`, the strict-enum
- * gate (#579) rejects everything else at write, and `inverted` is the dark band.
- *
- * Any value outside the accepted set (including a STORED legacy `dark` on a page
- * authored before #605, and non-string / empty / unknown input arriving from a JSON
- * payload) coerces to `default` — the base render-time contract for every enum.
- *
- * @param mixed  $theme  The raw `theme` prop value (any type; coerced defensively).
- * @param string $prefix The component's BEM block prefix (e.g. 'cta', 'pp-section').
- * @return string A leading-space class fragment (e.g. ' cta--dark'), or '' for the
- *                default theme so `class="cta<?php echo $theme_class; ?>"` stays clean.
- */
-function pp_theme_class($theme, string $prefix): string {
-    $accepted = ['default', 'muted', 'inverted'];
-    if (!is_string($theme) || !in_array($theme, $accepted, true)) {
-        $theme = 'default';
-    }
-    if ($theme === 'default') {
-        return '';
-    }
-    // #570 DG-4 — KEPT DELIBERATELY. `muted` is the canonical INPUT value; `--dark`
-    // is the CSS class name it has always emitted. This line is output naming, not
-    // input aliasing: it is what keeps every stylesheet rule and `variant_classes`
-    // declaration valid. Removing the `dark` INPUT value (#605) does not touch it.
-    $slug = ($theme === 'muted') ? 'dark' : $theme;
-    return ' ' . $prefix . '--' . $slug;
 }
