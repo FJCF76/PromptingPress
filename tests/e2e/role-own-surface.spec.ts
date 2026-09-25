@@ -184,9 +184,12 @@ test.describe('#1125 a role\'s own surface under a new ink', () => {
     const fill = await token(page, '--color-accent');
     const button = page.locator('.cta__button--secondary').first();
     await button.hover();
+    // The pointer must be ON the button before the press (CI read the resting ink once: a late layout
+    // shift had moved the element out from under the pointer, as in the hover test above). The default
+    // :hover fill painting proves it; then press, and poll the pressed ink.
+    await expect.poll(async () => (await paint(page, '.cta__button--secondary')).background, { message: 'hovered before the press' }).toBe(fill);
     await page.mouse.down();
-    const pressed = await paint(page, '.cta__button--secondary');
-    expect(pressed.color, 'the author :active ink paints while pressed').toBe(ink);
-    expect(pressed.background, 'on the default :hover fill').toBe(fill);
+    await expect.poll(async () => (await paint(page, '.cta__button--secondary')).color, { message: 'the author :active ink paints while pressed' }).toBe(ink);
+    expect((await paint(page, '.cta__button--secondary')).background, 'on the default :hover fill').toBe(fill);
   });
 });
