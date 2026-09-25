@@ -81,11 +81,6 @@ async function canon(page: any, value: string): Promise<string> {
   }, value);
 }
 
-async function token(page: any, name: string): Promise<string> {
-  const raw = await page.evaluate((n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
-  expect(raw, `${name} must be defined`).not.toBe('');
-  return canon(page, raw);
-}
 
 test.describe('#1141 a raw background wins over the band image', () => {
   let pageId = 0;
@@ -115,6 +110,7 @@ test.describe('#1141 a raw background wins over the band image', () => {
     const res = await heroPage(page, { _band: { background: { image: attachmentId, overlay: 'rgba(6,10,28,0.72)' }, _css: { background: '#fdf6e3' } } });
     const collision = ((res.data && res.data.findings) || []).filter((f: any) => f.type === 'udc_css_overrides_group_value');
     expect(collision.length, JSON.stringify(res.data)).toBeGreaterThan(0);
+    expect(collision.map((f: any) => f.message).join(' '), 'the message says the image does not paint, as it does not').toContain('does not paint');
     const hero = page.locator('.hero').first();
     const paint = await hero.evaluate((el: Element) => ({ image: getComputedStyle(el).backgroundImage, colour: getComputedStyle(el).backgroundColor, marked: el.hasAttribute('data-pp-band-overlay') }));
     expect(paint.image, 'no image or scrim layer paints').toBe('none');

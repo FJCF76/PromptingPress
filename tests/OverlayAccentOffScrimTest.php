@@ -667,4 +667,14 @@ final class OverlayAccentOffScrimTest extends TestCase
         $src = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1, $fn->getEndLine() - $fn->getStartLine() + 1));
         $this->assertMatchesRegularExpression('/catch \(\\\\Throwable \$e\) \{\s*error_log\(\'PromptingPress: overlay marker compile failed/s', $src);
     }
+
+    /** The partial-scrim condition names its widths when it holds only at some (PR-2 review, testing). */
+    public function testAPartialScrimAtSomeWidthsNamesThem(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => ['p' => '100px']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('sized 100px without tiling at the phone width', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => 'contain', 'repeat' => 'no-repeat']]]),
+            'contain fills the band: nothing to name (ruling A)');
+    }
 }

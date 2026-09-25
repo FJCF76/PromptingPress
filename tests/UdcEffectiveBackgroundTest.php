@@ -165,4 +165,46 @@ final class UdcEffectiveBackgroundTest extends TestCase
         $this->assertFalse($fx['tiers']['d']['partial'], 'the default cover');
         $this->assertTrue(pp_udc_band_has_overlay($this->item($scrim + ['size' => '200px 200px', 'repeat' => 'no-repeat'])), 'the marker is unchanged (R4)');
     }
+
+    /**
+     * PARTIAL IS DECIDED PER AXIS FROM THE SCRIM LAYER (ruling A, PR-2 review): a gradient has no natural size, so under
+     * contain, cover, auto or 100%-or-more it fills the band on that axis (Chromium corner pixel: scrim). A length, or a
+     * percentage under 100%, on an axis that does not tile leaves part of the band unscrimmed.
+     */
+    public function testPartialIsDecidedPerAxisFromTheScrimLayer(): void
+    {
+        $scrim = ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'repeat' => 'no-repeat'];
+        foreach (['contain', '100% 100%', '100%', 'auto', 'cover', 'auto 100%', '120%'] as $size) {
+            [$fx] = $this->read($this->item(['size' => $size] + $scrim));
+            $this->assertFalse($fx['tiers']['d']['partial'], "{$size}: the scrim fills the band");
+        }
+        foreach (['auto 50%', '200px 200px', '200px', '50%', '100% 30rem'] as $size) {
+            [$fx] = $this->read($this->item(['size' => $size] + $scrim));
+            $this->assertTrue($fx['tiers']['d']['partial'], "{$size}: an axis the scrim does not cover and does not tile");
+        }
+        // Tiling is per axis too: repeat-x tiles the horizontal axis only.
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '200px 100%', 'repeat' => 'repeat-x']));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'the short axis tiles, the other is 100%');
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '100% 200px', 'repeat' => 'repeat-x']));
+        $this->assertTrue($fx['tiers']['d']['partial'], 'the short axis is the one that does not tile');
+    }
+
+    /** Repeat inherits per tier like size (PR-2 review, testing). */
+    public function testRepeatInheritsPerTier(): void
+    {
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '200px', 'repeat' => ['d' => 'repeat', 'p' => 'no-repeat']]));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'tiles at the base width');
+        $this->assertTrue($fx['tiers']['p']['partial'], 'the phone width stops tiling');
+    }
+
+    /**
+     * A SIZE SET ONLY IN A STATE does not make the resting tier partial, and the state is not named: CONSERVATIVE BY
+     * CHOICE (orchestrator, PR-2 review), as the state repaint of a scrimmed image was left in #1142 item 3. Naming a
+     * scrim that turns partial only on hover is a decision, not a cleanup.
+     */
+    public function testAStateOnlySizeLeavesTheRestingTierAlone(): void
+    {
+        [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', ':hover' => ['size' => '200px', 'repeat' => 'no-repeat']]));
+        $this->assertFalse($fx['tiers']['d']['partial']);
+    }
 }

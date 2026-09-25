@@ -6426,12 +6426,43 @@ function pp_udc_band_effective_background(array $compiled): array {
         // own background. Each property inherits from the base tier on its own, as the cascade does.
         $size   = $sizing[$bp]['size'] ?? ($sizing['d']['size'] ?? '');
         $repeat = $sizing[$bp]['repeat'] ?? ($sizing['d']['repeat'] ?? '');
-        $tiles  = in_array($repeat, ['', 'repeat', 'round', 'repeat repeat', 'round round', 'repeat round', 'round repeat'], true);
         $tiers[$bp]['size']    = $size;
         $tiers[$bp]['partial'] = !empty($tiers[$bp]['image']) && ($tiers[$bp]['scrim'] ?? '') !== ''
-            && !in_array($size, ['', 'cover', 'auto', 'auto auto'], true) && !$tiles;
+            && _pp_udc_scrim_leaves_part_uncovered(_pp_udc_compiled_value($size, $compiled), $repeat);
     }
     return ['tiers' => $tiers, 'states' => array_values(array_unique($states))];
+}
+
+/**
+ * WHETHER A SCRIM SIZED THIS WAY LEAVES PART OF THE BOX UNCOVERED (#1142 item 1, ruling A in the PR-2 review), decided
+ * PER AXIS from the scrim layer itself. `background-size` applies to every layer, and a gradient has no natural size,
+ * so under `contain`, `cover`, `auto` or a percentage of 100 or more it fills the box on that axis (Chromium, corner
+ * pixel: scrim). A length, or a percentage under 100, leaves the rest of that axis unscrimmed unless the axis tiles
+ * (`repeat` / `round`; `space` leaves gaps, `no-repeat` none). A value the engine cannot read is not claimed to cover.
+ */
+function _pp_udc_scrim_leaves_part_uncovered(string $size, string $repeat): bool {
+    $size = strtolower(trim($size));
+    if ($size === '' || $size === 'contain' || $size === 'cover') {
+        return false;
+    }
+    $axes = preg_split('/\s+/', $size);
+    $axes = [$axes[0], $axes[1] ?? 'auto'];
+    $rep  = preg_split('/\s+/', strtolower(trim($repeat)));
+    if ($rep === [''] ) {
+        $tiles = [true, true]; // the CSS initial value, `repeat`
+    } elseif (count($rep) === 1) {
+        $tiles = $rep[0] === 'repeat-x' ? [true, false] : ($rep[0] === 'repeat-y' ? [false, true]
+            : [in_array($rep[0], ['repeat', 'round'], true), in_array($rep[0], ['repeat', 'round'], true)]);
+    } else {
+        $tiles = [in_array($rep[0], ['repeat', 'round'], true), in_array($rep[1], ['repeat', 'round'], true)];
+    }
+    foreach ($axes as $i => $axis) {
+        $covers = $axis === 'auto' || (preg_match('/^(\d+(?:\.\d+)?|\.\d+)%\z/', $axis, $m) && (float) $m[1] >= 100.0);
+        if (!$covers && !$tiles[$i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Whether a compiled band paints a scrim over its image at any width: the overlay marker's predicate. */

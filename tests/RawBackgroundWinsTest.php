@@ -128,4 +128,37 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringNotContainsString('does not paint', $found[0]['message']);
         $this->assertStringContainsString('would reset background-image, but the stored raw value cannot be emitted, so the background.image you also set is what paints', $found[0]['message']);
     }
+
+    /** Raw longhands the author wrote beside the raw shorthand stay; the group's layers go (PR-2 review, testing). */
+    public function testRawLonghandsBesideTheRawShorthandStay(): void
+    {
+        $css = pp_udc_band_css($this->band(['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'],
+            PP_UDC_CSS_KEY => ['background' => '#ffffff', 'background-size' => '10px', 'background-position' => 'top']]));
+        $this->assertStringContainsString('background-size:10px', $css);
+        $this->assertStringContainsString('background-position:top', $css);
+        $this->assertStringNotContainsString('url(', $css);
+    }
+
+    /** A raw background inside a state wins that state (PR-2 review, testing). */
+    public function testARawBackgroundInAStateWinsThatState(): void
+    {
+        $css = pp_udc_band_css($this->band(['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', ':hover' => ['size' => '200px', 'position' => 'top']],
+            PP_UDC_CSS_KEY => [':hover' => ['background' => '#ffffff']]]));
+        $this->assertStringContainsString(':hover{background:#ffffff;}', $css);
+    }
+
+    /** The compiled-raw lookup is per role and state: another role's compiled raw value does not vouch for this one's (PR-2 review, testing). */
+    public function testTheRawLookupIsPerRoleAndState(): void
+    {
+        $item = ['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => [
+            '_band' => ['background' => ['image' => 9001], PP_UDC_CSS_KEY => ['background-image' => 'linear-gradient(#000,#000)']],
+            'text'  => ['background' => ['image' => 9001], PP_UDC_CSS_KEY => ['background-image' => 9002]],
+        ]];
+        $by_role = [];
+        foreach ($this->collision($item) as $f) {
+            $by_role[str_contains($f['message'], 'role "_band"') ? '_band' : 'text'] = $f['message'];
+        }
+        $this->assertStringContainsString('cannot be emitted', $by_role['_band'] ?? '', 'the band\'s refused raw value');
+        $this->assertStringContainsString('so the raw value is what paints', $by_role['text'] ?? '', 'the text role\'s compiled one');
+    }
 }
