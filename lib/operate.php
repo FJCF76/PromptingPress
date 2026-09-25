@@ -2940,7 +2940,7 @@ function pp_component_schema_report(string $component): array|WP_Error {
                 // schema's non-role names (a bidi-laced one included) went out verbatim; "as declared" rested on
                 // that false premise. Filtered here as the obligations projection above filters its partners.
                 $within = array_values(array_filter($definition['within'], static fn ($outer): bool => is_string($outer)
-                    && isset($roles[$outer]) && (!defined('PP_ROLE_NAME_PATTERN') || preg_match(PP_ROLE_NAME_PATTERN, $outer))));
+                    && isset($roles[$outer]) && preg_match(PP_ROLE_NAME_PATTERN, $outer)));
                 if ($within !== []) {
                     $entry['within'] = $within;
                 }

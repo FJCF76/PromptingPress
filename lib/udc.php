@@ -2603,15 +2603,15 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  * @return array<string, array<string, array>>
  */
 function _pp_udc_raw_background_wins(array $by_bp): array {
-    $removed_image = [];
+    $desktop_image_removed = false;
     foreach ($by_bp as $bp => $declarations) {
         if (empty($declarations['background']['raw'])) {
             continue;
         }
         foreach ($declarations as $property => $entry) {
             if (strncmp((string) $property, 'background-', 11) === 0 && empty($entry['raw'])) {
-                if ($property === 'background-image') {
-                    $removed_image[(string) $bp] = true;
+                if ($property === 'background-image' && (string) $bp === 'd') {
+                    $desktop_image_removed = true;
                 }
                 unset($by_bp[$bp][$property]);
             }
@@ -2625,7 +2625,7 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
     // A raw desktop background that removed the image leaves a scrim set only at a narrower width with no image to
     // borrow, so its scrim is dropped for the same reason and says so, not "Set background.image" to an author who
     // set one (red team RT2; a narrower fill included, review cycle 2 design).
-    if (isset($removed_image['d'])) {
+    if ($desktop_image_removed) {
         foreach ($by_bp as $bp => $declarations) {
             // A fill of its own at that width does not bring the image back: the cause is still the raw background.
             if ($bp !== 'd' && !isset($declarations['background-image'])
