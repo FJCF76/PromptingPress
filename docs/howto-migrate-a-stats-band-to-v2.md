@@ -165,8 +165,10 @@ Two v1 behaviours that came free are explicit now: write `background.size: "cove
 `.stats--has-bg-image` so an image automatically re-inked the band: `number` →
 `@color-accent-on-overlay` (#461; bare `@color-accent` measures **1.16:1** over the worst-case
 scrim), `heading-accent` → the same (#463), and `label` → `@color-muted-on-overlay` (#577).
-v2 has no automatic remap — the engine cannot know an arbitrary image is dark — so you write
-all four inks in the same map:
+v2 has no class-keyed remap — the engine cannot know an arbitrary image is dark. Since #1010
+`number` and `heading-accent` do default to `@color-accent-on-overlay` on a band that paints
+a scrim over its image; `heading` and `label` are yours. Writing all four in the same map, as
+below, is still correct and pins them:
 
 ```json
 {

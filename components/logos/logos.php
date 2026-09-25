@@ -48,17 +48,16 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
 // TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
 // stood here claimed a benefit this component cannot have:
 //
-// 1. IT HAS NO CONSUMER ON THIS BAND TODAY. The attribute's only readers are
-//    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`. Neither stats nor
-//    logos renders a `.btn`, a `.faq__question`, or ANY focusable child — so there is no
-//    focus ring here to switch, and the 1.17:1 contrast defect the old comment cited
-//    (#986's mechanism, #1035's defect) is unreachable on these two components. It is
-//    emitted for consistency with the other v2 bands and to be correct the day one of
-//    these grows a focusable child, not because it fixes something now.
+// 1. NO FOCUS-RING CONSUMER ON THIS BAND. The ring's readers are
+//    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`, and neither stats nor
+//    logos renders a `.btn`, a `.faq__question`, or ANY focusable child. It is emitted
+//    for consistency with the other v2 bands (logos declares no `overlay_defaults`), and to be
+//    correct the day this grows a focusable child or an accent ink.
 // 2. THE FLAG IS AN INPUT-SHAPED PROP AND IS NOT VALIDATED AGAINST THE COMPILED MAP. The
 //    engine sets it, but `pp_udc_promote_band_identity()` never CLEARS a value already in
 //    `$props`, so a raw `_pp_composition` write or a restore (#233) can carry a forged
-//    `__pp_udc_overlay` and switch the hook on a band painting no scrim at all. Filed as
+//    `__pp_udc_overlay` and switch the hook on a band painting no scrim at all.
+//    Since #1010 that forgery also re-lights accent text (stats), which raises #1073's impact. Filed as
 //    #1073 rather than patched here: the fix belongs in the engine's promotion step, which
 //    is shared by all v2 templates, and a local guard here would leave the other nine.
 $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';

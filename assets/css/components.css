@@ -3278,18 +3278,13 @@ main .btn:focus-visible {
    sits with; base.css hides the ring for non-keyboard focus through `:focus:not(:focus-visible)`,
    so the rendered behaviour is the keyboard one either way.
 
-   AND ONE LIMIT THIS ENTRY INHERITS, measured at #1046 and worth stating where it bites
-   hardest. The comment above calls `[data-pp-band-overlay]` engine-emitted "which is the
-   only thing that knows a scrim is being painted". That is not what the code does:
-   `pp_udc_band_has_overlay()` tests only that `background.image` and `background.overlay`
-   are PRESENT in the stored map, never that the attachment resolves. Delete the attachment
-   — or clone a site without its uploads rows — and the attribute stays on a band that now
-   paints its ordinary light `@color-surface` fill, where `--color-accent-on-overlay`
-   (#fafbff) lands at roughly 1:1. faq feels this worse than the buttons above it: the
-   <summary> is the component's ONLY focusable control, so there is no other ring to fall
-   back on, and the inset offset this block sets makes that outline the whole affordance.
-   No finding and no emit-drop row reports it. Filed as #1060; this entry stays correct for
-   every band whose scrim actually paints. */
+   THE LIMIT THIS ENTRY USED TO INHERIT IS CLOSED (#1060, fixed with #1010).
+   `pp_udc_band_has_overlay()` once tested only that `background.image` and
+   `background.overlay` were PRESENT in the stored map, so a deleted attachment left the
+   attribute on a light band where `--color-accent-on-overlay` (#fafbff) landed at roughly
+   1:1 (faq's <summary> is its ONLY focusable control, so that ring is the whole
+   affordance). It now resolve-checks the image in the emitter's own precedence and reads a
+   preset-supplied scrim, so the attribute appears only on a band whose scrim paints. */
 [data-pp-band-overlay] .btn:focus,
 [data-pp-band-overlay] .faq__question:focus,
 .hero--cover .btn:focus {

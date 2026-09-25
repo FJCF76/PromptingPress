@@ -242,6 +242,11 @@ buys you a role that passes CI and styles nothing.
   "@color-accent-on-overlay"}`). It is a map of groups the role permits (CI refuses any
   other group), and it is compiled as an AUTHORED map, not as `defaults`: the band-rhythm
   props above do NOT resolve in it. An author's own value for the role still wins.
+- **`within`** (optional, #1010 review) — a LIST of this component's role names whose
+  elements ENCLOSE this role's element in your template, read off the markup (hero
+  `title-accent` sits in `inner`, `content`, `title`). Declare it on every role that carries
+  `overlay_defaults`: the `udc_overlay_accent_off_scrim` finding reads a light surface the
+  author set only on these roles, so a light button BESIDE the heading is not reported.
 
 **`obligations` is required on every role, and `[]` is a real answer** (#1087,
 `SchemaValidationTest`). It is the one part of the role that IS model-facing, so it
