@@ -2623,11 +2623,12 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
         }
     }
     // A raw desktop background that removed the image leaves a scrim set only at a narrower width with no image to
-    // borrow: that width inherits the desktop shorthand, so its scrim is dropped for the same reason and says so,
-    // not "Set background.image" to an author who set one (red team RT2).
+    // borrow, so its scrim is dropped for the same reason and says so, not "Set background.image" to an author who
+    // set one (red team RT2; a narrower fill included, review cycle 2 design).
     if (isset($removed_image['d'])) {
         foreach ($by_bp as $bp => $declarations) {
-            if ($bp !== 'd' && !isset($declarations['background']) && !isset($declarations['background-image'])
+            // A fill of its own at that width does not bring the image back: the cause is still the raw background.
+            if ($bp !== 'd' && !isset($declarations['background-image'])
                 && is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
                 $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
             }
@@ -2732,11 +2733,22 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // A raw `_css` background WON this coordinate (#1141): the author may well have set the image,
                     // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
                     : (!empty($overlay['raw_background_won'])
-                    ? 'the raw background in _css resets the background here, so background.image and this scrim do not '
-                      . 'paint at this width, and with no scrim the band is not marked, so the accent roles it re-lit go back to '
-                      . 'their own colours. Remove the raw background (put a colour in background.fill beside the image '
+                    ? (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
+                    // The band stays marked from the widths that still paint a scrim (PR-2 review cycle 2, design).
+                    ? sprintf('the raw background in _css resets the background here, so background.image and this scrim do '
+                      . 'not paint at this width. The scrim still paints at the %s, so the band stays marked and the accent '
+                      . 'roles it re-lights stay near-white on this background (the off-scrim finding names them). Remove '
+                      . 'the raw background at this width (put a colour in background.fill beside the image instead), or, '
+                      . 'if the raw background is what you want here, set the accents\' typography.color for this width: '
+                      . 'a raw background cannot carry an image', _pp_udc_widths_phrase($overlay['band_scrim_at']))
+                    : 'the raw background in _css resets the background here, so background.image and this scrim do not '
+                      . 'paint at this width'
+                      . (isset($overlay['band_scrim_at'])
+                          ? ', and with no scrim the band is not marked, so the accent roles it re-lit go back to their own colours'
+                          : '')
+                      . '. Remove the raw background (put a colour in background.fill beside the image '
                       . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
-                      . 'background cannot carry an image. On a dark background, set the accents\' typography.color'
+                      . 'background cannot carry an image. On a dark background, set the accents\' typography.color')
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -5314,6 +5326,28 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                         && !isset($declarations['background-image'])
                         && empty($declarations['background']['raw'])) {
                         $by_bp[$bp]['background-image'] = $base_image;
+                    }
+                }
+            }
+            // WHETHER THE BAND STAYS MARKED, READ FROM THE COMPOSE INPUTS (PR-2 review cycle 2, design). A scrim a raw
+            // background dropped says the band goes unmarked only when no width paints a scrim; otherwise it names
+            // the widths that still do. Rest state of `_band` only: the marker reads nothing else.
+            if ((string) $role_name === '_band' && (string) $state === '') {
+                $composes = static fn (array $d): bool => is_array($d[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)
+                    && empty($d[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won']) && isset($d['background-image']);
+                $scrim_at = [];
+                foreach (array_keys(pp_udc_breakpoints()) as $bp) {
+                    $bucket = $by_bp[$bp] ?? [];
+                    // A width with no carrier and no background of its own inherits the desktop layers (the cascade).
+                    $paints = ($bp === 'd' || isset($bucket[PP_UDC_BACKGROUND_OVERLAY_CARRIER]) || isset($bucket['background']) || isset($bucket['background-image']))
+                        ? $composes($bucket) : $composes($by_bp['d'] ?? []);
+                    if ($paints) {
+                        $scrim_at[] = (string) $bp;
+                    }
+                }
+                foreach ($by_bp as $bp => $declarations) {
+                    if (!empty($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'])) {
+                        $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['band_scrim_at'] = $scrim_at;
                     }
                 }
             }

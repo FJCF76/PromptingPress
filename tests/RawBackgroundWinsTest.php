@@ -217,7 +217,10 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertStringContainsString('the raw background in _css resets the background here, so background.image and this scrim do not paint', $rows[0]['reason'], $label);
             $this->assertStringNotContainsString('put the whole treatment in it', $rows[0]['reason'], 'a raw background cannot carry an image (design review)');
             $this->assertStringContainsString('a raw background cannot carry an image', $rows[0]['reason'], $label);
-            $this->assertStringContainsString('the accent roles it re-lit go back to their own colours', $rows[0]['reason'], $label);
+            // Only where no width paints a scrim: in the narrower case the desktop scrim still paints and the band
+            // stays marked, so the earlier pin here asserted a false sentence (corrected, PR-2 review cycle 2, design).
+            $this->assertStringContainsString($label === 'same width' ? 'the accent roles it re-lit go back to their own colours'
+                : 'The scrim still paints at the desktop and tablet widths, so the band stays marked', $rows[0]['reason'], $label);
         }
         $drops = [];
         pp_udc_compile_band($this->band(['background' => ['fill' => '#101828', 'overlay' => 'rgba(0,0,0,0.7)']]), 'authored', $drops);
@@ -238,6 +241,47 @@ final class RawBackgroundWinsTest extends TestCase
             $found = $this->collision(['component' => 'cta', 'props' => ['title' => 'C'], 'udc' => $udc]);
             $this->assertCount(1, $found, $arm);
             $this->assertStringNotContainsString('cannot be emitted', $found[0]['message'], $arm);
+        }
+    }
+
+    /** The drop rows for a scrim under a winning raw background, for one band map. */
+    private function rawWonReasons(array $band, string $component = 'cta'): array
+    {
+        $drops = [];
+        pp_udc_compile_band(['component' => $component, 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['_band' => $band]], 'authored', $drops);
+        return array_values(array_map(static fn (array $r): string => $r['reason'],
+            array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image')));
+    }
+
+    /**
+     * WHETHER THE BAND STAYS MARKED IS READ, NOT ASSUMED (PR-2 review cycle 2, design). A raw background at a narrower
+     * width while the desktop scrim still paints leaves the band marked and its accents re-lit on that background;
+     * the reason says so, names where the scrim paints, and does not advise removing the image everywhere.
+     */
+    public function testANarrowerRawBackgroundWhileTheDesktopScrimPaintsKeepsTheBandMarked(): void
+    {
+        $band = ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.7)', 't' => 'rgba(0,0,0,0.6)']], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]];
+        $this->assertTrue(pp_udc_band_has_overlay($this->band($band)));
+        $reasons = $this->rawWonReasons($band, 'stats');
+        $this->assertCount(1, $reasons);
+        $this->assertStringNotContainsString('the band is not marked', $reasons[0]);
+        $this->assertStringNotContainsString('remove background.image and the overlay', $reasons[0]);
+        $this->assertStringContainsString('The scrim still paints at the desktop and phone widths, so the band stays marked', $reasons[0]);
+        // Where no width paints a scrim, the unmarked wording stands.
+        $alone = $this->rawWonReasons(['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]);
+        $this->assertNotSame([], $alone);
+        $this->assertStringContainsString('the band is not marked', $alone[0]);
+    }
+
+    /** A narrower fill does not hide the cause: the raw desktop background still cancelled the image (cycle 2, design). */
+    public function testANarrowerFillUnderARawDesktopBackgroundStillNamesTheRawBackground(): void
+    {
+        $reasons = $this->rawWonReasons(['background' => ['image' => 9001, 'overlay' => ['p' => 'rgba(0,0,0,0.7)'], 'fill' => ['p' => '#222222']],
+            PP_UDC_CSS_KEY => ['background' => '#ffffff']]);
+        $this->assertNotSame([], $reasons);
+        foreach ($reasons as $reason) {
+            $this->assertStringNotContainsString('Set background.image', $reason);
+            $this->assertStringContainsString('the raw background in _css resets the background here', $reason);
         }
     }
 }
