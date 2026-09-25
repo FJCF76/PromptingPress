@@ -321,8 +321,8 @@ you, with one exception: on an image band with an overlay, `hero`'s `title-accen
 `heading-accent` of `cta`, `faq` and `stats`, and the `stats` `number` default to
 `@color-accent-on-overlay` (#1010), and your own value for them still wins. Every other accent
 ink is still yours (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary button is one set). The re-light assumes
-the accent sits on a dark scrim: a light surface you set on a role that encloses it (the cta
-`text` panel, a stats `item` card), a scrim set only at some widths, or a scrim that is light,
+the accent sits on a dark scrim: a light surface you set on the accent itself or on a role that
+encloses it (the cta `text` panel, a stats `item` card), at rest or in a state, a scrim set only at some widths, or a scrim that is light,
 fades to transparent or cannot be read is named on the write as `udc_overlay_accent_off_scrim`,
 and the fix is to set that accent's `typography.color` yourself. Check every colour against the surface it actually sits on — which is the nearest
 ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.

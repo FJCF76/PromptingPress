@@ -246,7 +246,8 @@ buys you a role that passes CI and styles nothing.
   elements ENCLOSE this role's element in your template, read off the markup (hero
   `title-accent` sits in `inner`, `content`, `title`). Declare it on every role that carries
   `overlay_defaults`: the `udc_overlay_accent_off_scrim` finding reads a light surface the
-  author set only on these roles, so a light button BESIDE the heading is not reported.
+  author set on the accent role itself or on these roles only, so a light button BESIDE the
+  heading is not reported.
 
 **`obligations` is required on every role, and `[]` is a real answer** (#1087,
 `SchemaValidationTest`). It is the one part of the role that IS model-facing, so it

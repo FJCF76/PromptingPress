@@ -178,7 +178,7 @@ than a class. Since #1010 so are the accent inks:** on a band carrying `data-pp-
 `number` default to `--color-accent-on-overlay` instead of `--color-accent` (1.05:1 over a
 dark scrim), and any value you author for those roles still wins (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary
 button's ink, border and hover fill stay yours as one set). Where that premise does not hold
-(a light surface you set on a role enclosing the accent, a scrim set only at some widths, a
+(a light surface you set on the accent or on a role enclosing it, a scrim set only at some widths, a
 scrim that is light, fades to transparent or cannot be read) the write says so as
 `udc_overlay_accent_off_scrim`. The engine emits `data-pp-band-overlay` when a band
 paints both a `background.image` and a `background.overlay`, and the outline routes to

@@ -49,8 +49,8 @@ This checks:
      `run_id` that `wp pp operate inspect` returns, not any UUID.
    - `udc_overlay_accent_off_scrim` — this band paints a scrim over an image, so its accent
      inks re-light to the near-white `@color-accent-on-overlay`, but something you set breaks
-     the dark-scrim premise: a light (or unreadable) background on a role that encloses the
-     accent, a scrim set only at some widths, or a scrim that is light, fades to transparent
+     the dark-scrim premise: a light (or unreadable) background, at rest or in a state, on the
+     accent itself or on a role that encloses it, a scrim set only at some widths, or a scrim that is light, fades to transparent
      or cannot be read. The message names the re-lit roles and the cause. Where the accent
      sits on that surface, set its `typography.color` yourself. Like every finding here it
      makes `wp pp validate site` exit non-zero until you answer it.
