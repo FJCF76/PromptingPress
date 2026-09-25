@@ -367,4 +367,16 @@ final class OverlayTierDefaultsTest extends TestCase
             pp_schema_definition_errors($within, 'role', 'c role r', ['r' => true, 'text' => true]));
         $this->assertSame([], pp_schema_definition_errors($role + ['within' => ['text']], 'role', 'c role r', ['r' => true, 'text' => true]));
     }
+
+    /** `overlay_defaults` VALUES are checked too: a single-line string, or a breakpoint map of them (PR-2 review, security). */
+    public function testTheDefinitionGateChecksOverlayDefaultValues(): void
+    {
+        $role = static fn ($value): array => ['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => $value]]];
+        $this->assertSame([], pp_schema_definition_errors($role('@color-accent-on-overlay'), 'role', 'c role r'));
+        $this->assertSame([], pp_schema_definition_errors($role(['d' => '#fff', 'p' => '#eee']), 'role', 'c role r'), 'a breakpoint map');
+        foreach ([['deep' => ['x' => 1]], "two\nlines", 7, ''] as $bad) {
+            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string, or a breakpoint map of them.',
+                pp_schema_definition_errors($role($bad), 'role', 'c role r'), var_export($bad, true));
+        }
+    }
 }

@@ -566,7 +566,9 @@ final class OverlayAccentOffScrimTest extends TestCase
             $this->assertCount(1, $found, json_encode($extra));
         }
         $tier = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', 'fill' => ['p' => '#ffffff']]]]);
-        $this->assertStringContainsString('so at the phone width the accent sits on the unscrimmed image', $tier[0]['message']);
+        // PR-2 review (security): a phone fill REPLACES the image there, so the accent sits on the band's own
+        // background at that width, not on an unscrimmed image (the old pinned wording was false).
+        $this->assertStringContainsString("so at the phone width the accent sits on the band's own background", $tier[0]['message']);
         $state = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', ':hover' => ['fill' => '#ffffff']]]]);
         $this->assertStringContainsString("in the :hover state the band's own background replaces the scrimmed image", $state[0]['message']);
         $raw = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], '_css' => ['background' => ['p' => '#ffffff']]]]);
@@ -693,5 +695,14 @@ final class OverlayAccentOffScrimTest extends TestCase
         $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => ['d' => '50px', 'p' => '70%'], 'repeat' => 'no-repeat']]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('sized 50px without tiling at the desktop and tablet widths and 70% without tiling at the phone width', $found[0]['message']);
+    }
+
+    /** Where the uncovered width has no image (a raw background won there), the accent sits on the band's own background, not an image (PR-2 review, security). */
+    public function testAnUncoveredWidthWithNoImageIsWordedAsTheBandsOwnBackground(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => '#ffffff']]]]);
+        $conditions = implode(' | ', array_column($found, 'message'));
+        $this->assertStringContainsString('so at the phone width the accent sits on the band\'s own background', $conditions);
+        $this->assertStringNotContainsString('the phone width the accent sits on the unscrimmed image', $conditions);
     }
 }

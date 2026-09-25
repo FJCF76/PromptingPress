@@ -853,12 +853,25 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                 // resting value, contradicting "your value wins"; a key that is no parameter of the group
                 // was dropped silently at render.
                 $group_params = function_exists('pp_udc_groups') ? (pp_udc_groups()[$group]['params'] ?? null) : null;
-                foreach (is_array($group_map) ? array_keys($group_map) : [] as $key) {
+                foreach (is_array($group_map) ? $group_map : [] as $key => $value) {
                     $key = (string) $key;
                     if (strncmp($key, ':', 1) === 0) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` must not hold a state (`{$key}`): the tier is a resting default.";
-                    } elseif (is_array($group_params) && !isset($group_params[$key])) {
+                        continue;
+                    }
+                    if (is_array($group_params) && !isset($group_params[$key])) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` has no parameter `{$key}`.";
+                        continue;
+                    }
+                    // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
+                    // sink, so a value is a single-line string, or a breakpoint map of them, as `defaults` values are.
+                    $leaves   = is_array($value) ? $value : [$value];
+                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, ['d' => 1, 't' => 1, 'p' => 1]) === []);
+                    foreach ($leaves as $leaf) {
+                        $shape_ok = $shape_ok && is_string($leaf) && $leaf !== '' && (!function_exists('pp_udc_is_single_line') || pp_udc_is_single_line($leaf));
+                    }
+                    if (!$shape_ok) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string, or a breakpoint map of them.";
                     }
                 }
             }

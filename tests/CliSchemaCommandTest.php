@@ -1209,4 +1209,45 @@ class CliSchemaCommandTest extends TestCase
             . 'without anyone remembering to update a list'
         );
     }
+
+    /**
+     * `within` REACHES THE RAW-UNICODE SINK ONLY AS NAMES OF THIS COMPONENT'S ROLES (PR-2 review, security). The report
+     * printed `within` as declared on the premise that the definition gate refuses a stray name, but that check runs in
+     * the CI walk, which sees only SHIPPED schemas; a third-party schema's non-role names (a bidi-laced one included)
+     * went out raw. A scratch theme root with one such component, both directions.
+     */
+    public function testTheReportPrintsOnlyWithinNamesThatAreRoles(): void
+    {
+        $root = sys_get_temp_dir() . '/pp-within-' . uniqid();
+        mkdir($root . '/components/ppwithin', 0777, true);
+        file_put_contents($root . '/components/ppwithin/ppwithin.php', '<?php echo "<section data-pp-component=\"ppwithin\"></section>";');
+        file_put_contents($root . '/components/ppwithin/schema.json', json_encode([
+            'component' => 'ppwithin', 'description' => 'scratch', 'props' => ['id' => ['type' => 'string', 'required' => false, 'description' => 'id', 'default' => '']],
+            'roles' => [
+                'outer' => ['selector' => '.o', 'groups' => ['typography'], 'description' => 'o'],
+                'inner' => ['selector' => '.i', 'groups' => ['typography'], 'description' => 'i', 'within' => ['outer', 'ghost', "\u{202E}gnp.exe"]],
+            ],
+        ]));
+        $previous = $GLOBALS['_pp_test_template_dir'] ?? null;
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+        try {
+            $report = \pp_component_schema_report('ppwithin');
+            $this->assertIsArray($report, 'premise: the scratch component is registered');
+            $by_role = array_column($report['roles'], null, 'role');
+            $this->assertSame(['outer'], $by_role['inner']['within'] ?? null, 'a role name passes; a non-role and a bidi-laced name do not');
+            $this->assertStringNotContainsString("\u{202E}", (string) json_encode($report, JSON_UNESCAPED_UNICODE));
+        } finally {
+            if ($previous === null) {
+                unset($GLOBALS['_pp_test_template_dir']);
+            } else {
+                $GLOBALS['_pp_test_template_dir'] = $previous;
+            }
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            array_map('unlink', glob($root . '/components/ppwithin/*'));
+            rmdir($root . '/components/ppwithin');
+            rmdir($root . '/components');
+            rmdir($root);
+        }
+    }
 }

@@ -5278,9 +5278,13 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
             $base_image = $by_bp['d']['background-image'] ?? null;
             if ($base_image !== null) {
                 foreach ($by_bp as $bp => $declarations) {
+                    // NOT INTO A BUCKET WHOSE `background` IS RAW (#1141, PR-2 review): the raw shorthand has
+                    // won that coordinate, and a borrowed image would paint over it; the scrim there is then
+                    // dropped by the compose stage with its ledger row.
                     if ($bp !== 'd'
                         && isset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER])
-                        && !isset($declarations['background-image'])) {
+                        && !isset($declarations['background-image'])
+                        && empty($declarations['background']['raw'])) {
                         $by_bp[$bp]['background-image'] = $base_image;
                     }
                 }
@@ -9607,10 +9611,18 @@ function pp_udc_composition_findings(array $items): array {
                 }
                 $missing = array_values(array_diff(array_keys($breakpoints), $covered));
                 if ($covered !== [] && $missing !== []) {
-                    $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
-                        . (count($keys) === 1 ? ' width' : ' widths');
-                    $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
-                        $label($covered), $label($missing)), $relit];
+                    // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
+                    // the band's own background, not on an image (PR-2 review, security).
+                    $imaged   = array_values(array_filter($missing, static fn ($k): bool => !empty($effective['tiers'][$k]['image'])));
+                    $unimaged = array_values(array_diff($missing, $imaged));
+                    $where    = [];
+                    if ($imaged !== []) {
+                        $where[] = sprintf('at the %s the accent sits on the unscrimmed image', _pp_udc_widths_phrase($imaged));
+                    }
+                    if ($unimaged !== []) {
+                        $where[] = sprintf('at the %s the accent sits on the band\'s own background', _pp_udc_widths_phrase($unimaged));
+                    }
+                    $conditions[] = [sprintf('the scrim is set only at the %s, so %s', _pp_udc_widths_phrase($covered), implode(', and ', $where)), $relit];
                 }
                 foreach ($effective['tiers'] as $tier) {
                     [$layers, $source] = [$tier['scrim'], $tier['source']];

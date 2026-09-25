@@ -2934,10 +2934,16 @@ function pp_component_schema_report(string $component): array|WP_Error {
             if (is_array($definition['overlay_defaults'] ?? null) && $definition['overlay_defaults'] !== []) {
                 $entry['overlay_defaults'] = $definition['overlay_defaults'];
             }
-            if (is_array($definition['within'] ?? null) && $definition['within'] !== []) {
-                // As declared: the definition gate refuses a name that is no role of the component
-                // (the schema CI walk passes the roster, #1142 item 2), so this reports the schema.
-                $entry['within'] = array_values($definition['within']);
+            if (is_array($definition['within'] ?? null)) {
+                // ONLY NAMES OF THIS COMPONENT'S ROLES (PR-2 review, security). This sink prints raw unicode, and the
+                // definition gate's roster check runs in the CI walk over SHIPPED schemas only, so a third-party
+                // schema's non-role names (a bidi-laced one included) went out verbatim; "as declared" rested on
+                // that false premise. Filtered here as the obligations projection above filters its partners.
+                $within = array_values(array_filter($definition['within'], static fn ($outer): bool => is_string($outer)
+                    && isset($roles[$outer]) && (!defined('PP_ROLE_NAME_PATTERN') || preg_match(PP_ROLE_NAME_PATTERN, $outer))));
+                if ($within !== []) {
+                    $entry['within'] = $within;
+                }
             }
             if (($definition['text_content'] ?? null) === true) {
                 $entry['text_content'] = true;

@@ -161,4 +161,31 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringContainsString('cannot be emitted', $by_role['_band'] ?? '', 'the band\'s refused raw value');
         $this->assertStringContainsString('so the raw value is what paints', $by_role['text'] ?? '', 'the text role\'s compiled one');
     }
+
+    /**
+     * A RAW BACKGROUND AT A NARROWER TIER WINS OVER THE BORROWED IMAGE (ruling A, PR-2 review, security). The narrower
+     * bucket's own scrim made it borrow the base image back into the bucket whose `background` is raw, so at the phone
+     * width the image and scrim painted over the raw value while the finding said they did not.
+     */
+    public function testARawBackgroundAtANarrowerTierWinsOverTheBorrowedImage(): void
+    {
+        $item = $this->band(['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.7)', 'p' => 'rgba(0,0,0,0.5)']],
+            PP_UDC_CSS_KEY => ['background' => ['p' => '#ffffff']]]);
+        $this->assertNull(pp_udc_validate_map($item['udc'], 'cta'), 'premise: the write gate accepts it');
+        $css = pp_udc_band_css($item);
+        $this->assertMatchesRegularExpression('/@media \\(max-width: 767px\\)\\{\\[data-pp-band="pp-a1b2c3d4"\\]\\{background:#ffffff;\\}\\}/', $css, 'phone: the raw value alone');
+        $drops = [];
+        pp_udc_compile_band($item, 'authored', $drops);
+        $this->assertContains('overlay_without_image', array_column($drops, 'code'), 'the phone scrim is dropped and SAID');
+        $fx = pp_udc_band_effective_background(pp_udc_compile_band($item, 'authored'));
+        $this->assertFalse($fx['tiers']['p']['image'], 'the accessor reads no image at the phone width');
+        $this->assertTrue($fx['tiers']['d']['image'], 'the base tier keeps its image and scrim');
+    }
+
+    /** Control: a narrower scrim still borrows the base image when no raw background sits there. */
+    public function testANarrowerScrimStillBorrowsTheBaseImageWithoutARawBackground(): void
+    {
+        $css = pp_udc_band_css($this->band(['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.7)', 'p' => 'rgba(0,0,0,0.5)']]]));
+        $this->assertMatchesRegularExpression('/@media \\(max-width: 767px\\)\\{[^}]*background-image:linear-gradient\\(rgba\\(0,0,0,0\\.5\\)/', $css);
+    }
 }
