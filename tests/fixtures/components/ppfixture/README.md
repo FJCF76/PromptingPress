@@ -50,9 +50,11 @@ whole `--dark` / `--inverted` output-name vocabulary: nothing ships that vocabul
 so a fixture emitting it would pin a contract no component keeps.
 
 **What is left is FILLER.** Measured at PR-3 of #1145 by deleting this directory in a scratch
-copy of the shipped state: 24 methods still fail, and none of them is about this component.
-They need *a* registered, composable band with a required prop and do not care which one —
-`WriteEnvelopeFindingsTest` (10), `CompositionFindingsBoundsTest` (8),
+copy of the shipped state: 24 methods fail and a 25th goes risky (zero assertions — which
+`failOnRisky` also fails), and none of them is about this component. They need *a*
+registered, composable band with a required prop and do not care which one —
+`WriteEnvelopeFindingsTest` (10), `CompositionFindingsBoundsTest` (8 failing, plus
+`testOnlyTheTruncationEntryCarriesATotal` going risky),
 `StoredCompositionAliasRenderTest` (2), `FixtureThemeSeamTest` (2, the seam itself) and
 `StyleSlotContractTest` (2, pinning that this schema declares no slots or recipes). So the
 #1101 section's "no shipped component to run against" no longer holds for any of them. That is

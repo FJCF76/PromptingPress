@@ -5,7 +5,8 @@
  * #738 — a stored grid `items` JSON OBJECT must never fatal the public page.
  *
  * THE FIFTH SIBLING, in landing order: tests/StoredImageUrlRenderGuardTest.php (#641),
- * tests/StoredBackgroundImageRenderGuardTest.php (#705),
+ * tests/StoredBackgroundImageRenderGuardTest.php (#705; deleted at #1101, guard retired by
+ * decision at #1108),
  * tests/StoredTitleRenderGuardTest.php (#706),
  * tests/StoredStyleAndItemsRenderGuardTest.php (#708) and
  * tests/StoredLinkAndRichTextRenderGuardTest.php (#730/#739/#742). It exists for the

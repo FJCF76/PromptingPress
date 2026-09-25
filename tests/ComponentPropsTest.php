@@ -3608,7 +3608,7 @@ class ComponentPropsTest extends TestCase
     // InvariantTest::testNoShippedComponentReadsTheRetiredBackgroundImageProp fails and
     // says the guard and its tests come back with it.
     //
-    // WHAT THE TWO METHODS BELOW STILL PIN, on the three SHIPPED bands that once read the
+    // WHAT THE THREE METHODS BELOW PIN, on the three SHIPPED bands that once read the
     // prop: a stored `background_image` of any shape — the non-scalars that used to fatal,
     // and the falsy scalars — renders the band with its content and paints no background,
     // no modifier and no overlay. They are retired-prop inertness pins now, not guard
@@ -3665,32 +3665,6 @@ class ComponentPropsTest extends TestCase
     }
 
     /**
-     * The inputs that WOULD paint if a band read the key again — a real URL and the
-     * truthy scalars #705's guard let through — on every band that once declared it.
-     * This is the pin the two above cannot be: a re-introduced read behind the old
-     * `is_scalar` guard turns arrays and falsy values into '' and stays silent on them,
-     * but it paints each of these.
-     */
-    public function testATruthyStoredBackgroundImageOnAShippedBandPaintsNothing(): void
-    {
-        foreach (['https://example.com/bg.jpg', 42, true] as $truthy) {
-            $label = var_export($truthy, true);
-            foreach ([
-                ['cta',     $this->ctaProps(['background_image' => $truthy]),     'cta'],
-                ['stats',   $this->statsProps(['background_image' => $truthy]),   'stats'],
-                ['section', $this->sectionProps(['background_image' => $truthy]), 'section'],
-            ] as [$component, $props, $prefix]) {
-                $html = $this->render($component, $props);
-                $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component} {$label}: the band renders");
-                $this->assertStringNotContainsString('background-image', $html, "{$component} {$label}: no background");
-                $this->assertStringNotContainsString('example.com/bg.jpg', $html, "{$component} {$label}: the stored value is not reflected");
-                $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
-                $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
-            }
-        }
-    }
-
-    /**
      * The falsy-scalar controls: a stored falsy value on a band that no longer reads the
      * prop renders no background. (Under #705 these were the cases the guard's `(string)`
      * cast must not flip; the -0.0 exception to that parity was pinned on the fixture and
@@ -3710,6 +3684,32 @@ class ComponentPropsTest extends TestCase
                 // whole test would stay green against a component that emitted nothing.
                 $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component} {$label}: the band renders");
                 $this->assertStringNotContainsString('background-image', $html, "{$component} {$label}: no background");
+                $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
+                $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
+            }
+        }
+    }
+
+    /**
+     * The inputs that WOULD paint if a band read the key again — a real URL and the
+     * truthy scalars #705's guard let through — on every band that once declared it.
+     * This is the pin the non-scalar and falsy pins above cannot be: a re-introduced read behind the old
+     * `is_scalar` guard turns arrays and falsy values into '' and stays silent on them,
+     * but it paints each of these.
+     */
+    public function testATruthyStoredBackgroundImageOnAShippedBandPaintsNothing(): void
+    {
+        foreach (['https://example.com/bg.jpg', 42, true] as $truthy) {
+            $label = var_export($truthy, true);
+            foreach ([
+                ['cta',     $this->ctaProps(['background_image' => $truthy]),     'cta'],
+                ['stats',   $this->statsProps(['background_image' => $truthy]),   'stats'],
+                ['section', $this->sectionProps(['background_image' => $truthy]), 'section'],
+            ] as [$component, $props, $prefix]) {
+                $html = $this->render($component, $props);
+                $this->assertStringContainsString('data-pp-component="' . $component . '"', $html, "{$component} {$label}: the band renders");
+                $this->assertStringNotContainsString('background-image', $html, "{$component} {$label}: no background");
+                $this->assertStringNotContainsString('example.com/bg.jpg', $html, "{$component} {$label}: the stored value is not reflected");
                 $this->assertStringNotContainsString($prefix . '--has-bg-image', $html, "{$component} {$label}: no modifier");
                 $this->assertStringNotContainsString($prefix . '__overlay', $html, "{$component} {$label}: no overlay");
             }

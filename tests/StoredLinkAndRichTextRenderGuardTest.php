@@ -18,7 +18,8 @@
  * components/faq/faq.php: #739 guards the items CONTAINER, #730 guards the `answer`
  * ELEMENT inside it. Siblings, in landing order:
  *   tests/StoredImageUrlRenderGuardTest.php          (#641, image_url)
- *   tests/StoredBackgroundImageRenderGuardTest.php   (#705, background_image)
+ *   tests/StoredBackgroundImageRenderGuardTest.php   (#705, background_image; deleted at #1101,
+ *                                                    guard retired by decision at #1108)
  *   tests/StoredTitleRenderGuardTest.php             (#706, title / title_accent)
  *   tests/StoredStyleAndItemsRenderGuardTest.php     (#708, __pp_style / grid items)
  *

@@ -7486,8 +7486,10 @@ function _pp_udc_overlay_tier_compile(string $component): ?array {
  * defaults are root-scoped, so they go into `pp-zero` BELOW components.css, while the
  * element rules consuming them via `var(--pp-…)` emit unlayered ABOVE it. That is safe
  * because custom properties only contend on the SAME element: nothing in components.css
- * declares a `--pp-*` on a `[data-pp-component=…]` selector (the four that declare
- * `--pp-*` at all are legacy `--inverted` roots), so there is no rule positioned to beat
+ * declares a `--pp-*` on a `[data-pp-component=…]` selector (its one `--pp-*` is the
+ * site header's `--pp-header-height`; the legacy `--inverted` roots that once declared
+ * the rest retired with their components, and the vocabulary for good at #1111), so
+ * there is no rule positioned to beat
  * a token default. It is latent rather than broken, and it is written down here because
  * the split's tests assert the root/element RULE division and say nothing about which
  * side of v1 a token default lands on.

@@ -2665,10 +2665,12 @@
 
   /* Per-instance heading-color slots must survive this desktop typography rule (#86).
      Color is split per selector so each component's slot wins instead of a shared
-     hardcoded var(--color-text). The theme-color var sits between the slot and the
-     global token so a theme variant (e.g. .grid--inverted) still supplies the right
-     default here — this rule outranks every theme selector, so without it the theme
-     lost and inverted text rendered dark-on-dark above 768px (issue 222).
+     hardcoded var(--color-text). The theme-color var sat between the slot and the
+     global token so a theme variant (e.g. .grid--inverted) still supplied the right
+     default here — this rule outranked every theme selector, so without it the theme
+     lost and inverted text rendered dark-on-dark above 768px (issue 222). Those theme
+     variants retired with each component's `theme` prop, and the `--dark`/`--inverted`
+     vocabulary for good at #1111.
 
      font-size joins the same per-selector split (issue 302): the premium scale used
      to live in the shared rule above as a bare clamp(), outranking the base

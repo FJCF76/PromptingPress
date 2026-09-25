@@ -1295,7 +1295,7 @@ class InvariantTest extends TestCase
                 // call_user_func() — is new.
                 // A leading backslash (`\pp_esc_image_src(`, a T_NAME_FULLY_QUALIFIED token
                 // on PHP 8) names the same global function, so it is stripped first.
-                $isName   = $token[0] === T_STRING || (defined('T_NAME_FULLY_QUALIFIED') && $token[0] === T_NAME_FULLY_QUALIFIED);
+                $isName   = $token[0] === T_STRING || $token[0] === T_NAME_FULLY_QUALIFIED;
                 $isString = $token[0] === T_CONSTANT_ENCAPSED_STRING;
                 $name     = $isString ? trim($token[1], "'\"") : $token[1];
                 if (($isName || $isString) && strtolower(ltrim($name, '\\')) === 'pp_esc_image_src') {
