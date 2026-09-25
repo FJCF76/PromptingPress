@@ -1108,8 +1108,9 @@ function _pp_resolve_component_bg(array $item): ?array {
     // reachable and WRONG. An aged page still storing `background_image` renders no
     // image at all (a retired prop is unread at render), so calling it image-backed
     // would describe paint that is not there. (The slot and `theme` buckets below have
-    // since lost their paint too — style slots at #1101, `theme` on every component by
-    // #1101 — and still describing them is the defect tracked in #1070.)
+    // since lost their paint too — style slots and `theme` retired component by
+    // component, the last of both with grid at #1101 — and still describing them is the
+    // defect tracked in #1070.)
     //
     // THE PRECEDENT IS #605, three steps down: a `theme` value stored before the
     // vocabulary freeze falls through to the default bucket. Same rule, same reason.
