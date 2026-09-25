@@ -311,7 +311,7 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringNotContainsString('finding', $cta[0]);
         $this->assertStringContainsString('accent', $cta[0], 'cta has overlay-tier roles');
         // Followable (cycle 3, design): the drop row clears only when the overlay at this width goes too.
-        $this->assertStringContainsString("remove the overlay at this width and set the accents' typography.color for this width", $cta[0]);
+        $this->assertStringContainsString("remove the overlay at this width (and background.image, if it paints at no other width) and set the accents' typography.color for this width", $cta[0]);
         foreach ([$band, ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]] as $map) {
             $section = $this->rawWonReasons($map, 'section');
             $this->assertCount(1, $section);
@@ -359,10 +359,10 @@ final class RawBackgroundWinsTest extends TestCase
     }
 
     /**
-     * ONLY A SCRIM WHOSE IMAGE THE RAW BACKGROUND REMOVED GETS THE RAW-BACKGROUND REASON (/ship red team): an overlay
-     * with no image at all beside a raw background keeps the no-image reason it had on main, on every component.
+     * ONLY A SCRIM WHOSE IMAGE THE RAW BACKGROUND REMOVED GETS THE RAW-WON REASON (/ship red team): an overlay with no
+     * image at all beside a raw background gets a no-image reason, never "resets the background here" or a re-lit claim.
      */
-    public function testAScrimWithNoImageBesideARawBackgroundKeepsTheNoImageReason(): void
+    public function testAScrimWithNoImageBesideARawBackgroundIsNotGivenTheRawWonReason(): void
     {
         foreach (['cta', 'section'] as $component) {
             $reasons = $this->rawWonReasons(['background' => ['overlay' => 'rgba(0,0,0,0.6)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']], $component);
@@ -391,9 +391,22 @@ final class RawBackgroundWinsTest extends TestCase
                 $this->assertCount(1, $reasons, "{$label} {$component}");
                 $this->assertStringNotContainsString('Set background.image (an attachment id)', $reasons[0], "{$label} {$component}");
                 $this->assertStringContainsString('no usable background.image here, and the raw background in _css would reset one', $reasons[0], "{$label} {$component}");
-                $this->assertStringContainsString('replace the raw background with background.fill, then set background.image', $reasons[0], "{$label} {$component}");
+                $this->assertStringContainsString('Put the tint in the raw background at this width, or replace the raw background with background.fill, then set background.image', $reasons[0], "{$label} {$component}");
             }
         }
+        // A narrower width with its own fill under a raw DESKTOP background: the fill paints there, not the raw background, so
+        // the tint goes in that fill (/ship pass 3 design).
+        $fill = $this->rawWonReasons(['background' => ['overlay' => ['t' => $o], 'fill' => ['t' => '#222222']], PP_UDC_CSS_KEY => ['background' => '#ffffff']]);
+        $this->assertCount(1, $fill);
+        $this->assertStringNotContainsString('Put the tint in the raw background', $fill[0]);
+        $this->assertStringContainsString('Put the tint in background.fill at this width, or move the desktop raw background into background.fill, then set background.image', $fill[0]);
+        // A role other than `_band` gets the same reason (/ship pass 3 testing).
+        $drops = [];
+        pp_udc_compile_band(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['text' => ['background' => ['overlay' => $o],
+            PP_UDC_CSS_KEY => ['background' => '#ffffff']]]], 'authored', $drops);
+        $text = implode(' ', array_column(array_filter($drops, static fn (array $d): bool => ($d['code'] ?? '') === 'overlay_without_image'), 'reason'));
+        $this->assertStringContainsString('the raw background in _css would reset one', $text);
+        $this->assertStringNotContainsString('Set background.image (an attachment id)', $text);
         // Control: a narrower fill that is NOT under a raw background keeps the plain no-image advice (an image set there paints).
         $plain = $this->rawWonReasons(['background' => ['overlay' => ['t' => $o], 'fill' => ['t' => '#222222']]]);
         $this->assertStringContainsString('Set background.image (an attachment id)', $plain[0]);
@@ -430,11 +443,13 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertStringContainsString('so the band stays marked and the accent roles it re-lights', $cta[0]);
         $alone = ['background' => ['image' => 9001, 'overlay' => $o], PP_UDC_CSS_KEY => ['background' => '#ffffff']];
         $cta = $this->rawWonReasons($alone);
-        $this->assertStringContainsString('remove background.image and the overlay if the raw background is what you want', $cta[0]);
-        $this->assertStringContainsString("On a dark background, set the accents' typography.color", $cta[0]);
+        // ONE ALWAYS-TRUE ADVICE (ruling A): never "remove background.image and the overlay", which would also remove an image
+        // that paints without a scrim at another width.
+        $this->assertStringNotContainsString('remove background.image and the overlay', $cta[0]);
+        $this->assertStringContainsString("remove the overlay at this width (and background.image, if it paints at no other width) and set the accents' typography.color for this width", $cta[0]);
         $section = $this->rawWonReasons($alone, 'section');
-        $this->assertStringContainsString('remove background.image and the overlay', $section[0]);
-        $this->assertStringNotContainsString('On a dark background', $section[0]);
+        $this->assertStringContainsString('remove the overlay at this width (and background.image, if it paints at no other width): a raw background cannot carry an image', $section[0]);
+        $this->assertStringNotContainsString('typography.color', $section[0]);
         $this->assertStringNotContainsString('marked', $section[0]);
     }
 }
