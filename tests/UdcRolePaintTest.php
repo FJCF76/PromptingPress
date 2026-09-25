@@ -115,6 +115,24 @@ final class UdcRolePaintTest extends TestCase
         $this->assertSame('#101828', $by['|menu']['']['p']['surface']['css']);
     }
 
+    /**
+     * Within one tier the renderer prints base rules before `@media` rules, whatever order the compile
+     * holds the blocks in: a phone value compiled BEFORE the base value still wins at the phone width.
+     */
+    public function testANarrowTierBlockCompiledBeforeTheBaseStillWinsAtItsWidth(): void
+    {
+        $item = $this->band('section', ['_band' => ['background' => ['fill' => '#000000']],
+            'eyebrow' => ['typography' => ['color' => ['p' => '#ffffff']], '_css' => ['color' => 'var(--color-accent)']]]);
+        $compiled = pp_udc_compile_band($item, 'authored');
+        $order = array_values(array_map(static fn ($b) => $b['bp'], array_filter($compiled['blocks'], static fn ($b) => $b['role'] === 'eyebrow')));
+        $this->assertSame(['p', 'd'], $order, 'premise: the phone block is compiled first');
+        [$by, , $band_css] = $this->read($item);
+        $this->assertMatchesRegularExpression('/\.section__eyebrow\{color:var\(--color-accent\);\}@media \(max-width: 767px\)\{[^}]*\.section__eyebrow\{color:#ffffff;/', $band_css, 'premise: base prints first');
+        $this->assertSame('#ffffff', $by['|eyebrow']['']['p']['color']['css']);
+        $this->assertSame('var(--color-accent)', $by['|eyebrow']['']['d']['color']['css']);
+        $this->assertSame('var(--color-accent)', $by['|eyebrow']['']['t']['color']['css']);
+    }
+
     /** A default narrow tier applies at its own width only (disjoint breakpoint ranges). */
     public function testADefaultNarrowTierAppliesOnlyAtItsWidth(): void
     {

@@ -319,7 +319,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         );
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "button-secondary"', $found[0]['message']);
-        $this->assertStringContainsString('(@color-accent) in the :hover state', $found[0]['message'], 'light only while hovered');
+        $this->assertStringContainsString('(@color-accent) in the :hover state, which the band', $found[0]['message'], 'light only while hovered, at every width');
     }
 
     // ── Widths ───────────────────────────────────────────────────────────────────────────
@@ -334,8 +334,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         ]]));
         $this->assertCount(1, $found);
         $this->assertStringContainsString('(@color-bg)', $found[0]['message']);
-        $this->assertStringContainsString('at the phone width', $found[0]['message']);
-        $this->assertStringNotContainsString('desktop', $found[0]['message']);
+        $this->assertStringContainsString('(@color-bg) at the phone width, which the band', $found[0]['message']);
     }
 
     /** An authored base fill outranks a default's narrower tier (the authored rule prints later). */
@@ -348,6 +347,74 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'props'     => [],
         ]]));
         $this->assertSame([], $found);
+    }
+
+    /** Several states: each is named with its own widths, joined in emission order, and the surface named is the first that fires. */
+    public function testSeveralStatesAreNamedTogether(): void
+    {
+        $found = $this->only(pp_udc_composition_findings([[
+            'component' => 'nav', 'id' => 'nav',
+            'udc'       => ['_band' => ['background' => ['fill' => '#101828']],
+                            'menu' => ['typography' => ['color' => '#f7f8fa', ':hover' => ['color' => '#ffffff']]]],
+            'props'     => [],
+        ]]));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString(
+            '(@color-bg) at rest at the phone width, and in the :hover state at the phone width, which the band',
+            $found[0]['message']
+        );
+    }
+
+    /**
+     * On a scrimmed band the overlay tier re-lights the accents (#1010); the finding path runs with the
+     * marker and still names an author ink over a default pill (hero eyebrow). The re-lit accent is
+     * an ink from the overlay tier, never the author's, so it is never named here.
+     */
+    public function testAScrimmedBandRunsWithTheOverlayTierAndNamesOnlyAuthorInks(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        $band = ['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'T', 'title_accent' => 'T'],
+            'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(6,10,28,0.72)']],
+                      'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
+        $this->assertTrue(pp_udc_band_has_overlay($band), 'premise: the band is marked');
+        $found = $this->only(pp_udc_composition_findings([$band]));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "eyebrow"', $found[0]['message']);
+    }
+
+    /**
+     * The overlay tier can only supply an INK today: every `overlay_defaults` declares typography
+     * alone. The arm counts an overlay-tier SURFACE as a default surface; that branch has no shipped
+     * subject, so a schema that gives an overlay default a background must be looked at (and tested).
+     */
+    public function testNoOverlayDefaultDeclaresABackgroundYet(): void
+    {
+        $checked = 0;
+        foreach (array_keys(pp_composable_components()) as $component) {
+            foreach (pp_udc_component_roles((string) $component) as $role => $definition) {
+                if (!is_array($definition['overlay_defaults'] ?? null)) {
+                    continue;
+                }
+                $checked++;
+                $this->assertArrayNotHasKey('background', $definition['overlay_defaults'], $component . ' ' . $role);
+            }
+        }
+        $this->assertGreaterThanOrEqual(5, $checked, 'vacuity floor: the shipped overlay roles were read');
+    }
+
+    /** A malformed stored row (raw meta, restore) degrades: nothing throws, and later bands still report. */
+    public function testMalformedStoredPropsDegradeWithoutLosingLaterBands(): void
+    {
+        foreach (['junk', ['items' => 'junk'], ['items' => [1, 'x', null]]] as $props) {
+            $found = $this->only(pp_udc_composition_findings([
+                ['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'props' => $props,
+                 'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'card' => ['typography' => ['color' => '#fff']]]],
+                ['component' => 'section', 'id' => 'pp-a1b2c3d5', 'props' => [],
+                 'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#fff']]]],
+            ]));
+            $this->assertSame([0, 1], array_column($found, 'index'), json_encode($props));
+        }
     }
 
     // ── Cards (item grain) ───────────────────────────────────────────────────────────────
@@ -455,7 +522,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertCount(1, $found);
         $this->assertStringContainsString('Component "nav"', $found[0]['message']);
         $this->assertStringContainsString('role "submenu"', $found[0]['message']);
-        $this->assertStringContainsString('at the desktop and tablet widths', $found[0]['message'], 'submenu is transparent on phones');
+        $this->assertStringContainsString('(@color-surface) at the desktop and tablet widths, which the band', $found[0]['message'], 'submenu is transparent on phones');
         $this->assertNull($found[0]['index']);
     }
 

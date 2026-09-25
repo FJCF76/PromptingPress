@@ -159,11 +159,11 @@ test.describe('#1125 a role\'s own surface under a new ink', () => {
     });
     expect(ownSurface(res).length, JSON.stringify(res.data)).toBe(1);
     expect(ownSurface(res)[0].message).toContain('in the :hover state');
+    await page.emulateMedia({ reducedMotion: 'reduce' }); // base.css collapses transitions: no mid-transition read
     const button = page.locator('.cta__button--secondary').first();
     const rest = await paint(page, '.cta__button--secondary');
     expect(rest.background, 'transparent at rest: no own surface').toBe('rgba(0, 0, 0, 0)');
     await button.hover();
-    await page.waitForTimeout(400); // the default carries a transition
     const hovered = await paint(page, '.cta__button--secondary');
     expect(hovered.color, 'the author hover ink paints').toBe(await canon(page, '#fff5a0'));
     expect(hovered.background, 'the default hover fill paints under it').toBe(await token(page, '--color-accent'));
