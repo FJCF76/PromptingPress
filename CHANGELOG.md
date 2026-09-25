@@ -79,7 +79,8 @@ band's design. The engine now discards both before it decides.
 - `wp pp schema <component>`: `roles[].overlay_defaults`, `roles[].within` (filtered to the
   component's role names) and `roles[].text_content`, each only when declared.
 - A failed compile while deciding the overlay marker is now logged (`error_log`), and the band is left
-  unmarked as before.
+  unmarked as before; so is a failed compile while choosing the `udc_css_overrides_group_value` wording
+  (the message then keeps its generic wording).
 
 ### Upgrading
 
@@ -100,10 +101,11 @@ band's design. The engine now discards both before it decides.
 
 ### Docs
 
-`AI_CONTEXT.md`, the runtime prompt, the validate-site, style-component, retheme, add-component,
-composition and operating-loop instructions, the CLI reference (`wp pp schema` rows) and the Layer 2
-contract (a dated §2′.3 addendum) describe raw-wins, the new causes and the lightness rule, the new
-drop reasons, the stricter schema gate and the new report keys. The stats and logos templates no
+`AI_CONTEXT.md`, the validate-site, style-component, retheme, add-component, composition and
+operating-loop instructions, the CLI reference (`wp pp schema` rows) and the Layer 2 contract (a dated
+§2′.3 addendum) describe raw-wins, the new causes and the lightness rule, the new drop reasons, the
+stricter schema gate and the new report keys; the runtime prompt carries raw-wins and the two new
+off-scrim causes. The stats and logos templates no
 longer say a forged flag passes.
 
 ### Tests
