@@ -80,9 +80,10 @@ band's design. The engine now discards both before it decides.
 
 ### Upgrading
 
-- Emission is byte-identical to `2.0.0-alpha.2` for every map with no raw `background` beside a group
-  `background.*` value at the same state and width (measured: a full dump of every component's CSS,
-  diffed). Where a map has one, the page changes as described under Breaking: check those bands.
+- These changes leave the emitted CSS byte-identical for every map with no raw `background` beside a
+  group `background.*` value at the same state and width (measured: a full dump of every component's
+  CSS, diffed against the code before this change). Where a map has one, the page changes as described
+  under Breaking: check those bands.
 - `wp pp validate site` exits non-zero on advisories, and the overlay-accent finding now names partial
   scrims and replaced widths on a light or unreadable background. Set the accent's `typography.color`,
   size the image `cover`, or remove what replaces it.
