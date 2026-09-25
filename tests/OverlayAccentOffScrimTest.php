@@ -677,4 +677,21 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => 'contain', 'repeat' => 'no-repeat']]]),
             'contain fills the band: nothing to name (ruling A)');
     }
+
+    /** The partial message speaks the author's value, never an internal token name (PR-2 review, maintainability). */
+    public function testThePartialMessageShowsTheAuthorsSize(): void
+    {
+        $found = $this->found(['_tokens' => ['sz' => '200px'], '_band' => ['background' => self::DARK_SCRIM + ['size' => '@sz', 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('var(--pp-', $found[0]['message']);
+        $this->assertStringContainsString('sized 200px without tiling', $found[0]['message'], 'the value, as the neighbouring conditions show band tokens');
+    }
+
+    /** Different sizes at different widths are each named with their widths (PR-2 review, maintainability). */
+    public function testEachPartialSizeIsNamedWithItsWidths(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => ['d' => '50px', 'p' => '70%'], 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('sized 50px without tiling at the desktop and tablet widths and 70% without tiling at the phone width', $found[0]['message']);
+    }
 }

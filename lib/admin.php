@@ -670,6 +670,9 @@ function pp_applies_when_clause_met($clause, array $props, array $prop_defs, arr
  * @param  array  $definition  The decoded definition object.
  * @param  string $kind        'slot', 'prop' or 'role' (#1087).
  * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.
+ * @param  array<string, mixed>|null $sibling_roles The component's roles keyed by name; when given, each `within`
+ *                                                name must be one of them (#1142 item 2). Null (the runtime
+ *                                                composable-role gate) skips that check; the schema CI walk passes it.
  * @return string[]            Human-readable errors; empty when the definition is valid.
  */
 function pp_schema_definition_errors(array $definition, string $kind, string $label, ?array $sibling_roles = null): array {

@@ -6373,7 +6373,11 @@ function _pp_udc_emission_scopes(string $component, string $id, bool $compositio
  *
  * The overlay marker and the off-scrim finding both read this, so they cannot disagree.
  *
- * @return array{tiers: array<string, array{image: bool, scrim: string, source: string}>, states: array<int, string>}
+ * Each tier also carries `size` and `partial` (#1142 item 1): `background-size` and `background-repeat` are read
+ * from the resting `_band` blocks, each inheriting from `d` on its own, and a scrimmed tier is `partial` when
+ * _pp_udc_scrim_leaves_part_uncovered() says an axis is neither covered nor tiled.
+ *
+ * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, partial: bool}>, states: array<int, string>}
  */
 function pp_udc_band_effective_background(array $compiled): array {
     $declared = [];
@@ -6428,7 +6432,7 @@ function pp_udc_band_effective_background(array $compiled): array {
         $repeat = $sizing[$bp]['repeat'] ?? ($sizing['d']['repeat'] ?? '');
         $tiers[$bp]['size']    = $size;
         $tiers[$bp]['partial'] = !empty($tiers[$bp]['image']) && ($tiers[$bp]['scrim'] ?? '') !== ''
-            && _pp_udc_scrim_leaves_part_uncovered(_pp_udc_compiled_value($size, $compiled), $repeat);
+            && _pp_udc_scrim_leaves_part_uncovered(_pp_udc_compiled_value($size, $compiled), _pp_udc_compiled_value($repeat, $compiled));
     }
     return ['tiers' => $tiers, 'states' => array_values(array_unique($states))];
 }
@@ -9632,16 +9636,21 @@ function pp_udc_composition_findings(array $items): array {
                 }
                 // A SCRIM ON PART OF THE BAND (#1142 item 1): sized without tiling, so the rest of the band
                 // shows its own background under the re-lit accent. The marker stays (R4): disclosed, not unset.
-                $partial_bps = [];
+                // Each size is named in the author's terms (band tokens put back, as the conditions beside
+                // it show them) with the widths it holds at (PR-2 review, maintainability).
+                $partial_by_size = []; // shown size => [bp, ...], in breakpoint order
                 foreach ($effective['tiers'] as $bp => $tier) {
                     if (!empty($tier['partial'])) {
-                        $partial_bps[] = (string) $bp;
+                        $partial_by_size[_pp_udc_reflect(_pp_udc_compiled_display((string) $tier['size'], $band_compiled))][] = (string) $bp;
                     }
                 }
-                if ($partial_bps !== []) {
-                    $conditions[] = [sprintf('the image and its scrim are sized %s without tiling%s, so part of the band shows its own background instead of the scrim',
-                        _pp_udc_reflect((string) $effective['tiers'][$partial_bps[0]]['size']),
-                        count($partial_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($partial_bps)), $relit];
+                if ($partial_by_size !== []) {
+                    $sized = [];
+                    foreach ($partial_by_size as $shown_size => $size_bps) {
+                        $sized[] = $shown_size . ' without tiling' . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
+                    }
+                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim',
+                        implode(' and ', $sized)), $relit];
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
                 // covers the scrimmed image in that state while the tier keeps re-lighting.
@@ -11507,7 +11516,10 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
 /**
  * Does this band paint a scrim over a background image?
  *
- * Reads the STORED map rather than the emitted CSS because the renderer runs
+ * A cheap stored-map pre-check, then the verdict from the COMPILED band (so a raw `background` that cancels the
+ * image, #1141, cancels the marker too); a compile failure is logged and the band left unmarked (#1142 item 4).
+ *
+ * Reads the STORED map first, rather than the emitted CSS, because the renderer runs
  * before emission and needs the answer for an attribute. Deliberately narrow: an
  * overlay only paints when there is an image under it (an overlay over nothing is
  * dropped by _pp_udc_compose_background_layers()), so both must be present for the

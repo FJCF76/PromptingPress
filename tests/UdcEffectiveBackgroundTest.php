@@ -145,8 +145,9 @@ final class UdcEffectiveBackgroundTest extends TestCase
     /**
      * A SCRIM THAT COVERS ONLY PART OF THE BAND IS PARTIAL (#1142 item 1). `background-size` applies to every layer, so a
      * 200px no-repeat image paints its scrim on a 200px square and the rest of the band shows its own background. The
-     * accessor reads the effective size and repeat per tier (inheriting from `d` per property); a scrimmed tier whose
-     * size is neither `cover` nor `auto` and which does not tile on both axes is partial. The marker is unchanged (R4).
+     * accessor reads the effective size and repeat per tier (inheriting from `d` per property); a scrimmed tier is
+     * partial when some axis is a length or a percentage under 100 and that axis does not tile (per axis, from the
+     * scrim layer: contain, cover, auto and 100% or more cover it; see the next test). The marker is unchanged (R4).
      */
     public function testAScrimSizedWithoutTilingIsPartial(): void
     {
@@ -206,5 +207,17 @@ final class UdcEffectiveBackgroundTest extends TestCase
     {
         [$fx] = $this->read($this->item(['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', ':hover' => ['size' => '200px', 'repeat' => 'no-repeat']]));
         $this->assertFalse($fx['tiers']['d']['partial']);
+    }
+
+    /** Every spelling, one answer (ruling A, PR-2 review): a band-token repeat that tiles is not partial; a band-token size stays read. */
+    public function testBandTokenRepeatAndSizeAreResolved(): void
+    {
+        $base = ['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => []];
+        $fx = pp_udc_band_effective_background(pp_udc_compile_band($base + ['udc' => ['_tokens' => ['rp' => 'repeat'],
+            '_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '200px', 'repeat' => '@rp']]]], 'authored'));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'a band-token repeat that tiles');
+        $fx = pp_udc_band_effective_background(pp_udc_compile_band($base + ['udc' => ['_tokens' => ['sz' => '200px'],
+            '_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)', 'size' => '@sz', 'repeat' => 'no-repeat']]]], 'authored'));
+        $this->assertTrue($fx['tiers']['d']['partial'], 'a band-token size is read through the token');
     }
 }
