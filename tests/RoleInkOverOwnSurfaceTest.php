@@ -744,6 +744,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $found = $this->only(pp_udc_composition_findings([$grid('pp-00000001', 600), $grid('pp-00000002', 3)]));
         $this->assertSame([0, 1], array_column($found, 'index'));
         $this->assertStringContainsString('(Not checked against the rendered page:', $found[0]['message'], '600 cards: past the budget');
+        $this->assertStringContainsString("this band is past the check's size budget", $found[0]['message'], 'the card budget is a SIZE reason');
+        $this->assertStringNotContainsString('limit of 25 bands', $found[0]['message']);
         $this->assertStringNotContainsString('Not checked', $found[1]['message'], '3 cards: checked');
     }
 
@@ -920,10 +922,35 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringNotContainsString('while the pointer is over the band', $found[0]['message']);
         $this->assertStringContainsString('the text colour you set for this role', $found[0]['message']);
 
+        // TWO EVENTS, BOTH NAMED (ruling G = A, /ship cycle-2 red team; this case used to assert "one clash, one
+        // finding"). `[data-pp-band]:hover` holds whenever the pointer is anywhere over the band, `.role:hover`
+        // only over the element: with the band hovered and the element not, the element is AT REST and shows the
+        // band's hover ink on its resting surface whatever its own :hover rule says. Its own :hover ink is the
+        // other clash. One finding, both remedies.
         [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#eeeeee']]]], 'hero', $props);
-        $this->assertCount(1, $found, 'one clash, one finding');
+        $this->assertCount(1, $found, 'one finding');
         $this->assertStringContainsString('in the :hover state', $found[0]['message'], 'the own-ink cell');
-        $this->assertStringNotContainsString('while the pointer is over the band', $found[0]['message'], 'not a duplicate band-state cell');
+        $this->assertStringContainsString('while the pointer is over the band', $found[0]['message'], 'and the band-state cell: a different event');
+        $this->assertStringContainsString('at rest and inside :hover', $found[0]['message'], 'both remedies: the resting fill too');
+    }
+
+    /**
+     * FOLLOWING THE ELEMENT-HOVER ADVICE DOES NOT HIDE THE BAND-HOVER CLASH (ruling G = A, pinned negative). The
+     * cycle-1 skip let an own :hover ink plus :hover fill clear the finding while the band's hover ink still sat
+     * on the resting light surface (1.07:1) whenever the pointer was over the band and not the element.
+     */
+    public function testAnElementHoverFillDoesNotCoverTheBandHoverAtRest(): void
+    {
+        $props = ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>'];
+        $band  = ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]];
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#ffffff']],
+            'background' => [':hover' => ['fill' => '#1d2939']]]], 'hero', $props);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('while the pointer is over the band', $found[0]['message']);
+        $this->assertStringNotContainsString('in the :hover state', $found[0]['message'], 'its own :hover pair is covered');
+        [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#ffffff']],
+            'background' => ['fill' => '#1d2939', ':hover' => ['fill' => '#1d2939']]]], 'hero', $props);
+        $this->assertSame([], $found, 'control: the resting fill the message asks for clears it');
     }
 
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
@@ -1353,7 +1380,9 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             }
             return '';
         };
-        $this->assertStringContainsString('(button-secondary, eyebrow ship their own fill and text colour, so they keep that designed pair; to recolour one, set its background.fill as well)', $sibling('cta'));
+        // cycle 2 (design): a fill only in a state is not a kept pair; at rest the text sits on the band.
+        $this->assertStringContainsString('(eyebrow ships its own fill and text colour, so it keeps that designed pair; to recolour it, set its background.fill as well; '
+            . 'button-secondary fills only in a state, so at rest its text sits on your band: set its colour there)', $sibling('cta'));
         $this->assertStringContainsString('(eyebrow ships its own fill and text colour, so it keeps that designed pair; to recolour it, set its background.fill as well)', $sibling('faq'));
         $this->assertStringEndsWith('Set it on those roles directly.', $sibling('stats'));
     }
@@ -1424,7 +1453,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         }
         $found = $this->only(pp_udc_composition_findings($bands));
         $this->assertSame([25], array_column($found, 'index'), 'premise: only the 26th band is left unchecked');
-        $this->assertStringContainsString('(Not checked against the rendered page: this write already checked its limit of 25 bands', $found[0]['message']);
+        $this->assertStringContainsString('(Not checked against the rendered page: this check already rendered its limit of 25 bands', $found[0]['message']);
         $this->assertStringNotContainsString('size budget', $found[0]['message']);
     }
 
@@ -1471,7 +1500,9 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringContainsString('Check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text); if it does not, set background.fill for this role', $dark[0]['message']);
         [, $light] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
         $this->assertCount(1, $light);
-        $this->assertStringContainsString('Set background.fill for this role as well, choosing a fill that stands apart from the band so the shape still shows, or check that the pair reads', $light[0]['message']);
+        // cycle 2 (design): the fill must read under the ink, not only stand apart from the band.
+        $this->assertStringContainsString('Set background.fill for this role as well, choosing a fill your text colour reads on (AA: 4.5:1 for body text, 3:1 for large text) '
+            . 'that also stands apart from the band so the shape still shows; or check that the pair reads as it is.', $light[0]['message']);
     }
 
     /**
@@ -1537,5 +1568,74 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $fn = new ReflectionFunction('_pp_udc_rendered_roles');
         $src = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1, $fn->getEndLine() - $fn->getStartLine() + 1));
         $this->assertMatchesRegularExpression('/finally \{.*?if \(\$caught\b[^\n]*\{\s*add_filter\(\'pre_kses\', \'wp_pre_kses_block_attributes\', 10, 3\);/s', $src);
+        $this->assertMatchesRegularExpression('/catch \(\\\\Throwable \$e\) \{[^}]*\$caught\s*=\s*true;/s', $src, 'the catch arms the re-hook (cycle 2, testing)');
+    }
+
+    /**
+     * ONE ANSWER FOR EVERY SPELLING OF A RESTATED DEFAULT (ruling F = A, /ship cycle-2 red team). A fill written as a
+     * breakpoint map is minted into a band token on write, and a `_tokens` fill is one: the surface compare read the
+     * band's `var(--pp-...)` unresolved and let both clear the finding while the same light pill painted. A literal
+     * copied from the token's value is the resolved-colour branch (cycle 2, testing). Controls: the direct spellings.
+     */
+    public function testEverySpellingOfARestatedDefaultFillKeepsTheFinding(): void
+    {
+        $pill = sprintf('#%02x%02x%02x', ...array_slice(_pp_udc_value_colours('var(--color-surface-accent)', [])[0], 0, 3));
+        $this->assertSame('#e8ecfe', $pill, 'premise: the default pill token\'s literal');
+        $band = ['_band' => ['background' => ['fill' => '#101828']]];
+        $ink  = ['typography' => ['color' => '#ffffff']];
+        foreach (['the token' => '@color-surface-accent', 'the literal' => $pill, 'a breakpoint map' => ['d' => $pill, 't' => $pill, 'p' => $pill],
+            'a base-only map' => ['d' => $pill]] as $label => $fill) {
+            [, $found] = $this->write($band + ['eyebrow' => $ink + ['background' => ['fill' => $fill]]]);
+            $this->assertCount(1, $found, $label);
+            $this->assertStringContainsString('restates that default', $found[0]['message'], $label);
+            $this->assertStringContainsString('(@color-surface-accent)', $found[0]['message'], $label . ': the display resolves the band token');
+        }
+        [, $found] = $this->write($band + ['_tokens' => ['pill' => $pill], 'eyebrow' => $ink + ['background' => ['fill' => '@pill']]]);
+        $this->assertCount(1, $found, 'a band token restating the default');
+        [, $found] = $this->write($band + ['_tokens' => ['pill' => '#475467'], 'eyebrow' => $ink + ['background' => ['fill' => '@pill']]]);
+        $this->assertSame([], $found, 'control: a band token that differs clears it');
+    }
+
+    /** D's mirror (ruling F = A): a band surface restating the default through a band token or a literal does not gate. */
+    public function testEverySpellingOfARestatedBandSurfaceDoesNotGate(): void
+    {
+        $bg = sprintf('#%02x%02x%02x', ...array_slice(_pp_udc_value_colours('var(--color-bg)', [])[0], 0, 3));
+        $props   = ['eyebrow' => 'E', 'title' => 'T'];
+        $eyebrow = ['eyebrow' => ['typography' => ['color' => '@color-accent']]];
+        foreach (['the token' => ['_band' => ['background' => ['fill' => '@color-bg']]],
+            'the literal' => ['_band' => ['background' => ['fill' => $bg]]],
+            'a band token' => ['_tokens' => ['lt' => $bg], '_band' => ['background' => ['fill' => '@lt']]],
+            'a breakpoint map' => ['_band' => ['background' => ['fill' => ['d' => $bg, 't' => $bg, 'p' => $bg]]]]] as $label => $udc) {
+            [, $found] = $this->write($udc + $eyebrow, 'hero', $props);
+            $this->assertSame([], $found, $label);
+        }
+        [, $found] = $this->write(['_tokens' => ['dk' => '#101828'], '_band' => ['background' => ['fill' => '@dk']]] + $eyebrow, 'hero', $props);
+        $this->assertCount(1, $found, 'control: a band token that darkens still gates');
+    }
+
+    /**
+     * THE OWN-FILL NOTE SAYS WHAT IS TRUE OF EACH ROLE (/ship cycle-2 design). A role whose ink the author set through
+     * `_css` has lost its designed pair, so it is not told it keeps it; a role that fills only in a state (cta
+     * `button-secondary`, :hover) has its text on the band at rest, so it is told to set its colour there.
+     */
+    public function testTheOwnFillNoteSaysWhatIsTrueOfEachRole(): void
+    {
+        [, , $all] = $this->write(['_band' => ['background' => ['fill' => '#0f172a'], 'typography' => ['color' => '#ffffff']],
+            'eyebrow' => ['_css' => ['color' => '#ffffff']]], 'section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertCount(1, $sibling);
+        $this->assertStringContainsString('(panel ships its own fill and text colour, so it keeps that designed pair', $sibling[0]['message'],
+            'eyebrow is out of the note: its ink is the author\'s');
+        [, , $all] = $this->write(['_band' => ['background' => ['fill' => '#0f172a'], 'typography' => ['color' => '#ffffff']]], 'cta',
+            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertStringContainsString('button-secondary fills only in a state, so at rest its text sits on your band: set its colour there', $sibling[0]['message']);
+    }
+
+    /** THE FILL MUST READ UNDER THE INK (/ship cycle-2 design): standing apart from the band is not enough. */
+    public function testTheFillAdviceRequiresTheInkToReadOnIt(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
+        $this->assertStringContainsString('choosing a fill your text colour reads on (AA: 4.5:1 for body text, 3:1 for large text) that also stands apart from the band', $found[0]['message']);
     }
 }
