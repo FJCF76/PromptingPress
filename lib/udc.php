@@ -10138,7 +10138,7 @@ function _pp_udc_value_colours(string $value, array $band_tokens): array {
         return isset($site[$m[1]]['value']) ? (string) $site[$m[1]]['value'] : $m[0];
     }, $value);
     $colours = [];
-    if (preg_match_all('/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b|rgba?\(([^)]*)\)|\b(white|black)\b/i', $value, $found, PREG_SET_ORDER)) {
+    if (preg_match_all('/#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b|rgba?\(([^)]*)\)|(?<![\w.-])(white|black)(?![\w.-])/i', $value, $found, PREG_SET_ORDER)) {
         foreach ($found as $m) {
             if (($m[1] ?? '') !== '') {
                 $hex = strtolower($m[1]);

@@ -306,6 +306,75 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([], array_values($found));
     }
 
+    /** Every `_css` background spelling the helper lists covers the role; an unrelated property does not. */
+    public function testEveryRawCssBackgroundPropertyCoversTheRole(): void
+    {
+        foreach (['background', 'background-image'] as $property) {
+            $this->assertTrue(_pp_udc_map_covers_fill(['_css' => [$property => '#000']]), $property);
+        }
+        $this->assertFalse(_pp_udc_map_covers_fill(['_css' => ['color' => '#000']]), 'a raw ink is not a surface');
+        $this->assertFalse(_pp_udc_map_covers_fill(['background' => ['_preset' => 'no-such-preset']]), 'an unresolved preset supplies nothing');
+        $this->assertFalse(_pp_udc_map_covers_fill(['background' => 'x', '_css' => 'y']), 'malformed groups are not surfaces');
+    }
+
+    /** The own-surface reader: first non-transparent string at any tier, with that tier; nothing else. */
+    public function testTheOwnSurfaceReaderSkipsNonSurfaces(): void
+    {
+        $role = static fn ($fill): array => ['defaults' => ['background' => ['fill' => $fill]]];
+        $this->assertSame(['#fff', 'd'], _pp_udc_role_own_surface_fill($role('#fff')));
+        $this->assertSame(['#fff', 'p'], _pp_udc_role_own_surface_fill($role(['d' => 'Transparent', 't' => '', 'p' => '#fff'])));
+        $this->assertNull(_pp_udc_role_own_surface_fill($role('')));
+        $this->assertNull(_pp_udc_role_own_surface_fill($role(['d' => 'transparent'])));
+        $this->assertNull(_pp_udc_role_own_surface_fill($role(7)));
+        $this->assertNull(_pp_udc_role_own_surface_fill([]));
+    }
+
+    /** A band ink on an item role with no cards at all: nothing covers the role's own surface. */
+    public function testABandGrainItemRoleInkWithNoCardsIsDisclosed(): void
+    {
+        $this->assertCount(1, $this->gridFindingsWithItems(['card' => ['typography' => ['color' => '#ffffff']]], []));
+    }
+
+    /** A per-card ink whose own card map also sets the fill is covered at its own grain. */
+    public function testAnItemMapCoveringItsOwnFillIsSilent(): void
+    {
+        $this->assertSame([], $this->gridFindings([], [['card' => ['typography' => ['color' => '#ffffff'],
+            'background' => ['fill' => '#1d2939']]]]));
+    }
+
+    private function gridFindingsWithItems(array $band_udc, array $items): array
+    {
+        return array_values(array_filter(pp_udc_composition_findings([[
+            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']]] + $band_udc,
+            'props'     => ['title' => 'G', 'items' => $items],
+        ]]), static fn ($f) => $f['type'] === self::TYPE));
+    }
+
+    /** The chrome write envelope carries it too, with no band offset. */
+    public function testAChromeWriteDisclosesItWithNoIndex(): void
+    {
+        $result = pp_execute_action('update_site_option', [
+            'key'   => 'pp_site_udc',
+            'value' => json_encode(['nav' => ['_band' => ['background' => ['fill' => '#101828']],
+                'submenu' => ['typography' => ['color' => '#f7f8fa']]]]),
+        ]);
+        $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
+        $found = array_values(array_filter($result['findings'] ?? [], static fn ($f) => ($f['type'] ?? '') === self::TYPE));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('Component "nav"', $found[0]['message']);
+        $this->assertStringContainsString('role "submenu"', $found[0]['message']);
+        $this->assertNull($found[0]['index']);
+    }
+
+    /** The runtime prompt names both new finding types, on the band and the chrome channels. */
+    public function testTheRuntimePromptNamesBothNewFindings(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertSame(2, substr_count($prompt, '`udc_role_ink_over_own_surface`'), 'dark-band paragraph and chrome paragraph');
+        $this->assertStringContainsString('reported as `udc_overlay_accent_off_scrim`', $prompt);
+    }
+
     /** Bounded across the composition like its sibling arms. */
     public function testTheFindingIsBoundedAcrossTheComposition(): void
     {

@@ -200,6 +200,49 @@ final class OverlayTierDefaultsTest extends TestCase
             'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'photo-scrim']]]]), 'own image, preset scrim');
     }
 
+    /** A role-grain preset supplies image and scrim at the preset's `background`; an empty scrim marks nothing. */
+    public function testTheMarkerReadsRoleGrainPresetsAndRefusesEmptyShapes(): void
+    {
+        $this->liveImage(9001);
+        $saved = pp_execute_action('save_preset', ['name' => 'photo-role', 'grain' => 'role',
+            'udc' => ['background' => ['image' => 9001, 'overlay' => ['p' => 'rgba(0,0,0,0.55)']]]]);
+        $this->assertTrue($saved['ok'], (string) ($saved['error'] ?? ''));
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero', 'udc' => ['_band' => ['_preset' => 'photo-role']]]),
+            'role-grain preset image and breakpoint-map scrim');
+        $this->assertTrue(pp_udc_band_has_overlay(['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['overlay' => ''], '_preset' => 'photo-role']]]),
+            'an empty own scrim falls through to the preset\'s');
+
+        $band = static fn ($overlay): array => ['component' => 'hero', 'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => $overlay]]]];
+        $this->assertFalse(pp_udc_band_has_overlay($band('')), 'an empty scrim paints nothing');
+        $this->assertFalse(pp_udc_band_has_overlay($band([])), 'an empty map paints nothing');
+        $this->assertTrue(pp_udc_band_has_overlay($band(['t' => '#000000'])), 'a scrim at one width still marks');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero', 'udc' => ['_band' => 'x']]), 'a non-map _band');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero']), 'no udc at all');
+        $this->assertFalse(pp_udc_band_has_overlay(['component' => 'hero',
+            'udc' => ['_band' => ['background' => ['image' => 9001, '_preset' => 'no-such-preset']]]]), 'an unresolved preset supplies nothing');
+    }
+
+    /** The overlay tier reaches the front-end page CSS for a marker component, and only its roles. */
+    public function testTheTierIsScopedToItsComponentAndRole(): void
+    {
+        $css = pp_udc_component_defaults_css('stats');
+        $this->assertSame(2, substr_count($css, ':where([data-pp-component="stats"])[data-pp-band-overlay] '),
+            'stats heading-accent and number, one rule each');
+        $this->assertStringNotContainsString('[data-pp-component="hero"])[data-pp-band-overlay]', $css);
+    }
+
+    /**
+     * A role with no `groups` list: the group cross-check is skipped rather than crashed on
+     * (the missing `groups` is the required-keys check's to report, elsewhere).
+     */
+    public function testOverlayDefaultsOnARoleWithoutGroupsDoesNotCrashTheValidator(): void
+    {
+        $errors = pp_schema_definition_errors(['selector' => '.a', 'description' => 'd',
+            'overlay_defaults' => ['typography' => ['color' => '#fff']]], 'role', 'r');
+        $this->assertStringNotContainsString('`overlay_defaults` group', implode(' | ', $errors));
+    }
+
     /**
      * The prompt names the re-lit roles from the schemas, and every hand-written doc that
      * lists them lists exactly those: adding `overlay_defaults` to a role breaks this test
