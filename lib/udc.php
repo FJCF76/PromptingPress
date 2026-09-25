@@ -2583,6 +2583,40 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
 }
 
 /**
+ * A RAW `background` SHORTHAND WINS ITS COORDINATE (#1141, ruling D1 = A; contract §2'.3).
+ *
+ * `_css` outranks a group value at the same (state, breakpoint), and a shorthand resets every
+ * longhand it owns. The emitter sorted the raw `background` BEFORE the group's composed
+ * `background-image` (and its scrim and companions), so the image painted over the raw value
+ * while `udc_css_overrides_group_value` told the author it did not. Printing the raw shorthand
+ * last and dropping what it resets paint the same thing; dropping is what this does, so the
+ * compiled band (which the overlay marker and the findings read) says what the page shows: in a
+ * bucket whose `background` is raw, every non-raw `background-*` declaration is removed. Raw
+ * longhands the author also wrote stay (they print after the shorthand). The scrim carrier is
+ * LEFT for _pp_udc_compose_background_layers(), which drops a scrim with no image under it and
+ * says so (`overlay_without_image`, naming the raw background), so no scrim goes silently.
+ *
+ * Per bucket and before a narrower tier borrows the base image, so a scrim declared only at a
+ * narrower width has nothing left to lie over and is dropped with its ledger row.
+ *
+ * @param array<string, array<string, array>> $by_bp One state's buckets, bp => declarations.
+ * @return array<string, array<string, array>>
+ */
+function _pp_udc_raw_background_wins(array $by_bp): array {
+    foreach ($by_bp as $bp => $declarations) {
+        if (empty($declarations['background']['raw'])) {
+            continue;
+        }
+        foreach ($declarations as $property => $entry) {
+            if (strncmp((string) $property, 'background-', 11) === 0 && empty($entry['raw'])) {
+                unset($by_bp[$bp][$property]);
+            }
+        }
+    }
+    return $by_bp;
+}
+
+/**
  * Folds the resolved `image` and `overlay` entries into the one CSS declaration
  * that can express them, and removes the carrier.
  *
@@ -5097,7 +5131,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             }
                             _pp_udc_place(
                                 $resolved, $st, [$property => $param], $property,
-                                $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where
+                                $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where, true
                             );
                         }
                     };
@@ -5225,6 +5259,9 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         }
 
         foreach ($resolved as $state => $by_bp) {
+            // A RAW BACKGROUND WINS ITS COORDINATE FIRST (#1141), before a narrower tier borrows an image the
+            // raw shorthand has cancelled.
+            $by_bp = _pp_udc_raw_background_wins($by_bp);
             // THE IMAGE IS SINGLE-VALUED; THE OVERLAY IS NOT. So an author who sets
             // one image and a narrower scrim — `{"image": 42, "overlay": {"d": …,
             // "p": …}}` — resolves the image into the `d` bucket only, and the `p`
@@ -5886,7 +5923,8 @@ function _pp_udc_place(
     array $breakpoints,
     array &$referenced,
     ?array &$drops = null,
-    string $where = ''
+    string $where = '',
+    bool $is_raw = false
 ): void {
     // THE DROP LEDGER (#981, boundary-review item D3).
     //
@@ -6099,8 +6137,11 @@ function _pp_udc_place(
             // verifies the attachment is live, so this is the deleted-afterwards
             // case. Extending 8c to resolve preset references is the fuller fix and
             // is filed as #1018 rather than done here.
+            // Nor where the value came through `_css` (#1141): 8c walks a role's `background.image`,
+            // never its raw map, so a stored raw `background-image` the grammar refuses was dropped
+            // on no channel at all.
             $owned_by_8c = ($params[$param_name]['type'] ?? '') === 'attachment_id'
-                && strncmp($source, 'preset:', 7) !== 0;
+                && strncmp($source, 'preset:', 7) !== 0 && !$is_raw;
             if ($note && !$owned_by_8c) {
                 // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
                 // This message rides the preflight envelope of every later
@@ -6212,6 +6253,12 @@ function _pp_udc_place(
             'source'  => $source,
             'literal' => $literal,
         ];
+        // WHICH PLACEMENTS ARE RAW (#1141): the `_css` valve's declarations outrank the group's at the
+        // same coordinate (contract §2'.3), and the background shorthand can only do that if the stage
+        // that composes the image layers knows it is raw. Written only when true.
+        if ($is_raw) {
+            $entry['raw'] = true;
+        }
         // THE MARKER IS WRITTEN ONLY WHEN IT IS TRUE, and the inheritance read runs
         // only for a property that can carry one. Both were unconditional, and the
         // pre-landing performance pass measured the four-level read at 0.23 ms of a
@@ -10297,6 +10344,31 @@ function pp_udc_composition_findings(array $items): array {
             }
             $role_name = (string) $role_name;
             $states    = pp_udc_states();
+            // WHAT THE BAND COMPILED, not which keys the author wrote (#1141, ruling D1 = A). A stored raw
+            // value the grammar refuses is dropped at emit (and ledgered), so "the raw value is what paints"
+            // was false for it; the collision message is chosen from whether the raw declaration compiled.
+            // Compiled at most once per band, only when a collision is about to be reported. A band with no
+            // usable id emits nothing at all, so there is no compile to read: the old wording stands there.
+            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, $item, $band_has_id, $role_name): ?bool {
+                if (!$band_has_id) {
+                    return null;
+                }
+                if ($band_compiled === null) {
+                    try {
+                        $band_drops    = [];
+                        $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
+                    } catch (\Throwable $e) {
+                        return null;
+                    }
+                }
+                foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
+                    if (($block['role'] ?? '') === $role_name && ($block['item'] ?? '') === '' && (string) ($block['state'] ?? '') === $state_key
+                        && !empty($block['decls'][$raw_property]['raw'])) {
+                        return true;
+                    }
+                }
+                return false;
+            };
 
             // Flatten `_css` to (state, property) pairs so a `:hover` declaration is
             // reported as precisely as a resting one. A state map is the only nesting
@@ -10374,7 +10446,14 @@ function pp_udc_composition_findings(array $items): array {
                     $css_disclosed++;
                     $findings[] = [
                         'type'    => 'udc_css_overrides_group_value',
-                        'message' => sprintf(
+                        'message' => $raw_compiled($state, $property) === false
+                            ? sprintf(
+                                'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" is a shorthand that would reset '
+                                . '%s, but the stored raw value cannot be emitted, so the %s.%s you also set is what paints. '
+                                . 'Fix or remove the raw declaration.',
+                                $component, _pp_udc_reflect($role_name), $state !== '' ? ' ' . $state : '',
+                                _pp_udc_reflect($property), PP_UDC_CSS_KEY, $longhand, $owner['_group'], $owner['_param'])
+                            : sprintf(
                             'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" is a '
                             . 'shorthand that resets %s, so the %s.%s you also set does not '
                             . 'paint. Write the whole treatment in one place.',
@@ -10400,7 +10479,15 @@ function pp_udc_composition_findings(array $items): array {
                         $css_disclosed++;
                         $findings[] = [
                             'type'    => 'udc_css_overrides_group_value',
-                            'message' => sprintf(
+                            'message' => $raw_compiled($state, $property) === false
+                                ? sprintf(
+                                    'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" would outrank the %s.%s you '
+                                    . 'also set, but the stored raw value cannot be emitted, so the %s.%s you also set is what '
+                                    . 'paints. Fix or remove the raw declaration.',
+                                    $component, _pp_udc_reflect($role_name), $state !== '' ? ' ' . $state : '',
+                                    _pp_udc_reflect($property), PP_UDC_CSS_KEY, $typed['_group'], $typed['_param'],
+                                    $typed['_group'], $typed['_param'])
+                                : sprintf(
                                 'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" outranks the '
                                 . '%s.%s you also set, so the raw value is what paints. Remove one of the two '
                                 . '— prefer %s.%s, which the engine can check.',
