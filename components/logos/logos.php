@@ -42,8 +42,8 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
 
 // THE ENGINE DECIDES whether a scrim is being painted; the template just consumes the flag.
 //
-// TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
-// stood here claimed a benefit this component cannot have:
+// ONE HONEST LIMIT AND ONE GUARANTEE, both from #1066's adversarial pass, because the comment
+// that stood here claimed a benefit this component cannot have:
 //
 // 1. NO FOCUS-RING CONSUMER ON THIS BAND. The ring's readers are
 //    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`, and neither stats nor
@@ -53,7 +53,7 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
 // 2. THE FLAG IS THE ENGINE'S ALONE. `pp_udc_promote_band_identity()` discards a stored
 //    `__pp_udc_overlay` before it decides (#1073, fixed in the engine's shared promotion step
 //    for all v2 templates), so a raw `_pp_composition` write or a restore (#233) cannot switch
-//    the hook, or (since #1010) re-light accent text, on a band painting no scrim.
+//    the hook on a band painting no scrim (logos has no accent that re-lights off it).
 $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 ?>
 <section<?php echo $id ? ' id="' . esc_attr($id) . '"' : ''; ?> class="logos" data-pp-component="logos"<?php echo $band_attr; ?><?php echo $overlay_attr; ?>>

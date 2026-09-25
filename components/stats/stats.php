@@ -85,8 +85,8 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
 
 // THE ENGINE DECIDES whether a scrim is being painted; the template just consumes the flag.
 //
-// TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
-// stood here claimed a benefit this component cannot have:
+// ONE HONEST LIMIT AND ONE GUARANTEE, both from #1066's adversarial pass, because the comment
+// that stood here claimed a benefit this component cannot have:
 //
 // 1. NO FOCUS-RING CONSUMER ON THIS BAND. The ring's readers are
 //    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`, and neither stats nor
