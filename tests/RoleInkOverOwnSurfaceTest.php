@@ -759,6 +759,33 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertNull(_pp_udc_selector_xpath(''));
     }
 
+    /**
+     * EVERY SPELLING OF A BAND INK IS SEEN, BY BOTH FINDINGS (ruling R1-A): the shared predicate reads the
+     * compiled `_band` blocks, so a preset-supplied or width-scoped band colour counts exactly like a
+     * plain one, and the two findings still agree (one predicate).
+     */
+    public function testEverySpellingOfABandInkIsSeenByBothFindings(): void
+    {
+        $this->savePreset('probe-ink', 'typography', ['color' => '#ffffff']);
+        $props = ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>', 'eyebrow' => 'E'];
+        foreach ([
+            'plain'         => [['typography' => ['color' => '#ffffff']], null],
+            'group preset'  => [['typography' => ['_preset' => 'probe-ink']], null],
+            'phone only'    => [['typography' => ['color' => ['p' => '#ffffff']]], 'phone'],
+            'raw css phone' => [['_css' => ['color' => ['p' => '#ffffff']]], 'phone'],
+        ] as $label => [$ink, $width]) {
+            [, $found, $all] = $this->write(['_band' => ['background' => ['fill' => '#101828']] + $ink], 'hero', $props);
+            $this->assertCount(1, $found, $label . ': the own-surface finding sees it');
+            $this->assertStringContainsString('role "surface"', $found[0]['message'], $label);
+            $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+            $this->assertCount(1, $sibling, $label . ': the sibling sees it too');
+            if ($width !== null) {
+                $this->assertStringContainsString('at the ' . $width . ' width', $found[0]['message'], $label . ': own-surface names the width');
+                $this->assertStringContainsString('on the whole band at the ' . $width . ' width', $sibling[0]['message'], $label . ': the sibling names the width');
+            }
+        }
+    }
+
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
     public function testASingleWidthIsNamedInTheSingular(): void
     {

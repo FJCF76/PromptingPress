@@ -9370,9 +9370,13 @@ function pp_udc_composition_findings(array $items): array {
                     // does not list it (_pp_udc_band_values_cancelled_by_role_defaults), so the two
                     // findings on one write agree by construction. A shipped-schema sweep in Chromium
                     // found no enclosing role that intercepts that inheritance (evidence-t2).
+                    // R1-A: what the band EMITS, from the compile this arm already holds (any spelling, per
+                    // state and width); the sibling below reads the same map.
+                    $band_emitted     = _pp_udc_band_inherited_emitted($band_compiled);
+                    $band_ink_cells   = $band_emitted['color'] ?? [];
                     $band_ink_reaches = [];
-                    if (isset(_pp_udc_inherited_values_declared($item['udc'], '_band')['color'])) {
-                        $band_cancelled = _pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component)['color'] ?? [];
+                    if ($band_ink_cells !== []) {
+                        $band_cancelled = _pp_udc_inherited_values_cancelled_by_role_defaults($item['udc'], $component, '_band', null, $band_emitted)['color'] ?? [];
                         foreach (array_keys($roles) as $reach_role) {
                             if ((string) $reach_role !== '_band' && !in_array((string) $reach_role, $band_cancelled, true)) {
                                 $band_ink_reaches[(string) $reach_role] = true;
@@ -9419,7 +9423,8 @@ function pp_udc_composition_findings(array $items): array {
                                     }
                                     $kind = 'own';
                                 } elseif (isset($band_ink_reaches[$element['role']])
-                                    && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)) {
+                                    && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)
+                                    && _pp_udc_band_cells_cover($band_ink_cells, (string) $state, (string) $bp)) {
                                     $kind = 'band';
                                 } else {
                                     continue;
@@ -9639,7 +9644,43 @@ function pp_udc_composition_findings(array $items): array {
         // The docs already tell the model to set typography on every text role
         // rather than rely on inheritance. That helps the author who reads them; I35
         // is about the author who does not.
-        foreach (_pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component) as $property => $names) {
+        // R1-A: WHAT THE BAND EMITS, not what the raw map spells. A `typography._preset` and a width-only
+        // value paint an inherited value the raw read missed, so both this disclosure and the own-surface
+        // arm (same predicate) were silent on a 1.07:1 clash. Read off the compile the arms above share,
+        // compiled here only for a `_band` map that can carry an inherited value at all. A band with no
+        // usable id emits nothing; its raw map keeps the old read.
+        $band_map_here = is_array($item['udc']['_band'] ?? null) ? $item['udc']['_band'] : [];
+        $band_emitted_here = null;
+        if ($band_has_id && (isset($band_map_here['typography']) || isset($band_map_here[PP_UDC_CSS_KEY]) || isset($band_map_here[PP_UDC_PRESET_KEY]))) {
+            try {
+                if ($band_compiled === null) {
+                    $band_drops    = [];
+                    $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
+                }
+                $band_emitted_here = _pp_udc_band_inherited_emitted($band_compiled);
+            } catch (\Throwable $e) {
+                error_log('PromptingPress: band-shadow findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
+                $band_emitted_here = null;
+            }
+        }
+        $band_cancelled_map = $band_emitted_here === null
+            ? _pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component)
+            : _pp_udc_inherited_values_cancelled_by_role_defaults($item['udc'], $component, '_band', null, $band_emitted_here);
+        foreach ($band_cancelled_map as $property => $names) {
+            // A value set only at some widths (at rest) is named with them.
+            $band_width_phrase = '';
+            if ($band_emitted_here !== null && !isset($band_emitted_here[$property]['|d'])) {
+                $width_keys = [];
+                foreach (array_keys(pp_udc_breakpoints()) as $bp_key) {
+                    if (isset($band_emitted_here[$property]['|' . $bp_key])) {
+                        $width_keys[] = $bp_key;
+                    }
+                }
+                if ($width_keys !== []) {
+                    $width_labels = array_map(static fn ($k) => pp_udc_breakpoints()[$k]['label'], $width_keys);
+                    $band_width_phrase = ' at the ' . implode(' and ', $width_labels) . (count($width_labels) === 1 ? ' width' : ' widths');
+                }
+            }
             // Following "set it on those roles directly" on a role that ships its OWN fill puts the new
             // colour on that fill, which udc_role_ink_over_own_surface then names (cycle 2, api-contract):
             // say so here, so one piece of advice does not walk the author into the other finding.
@@ -9658,10 +9699,11 @@ function pp_udc_composition_findings(array $items): array {
             $findings[] = [
                 'type'    => 'udc_band_value_shadowed_by_role_default',
                 'message' => sprintf(
-                    'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
+                    'Component "%s": the "%s" you set on the whole band%s does not reach %s, because %s '
                     . 'own default for it wins over inheritance. Set it on %s directly%s.',
                     $component,
                     (string) $property,
+                    $band_width_phrase,
                     implode(', ', $names),
                     count($names) === 1 ? 'that role\'s' : 'those roles\'',
                     count($names) === 1 ? 'that role' : 'those roles',
@@ -10235,6 +10277,47 @@ function _pp_udc_inherited_values_declared(array $udc, string $source_role): arr
 }
 
 /**
+ * The inherited values `_band` really EMITS (#1125, ruling R1-A): property => ['state|bp' => true],
+ * read off the compiled `_band` blocks, whatever spelling put them there: the author's map, `_css`, a
+ * preset the author applied, a breakpoint map. _pp_udc_inherited_values_declared() reads the raw map
+ * and missed a `typography._preset` and a width-only value (a 1.07:1 clash both findings stayed silent
+ * on); this is what both the band-shadow disclosure and the own-surface arm read when the band compiles.
+ *
+ * @return array<string, array<string, true>>
+ */
+function _pp_udc_band_inherited_emitted(array $compiled): array {
+    $inherited = _pp_udc_inherited_properties();
+    $out       = [];
+    foreach ((array) ($compiled['blocks'] ?? []) as $block) {
+        if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '') {
+            continue;
+        }
+        foreach ((array) ($block['decls'] ?? []) as $property => $decl) {
+            $source = is_array($decl) ? (string) ($decl['source'] ?? '') : '';
+            if (!isset($inherited[(string) $property]) || $source === '' || $source === 'defaults' || $source === 'engine-companion') {
+                continue;
+            }
+            $out[(string) $property][(string) ($block['state'] ?? '') . '|' . (string) ($block['bp'] ?? 'd')] = true;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Whether a band value emitted at these 'state|bp' cells applies in cell ($state, $bp) (#1125 R1-A): a
+ * base-width value applies at every width, a state value only in that state (a combined cell such as
+ * ':hover+:active' is in each of its states), and the resting value in every state.
+ */
+function _pp_udc_band_cells_cover(array $cells, string $state, string $bp): bool {
+    foreach (array_merge([''], $state === '' ? [] : explode('+', $state)) as $s) {
+        if (isset($cells[$s . '|d']) || isset($cells[$s . '|' . $bp])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * The generalized form: which roles' own defaults cancel an inherited value
  * declared on `$source_role` (invariant I35).
  *
@@ -10253,15 +10336,20 @@ function _pp_udc_inherited_values_declared(array $udc, string $source_role): arr
  *                                 The item tier passes its addressable set,
  *                                 because a role an item cannot address cannot
  *                                 be the place it is told to set the value.
+ * @param array|null  $declared    What the source role emits, property => anything truthy; null reads
+ *                                 the raw map.
  * @return array<string, string[]>  property => the roles whose own default cancels it
  */
 function _pp_udc_inherited_values_cancelled_by_role_defaults(
     array $udc,
     string $component,
     string $source_role,
-    ?array $limit_roles
+    ?array $limit_roles,
+    ?array $declared = null
 ): array {
-    $declared = _pp_udc_inherited_values_declared($udc, $source_role);
+    // The caller may pass what the band really emits (_pp_udc_band_inherited_emitted()); otherwise the
+    // raw map is read.
+    $declared = $declared ?? _pp_udc_inherited_values_declared($udc, $source_role);
     $groups   = pp_udc_groups();
     $roles    = pp_udc_component_roles($component);
     if ($declared === []) {
