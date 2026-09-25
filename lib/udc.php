@@ -6409,7 +6409,10 @@ function _pp_udc_emission_scopes(string $component, string $id, bool $compositio
  * from the resting `_band` blocks, each inheriting from `d` on its own, and a scrimmed tier is `partial` when
  * _pp_udc_scrim_leaves_part_uncovered() says an axis is neither covered nor tiled.
  *
- * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, partial: bool}>, states: array<int, string>}
+ * A tier whose image a background REPLACED also carries `raw`: true when that background came from `_css` (#1141),
+ * false when the group set it. It is absent on every other tier; readers use !empty().
+ *
+ * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, partial: bool, raw?: bool}>, states: array<int, string>}
  */
 function pp_udc_band_effective_background(array $compiled): array {
     $declared = [];
@@ -9598,6 +9601,7 @@ function pp_udc_composition_findings(array $items): array {
         // ink the compiled band declares at the base tier is not re-lit and not named.
         $band_compiled = null;
         $band_drops    = [];
+        $raw_probe_failed = false; // the collision arm's compile threw once for this band: do not retry it per collision
         $tier_roles    = [];
         foreach ($roles as $role_name => $definition) {
             if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults']) && $definition['overlay_defaults'] !== []) {
@@ -10508,10 +10512,11 @@ function pp_udc_composition_findings(array $items): array {
             // WHAT THE BAND COMPILED, not which keys the author wrote (#1141, ruling D1 = A). A stored raw
             // value the grammar refuses is dropped at emit (and ledgered), so "the raw value is what paints"
             // was false for it; the collision message is chosen from whether the raw declaration compiled.
-            // Compiled at most once per band, only when a collision is about to be reported. A band with no
-            // usable id emits nothing at all, so there is no compile to read: the old wording stands there.
-            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, $item, $band_has_id, $role_name): ?bool {
-                if (!$band_has_id) {
+            // Compiled at most once per band, only when a collision is about to be reported (a compile that throws is
+            // logged once and not retried). A band with no usable id emits nothing at all, so there is no compile to
+            // read: the old wording stands there, as it does when the compile fails.
+            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, &$raw_probe_failed, $item, $band_has_id, $role_name): ?bool {
+                if (!$band_has_id || $raw_probe_failed) {
                     return null;
                 }
                 if ($band_compiled === null) {
@@ -10519,6 +10524,10 @@ function pp_udc_composition_findings(array $items): array {
                         $band_drops    = [];
                         $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
                     } catch (\Throwable $e) {
+                        error_log('PromptingPress: raw-collision findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
+                        $raw_probe_failed = true;
+                        $band_compiled    = null;
+                        $band_drops       = [];
                         return null;
                     }
                 }
