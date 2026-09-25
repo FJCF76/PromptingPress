@@ -503,8 +503,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             $not_reached = [];
             foreach ($all as $f) {
                 if ($f['type'] === 'udc_band_value_shadowed_by_role_default' && str_contains($f['message'], '"color"')) {
-                    $this->assertStringContainsString('The other roles take it on their own element, but text inside them shows it only where no role inside them sets its own.',
-                        $f['message'], 'the sibling says element-reach and text-reach apart');
+                    $this->assertStringNotContainsString('take it on their own element', $f['message'],
+                        'the sibling makes no reach claim about the roles it does not list (E2-A)');
                     preg_match_all('/\\b([a-z][a-z0-9-]*)\\b/', substr($f['message'], (int) strpos($f['message'], 'does not reach')), $m);
                     $not_reached = array_merge($not_reached, $m[1]);
                 }
@@ -634,6 +634,23 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'eyebrow' => ['typography' => ['color' => '@color-text', ':hover' => ['color' => '#ffffff']]]]);
         $this->assertCount(1, $found, 'a restated rest ink with a changed hover ink');
         $this->assertStringContainsString('(@color-surface-accent) in the :hover state, and the band background', $found[0]['message'], 'fires on hover only');
+    }
+
+    /**
+     * E2-A: the sibling makes NO reach claim about the roles it does not list. Hero `title` is an h1 that
+     * base.css colours directly (`h1..h6 { color: var(--color-text) }`), so a band ink never reaches it
+     * (measured 1:1 on a dark band); the sibling does not list it (it reads role defaults only, filed
+     * separately) and must not describe it as taking the ink either.
+     */
+    public function testTheSiblingMakesNoReachClaimForAStructurallyRuledRole(): void
+    {
+        [, , $all] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
+            'hero', ['layout' => 'centered', 'title' => 'H', 'subheading' => 'S']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertCount(1, $sibling);
+        $this->assertStringNotContainsString('take it', $sibling[0]['message']);
+        $this->assertStringNotContainsString('other roles', $sibling[0]['message']);
+        $this->assertMatchesRegularExpression('/directly( \([^)]*\))?\.\z/', $sibling[0]['message'], 'the message ends at its advice');
     }
 
     /** A single width left on the default is named in the singular, with its one breakpoint key. */

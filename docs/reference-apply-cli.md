@@ -322,7 +322,7 @@ reported as applied that paints nothing — on the engine that is live:
 { "ok": true, "action": "update_composition", "composition_version": 2,
   "findings": [
     { "type": "udc_band_value_shadowed_by_role_default", "severity": "warning", "index": 0,
-      "message": "Component \"grid\": the \"color\" you set on the whole band does not reach card-bullets, card-link, card-text, card-title, empty, eyebrow, heading-accent, step-number, subheading, because those roles' own default for it wins over inheritance. Set it on those roles directly (eyebrow, step-number ship their own fill, so set each one's background.fill with the colour). The other roles take it on their own element, but text inside them shows it only where no role inside them sets its own." }
+      "message": "Component \"grid\": the \"color\" you set on the whole band does not reach card-bullets, card-link, card-text, card-title, empty, eyebrow, heading-accent, step-number, subheading, because those roles' own default for it wins over inheritance. Set it on those roles directly (eyebrow, step-number ship their own fill, so set each one's background.fill with the colour)." }
   ] }
 ```
 

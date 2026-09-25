@@ -9557,9 +9557,7 @@ function pp_udc_composition_findings(array $items): array {
                 'type'    => 'udc_band_value_shadowed_by_role_default',
                 'message' => sprintf(
                     'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
-                    . 'own default for it wins over inheritance. Set it on %s directly%s. The other roles take it '
-                    . 'on their own element, but text inside them shows it only where no role inside them sets '
-                    . 'its own.',
+                    . 'own default for it wins over inheritance. Set it on %s directly%s.',
                     $component,
                     (string) $property,
                     implode(', ', $names),
