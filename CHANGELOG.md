@@ -49,10 +49,14 @@ stays live and pinned on the v2 `_band` → `background.image` path.
   `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
   `grep -rn "pp_theme_class" wp-content/ --exclude-dir=promptingpress` (use your
   PromptingPress theme folder's name; the theme itself defines and names the helper), and
-  also search PHP that lives in the database, such as a snippets plugin's stored code
-  (`wp db search pp_theme_class`). Remove every call or callback reference in your own
-  code, including a quoted callback name such as `add_filter( 'x', 'pp_theme_class' )`;
-  a mention in a comment or in text is harmless.
+  also search PHP that lives in the database, such as a snippets plugin's stored code:
+  `wp db search pp_theme_class --all-tables-with-prefix` (add `--network` on multisite).
+  Without that flag the search skips plugin-owned tables, which is where snippet plugins
+  keep their code. Remove or update every call or callback reference you find, whether it
+  is in your own code, a third-party plugin or a child theme, including a quoted callback
+  name such as `add_filter( 'x', 'pp_theme_class' )`. Any hit inside stored snippet code
+  counts as code. Only a mention in a PHP comment, or in post or page content that is never
+  executed, is harmless.
 
 ### Upgrading
 
