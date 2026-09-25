@@ -734,6 +734,47 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('supplied by a preset', $found[0]['message']);
     }
 
+    /**
+     * A VALUE THE AUTHOR ALREADY WROTE IS NOT "NOT APPLIED". The shadow finding tells the
+     * author to write the value in their own map; where the same map already sets that
+     * parameter (and state), the author's value paints and the advice is noise.
+     */
+    public function testTheShadowFindingSkipsValuesTheSameMapAlreadySets(): void
+    {
+        $this->savePreset('probe-shadow3', ['typography' => ['size' => '3rem', 'weight' => '800', 'color' => '#aa0000']]);
+
+        [, $all] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-shadow3',
+            'typography' => ['size' => '2rem', 'weight' => '700', 'color' => '#111111']]]));
+        $this->assertSame([], $this->findingsOfType($all, 'udc_preset_value_shadowed_by_role_default'), 'every shadowed value is authored');
+
+        [, $some] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-shadow3',
+            'typography' => ['size' => '2rem']]]), 'partly authored');
+        $found = $this->findingsOfType($some, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('typography.size', $found[0]['message']);
+        $this->assertStringContainsString('typography.weight', $found[0]['message']);
+    }
+
+    /**
+     * The reverse of the card case: a scrim on the BAND's map, over images the cards set
+     * for the same role. Each card's own image replaces its whole background, so the band
+     * scrim reaches no card — and the reason must say so rather than "set background.image".
+     */
+    public function testABandOverlayOverCardImagesGetsATruthfulReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $result] = $this->page($this->grid(
+            ['card' => ['background' => ['image' => 9001]]],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+
+        $found = $this->findingsOfType($result, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString("card's own map", $found[0]['message']);
+        $this->assertStringNotContainsString('none is set', $found[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

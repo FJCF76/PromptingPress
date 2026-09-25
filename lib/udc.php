@@ -2434,6 +2434,37 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = f
 }
 
 /**
+ * The `group.param` / `group.param (state)` labels a role map sets itself, in the shape
+ * _pp_udc_preset_values_shadowed_by_role_defaults() reports, so the shadow finding can
+ * leave out what the author already wrote (their value outranks preset and default).
+ *
+ * @return array<int, string>
+ */
+function _pp_udc_authored_value_labels(array $role_map): array {
+    $states = pp_udc_states();
+    $labels = [];
+    foreach ($role_map as $group => $group_map) {
+        if (!is_array($group_map) || str_starts_with((string) $group, '_')) {
+            continue;
+        }
+        foreach ($group_map as $key => $value) {
+            $key = (string) $key;
+            if ($key === PP_UDC_PRESET_KEY) {
+                continue;
+            }
+            if (isset($states[$key])) {
+                foreach (is_array($value) ? array_keys($value) : [] as $param) {
+                    $labels[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                }
+                continue;
+            }
+            $labels[] = $group . '.' . $key;
+        }
+    }
+    return $labels;
+}
+
+/**
  * The ledger locator for a dropped overlay (#1117): the card when there is one, the role,
  * and the state / breakpoint bucket it was dropped from — each fragment cleaned, because
  * these are stored keys riding an operator-facing row (the rule _pp_udc_place() states).
@@ -2481,8 +2512,12 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  *                                  can never have an image of its own.
  * @param bool        $in_item      True at item (card) grain, whose compile does not
  *                                  combine the band map's image for the same role.
+ * @param bool        $cards_set_image True at band grain when a card's own map sets
+ *                                  background.image on this role: that card's image
+ *                                  replaces its whole background, so the band scrim
+ *                                  reaches no such card.
  */
-function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false, bool $in_item = false): array {
+function _pp_udc_compose_background_layers(array $declarations, ?array &$drops = null, string $where = '', bool $in_state = false, bool $in_item = false, bool $cards_set_image = false): array {
     if (!array_key_exists(PP_UDC_BACKGROUND_OVERLAY_CARRIER, $declarations)) {
         return $declarations;
     }
@@ -2518,6 +2553,14 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'image set for this role on the band\'s map is not combined with it), and this card has '
                       . 'no usable one (none is set, or its attachment was deleted), so the scrim was dropped. '
                       . 'Set background.image on this card, or remove the overlay'
+                    // The reverse: a BAND scrim over images the cards set for this role. A
+                    // card's own image replaces that card's whole background layer list, so
+                    // the band's scrim reaches none of them.
+                    : ($cards_set_image
+                    ? 'an overlay on the band\'s map is layered only over a background.image on the band\'s '
+                      . 'map, and this role has none there; the image a card sets for this role replaces '
+                      . 'that card\'s whole background, so this scrim reaches no card. Put the overlay on each '
+                      . 'card\'s own map, or set background.image on the band\'s map'
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -2531,7 +2574,7 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // branch cannot tell the two causes apart and must not blame the author.
                     : 'an overlay paints only over an image, and this role has no usable background.image '
                       . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or remove the overlay')),
+                      . 'background.image (an attachment id), or remove the overlay'))),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -5139,11 +5182,27 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // author wrote `image` and `overlay` in, so the composed layer
                 // list is deterministic too.
                 $declarations = _pp_udc_sort_declarations($declarations);
+                // Which roles a card's own map gives an image — asked once per compile, and
+                // only when a ledger is kept (render paths never pay for it).
+                if ($drops !== null && !isset($card_image_roles)) {
+                    $card_image_roles = [];
+                    foreach (pp_udc_item_maps($item) as $card_map) {
+                        foreach ($card_map as $card_role => $card_role_map) {
+                            if (is_array($card_role_map) && isset($card_role_map['background'])
+                                && is_array($card_role_map['background'])
+                                && array_key_exists('image', $card_role_map['background'])) {
+                                $card_image_roles[(string) $card_role] = true;
+                            }
+                        }
+                    }
+                }
                 $declarations = _pp_udc_compose_background_layers(
                     $declarations,
                     $drops,
                     $drops === null ? '' : _pp_udc_overlay_drop_where('', (string) $role_name, (string) $state, (string) $bp),
-                    (string) $state !== ''
+                    (string) $state !== '',
+                    false,
+                    $drops !== null && isset($card_image_roles[(string) $role_name])
                 );
                 // AFTER the compose, so the overlay has already been folded into
                 // background-image and the companions see the final layer list.
@@ -8286,7 +8345,12 @@ function pp_udc_composition_findings(array $items): array {
                             $roles[(string) $role_name]
                         );
                     }
-                    $shadowed = $shadow_memo[$shadow_key];
+                    // A value THIS map already sets paints — the author's own value outranks
+                    // both the preset and the default — so it is not "not applied".
+                    $shadowed = array_values(array_diff(
+                        $shadow_memo[$shadow_key],
+                        _pp_udc_authored_value_labels($role_map)
+                    ));
                     if ($shadowed === []) {
                         continue;
                     }
