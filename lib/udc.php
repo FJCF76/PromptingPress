@@ -2718,7 +2718,10 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
                     : (!empty($overlay['raw_background_won'])
                     ? 'the raw background in _css resets the background here, so background.image and this scrim do not '
-                      . 'paint at this width. Remove the raw background, or put the whole treatment in it'
+                      . 'paint at this width, and with no scrim the band is not marked, so the accent roles it re-lit go back to '
+                      . 'their own colours. Remove the raw background (put a colour in background.fill beside the image '
+                      . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
+                      . 'background cannot carry an image. On a dark background, set the accents\' typography.color'
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -6433,7 +6436,8 @@ function pp_udc_band_effective_background(array $compiled): array {
             ];
         } else {
             $replaced = is_array($short) ? $short : $image;
-            $declared[$bp] = ['image' => false, 'scrim' => '', 'source' => (string) ($replaced['source'] ?? '')];
+            // `raw`: the replacing background is the `_css` valve's (#1141), so a message can say what replaced the image.
+            $declared[$bp] = ['image' => false, 'scrim' => '', 'source' => (string) ($replaced['source'] ?? ''), 'raw' => !empty($replaced['raw'])];
         }
     }
     $tiers = [];
@@ -9623,16 +9627,26 @@ function pp_udc_composition_findings(array $items): array {
                 if ($covered !== [] && $missing !== []) {
                     // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
                     // the band's own background, not on an image (PR-2 review, security).
+                    // BY CAUSE (PR-2 review, design): "the scrim is set only at ..." is true only for a width with an
+                    // image and no scrim. Where the image itself is gone, the author may well have set the scrim; what
+                    // replaced it is a background set at that width, raw (`_css`, #1141) or through the group.
                     $imaged   = array_values(array_filter($missing, static fn ($k): bool => !empty($effective['tiers'][$k]['image'])));
-                    $unimaged = array_values(array_diff($missing, $imaged));
-                    $where    = [];
+                    $raw_won  = array_values(array_filter($missing, static fn ($k): bool => empty($effective['tiers'][$k]['image']) && !empty($effective['tiers'][$k]['raw'])));
+                    $filled   = array_values(array_diff($missing, $imaged, $raw_won));
+                    $parts    = [];
                     if ($imaged !== []) {
-                        $where[] = sprintf('at the %s the accent sits on the unscrimmed image', _pp_udc_widths_phrase($imaged));
+                        $parts[] = sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
+                            _pp_udc_widths_phrase($covered), _pp_udc_widths_phrase($imaged));
                     }
-                    if ($unimaged !== []) {
-                        $where[] = sprintf('at the %s the accent sits on the band\'s own background', _pp_udc_widths_phrase($unimaged));
+                    if ($raw_won !== []) {
+                        $parts[] = sprintf('at the %s the raw background in _css replaces the image and its scrim, so the accent sits on that background',
+                            _pp_udc_widths_phrase($raw_won));
                     }
-                    $conditions[] = [sprintf('the scrim is set only at the %s, so %s', _pp_udc_widths_phrase($covered), implode(', and ', $where)), $relit];
+                    if ($filled !== []) {
+                        $parts[] = sprintf('at the %s the background you set there replaces the image and its scrim, so the accent sits on that background',
+                            _pp_udc_widths_phrase($filled));
+                    }
+                    $conditions[] = [implode(', and ', $parts), $relit];
                 }
                 foreach ($effective['tiers'] as $tier) {
                     [$layers, $source] = [$tier['scrim'], $tier['source']];

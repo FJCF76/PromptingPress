@@ -568,7 +568,9 @@ final class OverlayAccentOffScrimTest extends TestCase
         $tier = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', 'fill' => ['p' => '#ffffff']]]]);
         // PR-2 review (security): a phone fill REPLACES the image there, so the accent sits on the band's own
         // background at that width, not on an unscrimmed image (the old pinned wording was false).
-        $this->assertStringContainsString("so at the phone width the accent sits on the band's own background", $tier[0]['message']);
+        // PR-2 review (design): the scrim WAS set at the phone width; the fill set there replaces the image and scrim.
+        $this->assertStringContainsString('at the phone width the background you set there replaces the image and its scrim, so the accent sits on that background', $tier[0]['message']);
+        $this->assertStringNotContainsString('the scrim is set only at', $tier[0]['message']);
         $state = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', ':hover' => ['fill' => '#ffffff']]]]);
         $this->assertStringContainsString("in the :hover state the band's own background replaces the scrimmed image", $state[0]['message']);
         $raw = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], '_css' => ['background' => ['p' => '#ffffff']]]]);
@@ -702,7 +704,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     {
         $found = $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => '#ffffff']]]]);
         $conditions = implode(' | ', array_column($found, 'message'));
-        $this->assertStringContainsString('so at the phone width the accent sits on the band\'s own background', $conditions);
-        $this->assertStringNotContainsString('the phone width the accent sits on the unscrimmed image', $conditions);
+        $this->assertStringContainsString('at the phone width the raw background in _css replaces the image and its scrim, so the accent sits on that background', $conditions);
+        $this->assertStringNotContainsString('the scrim is set only at', $conditions, 'the author set the scrim there (design review)');
     }
 }

@@ -204,6 +204,9 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertCount(1, $rows, $label);
             $this->assertStringNotContainsString('Set background.image', $rows[0]['reason'], $label);
             $this->assertStringContainsString('the raw background in _css resets the background here, so background.image and this scrim do not paint', $rows[0]['reason'], $label);
+            $this->assertStringNotContainsString('put the whole treatment in it', $rows[0]['reason'], 'a raw background cannot carry an image (design review)');
+            $this->assertStringContainsString('a raw background cannot carry an image', $rows[0]['reason'], $label);
+            $this->assertStringContainsString('the accent roles it re-lit go back to their own colours', $rows[0]['reason'], $label);
         }
         $drops = [];
         pp_udc_compile_band($this->band(['background' => ['fill' => '#101828', 'overlay' => 'rgba(0,0,0,0.7)']]), 'authored', $drops);
