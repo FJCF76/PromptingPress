@@ -606,7 +606,8 @@ final class OverlayAccentOffScrimTest extends TestCase
                 $checked++;
             }
         }
-        $this->assertSame(7, $checked, 'every promise was checked (vacuity floor)');
+        // 8 since /ship (ruling 1 = A): AI_CONTEXT's sibling paragraph names where a state-only band colour is reported.
+        $this->assertSame(8, $checked, 'every promise was checked (vacuity floor)');
         $prompt = pp_ai_system_prompt();
         $mentions = 0;
         for ($at = strpos($prompt, 'udc_role_ink_over_own_surface'); $at !== false; $at = strpos($prompt, 'udc_role_ink_over_own_surface', $at + 1)) {
