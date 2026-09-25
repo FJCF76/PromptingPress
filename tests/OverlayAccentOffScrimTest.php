@@ -482,6 +482,46 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertFalse(_pp_udc_value_is_light('var(--text-meta-color)', []), 'a token holding var(--color-muted) resolves to it');
     }
 
+    /**
+     * Cycle 4: a preset tier the author did not override still paints (the emitter merges per
+     * breakpoint tier), so the reader merges the same way, for fills and for the scrim.
+     */
+    public function testAPresetTierTheAuthoredFillDoesNotOverrideIsRead(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'white-panel4', 'grain' => 'background', 'udc' => ['fill' => '#ffffff']])['ok']);
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['_preset' => 'white-panel4', 'fill' => ['t' => '#101828']]]]);
+        $this->assertCount(1, $found, 'the preset base tier paints #ffffff at desktop and phone');
+        $this->assertStringContainsString('has a background from preset "white-panel4" (#ffffff)', $found[0]['message']);
+
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'tabpanel', 'grain' => 'background', 'udc' => ['fill' => ['t' => '#ffffff']]])['ok']);
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['_preset' => 'tabpanel', 'fill' => '#101828']]]),
+            'the preset tablet tier paints #ffffff behind the accent');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['_preset' => 'white-panel4', 'fill' => '#101828']]]),
+            'an author base tier overrides the preset base tier');
+    }
+
+    public function testAPresetScrimTierTheAuthorDidNotOverrideIsRead(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'tabwash', 'grain' => 'background', 'udc' => ['image' => 9001, 'overlay' => ['t' => 'rgba(255,255,255,0.85)']]])['ok']);
+        $found = $this->found(['_band' => ['background' => ['_preset' => 'tabwash', 'overlay' => 'rgba(0,0,0,.7)']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('the scrim from preset "tabwash" is light', $found[0]['message']);
+
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'basewash', 'grain' => 'background', 'udc' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.85)']])['ok']);
+        $mirror = $this->found(['_band' => ['background' => ['_preset' => 'basewash', 'overlay' => ['t' => 'rgba(0,0,0,.7)']]]]);
+        $this->assertCount(1, $mirror, 'the scrim covers every width (preset base + author tablet): no gap, but a light tier');
+        $this->assertStringContainsString('the scrim from preset "basewash" is light', $mirror[0]['message']);
+        $this->assertStringNotContainsString('unscrimmed image', $mirror[0]['message']);
+    }
+
+    public function testAPresetSuppliedStateFillIsRead(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'gh', 'grain' => 'background', 'udc' => [':hover' => ['fill' => '#ffffff']]])['ok']);
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['_preset' => 'gh']]]));
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'hover-white', 'grain' => 'role', 'udc' => ['background' => [':hover' => ['fill' => '#ffffff']]]])['ok']);
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_preset' => 'hover-white']]));
+    }
+
     /** Bounded across the composition like its sibling arms. */
     public function testTheFindingIsBoundedAcrossTheComposition(): void
     {

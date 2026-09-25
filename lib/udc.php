@@ -2660,42 +2660,18 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
 }
 
 /**
- * The background colours a role map paints, as strings, in the emitter's precedence (#1010
- * review): its own `background.fill` (every breakpoint tier), else a group-grain then a
- * role-grain preset's fill, plus any state's fill and any `_css` background value, each as
- * [value, preset name or null]: a preset's references resolve against site tokens only.
+ * The background colours a role map paints (#1010 review): its fill tiers at rest and in
+ * each state, merged per tier as the emitter merges them (_pp_udc_background_param_tiers()),
+ * plus any `_css` background value, each as [value, preset name or null]: a preset's
+ * references resolve against site tokens only.
  *
  * @return array<int, array{0: string, 1: ?string}>
  */
 function _pp_udc_role_map_surface_values(array $role_map): array {
-    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
-    $fill       = $background['fill'] ?? null;
-    $from       = null;
-    if ($fill === null) {
-        foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
-            $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
-            $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
-            $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
-            if (is_array($group) && array_key_exists('fill', $group)) {
-                $fill = $group['fill'];
-                $from = (string) $name;
-                break;
-            }
-        }
-    }
     $values = [];
-    foreach (is_array($fill) ? $fill : [$fill] as $value) {
-        if (is_string($value)) {
+    foreach (array_merge([null], array_keys(pp_udc_states())) as $state) {
+        foreach (_pp_udc_background_param_tiers($role_map, 'fill', $state === null ? null : (string) $state) as [$value, $from]) {
             $values[] = [$value, $from];
-        }
-    }
-    // A fill set only for a state (`background[":hover"].fill`) paints in that state.
-    foreach (pp_udc_states() as $state => $unused) {
-        $state_fill = $background[$state]['fill'] ?? null;
-        foreach (is_array($state_fill) ? $state_fill : [$state_fill] as $value) {
-            if (is_string($value)) {
-                $values[] = [$value, null];
-            }
         }
     }
     $raw = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
@@ -8848,14 +8824,12 @@ function pp_udc_composition_findings(array $items): array {
             if ($relit !== []) {
                 $band_tokens = is_array($item['udc']['_tokens'] ?? null) ? $item['udc']['_tokens'] : [];
                 $conditions  = []; // [condition text, the re-lit roles it concerns]
-                [$overlay, $scrim_preset] = _pp_udc_band_overlay_source($item['udc']['_band']);
-                // The emitter resolves a preset's references against site tokens only.
-                $scrim_tokens = $scrim_preset === null ? $band_tokens : [];
-                $scrim_label  = $scrim_preset === null ? 'the scrim you set' : sprintf('the scrim from preset "%s"', _pp_udc_reflect($scrim_preset));
-                // A breakpoint map without the base tier paints the scrim only at the widths it names.
-                if (is_array($overlay) && !array_key_exists('d', $overlay)) {
-                    $breakpoints = pp_udc_breakpoints();
-                    $named   = array_values(array_intersect(array_keys($breakpoints), array_map('strval', array_keys($overlay))));
+                // The scrim tier by tier, merged as the emitter merges it (author, then presets).
+                $scrim_tiers = _pp_udc_background_param_tiers($item['udc']['_band'], 'overlay');
+                $breakpoints = pp_udc_breakpoints();
+                if (!isset($scrim_tiers['d'])) {
+                    // Without the base tier the scrim paints only at the widths it names.
+                    $named   = array_values(array_intersect(array_keys($breakpoints), array_keys($scrim_tiers)));
                     $missing = array_values(array_diff(array_keys($breakpoints), $named));
                     if ($named !== [] && $missing !== []) {
                         $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
@@ -8864,12 +8838,12 @@ function pp_udc_composition_findings(array $items): array {
                             $label($named), $label($missing)), $relit];
                     }
                 }
-                foreach (is_array($overlay) ? $overlay : [$overlay] as $scrim) {
-                    if (!is_string($scrim)) {
-                        continue;
-                    }
-                    $colours = _pp_udc_value_colours($scrim, $scrim_tokens);
-                    $shown   = _pp_udc_reflect($scrim);
+                foreach ($scrim_tiers as [$scrim, $scrim_preset]) {
+                    // The emitter resolves a preset's references against site tokens only.
+                    $scrim_tokens = $scrim_preset === null ? $band_tokens : [];
+                    $scrim_label  = $scrim_preset === null ? 'the scrim you set' : sprintf('the scrim from preset "%s"', _pp_udc_reflect($scrim_preset));
+                    $colours      = _pp_udc_value_colours($scrim, $scrim_tokens);
+                    $shown        = _pp_udc_reflect($scrim);
                     if ($colours === []) {
                         $conditions[] = [sprintf('the engine cannot read %s (%s), so it cannot tell whether it is dark', $scrim_label, $shown), $relit];
                         break;
@@ -10204,43 +10178,47 @@ function pp_udc_band_has_overlay(array $item): bool {
     $band_map = $item['udc']['_band'] ?? null;
     // The scrim first: it is a map read, and a band with no scrim (an image-only hero, the
     // common case) then never pays for the attachment lookups on the render path.
-    return is_array($band_map) && _pp_udc_band_overlay_value($band_map) !== null
+    return is_array($band_map) && _pp_udc_background_param_tiers($band_map, 'overlay') !== []
         && _pp_udc_role_map_background_image($band_map) !== null;
 }
 
 /**
- * The scrim a band map paints, in the emitter's precedence: the map's own
- * `background.overlay`, else a group-grain `background._preset`'s, else a role-grain
- * `_preset`'s (the emitter merges preset values beneath the map's own). Null when none.
+ * The tiers one `background` parameter paints on a role map, merged the way the EMITTER
+ * merges them (#1010 review, cycle 4): per breakpoint tier, the author's own value where the
+ * author set that tier, else a group-grain `background._preset`'s, else a role-grain
+ * `_preset`'s. A preset tier the author did not override still paints, so a reader that
+ * takes the author's value as a whole (and drops the preset's other tiers) disagrees with
+ * the page. $state reads that state's bucket (`background[":hover"]`) the same way.
  *
- * @return mixed
+ * @return array<string, array{0: string, 1: ?string}> tier => [value, preset name or null]
  */
-function _pp_udc_band_overlay_value(array $band_map) {
-    return _pp_udc_band_overlay_source($band_map)[0];
-}
-
-/**
- * [value, preset name or null] for the scrim a band map paints (#1010 review): which rung
- * supplied it matters, because the emitter resolves a preset's `@token` references against
- * SITE tokens only, never the band's `_tokens` (a band token cannot shadow a preset).
- *
- * @return array{0: mixed, 1: ?string}
- */
-function _pp_udc_band_overlay_source(array $band_map): array {
-    $background = isset($band_map['background']) && is_array($band_map['background']) ? $band_map['background'] : [];
-    $present = static fn ($value): bool => is_scalar($value) ? (string) $value !== '' : (is_array($value) && $value !== []);
-    if ($present($background['overlay'] ?? null)) {
-        return [$background['overlay'], null];
-    }
-    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$band_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+function _pp_udc_background_param_tiers(array $role_map, string $param, ?string $state = null): array {
+    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
+    $rungs      = [[$background, null]];
+    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
         $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
         $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
         $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
-        if (is_array($group) && $present($group['overlay'] ?? null)) {
-            return [$group['overlay'], (string) $name];
+        if (is_array($group)) {
+            $rungs[] = [$group, (string) $name];
         }
     }
-    return [null, null];
+    $breakpoints = pp_udc_breakpoints();
+    $tiers       = [];
+    foreach ($rungs as [$group, $name]) {
+        $bucket = $state === null ? $group : ($group[$state] ?? null);
+        if (!is_array($bucket) || !array_key_exists($param, $bucket)) {
+            continue;
+        }
+        $value = $bucket[$param];
+        foreach (is_array($value) ? $value : ['d' => $value] as $tier => $tier_value) {
+            $tier = (string) $tier;
+            if (isset($breakpoints[$tier]) && !isset($tiers[$tier]) && is_string($tier_value) && $tier_value !== '') {
+                $tiers[$tier] = [$tier_value, $name];
+            }
+        }
+    }
+    return $tiers;
 }
 
 /**
