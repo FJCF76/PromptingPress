@@ -51,12 +51,15 @@ band's design. The engine now discards both before it decides.
 - `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
   gives a reason naming the raw background, not "Set background.image". A raw desktop background that
   removes the image drops a scrim set only at a narrower width (its own fill there included) with
-  the same reason; a scrim that never had an image keeps the no-image reason. Where the scrim still
-  paints at other widths the reason says "The scrim still paints at the …" and advises removing the raw
-  background at this width, or removing the overlay there. Where no width paints a scrim it advises
-  removing the raw background, or `background.image` and the overlay. Only on a component whose roles
-  re-light (those declaring `overlay_defaults`) does it speak of the marked band and of the accents
-  whose colour you have not set, and there the alternative adds setting the accents' `typography.color`.
+  the same reason. A scrim that never had an image, under a raw background that would reset one, is not
+  told to set `background.image` alone: the reason says to put the tint in the raw background, or replace
+  it with `background.fill` and then set the image. On the band, where the scrim still paints at other
+  widths the reason says "The scrim still paints at the …" and advises removing the raw background at
+  this width, or removing the overlay there; where no width paints a scrim it advises removing the raw
+  background, or `background.image` and the overlay. On any other role the advice stays at this width.
+  Only on a component whose roles re-light (those declaring `overlay_defaults`) does it speak of the
+  marked band and of the accents whose colour you have not set, and there the alternative adds setting
+  the accents' `typography.color`.
 - `udc_overlay_accent_off_scrim`: the two new causes above. "Unreadable" is no colour, or any colour
   under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient fading into
   one); only a background whose every colour is an opaque-enough dark keeps it silent. Where the
@@ -88,9 +91,12 @@ band's design. The engine now discards both before it decides.
   scrims and replaced widths on a light or unreadable background. Set the accent's `typography.color`,
   size the image `cover`, or remove what replaces it.
 - `__pp_udc_overlay` and `__pp_udc_band` were never inputs; a stored copy is now ignored.
-- A custom component's `overlay_defaults` must follow the stricter gate; a `within` must name its own
-  roles. The gate runs in CI and at runtime: a role that fails it is left out of the AI prompt's
-  catalog and printed by `wp pp schema` as `unreportable` with the errors, until it is fixed.
+- A custom component's `overlay_defaults` must follow the stricter gate, which runs in CI and at
+  runtime: at runtime a failing role is left out of the AI prompt's role catalog and printed by
+  `wp pp schema` as `unreportable` with the errors, but its `overlay_defaults` still compile, so fix it
+  in CI. A `within` must name the component's own roles: CI's schema walk refuses any other name, and
+  at runtime `wp pp schema` prints only the names that are roles. Declare `overlay_defaults` only on a
+  component whose template prints the overlay marker.
 
 ### Docs
 
@@ -102,7 +108,7 @@ longer say a forged flag passes.
 
 ### Tests
 
-`RawBackgroundWinsTest` (19, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
+`RawBackgroundWinsTest` (23, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
 shorthand winning its coordinate through the write path and in the browser; `OverlayAccentOffScrimTest`,
 `UdcEffectiveBackgroundTest`, `OverlayTierDefaultsTest`, `CliSchemaCommandTest` and
 `TableEmbedLogosMarkupTest` cover the new causes, the lightness rule, the accessor's `size` / `repeat` /
