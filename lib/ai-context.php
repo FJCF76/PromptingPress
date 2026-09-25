@@ -49,7 +49,7 @@
  * (a breaking change, ruling D1 = A, so the model must not pair it with `background.image`), and
  * `udc_overlay_accent_off_scrim` names two new causes (a replaced width, a partial scrim). Each
  * is one clause; the longer versions were cut to the finding messages and the instruction files
- * before the number moved, and the measured growth was 180 bytes.
+ * before the number moved, and the measured growth was 166 bytes (91999 -> 92165).
  */
 const PP_AI_PROMPT_BUDGET = 92200;
 
