@@ -2,15 +2,13 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 
 /**
- * #1010 (ruling D4 = B) and #1125 (ruling D5 = B), in the real browser.
+ * #1010 (ruling D4 = B), in the real browser.
  *
  * #1010: on a band the engine marks `data-pp-band-overlay`, the accent-ink roles default to
  * `--color-accent-on-overlay` (the overlay tier of role defaults) instead of the bare
  * `--color-accent`, which measured 1.05:1 over a dark scrim. An authored ink still wins,
  * and a band without the marker keeps the bare accent.
- *
- * #1125: recolouring a role that ships its own background fill on a band whose background
- * you set is disclosed on the write as `udc_role_ink_over_own_surface`.
+
  */
 
 function createPage(title: string): number {
@@ -92,7 +90,7 @@ async function token(page: any, name: string): Promise<string> {
   return canon(page, raw);
 }
 
-test.describe('#1010 overlay tier of accent inks / #1125 a role\'s own surface', () => {
+test.describe('#1010 overlay tier of accent inks', () => {
   let pageId = 0;
   let attachmentId = 0;
 
@@ -172,25 +170,4 @@ test.describe('#1010 overlay tier of accent inks / #1125 a role\'s own surface',
     expect(await number.evaluate((el: Element) => getComputedStyle(el).color)).toBe(await token(page, '--color-accent-on-overlay'));
   });
 
-  test('#1125 recolouring the eyebrow on a darkened band is disclosed on the write', async ({ page }) => {
-    pageId = createPage('E2E 1125 Own Surface');
-    setComposition(pageId, [{ component: 'section', props: { id: 'pp-sec02', body: '<p>b</p>' } }]);
-    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
-    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
-    const res = await updateComposition(page, pageId, [
-      {
-        component: 'section',
-        props: { id: 'pp-sec02', eyebrow: 'SECTION', title: 'Dark band', body: '<p>Body</p>' },
-        udc: {
-          _band: { background: { fill: '@color-bg-inverted' } },
-          eyebrow: { typography: { color: '@color-accent-on-inverted' } },
-        },
-      },
-    ]);
-    expect(res.success, `write: ${JSON.stringify(res)}`).toBe(true);
-    const findings = (res.data && res.data.findings) || [];
-    const own = findings.filter((f: any) => f.type === 'udc_role_ink_over_own_surface');
-    expect(own.length, JSON.stringify(findings)).toBe(1);
-    expect(own[0].message).toContain('role "eyebrow"');
-  });
 });

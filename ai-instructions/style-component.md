@@ -331,9 +331,8 @@ un-recoloured renders dark ink on dark, or light ink on light, and that is the s
 common way this goes wrong. The second most common: a role that ships its own
 `background.fill` (an eyebrow pill, a `panel`, a card) keeps that light surface when you
 darken the band, so a new light ink lands on light. Set its `background.fill` alongside its
-`typography.color`. The write names the role as `udc_role_ink_over_own_surface` (#1125) when you
-set THAT role's own ink without its fill; a text role inside it (a testimonial `quote` inside its
-`card`) is not reported, so check those pairs yourself.
+`typography.color`, and check each ink against that surface, including a text role inside it (a
+testimonial `quote` inside its `card`).
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and

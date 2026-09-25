@@ -573,6 +573,23 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $raw, 'the raw-CSS shorthand at one width');
     }
 
+    /**
+     * The #1125 finding (`udc_role_ink_over_own_surface`) was withdrawn from this release by
+     * the descope ruling; it lands on the compiled-band accessor in its own change. Nothing may
+     * still promise it: not the engine, not the runtime prompt, not an instruction file.
+     */
+    public function testNoSurfacePromisesTheWithdrawnOwnSurfaceFinding(): void
+    {
+        $root  = dirname(__DIR__);
+        $files = array_merge(glob($root . '/lib/*.php'), glob($root . '/ai-instructions/*.md'), glob($root . '/components/*/README.md'),
+            glob($root . '/docs/*.md'), [$root . '/AI_CONTEXT.md']);
+        foreach ($files as $file) {
+            $this->assertStringNotContainsString('udc_role_ink_over_own_surface', (string) file_get_contents($file), basename($file));
+        }
+        $this->assertStringNotContainsString('udc_role_ink_over_own_surface', pp_ai_system_prompt());
+        $this->assertStringContainsString('`udc_overlay_accent_off_scrim`', pp_ai_system_prompt(), 'premise: the shipped finding is still named');
+    }
+
     /** Bounded across the composition like its sibling arms. */
     public function testTheFindingIsBoundedAcrossTheComposition(): void
     {

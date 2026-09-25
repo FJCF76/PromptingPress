@@ -54,10 +54,6 @@ This checks:
      or cannot be read. The message names the re-lit roles and the cause. Where the accent
      sits on that surface, set its `typography.color` yourself. Like every finding here it
      makes `wp pp validate site` exit non-zero until you answer it.
-   - `udc_role_ink_over_own_surface` — on a band (or a header/footer) whose background you set, you recoloured a
-     role's OWN text colour but the role still sits on its OWN default `background.fill` (an eyebrow
-     pill, a panel, a card), so the new ink lands on that surface. Set the role's
-     `background.fill` too, or check the pair reads (AA: 4.5:1 body text, 3:1 large text).
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle
