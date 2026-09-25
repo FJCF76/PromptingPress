@@ -352,6 +352,39 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'background' => ['fill' => ['d' => 'transparent', 'p' => '#101828']]]))));
     }
 
+    /**
+     * States COMBINE in the browser (design pass, cycle 1): a mouse press is :active AND :hover, a
+     * focused control under the pointer is :focus-visible AND :hover. An author :active ink therefore
+     * lands on the DEFAULT :hover fill while pressed (measured rgb(255,245,160) on rgb(49,87,244)).
+     * The advice names the author's own state: an :active fill prints after the default :hover fill.
+     */
+    public function testAnInkInACombinedStateIsNamed(): void
+    {
+        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x'];
+        foreach ([':active', ':focus-visible'] as $state) {
+            [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+                'button-secondary' => ['typography' => ['color' => '#ffffff', $state => ['color' => '#fff5a0']]]], 'cta', $props);
+            $this->assertCount(1, $found, $state);
+            $this->assertStringContainsString('in the :hover and ' . $state . ' states together', $found[0]['message'], $state);
+            $this->assertStringContainsString('background: {"' . $state . '": {"fill": ...}}', $found[0]['message'], $state);
+            [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+                'button-secondary' => ['typography' => ['color' => '#ffffff', $state => ['color' => '#fff5a0']],
+                    'background' => [$state => ['fill' => '#222222']]]], 'cta', $props);
+            $this->assertSame([], $found, $state . ': the fill the advice names clears it');
+        }
+    }
+
+    /** A clash only at rest says "at rest" when the element has another state the author covered. */
+    public function testARestOnlyClashIsQualifiedWhenAnotherStateIsCovered(): void
+    {
+        $found = $this->gridFindings(['card' => ['background' => [':hover' => ['fill' => '#1d2939']]]],
+            [['card' => ['typography' => ['color' => '#ffffff']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('(@color-bg) at rest, which the band', $found[0]['message']);
+        $this->assertStringContainsString('Text roles inside this one that set their own colour keep it', $found[0]['message'],
+            'a container role: its own ink does not reach text that sets its own colour');
+    }
+
     // ── Widths ───────────────────────────────────────────────────────────────────────────
 
     /** A surface that exists at one width only is named with that width (nav `menu`: phone only). */

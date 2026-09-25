@@ -163,9 +163,30 @@ test.describe('#1125 a role\'s own surface under a new ink', () => {
     const button = page.locator('.cta__button--secondary').first();
     const rest = await paint(page, '.cta__button--secondary');
     expect(rest.background, 'transparent at rest: no own surface').toBe('rgba(0, 0, 0, 0)');
+    const hoverInk = await canon(page, '#fff5a0');
+    const hoverFill = await token(page, '--color-accent');
     await button.hover();
-    const hovered = await paint(page, '.cta__button--secondary');
-    expect(hovered.color, 'the author hover ink paints').toBe(await canon(page, '#fff5a0'));
-    expect(hovered.background, 'the default hover fill paints under it').toBe(await token(page, '--color-accent'));
+    // Polled, not read once: a late layout shift can move the element out from under the pointer.
+    await expect.poll(async () => (await paint(page, '.cta__button--secondary')).color, { message: 'the author hover ink paints' }).toBe(hoverInk);
+    expect((await paint(page, '.cta__button--secondary')).background, 'the default hover fill paints under it').toBe(hoverFill);
+  });
+
+  test('#1125 a press is :active AND :hover: the author :active ink lands on the default :hover fill', async ({ page }) => {
+    const res = await band(page, 'cta', { id: 'pp-cta12', title: 'C', button_text: 'Go', button_url: '/x', button2_text: 'More', button2_url: '/y' }, {
+      _band: { background: { fill: '#101828' } },
+      'button-secondary': { typography: { color: '#ffffff', ':active': { color: '#fff5a0' } } },
+    });
+    expect(ownSurface(res).length, JSON.stringify(res.data)).toBe(1);
+    expect(ownSurface(res)[0].message).toContain('in the :hover and :active states together');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    // Expected values FIRST: releasing the press completes a click on the link, which navigates.
+    const ink = await canon(page, '#fff5a0');
+    const fill = await token(page, '--color-accent');
+    const button = page.locator('.cta__button--secondary').first();
+    await button.hover();
+    await page.mouse.down();
+    const pressed = await paint(page, '.cta__button--secondary');
+    expect(pressed.color, 'the author :active ink paints while pressed').toBe(ink);
+    expect(pressed.background, 'on the default :hover fill').toBe(fill);
   });
 });

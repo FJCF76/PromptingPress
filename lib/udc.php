@@ -6534,12 +6534,25 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                     $states[] = $row['state'];
                 }
             }
+            // STATES COMBINE IN THE BROWSER (design pass, cycle 1): a mouse press is `:active` AND
+            // `:hover`, a focused control under the pointer `:focus-visible` AND `:hover`. So those
+            // two pairs get a cell of their own (keyed ':hover+:active'), where the rows of BOTH
+            // states compete and the rank key decides, exactly as the page's own rules do; an author
+            // `:active` ink on a DEFAULT `:hover` fill was otherwise never seen.
+            if (in_array(':hover', $states, true)) {
+                foreach ([':active', ':focus-visible'] as $paired) {
+                    if (in_array($paired, $states, true)) {
+                        $states[] = ':hover+' . $paired;
+                    }
+                }
+            }
             $paint = [];
             foreach ($states as $state) {
+                $active_states = $state === '' ? [] : array_flip(explode('+', $state));
                 foreach (array_keys($bp_meta) as $bp) {
                     $winners = [];
                     foreach ($rows as $row) {
-                        if (($row['state'] !== '' && $row['state'] !== $state)
+                        if (($row['state'] !== '' && !isset($active_states[$row['state']]))
                             || ($row['bp'] !== 'd' && $row['bp'] !== $bp)) {
                             continue;
                         }
@@ -9239,12 +9252,18 @@ function pp_udc_composition_findings(array $items): array {
                         $all_widths = count($breakpoints_meta);
                         $phrases    = [];
                         foreach ($fired as $state => $bps) {
-                            $where = $state === '' ? 'at rest' : sprintf('in the %s state', _pp_udc_reflect($state));
+                            $where = $state === '' ? 'at rest' : (str_contains($state, '+')
+                                ? sprintf('in the %s states together', implode(' and ', array_map('_pp_udc_reflect', explode('+', $state))))
+                                : sprintf('in the %s state', _pp_udc_reflect($state)));
                             $phrases[] = count($bps) === $all_widths ? $where : $where . ' at the ' . $widths($bps);
                         }
-                        if (count($phrases) === 1 && isset($fired['']) && count($fired['']) === $all_widths) {
+                        // "At rest" is said whenever the element HAS another state cell that did not fire
+                        // (design pass, cycle 1): an author :hover fill covering the hover state must not
+                        // read as a clash in every state.
+                        $has_other_states = count($element['paint']) > 1;
+                        if (count($phrases) === 1 && isset($fired['']) && count($fired['']) === $all_widths && !$has_other_states) {
                             $qualifier = '';
-                        } elseif (count($phrases) === 1 && isset($fired[''])) {
+                        } elseif (count($phrases) === 1 && isset($fired['']) && !$has_other_states) {
                             $qualifier = ' at the ' . $widths($fired['']);
                         } else {
                             $qualifier = ' ' . implode(', and ', $phrases);
@@ -9254,7 +9273,12 @@ function pp_udc_composition_findings(array $items): array {
                         // not reach a width the default fills, so "set background.fill" alone loops a
                         // model that follows it. Name the state map and the breakpoint keys that fired.
                         $fill_where = [];
-                        $named_states = array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== ''));
+                        // A combined cell's fill goes on the author's OWN state (the later one: an
+                        // `:active` or `:focus-visible` fill prints after the default `:hover` fill).
+                        $named_states = array_values(array_unique(array_map(static function (string $s): string {
+                            $parts = explode('+', $s);
+                            return (string) end($parts);
+                        }, array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== '')))));
                         if ($named_states !== []) {
                             $fill_where[] = sprintf('inside %s (background: {"%s": {"fill": ...}})',
                                 implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]));
@@ -9276,7 +9300,9 @@ function pp_udc_composition_findings(array $items): array {
                                 'Component "%s"%s role "%s": the text colour you set (typography.color, a preset you '
                                 . 'applied, or _css) paints over this role\'s own default background (%s)%s, which the '
                                 . 'band background you set does not replace. Set background.fill for this role%s as well, '
-                                . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text).',
+                                . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). Text roles '
+                                . 'inside this one that set their own colour keep it on whatever fill you set, so re-ink them '
+                                . 'in the same write.',
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
