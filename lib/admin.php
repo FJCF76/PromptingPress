@@ -859,6 +859,12 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     continue;
                 }
                 $group_params = function_exists('pp_udc_groups') ? (pp_udc_groups()[$group]['params'] ?? null) : null;
+                // A group the registry does not know cannot compile, and without its parameter list nothing would
+                // check the keys below before `wp pp schema` prints them (PR-2 review cycle 2, security).
+                if (function_exists('pp_udc_groups') && !is_array($group_params)) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not a UDC group.";
+                    continue;
+                }
                 foreach ($group_map as $key => $value) {
                     $key = (string) $key;
                     if (strncmp($key, ':', 1) === 0) {
@@ -871,6 +877,10 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     }
                     // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
                     // sink, so a value is a single-line string, or a breakpoint map of them, as `defaults` values are.
+                    // The SAME standard as `selector` and `description`, deliberately: pp_udc_is_single_line() refuses
+                    // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
+                    // under the theme root, so what else they carry rests on theme-root integrity, not on this check
+                    // (PR-2 review cycle 2, security; option b).
                     $leaves   = is_array($value) ? $value : [$value];
                     $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, ['d' => 1, 't' => 1, 'p' => 1]) === []);
                     foreach ($leaves as $leaf) {

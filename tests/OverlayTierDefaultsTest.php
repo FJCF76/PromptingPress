@@ -389,4 +389,15 @@ final class OverlayTierDefaultsTest extends TestCase
                 var_export($bad, true));
         }
     }
+
+    /**
+     * A group the registry does not know cannot compile, and its keys would reach `wp pp schema` with no parameter-name
+     * check, so it is refused even when the role lists it in `groups` (PR-2 review cycle 2, security).
+     */
+    public function testAnOverlayDefaultsGroupMustBeARegisteredGroup(): void
+    {
+        $errors = pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography', 'nosuchgroup'],
+            'overlay_defaults' => ['nosuchgroup' => ["k\u{202E}" => 'v']]], 'role', 'c role r');
+        $this->assertContains('c role r: `overlay_defaults` group `nosuchgroup` is not a UDC group.', $errors);
+    }
 }
