@@ -43,20 +43,13 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 
 ### ⚠️ Breaking
 
-- **`pp_theme_class()` is removed.** Any code outside the theme that called it now fatals
-  with an undefined function: a child theme's templates or `functions.php`, a plugin, or a
-  mu-plugin. A call made while a page renders takes down that whole page. A call made at load time, such as in
-  `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
-  `grep -rn "pp_theme_class" wp-content/ --exclude-dir=promptingpress` (use your
-  PromptingPress theme folder's name; the theme itself defines and names the helper), and
-  also search PHP that lives in the database, such as a snippets plugin's stored code:
-  `wp db search pp_theme_class --all-tables-with-prefix` (add `--network` on multisite).
-  Without that flag the search skips plugin-owned tables, which is where snippet plugins
-  keep their code. Remove or update every call or callback reference you find, whether it
-  is in your own code, a third-party plugin or a child theme, including a quoted callback
-  name such as `add_filter( 'x', 'pp_theme_class' )`. Any hit inside stored snippet code
-  counts as code. Only a mention in a PHP comment, or in post or page content that is never
-  executed, is harmless.
+- **`pp_theme_class()` is removed.** Any PHP outside the theme that names it now fatals with an
+  undefined function when it runs. That includes files and code a plugin stores in the
+  database. A call made while a page renders takes down that page, and a call made at load
+  time takes down the whole site, wp-admin included. To find such code before upgrading,
+  search the files and the whole database, then review every hit:
+  `grep -rn "pp_theme_class" wp-content/ --exclude-dir=<your PromptingPress theme folder>`
+  and `wp db search pp_theme_class --all-tables`.
 
 ### Upgrading
 
