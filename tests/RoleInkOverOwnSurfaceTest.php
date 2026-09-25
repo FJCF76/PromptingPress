@@ -397,6 +397,105 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'a container role: its own ink does not reach text that sets its own colour');
     }
 
+    // ── An ink the role INHERITS from the band (ruling D3 = A) ────────────────────────────
+
+    private const BAND_INK = 'the text colour you set on the whole band (_band typography.color) reaches this role';
+
+    /**
+     * THE RED TEAM'S CASE: `_band` darkened and coloured in one place; hero `surface` declares no colour
+     * of its own, so the band's white reaches it and paints over its own light default fill (1.07:1
+     * in Chromium). Named, and named as the BAND's ink, so the author knows which move caused it.
+     */
+    public function testAnInkInheritedFromTheBandOverTheRolesOwnFillIsNamed(): void
+    {
+        [, $found, $all] = $this->write(
+            ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
+            'hero',
+            ['layout' => 'split', 'title' => 'H', 'proof' => '<p>Proof text here</p>']
+        );
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "surface"', $found[0]['message']);
+        $this->assertStringContainsString(self::BAND_INK, $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface)', $found[0]['message']);
+        $this->assertContains('udc_band_value_shadowed_by_role_default', $this->types($all), 'premise: the sibling speaks on the same write');
+    }
+
+    /** The role sets its own colour: it is the author's own ink, not the band's, and the wording says so. */
+    public function testARoleThatSetsItsOwnColourIsNotBlamedOnTheBand(): void
+    {
+        [, $found] = $this->write(
+            ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']],
+             'surface' => ['typography' => ['color' => '#eeeeee']]],
+            'hero',
+            ['layout' => 'split', 'title' => 'H', 'proof' => '<p>Proof text here</p>']
+        );
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString(self::BAND_INK, $found[0]['message']);
+        $this->assertStringContainsString('the text colour you set for this role', $found[0]['message']);
+    }
+
+    /** A role whose own DEFAULT colour cancels the band's (the eyebrow) keeps its ink: nothing of the author's paints there. */
+    public function testABandInkARoleDefaultCancelsIsNotNamed(): void
+    {
+        [, $found] = $this->write(
+            ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]]
+        );
+        $this->assertSame([], $found, 'section: eyebrow and panel default their own colour');
+    }
+
+    /** A card part under a card root that sets its own colour takes the CARD's ink, not the band's: not blamed on the band. */
+    public function testACardPartUnderAnInkedCardRootIsNotBlamedOnTheBand(): void
+    {
+        $found = $this->only(pp_udc_composition_findings([[
+            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
+            'props'     => ['title' => 'G', 'items' => [['id' => 'it-0000ab01', 'title' => 'A', 'bar' => true,
+                'udc' => ['card' => ['typography' => ['color' => '#f7f8fa']]]]]],
+        ]]));
+        foreach ($found as $f) {
+            $this->assertFalse(str_contains($f['message'], 'role "card-bar"') && str_contains($f['message'], self::BAND_INK),
+                'card-bar sits in a card that sets its own colour');
+        }
+    }
+
+    /**
+     * THE TWO FINDINGS NEVER CONTRADICT (D3 condition 2), asserted over every shape here: a role this
+     * finding names as reached by the band's ink is never one the sibling names as NOT reached.
+     */
+    public function testTheBandInkNeverContradictsTheSiblingDisclosure(): void
+    {
+        $band = ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]];
+        $shapes = [
+            ['hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>', 'eyebrow' => 'E']],
+            ['section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']],
+            ['faq', ['title' => 'F', 'items' => [['question' => 'Q?', 'answer' => '<p>A</p>']]]],
+            ['grid', ['title' => 'G', 'items' => [['title' => 'T', 'text' => 'x', 'bar' => true]]]],
+            ['table', ['title' => 'T', 'headers' => ['A'], 'rows' => [['1']]]],
+            ['testimonials', ['items' => [['quote' => 'Q', 'author' => 'A']]]],
+            ['cta', ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'eyebrow' => 'E']],
+        ];
+        $named = 0;
+        foreach ($shapes as [$component, $props]) {
+            $all = pp_udc_composition_findings([['component' => $component, 'id' => 'pp-a1b2c3d4', 'udc' => $band, 'props' => $props]]);
+            $not_reached = [];
+            foreach ($all as $f) {
+                if ($f['type'] === 'udc_band_value_shadowed_by_role_default' && str_contains($f['message'], '"color"')) {
+                    preg_match_all('/\b([a-z][a-z0-9-]*)\b/', substr($f['message'], (int) strpos($f['message'], 'does not reach')), $m);
+                    $not_reached = array_merge($not_reached, $m[1]);
+                }
+            }
+            foreach ($this->only($all) as $f) {
+                if (!str_contains($f['message'], self::BAND_INK)) {
+                    continue;
+                }
+                $named++;
+                preg_match('/role "([^"]+)"/', $f['message'], $role);
+                $this->assertNotContains($role[1], $not_reached, $component . ': the sibling says the band colour does not reach ' . $role[1]);
+            }
+        }
+        $this->assertGreaterThanOrEqual(5, $named, 'vacuity floor: the band-ink wording fired across the shapes');
+    }
+
     // ── Widths ───────────────────────────────────────────────────────────────────────────
 
     /** A surface that exists at one width only is named with that width (nav `menu`: phone only). */

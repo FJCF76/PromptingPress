@@ -9229,17 +9229,96 @@ function pp_udc_composition_findings(array $items): array {
                     }
                     $marked = !pp_udc_is_chrome($component) && pp_udc_band_paints_scrim($band_compiled);
                     $breakpoints_meta = pp_udc_breakpoints();
-                    foreach (pp_udc_role_paint($item, $band_compiled, $role_paint_defaults[$component], $marked) as $element) {
+                    // AN INK THE ROLE INHERITS FROM THE BAND (ruling D3 = A). A role that declares no
+                    // colour of its own takes the band's by inheritance; hero `surface` rendered white on
+                    // its own light fill (1.07:1) with the write silent. ONE PREDICATE WITH THE SIBLING:
+                    // the band colour reaches a role exactly when udc_band_value_shadowed_by_role_default
+                    // does not list it (_pp_udc_band_values_cancelled_by_role_defaults), so the two
+                    // findings on one write agree by construction. A shipped-schema sweep in Chromium
+                    // found no enclosing role that intercepts that inheritance (evidence-t2).
+                    $band_ink_reaches = [];
+                    if (isset(_pp_udc_inherited_values_declared($item['udc'], '_band')['color'])) {
+                        $band_cancelled = _pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component)['color'] ?? [];
+                        foreach (array_keys($roles) as $reach_role) {
+                            if ((string) $reach_role !== '_band' && !in_array((string) $reach_role, $band_cancelled, true)) {
+                                $band_ink_reaches[(string) $reach_role] = true;
+                            }
+                        }
+                    }
+                    $paint_elements = pp_udc_role_paint($item, $band_compiled, $role_paint_defaults[$component], $marked);
+                    // A card part sits inside its card's root: a colour on that root (the card's own ink)
+                    // is what the part inherits there, not the band's.
+                    $item_root  = (string) (pp_udc_item_roles($component)['root'] ?? '');
+                    $root_inked = [];
+                    foreach ($paint_elements as $element) {
+                        if ($element['role'] === $item_root && $item_root !== '') {
+                            foreach ($element['paint'] as $root_state => $root_by_bp) {
+                                foreach ($root_by_bp as $root_bp => $root_cell) {
+                                    if ($root_cell['color'] !== null) {
+                                        $root_inked[$element['item'] . '|' . $root_state . '|' . $root_bp] = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    $item_roles_here = (array) (pp_udc_item_roles($component)['roles'] ?? []);
+                    // The cards a band-level element stands for: every card without its own element for
+                    // the role (no cards at all still means the role's element, rendered for any card).
+                    $card_entry_ids = [];
+                    $card_entries   = $item['props'][pp_udc_item_roles($component)['prop'] ?? ''] ?? [];
+                    foreach (is_array($card_entries) ? $card_entries : [] as $card_entry) {
+                        $card_entry_ids[] = is_array($card_entry) && is_scalar($card_entry[PP_UDC_ITEM_ID_KEY] ?? null)
+                            ? (string) $card_entry[PP_UDC_ITEM_ID_KEY] : '';
+                    }
+                    $own_elements = [];
+                    foreach ($paint_elements as $element) {
+                        if ($element['item'] !== '') {
+                            $own_elements[$element['role'] . '|' . $element['item']] = true;
+                        }
+                    }
+                    // Whether the band's ink reaches this element in this cell, or every card it stands for
+                    // puts its own root colour in the way.
+                    $band_ink_not_intercepted = static function (array $element, string $state, string $bp) use (
+                        $item_root, $item_roles_here, $root_inked, $card_entry_ids, $own_elements
+                    ): bool {
+                        if ($item_root === '' || $element['role'] === $item_root || !in_array($element['role'], $item_roles_here, true)) {
+                            return true;
+                        }
+                        if (isset($root_inked['|' . $state . '|' . $bp])) {
+                            return false; // a band-level rule inks every card root
+                        }
+                        if ($element['item'] !== '') {
+                            return !isset($root_inked[$element['item'] . '|' . $state . '|' . $bp]);
+                        }
+                        foreach ($card_entry_ids === [] ? [''] : $card_entry_ids as $card_id) {
+                            if (!isset($own_elements[$element['role'] . '|' . $card_id])
+                                && !isset($root_inked[$card_id . '|' . $state . '|' . $bp])) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    foreach ($paint_elements as $element) {
                         $fired = []; // state => [bp, ...]
                         $shown = null;
+                        $kinds = []; // 'own' | 'band' => true
                         foreach ($element['paint'] as $state => $by_bp) {
                             foreach ($by_bp as $bp => $cell) {
                                 $ink     = $cell['color'];
                                 $surface = $cell['surface'];
-                                if ($ink === null || $surface === null || !in_array($ink['tier'], ['band', 'item'], true)
-                                    || !in_array($surface['tier'], ['defaults', 'overlay'], true)) {
+                                if ($surface === null || !in_array($surface['tier'], ['defaults', 'overlay'], true)) {
                                     continue;
                                 }
+                                if ($ink !== null && in_array($ink['tier'], ['band', 'item'], true)) {
+                                    $kind = 'own';
+                                } elseif (isset($band_ink_reaches[$element['role']])
+                                    && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)
+                                    && $band_ink_not_intercepted($element, (string) $state, (string) $bp)) {
+                                    $kind = 'band';
+                                } else {
+                                    continue;
+                                }
+                                $kinds[$kind] = true;
                                 $fired[(string) $state][] = (string) $bp;
                                 $shown = $shown ?? $surface;
                             }
@@ -9307,8 +9386,7 @@ function pp_udc_composition_findings(array $items): array {
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
-                                'Component "%s"%s role "%s": the text colour you set (typography.color, a preset you '
-                                . 'applied, or _css) paints over this role\'s own default background (%s)%s, on any text '
+                                'Component "%s"%s role "%s": %s paints over this role\'s own default background (%s)%s, on any text '
                                 . 'in this role that inherits it, which the '
                                 . 'band background you set does not replace. Set background.fill for this role%s as well, '
                                 . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). Text roles '
@@ -9317,6 +9395,14 @@ function pp_udc_composition_findings(array $items): array {
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
+                                // WHICH OF THE AUTHOR'S MOVES supplied the ink (D3 condition 3).
+                                isset($kinds['own']) && isset($kinds['band'])
+                                    ? 'the text colour you set for this role (typography.color, a preset you applied, or _css), '
+                                      . 'and where it sets none the one you set on the whole band (_band typography.color),'
+                                    : (isset($kinds['band'])
+                                        ? 'the text colour you set on the whole band (_band typography.color) reaches this role '
+                                          . 'because it declares no colour of its own, and'
+                                        : 'the text colour you set for this role (typography.color, a preset you applied, or _css)'),
                                 // A defaults or overlay surface: those compiles mint no band tokens.
                                 _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], [])),
                                 $qualifier,
@@ -9925,35 +10011,18 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
 }
 
 /**
- * The generalized form: which roles' own defaults cancel an inherited value
- * declared on `$source_role` (invariant I35).
+ * The inherited properties `$source_role` declares in the author's map (its groups, and for
+ * `_band` its `_css`), as property => true. Extracted from the function below so the #1125
+ * own-surface arm reads the SAME predicate: an ink the band sets reaches a role exactly when
+ * the sibling disclosure says it does, so the two findings on one write agree by construction.
  *
- * TWO CALLERS, ONE RULE. `_band` is the band's root and the original subject;
- * an item's ROOT role is the same shape one level down — a container whose
- * inherited values reach its parts only by inheritance, and lose to any part
- * that declares the property directly. The mechanism is identical, so a second
- * implementation would be a second chance to get the `currentColor` carve-out
- * or the already-authored exemption wrong on only one of them.
- *
- * @param array       $map         The map declaring the inherited values.
- * @param string      $source_role The role those values sit on.
- * @param array|null  $limit_roles Candidate roles to consider cancelled, or
- *                                 null for every role the component declares.
- *                                 The item tier passes its addressable set,
- *                                 because a role an item cannot address cannot
- *                                 be the place it is told to set the value.
+ * @return array<string, true>
  */
-function _pp_udc_inherited_values_cancelled_by_role_defaults(
-    array $udc,
-    string $component,
-    string $source_role,
-    ?array $limit_roles
-): array {
+function _pp_udc_inherited_values_declared(array $udc, string $source_role): array {
     if (!isset($udc[$source_role]) || !is_array($udc[$source_role])) {
         return [];
     }
     $groups    = pp_udc_groups();
-    $roles     = pp_udc_component_roles($component);
     $inherited = _pp_udc_inherited_properties();
 
     // What the source role declares, as CSS properties.
@@ -10019,6 +10088,37 @@ function _pp_udc_inherited_values_cancelled_by_role_defaults(
             $declared[$property] = true;
         }
     }
+    return $declared;
+}
+
+/**
+ * The generalized form: which roles' own defaults cancel an inherited value
+ * declared on `$source_role` (invariant I35).
+ *
+ * TWO CALLERS, ONE RULE. `_band` is the band's root and the original subject;
+ * an item's ROOT role is the same shape one level down — a container whose
+ * inherited values reach its parts only by inheritance, and lose to any part
+ * that declares the property directly. The mechanism is identical, so a second
+ * implementation would be a second chance to get the `currentColor` carve-out
+ * or the already-authored exemption wrong on only one of them.
+ *
+ * @param array       $map         The map declaring the inherited values.
+ * @param string      $source_role The role those values sit on.
+ * @param array|null  $limit_roles Candidate roles to consider cancelled, or
+ *                                 null for every role the component declares.
+ *                                 The item tier passes its addressable set,
+ *                                 because a role an item cannot address cannot
+ *                                 be the place it is told to set the value.
+ */
+function _pp_udc_inherited_values_cancelled_by_role_defaults(
+    array $udc,
+    string $component,
+    string $source_role,
+    ?array $limit_roles
+): array {
+    $declared = _pp_udc_inherited_values_declared($udc, $source_role);
+    $groups   = pp_udc_groups();
+    $roles    = pp_udc_component_roles($component);
     if ($declared === []) {
         return [];
     }
