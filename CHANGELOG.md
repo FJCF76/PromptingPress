@@ -8,6 +8,94 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
 
+## A role's own light surface under your new ink is now named on the write (#1125)
+
+**Darken a band, recolour a role, and the write now tells you when that role still sits on its
+own light default fill.** An eyebrow pill, a section `panel`, a hero `surface`, a grid step-number
+badge, a hero secondary button or cta's secondary button on hover ship their own background.
+Before this, darkening the band and setting a light text colour on the role left the pill light
+under the light text (measured 1.76:1 on the eyebrow, 1.07:1 on hero `surface`) with the write
+reporting `findings: []`. The new advisory `udc_role_ink_over_own_surface` names the component,
+role, card, state and width, says which of your moves supplied the ink (the role's own colour, a
+preset, `_css`, or the colour you set on the whole band that the role inherits), and says where
+the fill goes (at rest, inside a `":hover"` map, or in a breakpoint map). It reads what the page
+actually paints: the same cascade the renderer emits, so a preset fill that a role default
+outranks is not mistaken for a cover, and a role the template does not render with your props is
+not named.
+
+**Restating a default neither triggers nor clears it.** A band background that paints nothing or
+restates the component's own default does not count as darkening the band. A role fill that
+restates the role's default (however spelled: the token, its literal value, a breakpoint map, a
+band token) does not clear the finding, and says so. The same holds for text colour: writing a
+role's own default ink back is not a clash.
+
+**The advice follows the surface.** On a dark default surface (a step-number badge on the
+accent) it leads with checking the pair, because the pair may already read; on a light one it
+asks for a fill your text colour reads on that also stands apart from the band. It warns that
+headings and links inside the role keep their own colour from the theme stylesheet.
+
+### Changed (findings contract)
+
+- NEW advisory type `udc_role_ink_over_own_surface` (`severity: warning`), on every channel that
+  carries findings: composition writes, `create_page`, `operate patch`, the `pp_site_udc`,
+  `save_preset` and `delete_preset` envelopes, `wp pp check page`, `wp pp validate site`,
+  inspect, and restore. Bounded at 200 per composition like its siblings.
+- It checks the rendered page: each band that is about to be named is rendered in-process from
+  its own template (no shortcodes run, output discarded), at most 25 bands, 500 list entries
+  and 1 MB of markup per check. Past a budget, or on chrome, the finding is kept and ends with
+  "(Not checked against the rendered page: ...)".
+- `udc_band_value_shadowed_by_role_default` changed in three ways. It now reads the band values
+  the page emits, so a band colour from a `_band` preset or set at only some widths is seen, and
+  named with its widths ("at the phone width"). It reports only values set at rest: a band
+  colour set only in `:hover` is not listed (the own-surface finding names that with the state).
+  And its advice ends with a note on the listed roles that ship their own fill ("... keep that
+  designed pair; to recolour one, set its background.fill as well", or "... fills only in a
+  state, so at rest its text sits on your band"). `udc_item_value_shadowed_by_role_default`
+  carries the same note. Match findings on `type`, not message text.
+- NEW optional role-schema key `text_content`: `true` when author text inside the role's own
+  element takes the role's colour (measured in Chromium: 91 of the 131 shipped roles). Any other
+  value is refused at the role-definition gate. `wp pp schema` does not print it yet (#1144).
+
+### Upgrading
+
+`wp pp validate site` exits non-zero on advisories. A page that validated clean on
+`2.0.0-alpha.2` can now fail it if it has a darkened band with a recoloured eyebrow, panel, hero
+surface, step-number or secondary button left on its default fill. Set that role's
+`background.fill` (the finding says where), or check the pair and leave it.
+
+The emitted CSS is byte-identical to `2.0.0-alpha.2` (measured over every component, nav and
+footer rows included): nothing changes on any page.
+
+### Docs
+
+`AI_CONTEXT.md`, the runtime prompt, the style-component, build-landing-page, validate-site and
+add-component instructions, the CLI reference example and the hero README describe the finding,
+its limits and the `text_content` key.
+
+### Tests
+
+`RoleInkOverOwnSurfaceTest` (99) and `UdcRolePaintTest` (23) cover the finding through the real
+write path, the accessor against the emitted CSS, the rulings, the render-presence budgets and
+the shipped-role census; `role-own-surface.spec.ts` (5, Chromium) checks the painted colours.
+Each fix was shown to fail first, and each new check was shown to fail against a deliberately
+broken copy.
+
+### Known issues
+
+- #1150: in one PHP process that changes a design token between two writes (an AI batch), the
+  restated-default check can answer from before the change. It also keeps long values in memory.
+- #1151: restoring a snapshot whose bands have no id reports no own-surface finding, although
+  the restored page paints the clash (the overlay-accent finding has the same gap).
+- #1149: a role inked through `_css` is listed by the band-shadow finding as if unset, and an
+  `_css: {color: currentColor}` ink on such a role is not named.
+- #1152: a band colour of `currentColor` or `@color-text` is named although it changes nothing;
+  a role whose selector ends in an attribute would be reported absent (no shipped role does);
+  a light band background you set also opens the check.
+- Not reported, by design for now: a text role inside another role's fill (a testimonial `quote`
+  in its `card`, #1140), headings and links coloured by the theme stylesheet (#1146), and an
+  authored fill under a role's own default ink (#1148). A literal value that equals a role's
+  default ink still fires: write the token.
+
 ## Your content edit is no longer erased by a styling write, and one band can be restyled on its own (#1094, #1088, #909)
 
 **A styling edit built from an older read is now refused instead of silently undoing the edit
