@@ -6798,12 +6798,12 @@ function _pp_udc_own_fill_note(array $names, array $roles, array $udc): string {
  *
  * BOUNDED BY MARKUP (/ship security specialist): a band over PP_UDC_PRESENCE_MARKUP_BAND bytes is not
  * parsed, and every parsed band is charged to `$markup_left`, the caller's per-call budget; a band that
- * would overdraw it is not parsed either. Both answer null with `$why` = 'size'.
+ * would overdraw it is not parsed either: null with `$why` = 'size' (its own bound) or 'budget' (the call's).
  *
  * @param array       $item        The band (composable components only; chrome is not rendered here).
  * @param string[]    $roles       role => selector, the roles to answer for.
  * @param int         $markup_left The caller's remaining markup budget in bytes, charged here.
- * @param string|null $why         Set on null: 'size' (a markup bound) or 'unrenderable' (anything else).
+ * @param string|null $why         Set on null: 'size' (the band's own markup bound), 'budget' (the call's) or 'unrenderable'.
  * @return array<string, array{band: bool, items: array<string, bool>}>|null
  */
 function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = PHP_INT_MAX, ?string &$why = null): ?array {
@@ -6847,7 +6847,9 @@ function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = P
     // A band whose markup is past the per-band bound, or past what is left of the call's budget, is not
     // parsed: unknown (the caller keeps the finding and says it was not checked, naming size).
     if (strlen($html) > PP_UDC_PRESENCE_MARKUP_BAND || strlen($html) > $markup_left) {
-        $why = 'size';
+        // Its OWN bound, or what the bands before it left of the call's (cycle 3, api-contract: the note
+        // must not blame a small band for the budget its neighbours used).
+        $why = strlen($html) > PP_UDC_PRESENCE_MARKUP_BAND ? 'size' : 'budget';
         return null;
     }
     $markup_left -= strlen($html);
@@ -9851,7 +9853,7 @@ function pp_udc_composition_findings(array $items): array {
                             } elseif ($presence_renders_left <= 0) {
                                 $presence_reason = 'renders';
                             } elseif ($band_cards > $presence_cards_left) {
-                                $presence_reason = 'size';
+                                $presence_reason = $band_cards > PP_UDC_PRESENCE_CARDS ? 'size' : 'budget';
                             } else {
                                 $presence = _pp_udc_rendered_roles($item, $asked, $presence_markup_left, $presence_why);
                                 $presence_renders_left--;
@@ -9931,26 +9933,35 @@ function pp_udc_composition_findings(array $items): array {
                         // The fill must READ UNDER THE INK as well as stand apart from the band (/ship cycle-2 design:
                         // a white pill under white ink stands apart from a dark band and is invisible text).
                         $aa          = '(AA: 4.5:1 for body text, 3:1 for large text)';
+                        // A clash that is ONLY band-state cells asks for a resting fill that sits under two inks: the
+                        // band's resting text colour and its state colour (cycle 3, design).
+                        $band_state_only = array_filter(array_keys($fired), static fn ($k): bool => strncmp((string) $k, 'band:', 5) !== 0) === [];
+                        $reads_on    = $band_state_only
+                            ? 'both the band\'s resting text colour and the colour it sets in that state read on'
+                            : 'your text colour reads on';
                         $advice      = _pp_udc_value_is_light(_pp_udc_compiled_value((string) $shown['css'], $band_compiled), []) === false
-                            ? sprintf('Check that the pair reads %s; if it does not, set background.fill for this role%s, choosing a fill your text '
-                                . 'colour reads on that also stands apart from the band so the shape still shows.', $aa, $where_fill)
-                            : sprintf('Set background.fill for this role%s as well, choosing a fill your text colour reads on %s that also stands '
-                                . 'apart from the band so the shape still shows; or check that the pair reads as it is.', $where_fill, $aa);
+                            ? sprintf('Check that the pair reads %s; if it does not, set background.fill for this role%s, choosing a fill %s '
+                                . 'that also stands apart from the band so the shape still shows.', $aa, $where_fill, $reads_on)
+                            : sprintf('Set background.fill for this role%s as well, choosing a fill %s %s that also stands '
+                                . 'apart from the band so the shape still shows; or check that the pair reads as it is.', $where_fill, $reads_on, $aa);
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
                                 'Component "%s"%s role "%s": %s paints this role\'s text on its own default background (%s)%s%s, '
-                                . 'and the band background you set does not replace that background. %s If '
-                                . 'text roles inside this one set their own colour, they keep it on whatever fill you set.',
+                                . 'and the band background you set does not replace that background. %s Headings, links and text '
+                                // Nested pairs are not measured (#1140, #1146); following this advice once left a nested
+                                // <h3> at 1.21:1 under the new fill with the write silent (cycle 3, design).
+                                . 'roles inside this one keep their own colour (a heading or link takes it from the theme stylesheet), '
+                                . 'so check them on the new fill and set their typography.color too.',
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
                                 // WHICH OF THE AUTHOR'S MOVES supplied the ink (D3 condition 3).
                                 isset($kinds['own']) && isset($kinds['band'])
                                     ? 'the text colour you set for this role (typography.color, a preset you applied, or _css), '
-                                      . 'and where it sets none the one you set on the whole band (_band typography.color or _band _css color),'
+                                      . 'and where it sets none the one you set on the whole band (_band typography.color, a preset you applied to _band, or _band _css color),'
                                     : (isset($kinds['band'])
-                                        ? 'the text colour you set on the whole band (_band typography.color or _band _css color) reaches this role '
+                                        ? 'the text colour you set on the whole band (_band typography.color, a preset you applied to _band, or _band _css color) reaches this role '
                                           . 'because it declares no colour of its own, and'
                                         : 'the text colour you set for this role (typography.color, a preset you applied, or _css)'),
                                 // Always the DEFAULT surface (a restated fill shows as the default it restates).
@@ -9964,6 +9975,7 @@ function pp_udc_composition_findings(array $items): array {
                                     // Not "this write": check page, inspect and restore run this too (cycle 2).
                                     'renders' => sprintf('this check already rendered its limit of %d bands', PP_UDC_PRESENCE_RENDERS),
                                     'size'    => 'this band is past the check\'s size budget',
+                                    'budget'  => 'this check already used its size budget on the bands before this one',
                                 ][$presence_reason] ?? 'this band could not be rendered or read here')
                                   . ', so this role may not be rendered with these props.)'
                                 : ''),

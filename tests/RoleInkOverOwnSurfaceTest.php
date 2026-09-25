@@ -405,12 +405,13 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => [':hover' => ['fill' => '#1d2939']]]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('(@color-surface-accent) at rest, and the band background', $found[0]['message']);
-        $this->assertStringContainsString('If text roles inside this one set their own colour, they keep it', $found[0]['message']);
+        // cycle 3 (design): the closing sentence names headings and links, which take their colour from the stylesheet.
+        $this->assertStringContainsString('Headings, links and text roles inside this one keep their own colour', $found[0]['message']);
     }
 
     // ── An ink the role INHERITS from the band (ruling D3 = A) ────────────────────────────
 
-    private const BAND_INK = 'the text colour you set on the whole band (_band typography.color or _band _css color) reaches this role';
+    private const BAND_INK = 'the text colour you set on the whole band (_band typography.color, a preset you applied to _band, or _band _css color) reaches this role';
 
     /**
      * THE RED TEAM'S CASE: `_band` darkened and coloured in one place; hero `surface` declares no colour
@@ -1435,7 +1436,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringNotContainsString('Not checked', $found[0]['message'], 'the first bands fit the budget and are checked');
         $this->assertStringNotContainsString('Not checked', $found[1]['message']);
         foreach ([2, 3, 4, 5] as $k) {
-            $this->assertStringContainsString("(Not checked against the rendered page: this band is past the check's size budget", $found[$k]['message'], "band {$k}");
+            // The CALL's budget ran out, not this band's own bound (cycle 3, api-contract): say so.
+            $this->assertStringContainsString('(Not checked against the rendered page: this check already used its size budget on the bands before this one', $found[$k]['message'], "band {$k}");
         }
         $this->assertLessThan(3.0, $elapsed);
     }
@@ -1709,5 +1711,38 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'surface' => ['typography' => ['color' => 'currentColor']]], 'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('while the pointer is over the band', $found[0]['message']);
+    }
+
+    /** A band ink that comes from a preset applied to `_band` names the preset among its sources (cycle 3, api-contract). */
+    public function testABandPresetInkIsNamedAsAPresetYouApplied(): void
+    {
+        $this->savePreset('bandink', 'role', ['typography' => ['color' => '#ffffff']]);
+        [, $found] = $this->write(['_band' => ['_preset' => 'bandink', 'background' => ['fill' => '#101828']]], 'hero', ['title' => 'T', 'layout' => 'split', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('a preset you applied to _band', $found[0]['message']);
+    }
+
+    /**
+     * THE ADVICE WARNS ABOUT WHAT SITS INSIDE THE ROLE (cycle 3, design): a heading or link inside a panel or a hero
+     * surface takes its colour from the theme stylesheet, not from the ink set on the role, so a fill chosen for that
+     * ink left a nested <h3> at 1.21:1 with the write silent (the nested pair itself is #1140/#1146 scope).
+     */
+    public function testTheAdviceWarnsThatNestedHeadingsAndLinksKeepTheirColour(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
+        $this->assertStringContainsString('Headings, links and text roles inside this one keep their own colour (a heading or link takes it from the theme stylesheet), '
+            . 'so check them on the new fill and set their typography.color too.', $found[0]['message']);
+    }
+
+    /**
+     * A BAND-STATE-ONLY CLASH NAMES BOTH INKS THE FILL MUST CARRY (cycle 3, design): the resting fill it asks for sits under
+     * the band's resting text colour AND its state colour, so "your text colour" alone was ambiguous.
+     */
+    public function testABandStateOnlyClashAsksForAFillBothInksReadOn(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]]], 'hero',
+            ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString("choosing a fill both the band's resting text colour and the colour it sets in that state read on", $found[0]['message']);
     }
 }
