@@ -63,7 +63,7 @@ rule and have not been re-homed.
 
 **`ppfixture` and `tests/Support/FixtureTheme.php` are deleted when the filler suites above
 are re-homed onto a shipped component** (the seam and slot-contract methods go with the
-fixture). That re-homing is tracked as its own follow-up issue, filed from #1145's PR-3.
+fixture). That re-homing is tracked in #1164, filed from #1145's PR-3.
 
 **What must NOT happen is a new claim moving in here because it is convenient.** This
 directory is not a general-purpose component; before adding anything here, check whether a

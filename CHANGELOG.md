@@ -43,11 +43,12 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 
 ### Upgrading
 
-- A theme extension or child-theme component that called `pp_theme_class()` now fatals
-  with an undefined function, and because a component renders without a try/catch the
-  fatal takes down the WHOLE public page, not just its band. Before upgrading, run
-  `grep -rn "pp_theme_class(" wp-content/themes/` against any custom components. Express a
-  band's tone with the `_band` role's `background.fill` and `typography.color` instead.
+- Any code outside the theme that called `pp_theme_class()` now fatals with an undefined
+  function: a child theme's templates or `functions.php`, a plugin, or a mu-plugin. A call
+  made while a page renders takes down that whole page. A call made at load time, such as in
+  `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
+  `grep -rn "pp_theme_class(" wp-content/`. Express a band's tone with the `_band` role's
+  `background.fill` and `typography.color` instead.
 
 ### Docs
 
@@ -77,7 +78,7 @@ stays live and pinned on the v2 `_band` → `background.image` path.
   `--dark` or `--inverted` class of any prefix appears. The old `pp-section--*` spelling
   could never reappear.
 - The test fixture survives as a filler band for 24 write-path methods. Re-homing those and
-  deleting it is tracked separately.
+  deleting it is tracked in #1164.
 
 ## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)
 

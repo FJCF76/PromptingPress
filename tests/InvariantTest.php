@@ -1273,19 +1273,34 @@ class InvariantTest extends TestCase
         $readers  = [];
         $escapers = [];
         foreach ($scanned as $file) {
-            $code = $this->stripPhpComments((string) file_get_contents($file));
-            if (str_contains($code, "\$props['background_image']")) {
-                $readers[] = substr($file, strlen($this->themeRoot) + 1);
-            }
-            // THE CRASH CLASS, NOT THE NAME. #705's fatal was a text prop reaching the
-            // typed pp_esc_image_src() from a template; a new prop under ANY name doing
-            // that is the same defect. No component template calls it today — every band
-            // background resolves through the engine (lib/udc.php) and every <img> through
-            // pp_render_responsive_image() — so a direct call from a template is new.
-            if (str_contains($code, 'pp_esc_image_src(')) {
-                $escapers[] = substr($file, strlen($this->themeRoot) + 1);
+            // TOKENS, NOT TEXT. A substring match on `$props['background_image']` misses
+            // `$props["background_image"]`, `$props[ 'background_image' ]`, a copy of
+            // $props, and `pp_esc_image_src (` with a space. The tokenizer sees each of
+            // those as the same token, and it never sees a comment as code.
+            $rel = substr($file, strlen($this->themeRoot) + 1);
+            foreach (token_get_all((string) file_get_contents($file)) as $token) {
+                if (!is_array($token)) {
+                    continue;
+                }
+                // Any string literal naming the retired key, whatever the quoting.
+                if ($token[0] === T_CONSTANT_ENCAPSED_STRING && trim($token[1], "'\"") === 'background_image') {
+                    $readers[] = $rel;
+                }
+                // THE CRASH CLASS, NOT THE NAME. #705's fatal was a text prop reaching the
+                // typed pp_esc_image_src() from a template; a new prop under ANY name doing
+                // that is the same defect. No component template names it today — every band
+                // background resolves through the engine (lib/udc.php) and every <img>
+                // through pp_render_responsive_image() — so the identifier appearing in a
+                // template's code at all — a call, or a callable string for
+                // call_user_func() — is new.
+                if (($token[0] === T_STRING && strtolower($token[1]) === 'pp_esc_image_src')
+                    || ($token[0] === T_CONSTANT_ENCAPSED_STRING && strtolower(trim($token[1], "'\"")) === 'pp_esc_image_src')) {
+                    $escapers[] = $rel;
+                }
             }
         }
+        $readers  = array_values(array_unique($readers));
+        $escapers = array_values(array_unique($escapers));
 
         $registered = array_keys(pp_get_registered_components());
         $this->assertGreaterThanOrEqual(
