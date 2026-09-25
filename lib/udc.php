@@ -6434,9 +6434,19 @@ function _pp_udc_effective_paints_scrim(array $effective): bool {
  * @param array $defaults      pp_udc_compile_band(['component' => X], 'defaults'): passed in so
  *                             the caller can reuse it across bands of one component.
  * @param bool  $overlay_marked Whether the renderer marks this band `data-pp-band-overlay`.
- * @return array<int, array{item: string, role: string, paint: array<string, array<string, array{color: ?array, surface: ?array}>>}>
+ * @param array|null $only_roles role => true: answer only these roles (the findings arm asks for the roles
+ *                             whose element renders author text; /ship performance: answering every role
+ *                             and discarding most doubled the cost at 4,000 cards). Null answers every role.
+ * @return array<int, array{item: string, role: string, paint: array<string, array<string, array{
+ *     color: ?array{key: array, css: string, literal: string, tier: string},
+ *     surface: ?array{property: string, key: array, css: string, literal: string, tier: string},
+ *     default_color: ?string,
+ *     default_surface: ?array{property: string, css: string}}>>}>
+ *   `default_color` / `default_surface`: what the defaults and overlay tiers ALONE put in that cell, so a
+ *   restated author value can be read as the default it restates (the ink rule, cycle 2; the surface rule,
+ *   ruling E = A).
  */
-function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $overlay_marked): array {
+function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $overlay_marked, ?array $only_roles = null): array {
     $component = isset($item['component']) && is_scalar($item['component']) ? (string) $item['component'] : '';
     $id        = (string) ($authored['id'] ?? '');
     $roles     = pp_udc_component_roles($component);
@@ -6463,10 +6473,24 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
     $by_role      = [];
     $spec_memo    = [];
     $surface_memo = []; // the colour reader, once per distinct value (a default repeats per width)
+    // The surface a contest's winners paint: the image when it paints, else the colour when it paints.
+    $painted = static function (array $contest) use (&$surface_memo): ?array {
+        foreach (['background-image', 'background-color'] as $longhand) {
+            if (!isset($contest[$longhand])) {
+                continue;
+            }
+            $memo_key = $longhand . "\0" . $contest[$longhand]['literal'];
+            $surface_memo[$memo_key] = $surface_memo[$memo_key] ?? _pp_udc_paints_surface($contest[$longhand]['literal'], $longhand);
+            if ($surface_memo[$memo_key]) {
+                return ['property' => $longhand] + $contest[$longhand];
+            }
+        }
+        return null;
+    };
     foreach ($tiers as $tier_index => [$tier_name, $compiled, [$scope, $root_scope]]) {
         foreach ((array) ($compiled['blocks'] ?? []) as $block_index => $block) {
             $role = (string) ($block['role'] ?? '');
-            if ($role === '_band' || !isset($roles[$role]) || !is_array($block['decls'] ?? null)
+            if ($role === '_band' || !isset($roles[$role]) || ($only_roles !== null && !isset($only_roles[$role])) || !is_array($block['decls'] ?? null)
                 || array_intersect_key($block['decls'], $paint_properties) === []) {
                 continue; // Most default blocks carry only type and spacing: nothing to rank.
             }
@@ -6517,7 +6541,7 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
     $out = [];
     foreach ($roles as $role => $unused_definition) {
         $role = (string) $role;
-        if ($role === '_band' || !isset($by_role[$role])) {
+        if ($role === '_band' || !isset($by_role[$role])) { // (the role filter already kept others out of $by_role)
             continue;
         }
         // INDEXED BY CARD, so an element ranks only the band-level rows and ITS OWN card's rows.
@@ -6571,6 +6595,7 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                 $active_states = $state === '' ? [] : array_flip(explode('+', $state));
                 foreach (array_keys($bp_meta) as $bp) {
                     $winners       = [];
+                    $default_wins  = []; // the same contest among the defaults and overlay rows only
                     $default_color = null; // the ink the role's defaults (or overlay tier) put here
                     foreach ($rows as $row) {
                         if (($row['state'] !== '' && !isset($active_states[$row['state']]))
@@ -6581,26 +6606,18 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                             if (!isset($winners[$longhand]) || ($row['key'] <=> $winners[$longhand]['key']) > 0) {
                                 $winners[$longhand] = ['key' => $row['key'], 'css' => $css, 'literal' => $literal, 'tier' => $row['tier']];
                             }
-                            if ($longhand === 'color' && in_array($row['tier'], ['defaults', 'overlay'], true)
-                                && ($default_color === null || ($row['key'] <=> $default_color['key']) > 0)) {
-                                $default_color = ['key' => $row['key'], 'css' => $css];
+                            if (in_array($row['tier'], ['defaults', 'overlay'], true)
+                                && (!isset($default_wins[$longhand]) || ($row['key'] <=> $default_wins[$longhand]['key']) > 0)) {
+                                $default_wins[$longhand] = ['key' => $row['key'], 'css' => $css, 'literal' => $literal];
                             }
                         }
                     }
-                    $surface = null;
-                    foreach (['background-image', 'background-color'] as $longhand) {
-                        if (!isset($winners[$longhand])) {
-                            continue;
-                        }
-                        $memo_key = $longhand . "\0" . $winners[$longhand]['literal'];
-                        $surface_memo[$memo_key] = $surface_memo[$memo_key] ?? _pp_udc_paints_surface($winners[$longhand]['literal'], $longhand);
-                        if ($surface_memo[$memo_key]) {
-                            $surface = ['property' => $longhand] + $winners[$longhand];
-                            break;
-                        }
-                    }
+                    $default_color = $default_wins['color'] ?? null;
+                    $surface         = $painted($winners);
+                    $default_surface = $painted($default_wins);
                     $paint[$state][$bp] = ['color' => $winners['color'] ?? null, 'surface' => $surface,
-                        'default_color' => $default_color === null ? null : $default_color['css']];
+                        'default_color' => $default_color === null ? null : $default_color['css'],
+                        'default_surface' => $default_surface === null ? null : ['property' => $default_surface['property'], 'css' => $default_surface['css']]];
                 }
             }
             $out[] = ['item' => $locator, 'role' => $role, 'paint' => $paint];
@@ -6656,6 +6673,64 @@ function _pp_udc_paints_surface(string $value, string $longhand): bool {
 }
 
 /**
+ * Whether two compiled surface values paint the same thing (#1125, rulings D and E): the same compiled
+ * css, or two values the colour reader resolves to the same colours (a literal copied from a token's
+ * value). Conservative in both callers: D does not gate on it, E does not let it clear the finding.
+ */
+function _pp_udc_same_surface(string $a, string $b): bool {
+    if (strcasecmp(trim($a), trim($b)) === 0) {
+        return true;
+    }
+    $ca = _pp_udc_value_colours($a, []);
+    $cb = _pp_udc_value_colours($b, []);
+    return $ca !== [] && $ca === $cb;
+}
+
+/** "tablet and phone widths": breakpoint keys as labels in breakpoint order (both band findings say it). */
+function _pp_udc_widths_phrase(array $bps): string {
+    $labels = [];
+    foreach (pp_udc_breakpoints() as $key => $meta) {
+        if (in_array((string) $key, $bps, true)) {
+            $labels[] = $meta['label'];
+        }
+    }
+    return implode(' and ', $labels) . (count($labels) === 1 ? ' width' : ' widths');
+}
+
+/**
+ * THE OWN-FILL NOTE on "set it on those roles" (#1125; both shadowing siblings, /ship red team RT3): of the
+ * listed roles, the ones whose defaults ship a fill (at rest or in any state: cta `button-secondary` fills
+ * only on :hover). They also ship the text colour the band value lost to, so they keep that designed pair
+ * (/ship design pass: the note used to say "set each one's background.fill with the colour", which walked
+ * authors into repainting pairs that read); recolouring one means setting its fill too, or
+ * udc_role_ink_over_own_surface names it. '' when none.
+ */
+function _pp_udc_own_fill_note(array $names, array $roles): string {
+    $own_fill = [];
+    foreach ($names as $name) {
+        $bg    = (array) ($roles[$name]['defaults']['background'] ?? []);
+        $fills = [$bg['fill'] ?? null];
+        foreach (pp_udc_states() as $state_key => $unused_state) {
+            $fills[] = is_array($bg[$state_key] ?? null) ? ($bg[$state_key]['fill'] ?? null) : null;
+        }
+        foreach ($fills as $one_fill) {
+            foreach (is_array($one_fill) ? $one_fill : [$one_fill] as $tier_fill) {
+                if (is_string($tier_fill) && $tier_fill !== '' && strcasecmp(trim($tier_fill), 'transparent') !== 0) {
+                    $own_fill[] = (string) $name;
+                    break 2;
+                }
+            }
+        }
+    }
+    if ($own_fill === []) {
+        return '';
+    }
+    return count($own_fill) === 1
+        ? sprintf(' (%s ships its own fill and text colour, so it keeps that designed pair; to recolour it, set its background.fill as well)', $own_fill[0])
+        : sprintf(' (%s ship their own fill and text colour, so they keep that designed pair; to recolour one, set its background.fill as well)', implode(', ', $own_fill));
+}
+
+/**
  * WHICH ROLES THE BAND RENDERS WITH THESE PROPS (#1125, ruling E1-A): role => bool, read off the
  * component's OWN template rendered in-process, or null when that cannot be answered (no DOM
  * extension, a template that failed), in which case callers keep their unfiltered answer:
@@ -6697,15 +6772,24 @@ function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = P
     global $shortcode_tags;
     $saved_shortcodes = $shortcode_tags ?? null;
     $shortcode_tags   = [];
-    $level = ob_get_level();
+    $level  = ob_get_level();
+    $caught = false;
     ob_start();
     set_error_handler(static fn (): bool => true, E_USER_WARNING | E_USER_NOTICE | E_WARNING | E_NOTICE);
     try {
         pp_get_component($component, $props);
         $html = (string) ob_get_contents();
     } catch (\Throwable $e) {
-        $html = null;
+        $html   = null;
+        $caught = true;
     } finally {
+        // #730 (components/section/section.php): wp_pre_kses_block_attributes() unhooks itself from
+        // `pre_kses`, filters, and re-hooks; a throw caught in the middle would leave block-attribute KSES
+        // off for the rest of the request. Templates guard their kses input, so this is belt and braces;
+        // re-hooking is idempotent (/ship red team, RT4).
+        if ($caught && function_exists('wp_pre_kses_block_attributes')) {
+            add_filter('pre_kses', 'wp_pre_kses_block_attributes', 10, 3);
+        }
         restore_error_handler();
         while (ob_get_level() > $level) {
             ob_end_clean();
@@ -6857,9 +6941,9 @@ function _pp_udc_step_matches(\DOMElement $el, array $step): bool {
  *
  * LINEAR IN NESTING DEPTH (/ship security specialist). A descendant step used to climb every ancestor of
  * every candidate, so author HTML nested 240 deep (libxml's limit is 256) around many links cost one
- * 480 KB band 8.3 s. Each answer is memoised per (element, step) for one role's pass, and "some ancestor
- * matches steps[0..$i]" is itself memoised up the chain, so a pass costs O(elements x steps) whatever
- * the depth. A memo entry holds its node, so the wrapper cannot be freed and its object id reused by
+ * 480 KB band 8.3 s. "Some ancestor matches steps[0..$i]" is memoised up the chain
+ * (_pp_udc_ancestor_matches()), which is what makes a pass O(elements x steps) whatever the depth (a
+ * planted-defect run proved it); the per-(element, step) answer is memoised too, a constant-factor cache. A memo entry holds its node, so the wrapper cannot be freed and its object id reused by
  * another node inside the pass.
  */
 function _pp_udc_steps_match(\DOMElement $el, array $steps, int $i, \DOMElement $root, array &$memo = []): bool {
@@ -9514,34 +9598,66 @@ function pp_udc_composition_findings(array $items): array {
                     $band_drops    = [];
                     $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
                 }
+                if (!isset($role_paint_defaults[$component])) {
+                    $role_paint_defaults[$component] = pp_udc_compile_band(['component' => $component], 'defaults');
+                }
+                // THE BAND SURFACE MUST PAINT AND DIFFER FROM THE DEFAULT (ruling D = A, /ship red team). A
+                // `transparent` section band or a hero band set to its own @color-bg darkens nothing, and naming
+                // the pill there advised a repaint on a correct light design. The authored `_band` longhand opens
+                // the gate only when it paints (_pp_udc_paints_surface()) and is not the value the defaults tier
+                // puts in the same state and width: the restated-default rule, from ink to surface. Its mirror
+                // is below (ruling E): a restated ROLE fill does not clear the finding.
+                $default_band = []; // state => bp => longhand => css
+                foreach ((array) ($role_paint_defaults[$component]['blocks'] ?? []) as $block) {
+                    if (($block['role'] ?? '') === '_band' && ($block['item'] ?? '') === '') {
+                        foreach ((array) ($block['decls'] ?? []) as $property => $decl) {
+                            if (is_array($decl) && is_string($decl['css'] ?? null)) {
+                                foreach (_pp_udc_paint_longhands((string) $property, $decl) as $longhand => [$css]) {
+                                    $default_band[(string) ($block['state'] ?? '')][(string) ($block['bp'] ?? 'd')][$longhand] = $css;
+                                }
+                            }
+                        }
+                    }
+                }
                 $band_surface_authored = false;
                 foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
                     if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '') {
                         continue;
                     }
+                    $b_state = (string) ($block['state'] ?? '');
+                    $b_bp    = (string) ($block['bp'] ?? 'd');
                     foreach (['background', 'background-color', 'background-image'] as $property) {
-                        $source = (string) ($block['decls'][$property]['source'] ?? '');
-                        if ($source === 'udc' || strncmp($source, 'preset:', 7) === 0) {
-                            $band_surface_authored = true;
-                            break 2;
+                        $decl   = $block['decls'][$property] ?? null;
+                        $source = (string) ($decl['source'] ?? '');
+                        if (!is_array($decl) || !is_string($decl['css'] ?? null) || ($source !== 'udc' && strncmp($source, 'preset:', 7) !== 0)) {
+                            continue;
+                        }
+                        foreach (_pp_udc_paint_longhands($property, $decl) as $longhand => [$css, $literal]) {
+                            if (!_pp_udc_paints_surface($literal, $longhand)) {
+                                continue;
+                            }
+                            $default_css = $default_band[$b_state][$b_bp][$longhand] ?? $default_band[$b_state]['d'][$longhand]
+                                ?? $default_band[''][$b_bp][$longhand] ?? $default_band['']['d'][$longhand] ?? null;
+                            if ($default_css === null || !_pp_udc_same_surface($css, $default_css)) {
+                                $band_surface_authored = true;
+                                break 3;
+                            }
                         }
                     }
                 }
                 if ($band_surface_authored) {
-                    if (!isset($role_paint_defaults[$component])) {
-                        $role_paint_defaults[$component] = pp_udc_compile_band(['component' => $component], 'defaults');
-                    }
                     $marked = !pp_udc_is_chrome($component) && pp_udc_band_paints_scrim($band_compiled);
                     $breakpoints_meta = pp_udc_breakpoints();
                     // AN INK THE ROLE INHERITS FROM THE BAND (ruling D3 = A). A role that declares no
                     // colour of its own takes the band's by inheritance; hero `surface` rendered white on
                     // its own light fill (1.07:1) with the write silent. ONE PREDICATE WITH THE SIBLING:
-                    // the band colour reaches a role exactly when udc_band_value_shadowed_by_role_default
-                    // does not list it (_pp_udc_band_values_cancelled_by_role_defaults), so the two
-                    // findings on one write agree by construction. A shipped-schema sweep in Chromium
-                    // found no enclosing role that intercepts that inheritance (evidence-t2).
-                    // R1-A: what the band EMITS, from the compile this arm already holds (any spelling, per
-                    // state and width); the sibling below reads the same map.
+                    // _pp_udc_inherited_values_cancelled_by_role_defaults() over what the band EMITS
+                    // (_pp_udc_band_inherited_emitted(), R1-A: any spelling, per state and width), so the band
+                    // colour reaches a role exactly when udc_band_value_shadowed_by_role_default does not list
+                    // it and the two findings on one write agree by construction. The sibling reads the REST
+                    // cells of the same map (ruling 1 = A); the state cells are this arm's band-state cells
+                    // (A1 = A). A shipped-schema sweep in Chromium found no enclosing role that intercepts that
+                    // inheritance (evidence-t2).
                     $band_emitted     = _pp_udc_band_inherited_emitted($band_compiled);
                     $band_ink_cells   = $band_emitted['color'] ?? [];
                     $band_ink_reaches = [];
@@ -9553,7 +9669,27 @@ function pp_udc_composition_findings(array $items): array {
                             }
                         }
                     }
-                    $paint_elements = pp_udc_role_paint($item, $band_compiled, $role_paint_defaults[$component], $marked);
+                    $text_roles = [];
+                    foreach ($roles as $text_role => $text_def) {
+                        if (($text_def['text_content'] ?? false) === true) {
+                            $text_roles[(string) $text_role] = true;
+                        }
+                    }
+                    $paint_elements = pp_udc_role_paint($item, $band_compiled, $role_paint_defaults[$component], $marked, $text_roles);
+                    // A SURFACE THAT RESTATES THE DEFAULT IS THE DEFAULT (ruling E = A, /ship red team): a role fill
+                    // the author copied from the schema's default paints the same light pill, so it must not clear
+                    // the finding. "Cleared but not fixed" is the dishonesty D and E close from both directions.
+                    $default_surface_in = static function (array $cell): bool {
+                        $surface = $cell['surface'] ?? null;
+                        if ($surface === null) {
+                            return false;
+                        }
+                        if (in_array($surface['tier'], ['defaults', 'overlay'], true)) {
+                            return true;
+                        }
+                        $default = $cell['default_surface'] ?? null;
+                        return $default !== null && _pp_udc_same_surface((string) $surface['css'], (string) $default['css']);
+                    };
                     // A CARD PART UNDER AN INKED CARD ROOT takes the card's ink, not the band's. No shipped
                     // schema has such a subject: band-ink subjects are pinned by
                     // RoleInkOverOwnSurfaceTest::testNoShippedItemPartYetTakesTheBandInkThroughItsCard to
@@ -9581,7 +9717,7 @@ function pp_udc_composition_findings(array $items): array {
                             foreach ($by_bp as $bp => $cell) {
                                 $ink     = $cell['color'];
                                 $surface = $cell['surface'];
-                                if ($surface === null || !in_array($surface['tier'], ['defaults', 'overlay'], true)) {
+                                if (!$default_surface_in($cell)) {
                                     continue;
                                 }
                                 if ($ink !== null && in_array($ink['tier'], ['band', 'item'], true)
@@ -9623,8 +9759,7 @@ function pp_udc_composition_findings(array $items): array {
                                         continue;
                                     }
                                     $rest = $element['paint'][''][$bp] ?? null;
-                                    if ($rest === null || $rest['surface'] === null
-                                        || !in_array($rest['surface']['tier'], ['defaults', 'overlay'], true)
+                                    if ($rest === null || !$default_surface_in($rest)
                                         || ($rest['color'] !== null && strcasecmp(trim((string) $rest['color']['literal']), 'currentColor') !== 0)) {
                                         continue;
                                     }
@@ -9650,10 +9785,8 @@ function pp_udc_composition_findings(array $items): array {
                         if (!$presence_asked) {
                             $presence_asked = true;
                             $asked = [];
-                            foreach ($roles as $asked_role => $asked_def) {
-                                if (($asked_def['text_content'] ?? false) === true) {
-                                    $asked[(string) $asked_role] = (string) ($asked_def['selector'] ?? '');
-                                }
+                            foreach (array_keys($text_roles) as $asked_role) {
+                                $asked[$asked_role] = (string) ($roles[$asked_role]['selector'] ?? '');
                             }
                             // The band's SIZE is every list prop's entries (cards, testimonials, rows...),
                             // not only the item-role prop: a render costs in proportion to all of them.
@@ -9683,26 +9816,17 @@ function pp_udc_composition_findings(array $items): array {
                                 continue; // The element is not rendered with these props: nothing to name.
                             }
                         }
-                        $widths = static function (array $bps) use ($breakpoints_meta): string {
-                            $labels = [];
-                            foreach ($breakpoints_meta as $key => $meta) {
-                                if (in_array((string) $key, $bps, true)) {
-                                    $labels[] = $meta['label'];
-                                }
-                            }
-                            return implode(' and ', $labels) . (count($labels) === 1 ? ' width' : ' widths');
-                        };
                         $all_widths = count($breakpoints_meta);
                         $phrases    = [];
+                        $band_state_labels = [':hover' => 'while the pointer is over the band',
+                            ':focus-visible' => 'while the band has keyboard focus', ':active' => 'while the band is pressed'];
                         foreach ($fired as $state => $bps) {
-                            $band_state_labels = [':hover' => 'while the pointer is over the band',
-                                ':focus-visible' => 'while the band has keyboard focus', ':active' => 'while the band is pressed'];
                             $where = strncmp((string) $state, 'band:', 5) === 0
                                 ? ($band_state_labels[substr((string) $state, 5)] ?? sprintf('while the band is %s', _pp_udc_reflect(substr((string) $state, 5))))
                                 : ($state === '' ? 'at rest' : (str_contains($state, '+')
                                 ? sprintf('in the %s states together', implode(' and ', array_map('_pp_udc_reflect', explode('+', $state))))
                                 : sprintf('in the %s state', _pp_udc_reflect($state))));
-                            $phrases[] = count($bps) === $all_widths ? $where : $where . ' at the ' . $widths($bps);
+                            $phrases[] = count($bps) === $all_widths ? $where : $where . ' at the ' . _pp_udc_widths_phrase($bps);
                         }
                         // "At rest" is said whenever the element HAS another state cell that did not fire
                         // (design pass, cycle 1): an author :hover fill covering the hover state must not
@@ -9711,7 +9835,7 @@ function pp_udc_composition_findings(array $items): array {
                         if (count($phrases) === 1 && isset($fired['']) && count($fired['']) === $all_widths && !$has_other_states) {
                             $qualifier = '';
                         } elseif (count($phrases) === 1 && isset($fired['']) && !$has_other_states) {
-                            $qualifier = ' at the ' . $widths($fired['']);
+                            $qualifier = ' at the ' . _pp_udc_widths_phrase($fired['']);
                         } else {
                             $qualifier = ' ' . implode(', and ', $phrases);
                         }
@@ -9748,12 +9872,23 @@ function pp_udc_composition_findings(array $items): array {
                                 implode(', ', array_map(static fn (string $bp): string => '"' . $bp . '": ...', $partial_bps)));
                         }
                         $ink_disclosed++;
+                        // THE ADVICE ORDER FOLLOWS THE SURFACE (ruling C1 = A, /ship design pass). On a DARK default
+                        // surface (grid step-number ships the accent: white reads 5.53:1 on it) repaint-first advice
+                        // told authors to replace a deliberate accent badge; lead with the check there. A lightness
+                        // reading (_pp_udc_value_is_light()), not contrast maths, so D5 holds: the finding fires the
+                        // same either way. The fill it asks for stands apart from the band: the band's own colour
+                        // clears the finding and erases the pill (design pass).
+                        $where_fill  = $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where);
+                        $apart       = 'choosing a fill that stands apart from the band so the shape still shows';
+                        $aa          = 'check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text)';
+                        $advice      = _pp_udc_value_is_light((string) $shown['css'], []) === false
+                            ? sprintf('%s; if it does not, set background.fill for this role%s, %s.', ucfirst($aa), $where_fill, $apart)
+                            : sprintf('Set background.fill for this role%s as well, %s, or %s.', $where_fill, $apart, $aa);
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
-                                'Component "%s"%s role "%s": %s paints this role\'s text on its own default background (%s)%s, '
-                                . 'and the band background you set does not replace that background. Set background.fill for this role%s '
-                                . 'as well, or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). If '
+                                'Component "%s"%s role "%s": %s paints this role\'s text on its own default background (%s)%s%s, '
+                                . 'and the band background you set does not replace that background. %s If '
                                 . 'text roles inside this one set their own colour, they keep it on whatever fill you set.',
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
@@ -9768,8 +9903,9 @@ function pp_udc_composition_findings(array $items): array {
                                         : 'the text colour you set for this role (typography.color, a preset you applied, or _css)'),
                                 // A defaults or overlay surface: those compiles mint no band tokens.
                                 _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], [])),
+                                in_array($shown['tier'], ['defaults', 'overlay'], true) ? '' : ' (the background.fill you set for this role restates that default)',
                                 $qualifier,
-                                $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where)
+                                $advice
                             ) . ($presence === null
                                 ? ' (Not checked against the rendered page: ' . ([
                                     'chrome'  => 'the header and footer are not rendered by this check',
@@ -9902,49 +10038,36 @@ function pp_udc_composition_findings(array $items): array {
                 $band_emitted_here = null;
             }
         }
-        $band_cancelled_map = $band_emitted_here === null
+        // A REST-STATE FINDING (ruling 1 = A, /ship api-contract). A colour the band sets only in a state is
+        // not what a role default cancels AT REST; naming it with this resting advice told a model to put
+        // light ink at rest on every listed role for an author who wanted a hover change (main excluded it
+        // on purpose). The hover reach is the own-surface finding's band-state cells (A1 = A), where the
+        // state is named. Do not make this arm state-aware without a design look.
+        $band_rest_here = null;
+        if ($band_emitted_here !== null) {
+            $band_rest_here = [];
+            foreach ($band_emitted_here as $rest_property => $rest_cells) {
+                foreach ($rest_cells as $rest_key => $unused_rest) {
+                    if (strncmp((string) $rest_key, '|', 1) === 0) {
+                        $band_rest_here[$rest_property][$rest_key] = true;
+                    }
+                }
+            }
+        }
+        $band_cancelled_map = $band_rest_here === null
             ? _pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component)
-            : _pp_udc_inherited_values_cancelled_by_role_defaults($item['udc'], $component, '_band', null, $band_emitted_here);
+            : _pp_udc_inherited_values_cancelled_by_role_defaults($item['udc'], $component, '_band', null, $band_rest_here);
         foreach ($band_cancelled_map as $property => $names) {
             // A value set only at some widths (at rest) is named with them.
             $band_width_phrase = '';
-            if ($band_emitted_here !== null && !isset($band_emitted_here[$property]['|d'])) {
+            if ($band_rest_here !== null && !isset($band_rest_here[$property]['|d'])) {
                 $width_keys = [];
                 foreach (array_keys(pp_udc_breakpoints()) as $bp_key) {
-                    if (isset($band_emitted_here[$property]['|' . $bp_key])) {
-                        $width_keys[] = $bp_key;
+                    if (isset($band_rest_here[$property]['|' . $bp_key])) {
+                        $width_keys[] = (string) $bp_key;
                     }
                 }
-                if ($width_keys !== []) {
-                    $width_labels = array_map(static fn ($k) => pp_udc_breakpoints()[$k]['label'], $width_keys);
-                    $band_width_phrase = ' at the ' . implode(' and ', $width_labels) . (count($width_labels) === 1 ? ' width' : ' widths');
-                }
-            }
-            // Following "set it on those roles directly" on a role that ships its OWN fill puts the new
-            // colour on that fill, which udc_role_ink_over_own_surface then names (cycle 2, api-contract):
-            // say so here, so one piece of advice does not walk the author into the other finding.
-            $own_fill = [];
-            if ((string) $property === 'color') {
-                foreach ($names as $name) {
-                    // The resting fill and any state's fill (cta `button-secondary` fills only on :hover).
-                    $bg    = (array) ($roles[$name]['defaults']['background'] ?? []);
-                    $fills = [$bg['fill'] ?? null];
-                    foreach (pp_udc_states() as $state_key => $unused_state) {
-                        $fills[] = is_array($bg[$state_key] ?? null) ? ($bg[$state_key]['fill'] ?? null) : null;
-                    }
-                    $fill = [];
-                    foreach ($fills as $one_fill) {
-                        foreach (is_array($one_fill) ? $one_fill : [$one_fill] as $tier_one) {
-                            $fill[] = $tier_one;
-                        }
-                    }
-                    foreach ($fill as $tier_fill) {
-                        if (is_string($tier_fill) && $tier_fill !== '' && strcasecmp(trim($tier_fill), 'transparent') !== 0) {
-                            $own_fill[] = $name;
-                            break;
-                        }
-                    }
-                }
+                $band_width_phrase = $width_keys === [] ? '' : ' at the ' . _pp_udc_widths_phrase($width_keys);
             }
             $findings[] = [
                 'type'    => 'udc_band_value_shadowed_by_role_default',
@@ -9957,8 +10080,7 @@ function pp_udc_composition_findings(array $items): array {
                     implode(', ', $names),
                     count($names) === 1 ? 'that role\'s' : 'those roles\'',
                     count($names) === 1 ? 'that role' : 'those roles',
-                    $own_fill === [] ? '' : sprintf(' (%s %s own fill, so set %s background.fill with the colour)',
-                        implode(', ', $own_fill), count($own_fill) === 1 ? 'ships its' : 'ship their', count($own_fill) === 1 ? 'its' : 'each one\'s')
+                    (string) $property === 'color' ? _pp_udc_own_fill_note($names, $roles) : ''
                 ),
                 'index'   => is_int($i) ? $i : null,
             ];
@@ -10011,14 +10133,16 @@ function pp_udc_composition_findings(array $items): array {
                         'type'    => 'udc_item_value_shadowed_by_role_default',
                         'message' => sprintf(
                             'Component "%s" item "%s": the "%s" you set on "%s" does not reach %s, because %s '
-                            . 'own default for it wins over inheritance. Set it on %s for this item too.',
+                            . 'own default for it wins over inheritance. Set it on %s for this item too%s.',
                             $component,
                             _pp_udc_reflect((string) $item_id),
                             (string) $property,
                             $item_declaration['root'],
                             implode(', ', $names),
                             count($names) === 1 ? 'that role\'s' : 'those roles\'',
-                            count($names) === 1 ? 'that role' : 'those roles'
+                            count($names) === 1 ? 'that role' : 'those roles',
+                            // The same loop the band sibling's note closes (/ship red team, RT3).
+                            (string) $property === 'color' ? _pp_udc_own_fill_note($names, $roles) : ''
                         ),
                         'index'   => is_int($i) ? $i : null,
                     ];
@@ -10447,9 +10571,10 @@ function _pp_udc_band_values_cancelled_by_role_defaults(array $udc, string $comp
 
 /**
  * The inherited properties `$source_role` declares in the author's map (its groups, and for
- * `_band` its `_css`), as property => true. Extracted from the function below so the #1125
- * own-surface arm reads the SAME predicate: an ink the band sets reaches a role exactly when
- * the sibling disclosure says it does, so the two findings on one write agree by construction.
+ * `_band` its `_css`), as property => true: the RAW-MAP read, which
+ * _pp_udc_inherited_values_cancelled_by_role_defaults() falls back to when no `$declared` map is passed
+ * (a band with no usable id, and the item-root tier). Both band findings pass what the band EMITS
+ * instead (_pp_udc_band_inherited_emitted(), R1-A), so they share one predicate over one map.
  *
  * @return array<string, true>
  */

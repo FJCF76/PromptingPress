@@ -235,10 +235,17 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     {
         $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
         $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
-        [, $found] = $this->write([
-            '_band' => ['background' => ['fill' => '@color-bg-inverted']],
-            'panel' => ['background' => ['image' => 9001], 'typography' => ['color' => '@color-bg']],
-        ]);
+        // The panel renders only in the text-panel layout (/ship testing: with the default props the presence
+        // check removed the finding whatever the surface said, so this pinned nothing). The premise twin is
+        // the same write with a missing attachment, which IS named.
+        $props = ['title' => 'T', 'body' => 'b', 'layout' => 'text-panel', 'panel_body' => 'Panel text'];
+        $udc   = static fn (int $image): array => ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
+            'panel' => ['background' => ['image' => $image], 'typography' => ['color' => '@color-bg']]];
+        // (A missing attachment is refused at write, so the twin goes straight to the findings walk, as the
+        // deleted-image test below does.)
+        $missing = $this->only(pp_udc_composition_findings([['component' => 'section', 'id' => 'pp-a1b2c3d4', 'props' => $props, 'udc' => $udc(9002)]]));
+        $this->assertCount(1, $missing, 'premise: the panel renders and a missing image leaves its fill named');
+        [, $found] = $this->write($udc(9001), 'section', $props);
         $this->assertSame([], $found);
     }
 
@@ -343,8 +350,14 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'button-secondary' => $ink], 'cta', $props);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('background: {":hover": {"fill": ...}}', $found[0]['message']);
+        // A FILL THAT STANDS APART FROM THE BAND (/ship design pass, ruled C1 = A): this fixture used #222222,
+        // which clears the finding and leaves the hover state 1.12:1 against the band, near-invisible.
+        // Advice followed literally must never teach that; pinned below.
+        $fill = '#475467';
+        $this->assertGreaterThanOrEqual(2.0, $this->contrast($fill, '#101828'), 'the hover fill still shows against the band');
+        $this->assertGreaterThanOrEqual(4.5, $this->contrast('#ffffff', $fill), 'and the ink reads on it');
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
-            'button-secondary' => $ink + ['background' => [':hover' => ['fill' => '#222222']]]], 'cta', $props);
+            'button-secondary' => $ink + ['background' => [':hover' => ['fill' => $fill]]]], 'cta', $props);
         $this->assertSame([], $found, 'the fill set where the message said clears it');
     }
 
@@ -352,15 +365,15 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     {
         $ink = ['typography' => ['color' => '#ffffff']];
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
-            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '@color-surface-accent', 'p' => '#101828']]]]);
+            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '#475467', 'p' => '#475467']]]]);
         $this->assertSame([], $found, 'premise: every width authored');
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
-            'eyebrow' => $ink + ['background' => ['fill' => ['p' => '#101828']]]]);
+            'eyebrow' => $ink + ['background' => ['fill' => ['p' => '#475467']]]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString('a breakpoint map, e.g. {"d": ..., "t": ...}', $found[0]['message']);
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
-            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '#101828', 't' => '#101828', 'p' => '#101828']]]]);
-        $this->assertSame([], $found, 'the fill set where the message said clears it');
+            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '#475467', 't' => '#475467', 'p' => '#475467']]]]);
+        $this->assertSame([], $found, 'the fill set where the message said clears it (a fill a step off the band, never the band colour: that erases the pill)');
     }
 
     /**
@@ -608,7 +621,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>', 'eyebrow' => 'E']);
         $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
         $this->assertCount(1, $sibling);
-        $this->assertStringContainsString('Set it on those roles directly (cta-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour).', $sibling[0]['message']);
+        $this->assertStringContainsString('Set it on those roles directly (cta-secondary, eyebrow ship their own fill and text colour, so they keep that designed pair; to recolour one, set its background.fill as well).', $sibling[0]['message']);
     }
 
     /**
@@ -1340,8 +1353,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             }
             return '';
         };
-        $this->assertStringContainsString('(button-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour)', $sibling('cta'));
-        $this->assertStringContainsString('(eyebrow ships its own fill, so set its background.fill with the colour)', $sibling('faq'));
+        $this->assertStringContainsString('(button-secondary, eyebrow ship their own fill and text colour, so they keep that designed pair; to recolour one, set its background.fill as well)', $sibling('cta'));
+        $this->assertStringContainsString('(eyebrow ships its own fill and text colour, so it keeps that designed pair; to recolour it, set its background.fill as well)', $sibling('faq'));
         $this->assertStringEndsWith('Set it on those roles directly.', $sibling('stats'));
     }
 
@@ -1413,5 +1426,116 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([25], array_column($found, 'index'), 'premise: only the 26th band is left unchecked');
         $this->assertStringContainsString('(Not checked against the rendered page: this write already checked its limit of 25 bands', $found[0]['message']);
         $this->assertStringNotContainsString('size budget', $found[0]['message']);
+    }
+
+    /** WCAG relative-luminance contrast of two #rrggbb colours (test-side only: the engine does no contrast maths, D5). */
+    private function contrast(string $a, string $b): float
+    {
+        $lum = static function (string $hex): float {
+            $c = array_map(static fn (string $h): float => hexdec($h) / 255, str_split(ltrim($hex, '#'), 2));
+            $c = array_map(static fn (float $v): float => $v <= 0.03928 ? $v / 12.92 : (($v + 0.055) / 1.055) ** 2.4, $c);
+            return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2];
+        };
+        [$hi, $lo] = [max($lum($a), $lum($b)), min($lum($a), $lum($b))];
+        return ($hi + 0.05) / ($lo + 0.05);
+    }
+
+    /**
+     * THE SIBLING IS A REST-STATE FINDING (ruling 1 = A, /ship api-contract). A colour the band sets only on
+     * :hover is not what a role default cancels at rest; naming it with the resting advice told a model to put
+     * light ink at rest on six roles when the author wanted a hover change. Main excluded it on purpose. The
+     * hover reach is the own-surface finding's band-state cells (A1 = A), where the state is named.
+     */
+    public function testAHoverOnlyBandColourIsNotARestingShadow(): void
+    {
+        $sibling = function (array $band): array {
+            [, , $all] = $this->write(['_band' => $band]);
+            return array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        };
+        $this->assertSame([], $sibling(['background' => ['fill' => '#101828'], 'typography' => [':hover' => ['color' => '#ffffff']]]), 'group :hover');
+        $this->assertSame([], $sibling(['background' => ['fill' => '#101828'], '_css' => [':hover' => ['color' => '#ffffff']]]), '_css :hover');
+        $this->assertCount(1, $sibling(['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]), 'control: at rest it fires');
+        $this->assertCount(1, $sibling(['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff', ':hover' => ['color' => '#eeeeee']]]),
+            'control: rest plus hover fires once, for the rest value');
+    }
+
+    /**
+     * THE ADVICE ORDER FOLLOWS THE SURFACE (ruling C1 = A, /ship design pass). A DARK default surface (grid
+     * step-number ships the accent, #3157f4: white reads 5.53:1 on it) leads with the check; a LIGHT one (the
+     * eyebrow pill) keeps repaint-first. A lightness reading, not contrast maths (D5): the finding fires the same.
+     */
+    public function testTheAdviceLeadsWithTheCheckOnADarkDefaultSurface(): void
+    {
+        $dark = $this->gridFindings([], [['step-number' => ['typography' => ['color' => '#ffffff']]]]);
+        $this->assertCount(1, $dark, 'a dark surface is still named');
+        $this->assertStringContainsString('Check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text); if it does not, set background.fill for this role', $dark[0]['message']);
+        [, $light] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]);
+        $this->assertCount(1, $light);
+        $this->assertStringContainsString('Set background.fill for this role as well, choosing a fill that stands apart from the band so the shape still shows, or check that the pair reads', $light[0]['message']);
+    }
+
+    /**
+     * A BAND SURFACE THAT PAINTS NOTHING, OR RESTATES THE DEFAULT, DOES NOT GATE (ruling D = A, /ship red team).
+     * A transparent section band and a hero band set to its own @color-bg were read as darkened, and the
+     * finding told a model to repaint the pill on a correct light design.
+     */
+    public function testARestatedOrTransparentBandSurfaceDoesNotGate(): void
+    {
+        $props = ['eyebrow' => 'E', 'title' => 'T'];
+        $eyebrow = ['eyebrow' => ['typography' => ['color' => '@color-accent']]];
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => 'transparent']]] + $eyebrow, 'section', $props + ['body' => 'b']);
+        $this->assertSame([], $found, 'section: transparent is its own default and paints nothing');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '@color-bg']]] + $eyebrow, 'hero', $props);
+        $this->assertSame([], $found, 'hero: @color-bg restates its default');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => 'transparent']]] + $eyebrow, 'hero', $props);
+        $this->assertSame([], $found, 'hero: transparent differs from its default but paints nothing (the page shows through)');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']]] + $eyebrow, 'hero', $props);
+        $this->assertCount(1, $found, 'control: a genuinely darkened band still gates');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '@color-bg', ':hover' => ['fill' => '#101828']]]] + $eyebrow, 'hero', $props);
+        $this->assertCount(1, $found, 'control: a band darkened only on hover is a darkened band surface');
+    }
+
+    /**
+     * A ROLE FILL THAT RESTATES THE DEFAULT DOES NOT CLEAR THE FINDING (ruling E = A, /ship red team). Copying the
+     * eyebrow's default fill from `wp pp schema` in answer to "set background.fill" cleared it while the page kept
+     * painting white on the same light pill: cleared, not fixed. The same doctrine as D, in the other direction.
+     */
+    public function testASchemaCopiedRoleFillKeepsTheFinding(): void
+    {
+        $band = ['_band' => ['background' => ['fill' => '#101828']]];
+        [, $found] = $this->write($band + ['eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => '@color-surface-accent']]]);
+        $this->assertCount(1, $found, 'the default fill, restated, is still the default surface');
+        $this->assertStringContainsString('the background.fill you set for this role restates that default', $found[0]['message']);
+        [, $found] = $this->write($band + ['eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => '#475467']]]);
+        $this->assertSame([], $found, 'control: a genuinely different fill clears it');
+    }
+
+    /**
+     * THE ITEM SIBLING CARRIES THE SAME OWN-FILL NOTE (/ship red team, RT3). Its "set it on those roles for this
+     * item too" walked the author into this finding on step-number, the loop the band sibling's note closed.
+     */
+    public function testTheItemSiblingNamesTheRolesThatShipTheirOwnFill(): void
+    {
+        $items = [['id' => 'it-00000001', 'number' => '1', 'title' => 'T', 'text' => 'x',
+            'udc' => ['card' => ['background' => ['fill' => '#1d2939'], 'typography' => ['color' => '#ffffff']]]]];
+        $all = pp_udc_composition_findings([['component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'props' => ['layout' => 'steps', 'title' => 'G', 'items' => $items],
+            'udc'   => ['_band' => ['background' => ['fill' => '#101828']]]]]);
+        $item = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_item_value_shadowed_by_role_default'));
+        $this->assertNotEmpty($item, 'premise: the item sibling fires');
+        $this->assertStringContainsString('step-number ships its own fill and text colour, so it keeps that designed pair', $item[0]['message']);
+    }
+
+    /**
+     * #730 AT THE PRESENCE RENDER (/ship red team, RT4): templates call wp_kses_post, and a throw caught mid-kses
+     * leaves block-attribute KSES off for the rest of the request. The catch re-adds the filter. The harness
+     * add_filter is a no-op, so the CALL SHAPE inside the function's finally is pinned (a bare-name match would
+     * be satisfied by this comment).
+     */
+    public function testThePresenceRenderRestoresBlockAttributeKsesAfterAThrow(): void
+    {
+        $fn = new ReflectionFunction('_pp_udc_rendered_roles');
+        $src = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1, $fn->getEndLine() - $fn->getStartLine() + 1));
+        $this->assertMatchesRegularExpression('/finally \{.*?if \(\$caught\b[^\n]*\{\s*add_filter\(\'pre_kses\', \'wp_pre_kses_block_attributes\', 10, 3\);/s', $src);
     }
 }

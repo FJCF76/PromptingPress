@@ -333,4 +333,50 @@ final class UdcRolePaintTest extends TestCase
             ['role' => '_band', 'item' => '', 'state' => '', 'bp' => 'd', 'decls' => ['color' => 'junk']],
         ]]));
     }
+
+    /**
+     * SURFACE PRECEDENCE, pinned where the two longhands come from DIFFERENT tiers (/ship testing: swapping the
+     * image-first order passed the whole suite). An author role image over the default pill fill is the
+     * band tier's background-image, not the default colour.
+     */
+    public function testAnAuthoredImageLonghandOutranksTheDefaultFill(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [$by, , $band_css] = $this->read($this->band('hero', [
+            '_band'   => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['image' => 9001]],
+        ], ['eyebrow' => 'E', 'title' => 'H']));
+        $this->assertStringContainsString('background-image:url(', $band_css, 'premise: only the image longhand is authored');
+        $surface = $by['|eyebrow']['']['d']['surface'];
+        $this->assertSame('band', $surface['tier']);
+        $this->assertSame('background-image', $surface['property']);
+    }
+
+    /**
+     * EACH CELL CARRIES THE DEFAULT SURFACE (ruling E = A): what the defaults and overlay tiers alone would paint
+     * there, so a restated author fill can be read as the default it restates.
+     */
+    public function testEachCellCarriesTheDefaultSurface(): void
+    {
+        [$by] = $this->read($this->band('hero', [
+            '_band'   => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => '#475467']],
+        ], ['eyebrow' => 'E', 'title' => 'H']));
+        $cell = $by['|eyebrow']['']['d'];
+        $this->assertSame('band', $cell['surface']['tier']);
+        $this->assertSame('var(--color-surface-accent)', $cell['default_surface']['css']);
+    }
+
+    /** THE ROLE FILTER (/ship performance): only the asked roles are answered; unfiltered answers every role. */
+    public function testTheAccessorAnswersOnlyTheRolesAskedFor(): void
+    {
+        $item     = $this->band('hero', ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]], ['eyebrow' => 'E', 'title' => 'H']);
+        $authored = pp_udc_compile_band($item, 'authored');
+        $defaults = pp_udc_compile_band(['component' => 'hero'], 'defaults');
+        $all      = array_column(pp_udc_role_paint($item, $authored, $defaults, false), 'role');
+        $only     = array_column(pp_udc_role_paint($item, $authored, $defaults, false, ['eyebrow' => true]), 'role');
+        $this->assertGreaterThan(1, count(array_unique($all)), 'premise: several roles have paint rows');
+        $this->assertSame(['eyebrow'], array_values(array_unique($only)));
+    }
 }
