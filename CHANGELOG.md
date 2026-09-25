@@ -42,8 +42,9 @@ headings and links inside the role keep their own colour from the theme styleshe
   inspect, and restore. Bounded at 200 per composition like its siblings.
 - It checks the rendered page: each band that is about to be named is rendered in-process from
   its own template (no shortcodes run, output discarded), at most 25 bands, 500 list entries
-  and 1 MB of markup per check. Past a budget, or on chrome, the finding is kept and ends with
-  "(Not checked against the rendered page: ...)".
+  and 1 MB of markup per check, and 512 KB of markup per band. Past a budget, on chrome, or when
+  a band cannot be rendered or read, the finding is kept and ends with "(Not checked against
+  the rendered page: ...)", naming which.
 - `udc_band_value_shadowed_by_role_default` changed in three ways. It now reads the band values
   the page emits, so a band colour from a `_band` preset or set at only some widths is seen, and
   named with its widths ("at the phone width"). It reports only values set at rest: a band
@@ -70,7 +71,9 @@ footer rows included): nothing changes on any page.
 
 `AI_CONTEXT.md`, the runtime prompt, the style-component, build-landing-page, validate-site and
 add-component instructions, the CLI reference example and the hero README describe the finding,
-its limits and the `text_content` key.
+its limits and the `text_content` key. The operating loop describes the band-shadow finding as
+rest-only, and the section, testimonials, grid and cta READMEs say which roles keep their own
+fill on a dark band.
 
 ### Tests
 

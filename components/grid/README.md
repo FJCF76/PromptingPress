@@ -100,7 +100,7 @@ A card keeps its own light ink even on a dark band — measured, `card-title`, `
 
 - **Darkening a `card` fill is five writes, not one:** `card`, then `card-title`, `card-text`, `card-bullets` and `card-link`. `card-link` pins `@color-accent`, which measures **3.2:1 on a `#14141F` card** — under the 4.5:1 AA floor for its 0.9rem weight-600 text.
 - **Darkening the `_band` does not reach `subheading` or `empty`:** both pin `@color-muted`, and `empty` sits on the band fill rather than inside a card. On `@color-bg-inverted` that measures **3.10:1**, under the 4.5:1 AA floor — v1's `theme: "inverted"` re-coloured the subheading automatically and the v2 route does not.
-- **The step badge's fill and its numeral are a pair:** `step-number` defaults to `@color-accent` fill with `@color-bg` ink. Changing one without the other is how a light badge gets invisible numerals. On a band whose background you set, a new ink you give the badge (anything but its own `@color-bg`) over its default accent fill is named by the write (#1125), and because that default fill is dark the advice leads with checking the pair.
+- **The step badge's fill and its numeral are a pair:** `step-number` defaults to `@color-accent` fill with `@color-bg` ink. Changing one without the other is how a light badge gets invisible numerals. On a band whose background you set, a new ink you give the badge over its default accent fill is named by the write (#1125); writing its own `@color-bg` back is not, but a literal value that happens to equal it still is, so write the token, and because that default fill is dark the advice leads with checking the pair.
 
 ## Item-grain styling (Addendum B)
 
