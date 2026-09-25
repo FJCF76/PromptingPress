@@ -42,7 +42,8 @@ This checks:
      dropped, even over a base image, because `background.image` cannot be set inside a
      state. A scrim on a CARD's own map composes only with an image on that card's map,
      not with one the band's map sets for the same role — and a scrim on the band's map
-     reaches no card that sets its own image for that role. `wp pp check page` reports it as this finding; the readiness report
+     with no image of its own there reaches no card that sets its own image for that role.
+     (A band scrim over a band image also misses such cards, and that is NOT reported.) `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.

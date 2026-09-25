@@ -1111,6 +1111,22 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('item "<id>"', (string) pp_get_action('delete_preset')['description']);
     }
 
+    /** Every preset rung is resolve-checked too: a deleted group-preset image falls through to the role preset's. */
+    public function testADeletedGroupPresetImageFallsThroughToTheRolePresetImage(): void
+    {
+        foreach ([9001, 9002] as $att) {
+            $GLOBALS['_pp_test_store']['posts'][$att]               = ['post_type' => 'attachment'];
+            $GLOBALS['_pp_test_store']['attachment_is_image'][$att] = true;
+        }
+        $this->savePreset('probe-gimg1', ['image' => 9001], 'background');
+        $this->savePreset('probe-rimg2', ['background' => ['image' => 9002]]);
+        unset($GLOBALS['_pp_test_store']['posts'][9001], $GLOBALS['_pp_test_store']['attachment_is_image'][9001]);
+
+        $this->assertSame(9002, _pp_udc_role_map_background_image(
+            ['_preset' => 'probe-rimg2', 'background' => ['_preset' => 'probe-gimg1']]
+        ));
+    }
+
     /** A base-tier authored value covers EVERY tier the default took from the preset. */
     public function testABaseTierAuthoredValueCoversEveryLostTier(): void
     {

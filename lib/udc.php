@@ -2455,7 +2455,10 @@ function _pp_udc_role_map_background_image(array $role_map) {
             continue;
         }
         $group = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
-        if (is_array($group) && array_key_exists('image', $group)) {
+        // Every rung is resolve-checked, like the map's own image: a deleted attachment
+        // is dropped at place time and the next rung paints beneath it.
+        if (is_array($group) && array_key_exists('image', $group)
+            && pp_udc_background_image_url($group['image']) !== null) {
             return $group['image'];
         }
     }
@@ -8149,8 +8152,10 @@ function pp_udc_format_obligation_groups(array $groups): string {
  * GROUPS THE ROLE DOES NOT PERMIT ARE SKIPPED, because `udc_preset_groups_skipped`
  * already owns them. Two findings for one cause is how an author learns to ignore both.
  *
- * Returns human-readable labels rather than structured tuples: the one consumer
- * interpolates them into a sentence, and the caller bounds the list.
+ * Returns human-readable labels: a label view over
+ * _pp_udc_preset_values_shadowed_entries(), compared per state AND per breakpoint tier
+ * (a partial loss is labelled "at breakpoint …"). The findings walk uses the entries
+ * directly, so it can subtract what the author covers per tier before wording them.
  *
  * @return array<int, string>  e.g. ['typography.color', 'typography.color (:hover)']
  */
