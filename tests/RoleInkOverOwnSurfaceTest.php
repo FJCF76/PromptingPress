@@ -328,7 +328,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         );
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "button-secondary"', $found[0]['message']);
-        $this->assertStringContainsString('(@color-accent) in the :hover state, on any text', $found[0]['message'], 'light only while hovered, at every width');
+        $this->assertStringContainsString('(@color-accent) in the :hover state, and the band background', $found[0]['message'], 'light only while hovered, at every width');
     }
 
     /**
@@ -391,8 +391,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
             'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => [':hover' => ['fill' => '#1d2939']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-surface-accent) at rest, on any text', $found[0]['message']);
-        $this->assertStringContainsString('Text roles inside this one that set their own colour keep it', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface-accent) at rest, and the band background', $found[0]['message']);
+        $this->assertStringContainsString('If text roles inside this one set their own colour, they keep it', $found[0]['message']);
     }
 
     // ── An ink the role INHERITS from the band (ruling D3 = A) ────────────────────────────
@@ -633,7 +633,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
             'eyebrow' => ['typography' => ['color' => '@color-text', ':hover' => ['color' => '#ffffff']]]]);
         $this->assertCount(1, $found, 'a restated rest ink with a changed hover ink');
-        $this->assertStringContainsString('(@color-surface-accent) in the :hover state, on any text', $found[0]['message'], 'fires on hover only');
+        $this->assertStringContainsString('(@color-surface-accent) in the :hover state, and the band background', $found[0]['message'], 'fires on hover only');
     }
 
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
@@ -642,7 +642,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
             'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => ['t' => '#101828', 'p' => '#101828']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-surface-accent) at the desktop width, on any text', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface-accent) at the desktop width, and the band background', $found[0]['message']);
         $this->assertStringContainsString('at that width (a breakpoint map, e.g. {"d": ...})', $found[0]['message']);
     }
 
@@ -654,7 +654,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
             'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => ['p' => '#101828']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-surface-accent) at the desktop and tablet widths, on any text', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface-accent) at the desktop and tablet widths, and the band background', $found[0]['message']);
     }
 
     /**
@@ -709,7 +709,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'eyebrow' => ['typography' => ['color' => '#f7f8fa', ':hover' => ['color' => '#ffffff']], 'background' => ['fill' => ['p' => '#101828']]]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString(
-            '(@color-surface-accent) at rest at the desktop and tablet widths, and in the :hover state at the desktop and tablet widths, on any text',
+            '(@color-surface-accent) at rest at the desktop and tablet widths, and in the :hover state at the desktop and tablet widths, and the band background',
             $found[0]['message']
         );
     }

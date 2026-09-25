@@ -9412,12 +9412,10 @@ function pp_udc_composition_findings(array $items): array {
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
-                                'Component "%s"%s role "%s": %s paints over this role\'s own default background (%s)%s, on any text '
-                                . 'in this role that inherits it, which the '
-                                . 'band background you set does not replace. Set background.fill for this role%s as well, '
-                                . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). Text roles '
-                                . 'inside this one that set their own colour keep it on whatever fill you set, so re-ink them '
-                                . 'in the same write.',
+                                'Component "%s"%s role "%s": %s paints this role\'s text on its own default background (%s)%s, '
+                                . 'and the band background you set does not replace that background. Set background.fill for this role%s '
+                                . 'as well, or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text). If '
+                                . 'text roles inside this one set their own colour, they keep it on whatever fill you set.',
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
