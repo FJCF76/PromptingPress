@@ -2617,8 +2617,9 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
             }
         }
         // The scrim left here is dropped by the compose stage; this tells it WHY, so its ledger row names the raw
-        // background rather than asking for an image the author did set (PR-2 review, api-contract).
-        if (is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
+        // background rather than asking for an image the author did set (PR-2 review, api-contract). Only where no
+        // image is left: a raw background-image beside the raw background keeps the scrim painting (red team cycle 2 A).
+        if (is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null) && !isset($by_bp[$bp]['background-image'])) {
             $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
         }
     }
@@ -2734,21 +2735,26 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
                     : (!empty($overlay['raw_background_won'])
                     ? (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
-                    // The band stays marked from the widths that still paint a scrim (PR-2 review cycle 2, design).
+                    // The band stays marked from the widths that still paint a scrim (PR-2 review cycle 2, design). No
+                    // other finding is named (it would lie the next time a gate changes), and accents are spoken of only
+                    // on a component whose roles re-light (red team cycle 2 D).
                     ? sprintf('the raw background in _css resets the background here, so background.image and this scrim do '
-                      . 'not paint at this width. The scrim still paints at the %s, so the band stays marked and the accent '
-                      . 'roles it re-lights stay near-white on this background (the off-scrim finding names them). Remove '
-                      . 'the raw background at this width (put a colour in background.fill beside the image instead), or, '
-                      . 'if the raw background is what you want here, set the accents\' typography.color for this width: '
-                      . 'a raw background cannot carry an image', _pp_udc_widths_phrase($overlay['band_scrim_at']))
+                      . 'not paint at this width. The scrim still paints at the %s, so the band stays marked%s. Remove the raw '
+                      . 'background at this width (put a colour in background.fill beside the image instead), or, if the raw '
+                      . 'background is what you want here, %s: a raw background cannot carry an image',
+                      _pp_udc_widths_phrase($overlay['band_scrim_at']),
+                      !empty($overlay['band_relights']) ? ' and the accent roles it re-lights stay near-white on this background' : '',
+                      !empty($overlay['band_relights']) ? 'set the accents\' typography.color for this width' : 'remove the overlay at this width')
                     : 'the raw background in _css resets the background here, so background.image and this scrim do not '
                       . 'paint at this width'
                       . (isset($overlay['band_scrim_at'])
-                          ? ', and with no scrim the band is not marked, so the accent roles it re-lit go back to their own colours'
+                          ? ', and with no scrim the band is not marked'
+                            . (!empty($overlay['band_relights']) ? ', so the accent roles it re-lit go back to their own colours' : '')
                           : '')
                       . '. Remove the raw background (put a colour in background.fill beside the image '
                       . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
-                      . 'background cannot carry an image. On a dark background, set the accents\' typography.color')
+                      . 'background cannot carry an image'
+                      . (!empty($overlay['band_relights']) ? '. On a dark background, set the accents\' typography.color' : ''))
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -5345,9 +5351,15 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                         $scrim_at[] = (string) $bp;
                     }
                 }
+                // Accent roles re-light only on a component with overlay-tier roles; the reason speaks of them only there.
+                $relights = false;
+                foreach ($roles as $role_definition) {
+                    $relights = $relights || (is_array($role_definition['overlay_defaults'] ?? null) && $role_definition['overlay_defaults'] !== []);
+                }
                 foreach ($by_bp as $bp => $declarations) {
                     if (!empty($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'])) {
                         $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['band_scrim_at'] = $scrim_at;
+                        $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['band_relights'] = $relights;
                     }
                 }
             }
@@ -9684,18 +9696,22 @@ function pp_udc_composition_findings(array $items): array {
                 // _pp_udc_value_is_light(). A readably dark background is the design working: firing there is the
                 // refused false-alarm class. A new condition of this kind goes through this gate, not a rule of its
                 // own. (The unscrimmed-image width is not gated: the engine cannot read an image; see #1152.)
-                // NO COLOUR IS NOT DARK (red team RT1, ruling A): a background that paints no surface, or whose colours all
-                // sit under the scrim's minimum alpha, shows whatever is behind the band, so it counts as unreadable here.
-                // Only a readable, opaque-enough dark colour silences a condition. The alpha floor covers both halves:
-                // everything _pp_udc_paints_surface() calls no surface (transparent, none, initial, unset, a zero-alpha
-                // colour) carries no colour at or over it, so a separate surface check here would be dead code.
-                $accent_may_not_read = static function ($bp) use ($band_compiled): bool {
-                    $own = _pp_udc_band_own_background($band_compiled, (string) $bp);
+                // NO COLOUR IS NOT DARK (red team RT1, ruling A), AND NEITHER IS PART OF ONE (red team cycle 2 C, ruling A):
+                // a background with ANY colour under the scrim's minimum alpha shows whatever is behind the band over
+                // part of it, so it counts as unreadable here: the scrim reader's own rule, a few lines below. Only a
+                // background whose every colour is readably opaque dark silences a condition. That also covers every
+                // value _pp_udc_paints_surface() calls no surface (transparent, none, initial, unset, a zero-alpha colour).
+                // Where the image paints, only the colour the image leaves visible is read (cycle 2 B).
+                $accent_may_not_read = static function ($bp) use ($band_compiled, $effective): bool {
+                    $own = _pp_udc_band_own_background($band_compiled, (string) $bp, !empty($effective['tiers'][$bp]['image']));
                     if ($own === null) {
                         return true;
                     }
-                    $opaque = array_filter(_pp_udc_value_colours($own, []), static fn (array $c): bool => $c[3] >= PP_UDC_SCRIM_MIN_ALPHA);
-                    return $opaque === [] || _pp_udc_value_is_light($own, []) !== false;
+                    $colours = _pp_udc_value_colours($own, []);
+                    if ($colours === [] || array_filter($colours, static fn (array $c): bool => $c[3] < PP_UDC_SCRIM_MIN_ALPHA) !== []) {
+                        return true;
+                    }
+                    return _pp_udc_value_is_light($own, []) !== false;
                 };
                 if ($covered !== [] && $missing !== []) {
                     // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
@@ -11834,25 +11850,77 @@ function _pp_udc_hsl_to_rgb(float $h, float $s, float $l): array {
 }
 
 /**
- * The background the band itself paints at a width, read off the compiled band (PR-2 review, design ruling A): the
- * resting `_band` block's `background-color` or `background` at that width, else at the desktop width (the tablet
- * and phone tiers are disjoint and each inherits only from the base). Band tokens are put back. Null when the band
- * declares none there: the component's own background shows, which the engine does not read.
+ * The background the band itself shows at a width, read off the compiled band (PR-2 review, design ruling A): the
+ * resting `_band` blocks at the desktop width and then at that width (the tablet and phone tiers are disjoint and each
+ * inherits only from the base), their `background`, `background-color` and `background-image` taken in emitted order,
+ * as the cascade takes them. Band tokens are put back. Null when the band declares none: the component's own
+ * background shows, which the engine does not read.
+ *
+ * WHERE THE IMAGE PAINTS ($image_paints), ONLY THE COLOUR SHOWS (red team cycle 2 B, ruling A): the emitted
+ * `background-image` replaces every image layer of a `background` shorthand, so what a partial scrim leaves visible is
+ * the shorthand's colour, transparent when it has none (a gradient-only fill). Elsewhere the image layers paint, so
+ * they are returned when present, the colour otherwise.
  */
-function _pp_udc_band_own_background(array $band_compiled, string $bp): ?string {
-    $found = [];
+function _pp_udc_band_own_background(array $band_compiled, string $bp, bool $image_paints = false): ?string {
+    $tiers = [];
     foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
-        if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '' || ($block['state'] ?? '') !== '') {
-            continue;
+        if (($block['role'] ?? '') === '_band' && ($block['item'] ?? '') === '' && ($block['state'] ?? '') === '') {
+            $tiers[(string) ($block['bp'] ?? '')] = (array) ($block['decls'] ?? []);
         }
-        foreach (['background-color', 'background'] as $property) {
-            $css = $block['decls'][$property]['css'] ?? null;
-            if (is_string($css) && !isset($found[(string) ($block['bp'] ?? '')])) {
-                $found[(string) ($block['bp'] ?? '')] = _pp_udc_compiled_value($css, $band_compiled);
+    }
+    $layers = null;
+    $colour = null;
+    foreach (array_unique(['d', $bp]) as $tier) {
+        foreach ($tiers[$tier] ?? [] as $property => $decl) {
+            if (!is_string($decl['css'] ?? null)) {
+                continue;
+            }
+            $css = _pp_udc_compiled_value($decl['css'], $band_compiled);
+            if ($property === 'background') {
+                [$layers, $colour] = _pp_udc_split_background_shorthand($css);
+            } elseif ($property === 'background-color') {
+                $colour = $css;
+            } elseif ($property === 'background-image') {
+                $layers = $css;
             }
         }
     }
-    return $found[$bp] ?? $found['d'] ?? null;
+    if ($image_paints) {
+        return $colour;
+    }
+    return ($layers !== null && $layers !== '' && strtolower(trim($layers)) !== 'none') ? $layers : $colour;
+}
+
+/**
+ * A `background` shorthand split into its image layers (gradients and url()s, comma-joined) and its colour
+ * ('transparent' when it names none, as the shorthand resets it). What is left once the image layers are removed is
+ * the colour, with any position, size or repeat words beside it (the colour readers ignore those).
+ *
+ * @return array{0: string, 1: string}
+ */
+function _pp_udc_split_background_shorthand(string $value): array {
+    $layers = [];
+    $rest   = '';
+    $length = strlen($value);
+    for ($i = 0; $i < $length;) {
+        if (preg_match('/\G((?:repeating-)?(?:linear|radial|conic)-gradient|url)\(/i', $value, $m, 0, $i)) {
+            $depth = 0;
+            for ($j = $i + strlen($m[1]); $j < $length; $j++) {
+                if ($value[$j] === '(') {
+                    $depth++;
+                } elseif ($value[$j] === ')' && --$depth === 0) {
+                    break;
+                }
+            }
+            $layers[] = substr($value, $i, $j - $i + 1);
+            $i        = $j + 1;
+            continue;
+        }
+        $rest .= $value[$i];
+        $i++;
+    }
+    $colour = trim((string) preg_replace('/[\s,]+/', ' ', $rest));
+    return [implode(', ', $layers), $colour === '' ? 'transparent' : $colour];
 }
 
 /**
@@ -11863,9 +11931,9 @@ function _pp_udc_band_own_background(array $band_compiled, string $bp): ?string 
  *
  * FALSE MEANS "NO LIGHT COLOUR FOUND", NOT "DARK". `transparent`, a zero-alpha colour and a thin wash all
  * answer false, yet they paint nothing readable. A caller that SILENCES something on a dark answer must pair
- * this with the PP_UDC_SCRIM_MIN_ALPHA floor (no colour at or over it = unreadable, which also covers every
- * value _pp_udc_paints_surface() calls no surface), as the off-scrim gate in pp_udc_composition_findings()
- * does (`$accent_may_not_read`, red team RT1).
+ * this with the PP_UDC_SCRIM_MIN_ALPHA floor (ANY colour under it = unreadable, which also covers every value
+ * _pp_udc_paints_surface() calls no surface), as the off-scrim gate in pp_udc_composition_findings() does
+ * (`$accent_may_not_read`, red team RT1 and cycle 2 C).
  */
 function _pp_udc_value_is_light(string $value, array $band_tokens): ?bool {
     $colours = _pp_udc_value_colours($value, $band_tokens);

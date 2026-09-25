@@ -284,4 +284,37 @@ final class RawBackgroundWinsTest extends TestCase
             $this->assertStringContainsString('the raw background in _css resets the background here', $reason);
         }
     }
+
+    /** A raw image beside the raw background keeps its scrim painting, so it is not counted as dropped (red team cycle 2 A). */
+    public function testARawImageBesideARawBackgroundKeepsTheBandMarkedInTheDropReason(): void
+    {
+        $o    = 'rgba(6,10,28,0.72)';
+        $band = ['background' => ['overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['d' => '#0a0a12', 't' => '#ffffff'], 'background-image' => 9002]];
+        $this->assertTrue(pp_udc_band_has_overlay($this->band($band)));
+        $reasons = $this->rawWonReasons($band);
+        $this->assertCount(1, $reasons);
+        $this->assertStringNotContainsString('the band is not marked', $reasons[0]);
+        $this->assertStringNotContainsString('remove background.image', $reasons[0]);
+        $this->assertStringContainsString('The scrim still paints at the desktop and phone widths', $reasons[0]);
+    }
+
+    /**
+     * The reason names no other finding (a message pointing at another finding lies the next time a gate changes),
+     * and speaks of accent roles only on a component that has overlay-tier roles (red team cycle 2 D).
+     */
+    public function testTheDropReasonNamesNoOtherFindingAndNoAccentsTheComponentLacks(): void
+    {
+        $o    = 'rgba(0,0,0,0.7)';
+        $band = ['background' => ['image' => 9001, 'overlay' => ['d' => $o, 't' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#0a0a12']]];
+        $cta  = $this->rawWonReasons($band);
+        $this->assertCount(1, $cta);
+        $this->assertStringNotContainsString('finding', $cta[0]);
+        $this->assertStringContainsString('accent', $cta[0], 'cta has overlay-tier roles');
+        foreach ([$band, ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]] as $map) {
+            $section = $this->rawWonReasons($map, 'section');
+            $this->assertCount(1, $section);
+            $this->assertStringNotContainsString('accent', $section[0], 'section has no overlay-tier roles');
+            $this->assertStringContainsString('the raw background in _css resets the background here', $section[0]);
+        }
+    }
 }

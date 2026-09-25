@@ -753,4 +753,37 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => 'rgba(10,10,18,0.9)', 'size' => '50%', 'repeat' => 'no-repeat']]]),
             'a readable, opaque-enough dark still silences');
     }
+
+    /**
+     * UNDER THE IMAGE, ONLY THE COLOUR SHOWS (red team cycle 2 B, ruling A). Where the image paints, the emitted
+     * `background-image` replaces the image layers of the fill's `background` shorthand, so a partial scrim leaves
+     * the shorthand's COLOUR visible (transparent when it has none): a gradient-only fill is unreadable and fires,
+     * while a readably dark colour beside it (a raw background-color, printed after the shorthand) stays silent.
+     */
+    public function testUnderThePaintingImageTheGateReadsOnlyTheColourLeftVisible(): void
+    {
+        $partial = ['fill' => 'linear-gradient(#0a0a12, #0a0a12)', 'size' => '50%', 'repeat' => 'no-repeat'];
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial]]), 'a gradient-only fill leaves transparent');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial, '_css' => ['background-color' => '#0a0a12']]]),
+            'a readably dark colour beside the gradient is what shows');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial, '_css' => ['background-color' => '#ffffff']]]),
+            'a light one fires');
+        // At a narrower width that borrows the image, too.
+        $this->assertCount(1, $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(6,10,28,0.72)', 't' => 'rgba(6,10,28,0.72)'],
+            'fill' => ['t' => 'linear-gradient(#0a0a12, #0a0a12)'], 'size' => ['t' => '50%'], 'repeat' => 'no-repeat']]]), 'tablet borrows the image');
+    }
+
+    /**
+     * ANY STOP UNDER THE FLOOR IS UNREADABLE (red team cycle 2 C, ruling A): the scrim reader's own rule. A background
+     * fading to transparent shows whatever is behind the band over part of it; only every stop readably opaque dark
+     * silences the gate.
+     */
+    public function testABackgroundFadingToTransparentDoesNotSilenceTheGate(): void
+    {
+        $fade = 'linear-gradient(#0a0a12, transparent)';
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $fade]]]]), 'fill');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $fade]]]]), 'raw');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => 'linear-gradient(#0a0a12, #101828)']]]]),
+            'every stop readably dark still silences');
+    }
 }
