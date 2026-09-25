@@ -108,7 +108,7 @@ longer say a forged flag passes.
 
 ### Tests
 
-`RawBackgroundWinsTest` (23, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
+`RawBackgroundWinsTest` (29, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
 shorthand winning its coordinate through the write path and in the browser; `OverlayAccentOffScrimTest`,
 `UdcEffectiveBackgroundTest`, `OverlayTierDefaultsTest`, `CliSchemaCommandTest` and
 `TableEmbedLogosMarkupTest` cover the new causes, the lightness rule, the accessor's `size` / `repeat` /

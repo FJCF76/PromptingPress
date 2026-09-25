@@ -887,8 +887,9 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                         // A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a
                         // checker stricter than the compiler would report a role the engine renders as unreportable.
                         // SHAPE ONLY: this checks a leaf's shape (single-line string, finite number, not a boolean),
-                        // not each parameter's grammar; a value of the right shape the parameter refuses is dropped at
-                        // compile and ledgered (scoped verification, design).
+                        // not each parameter's grammar. A value of the right shape the parameter refuses is dropped
+                        // when the overlay tier compiles, and that path keeps no ledger, so the drop is silent: check
+                        // overlay values against the group grammar yourself (follow-up filed; final scoped red team).
                         $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
                             || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
                     }
