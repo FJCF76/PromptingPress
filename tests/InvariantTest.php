@@ -1293,8 +1293,12 @@ class InvariantTest extends TestCase
                 // through pp_render_responsive_image() — so the identifier appearing in a
                 // template's code at all — a call, or a callable string for
                 // call_user_func() — is new.
-                if (($token[0] === T_STRING && strtolower($token[1]) === 'pp_esc_image_src')
-                    || ($token[0] === T_CONSTANT_ENCAPSED_STRING && strtolower(trim($token[1], "'\"")) === 'pp_esc_image_src')) {
+                // A leading backslash (`\pp_esc_image_src(`, a T_NAME_FULLY_QUALIFIED token
+                // on PHP 8) names the same global function, so it is stripped first.
+                $isName   = $token[0] === T_STRING || (defined('T_NAME_FULLY_QUALIFIED') && $token[0] === T_NAME_FULLY_QUALIFIED);
+                $isString = $token[0] === T_CONSTANT_ENCAPSED_STRING;
+                $name     = $isString ? trim($token[1], "'\"") : $token[1];
+                if (($isName || $isString) && strtolower(ltrim($name, '\\')) === 'pp_esc_image_src') {
                     $escapers[] = $rel;
                 }
             }
