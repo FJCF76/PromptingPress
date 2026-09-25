@@ -2603,12 +2603,16 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
  * @return array<string, array<string, array>>
  */
 function _pp_udc_raw_background_wins(array $by_bp): array {
+    $removed_image = [];
     foreach ($by_bp as $bp => $declarations) {
         if (empty($declarations['background']['raw'])) {
             continue;
         }
         foreach ($declarations as $property => $entry) {
             if (strncmp((string) $property, 'background-', 11) === 0 && empty($entry['raw'])) {
+                if ($property === 'background-image') {
+                    $removed_image[(string) $bp] = true;
+                }
                 unset($by_bp[$bp][$property]);
             }
         }
@@ -2616,6 +2620,17 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
         // background rather than asking for an image the author did set (PR-2 review, api-contract).
         if (is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
             $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+        }
+    }
+    // A raw desktop background that removed the image leaves a scrim set only at a narrower width with no image to
+    // borrow: that width inherits the desktop shorthand, so its scrim is dropped for the same reason and says so,
+    // not "Set background.image" to an author who set one (red team RT2).
+    if (isset($removed_image['d'])) {
+        foreach ($by_bp as $bp => $declarations) {
+            if ($bp !== 'd' && !isset($declarations['background']) && !isset($declarations['background-image'])
+                && is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
+                $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+            }
         }
     }
     return $by_bp;
@@ -9631,8 +9646,19 @@ function pp_udc_composition_findings(array $items): array {
                 // _pp_udc_value_is_light(). A readably dark background is the design working: firing there is the
                 // refused false-alarm class. A new condition of this kind goes through this gate, not a rule of its
                 // own. (The unscrimmed-image width is not gated: the engine cannot read an image; see #1152.)
-                $accent_may_not_read = static fn ($bp): bool => _pp_udc_value_is_light(
-                    (string) _pp_udc_band_own_background($band_compiled, (string) $bp), []) !== false;
+                // NO COLOUR IS NOT DARK (red team RT1, ruling A): a background that paints no surface, or whose colours all
+                // sit under the scrim's minimum alpha, shows whatever is behind the band, so it counts as unreadable here.
+                // Only a readable, opaque-enough dark colour silences a condition. The alpha floor covers both halves:
+                // everything _pp_udc_paints_surface() calls no surface (transparent, none, initial, unset, a zero-alpha
+                // colour) carries no colour at or over it, so a separate surface check here would be dead code.
+                $accent_may_not_read = static function ($bp) use ($band_compiled): bool {
+                    $own = _pp_udc_band_own_background($band_compiled, (string) $bp);
+                    if ($own === null) {
+                        return true;
+                    }
+                    $opaque = array_filter(_pp_udc_value_colours($own, []), static fn (array $c): bool => $c[3] >= PP_UDC_SCRIM_MIN_ALPHA);
+                    return $opaque === [] || _pp_udc_value_is_light($own, []) !== false;
+                };
                 if ($covered !== [] && $missing !== []) {
                     // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
                     // the band's own background, not on an image (PR-2 review, security).
@@ -11791,6 +11817,12 @@ function _pp_udc_band_own_background(array $band_compiled, string $bp): ?string 
  * engine cannot read it. Light means the theme's near-white on-overlay ink would fall
  * under 3:1 on it: relative luminance above 0.2867, at an alpha of at least 0.3 (a thinner
  * wash is the image, not the colour). A classification, not a contrast measurement.
+ *
+ * FALSE MEANS "NO LIGHT COLOUR FOUND", NOT "DARK". `transparent`, a zero-alpha colour and a thin wash all
+ * answer false, yet they paint nothing readable. A caller that SILENCES something on a dark answer must pair
+ * this with the PP_UDC_SCRIM_MIN_ALPHA floor (no colour at or over it = unreadable, which also covers every
+ * value _pp_udc_paints_surface() calls no surface), as the off-scrim gate in pp_udc_composition_findings()
+ * does (`$accent_may_not_read`, red team RT1).
  */
 function _pp_udc_value_is_light(string $value, array $band_tokens): ?bool {
     $colours = _pp_udc_value_colours($value, $band_tokens);

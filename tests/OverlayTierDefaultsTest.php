@@ -379,4 +379,14 @@ final class OverlayTierDefaultsTest extends TestCase
                 pp_schema_definition_errors($role($bad), 'role', 'c role r'), var_export($bad, true));
         }
     }
+
+    /** A GROUP that is not a map of parameters is refused, so no value reaches `wp pp schema` unchecked (PR-2 red team, informational; needs a schema write). */
+    public function testAnOverlayDefaultsGroupMustBeAMapOfParameters(): void
+    {
+        foreach (["x\ny\u{202E}", 7, ['#fff']] as $bad) {
+            $this->assertContains('c role r: `overlay_defaults` group `typography` must be a MAP of parameters.',
+                pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => $bad]], 'role', 'c role r'),
+                var_export($bad, true));
+        }
+    }
 }

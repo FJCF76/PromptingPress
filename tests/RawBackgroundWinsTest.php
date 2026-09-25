@@ -105,6 +105,17 @@ final class RawBackgroundWinsTest extends TestCase
         pp_udc_compile_band($item, 'authored', $drops);
         $this->assertStringNotContainsString('url(', pp_udc_band_css($item));
         $this->assertContains('overlay_without_image', array_column($drops, 'code'));
+        // The reason names the raw background, never "Set background.image" to an author who set one (red team RT2).
+        foreach ([['p' => 'rgba(0,0,0,0.7)'], ['d' => 'rgba(0,0,0,0.7)', 'p' => 'rgba(0,0,0,0.6)']] as $overlay) {
+            $drops = [];
+            pp_udc_compile_band($this->band(['background' => ['image' => 9001, 'overlay' => $overlay], PP_UDC_CSS_KEY => ['background' => '#ffffff']]), 'authored', $drops);
+            $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'));
+            $this->assertNotSame([], $rows, json_encode($overlay));
+            foreach ($rows as $row) {
+                $this->assertStringNotContainsString('Set background.image', $row['reason'], json_encode($overlay));
+                $this->assertStringContainsString('the raw background in _css resets the background here', $row['reason'], json_encode($overlay));
+            }
+        }
     }
 
     /** No raw background: emission is byte-identical to main for an image band with a scrim. */

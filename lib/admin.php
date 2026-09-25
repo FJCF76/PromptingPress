@@ -852,8 +852,14 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                 // #1142 item 2: a STATE inside the tier would print at (0,3,0) and outrank an author's
                 // resting value, contradicting "your value wins"; a key that is no parameter of the group
                 // was dropped silently at render.
+                // A GROUP must be a map of parameters: a scalar would skip every value check below and still reach
+                // `wp pp schema`'s raw-unicode sink whole (PR-2 red team; it needs a schema write).
+                if (!is_array($group_map) || ($group_map !== [] && pp_is_list($group_map))) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` must be a MAP of parameters.";
+                    continue;
+                }
                 $group_params = function_exists('pp_udc_groups') ? (pp_udc_groups()[$group]['params'] ?? null) : null;
-                foreach (is_array($group_map) ? $group_map : [] as $key => $value) {
+                foreach ($group_map as $key => $value) {
                     $key = (string) $key;
                     if (strncmp($key, ':', 1) === 0) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` must not hold a state (`{$key}`): the tier is a resting default.";

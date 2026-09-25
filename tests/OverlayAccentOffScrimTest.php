@@ -733,4 +733,24 @@ final class OverlayAccentOffScrimTest extends TestCase
         $found = $this->found($partial('#ffffff'));
         $this->assertStringContainsString('size the image cover, or let it tile, and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
     }
+
+    /**
+     * NO COLOUR IS NOT DARK (PR-2 red team RT1, ruling A). An own background that paints no surface, or whose
+     * colours all sit under the scrim's minimum alpha, shows whatever is behind the band, which the engine does
+     * not read: the gate counts it UNREADABLE, so it fires. Otherwise `fill: transparent` would silence a
+     * finding that leaving the fill out raises. Three values across the three gated arms.
+     */
+    public function testAnOwnBackgroundWithNoReadableOpaqueColourDoesNotSilenceTheGate(): void
+    {
+        foreach (['transparent', 'rgba(0,0,0,0)', 'rgba(255,255,255,0.2)'] as $value) {
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => $value, 'size' => '50%', 'repeat' => 'no-repeat']]]),
+                "partial scrim over {$value}");
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $value]]]]),
+                "fill {$value} at the phone width");
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $value]]]]),
+                "raw background {$value} at the phone width");
+        }
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => 'rgba(10,10,18,0.9)', 'size' => '50%', 'repeat' => 'no-repeat']]]),
+            'a readable, opaque-enough dark still silences');
+    }
 }
