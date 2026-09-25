@@ -41,14 +41,18 @@ deleted, and the fixture's copy of the guard goes with them:
 This coverage was given up on purpose, not lost. The escaper itself, `pp_esc_image_src()`,
 stays live and pinned on the v2 `_band` → `background.image` path.
 
+### ⚠️ Breaking
+
+- **`pp_theme_class()` is removed.** Any code outside the theme that called it now fatals
+  with an undefined function: a child theme's templates or `functions.php`, a plugin, or a
+  mu-plugin. A call made while a page renders takes down that whole page. A call made at load time, such as in
+  `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
+  `grep -rn "pp_theme_class(" wp-content/`.
+
 ### Upgrading
 
-- Any code outside the theme that called `pp_theme_class()` now fatals with an undefined
-  function: a child theme's templates or `functions.php`, a plugin, or a mu-plugin. A call
-  made while a page renders takes down that whole page. A call made at load time, such as in
-  `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
-  `grep -rn "pp_theme_class(" wp-content/`. Express a band's tone with the `_band` role's
-  `background.fill` and `typography.color` instead.
+- Express a band's tone with the `_band` role's `background.fill` and `typography.color`
+  instead of a `--dark`/`--inverted` class.
 
 ### Docs
 

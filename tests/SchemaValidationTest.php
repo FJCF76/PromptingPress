@@ -6725,10 +6725,14 @@ class SchemaValidationTest extends TestCase
      * down in comments on purpose and names these classes. A floor on each surface keeps
      * an empty scan from passing.
      *
+     * SURFACES: every schema; every PHP file under components/ (recursively) and lib/;
+     * assets/js/*.js; assets/css/*.css. The PHP scan also refuses the retired
+     * pp_theme_class() by name (a call, a fully-qualified call or a callable string).
+     *
      * WHAT IT DOES NOT SEE, stated so nobody leans on it for more: a class BUILT at
-     * runtime (`ROOT--<?php echo $tone ?>`, `'stats--' . 'dark'` — the shape the retired
-     * helper itself used) and a CSS attribute selector (`[class*="--dark"]`). It pins the
-     * written-out spellings, which is how every retired rule and declaration was written.
+     * runtime from pieces (`ROOT--<?php echo $tone ?>`, `'stats--' . 'dark'`) and a CSS
+     * attribute selector (`[class*="--dark"]`). It pins the written-out spellings, which
+     * is how every retired rule and declaration was written.
      */
     public function testTheRetiredToneVocabularyStaysGone(): void
     {
@@ -6745,23 +6749,52 @@ class SchemaValidationTest extends TestCase
             );
         }
 
-        // 2. Templates: no tone class in code or markup (PHP comments stripped by the
-        //    tokenizer; HTML text and string literals are kept, which is where a class
-        //    attribute lives).
-        $templates = glob($this->themeRoot . '/components/*/*.php') ?: [];
-        $this->assertGreaterThanOrEqual(10, count($templates), 'the template scan found fewer than ten files');
-        foreach ($templates as $file) {
+        // 2. PHP that renders — every file under components/ (recursively, so a partial
+        //    counts) and lib/ (the engine emits markup too): no tone class in code or
+        //    markup, and no reference to the retired pp_theme_class() helper by name.
+        //    Comments are dropped by the tokenizer; HTML text and string literals are
+        //    kept, which is where a class attribute lives. The helper check matters on
+        //    its own: a call on a branch no test renders would pass every render test
+        //    and fatal on the live page.
+        $php = [];
+        foreach (['components', 'lib'] as $dir) {
+            $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->themeRoot . '/' . $dir, \FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                if ($f->getExtension() === 'php') {
+                    $php[] = $f->getPathname();
+                }
+            }
+        }
+        $this->assertGreaterThanOrEqual(25, count($php), 'the PHP scan found fewer than 25 files under components/ and lib/');
+        foreach ($php as $file) {
             $code = '';
             foreach (token_get_all((string) file_get_contents($file)) as $token) {
                 if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
                     continue;
+                }
+                if (is_array($token)
+                    && in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED, T_CONSTANT_ENCAPSED_STRING], true)
+                    && strtolower(ltrim(trim($token[1], "'\""), '\\')) === 'pp_theme_class') {
+                    $this->fail(substr($file, strlen($this->themeRoot) + 1) . ' names pp_theme_class(), which retired at #1111 — an undefined-function fatal on whatever page reaches it');
                 }
                 $code .= is_array($token) ? $token[1] : $token;
             }
             $this->assertDoesNotMatchRegularExpression(
                 $tone,
                 $code,
-                basename($file) . ' emits a --dark/--inverted class; that vocabulary retired at #1111'
+                substr($file, strlen($this->themeRoot) + 1) . ' emits a --dark/--inverted class; that vocabulary retired at #1111'
+            );
+        }
+
+        // 2b. Front-end scripts: no tone class added at runtime (JS comments stripped).
+        $scripts = glob($this->themeRoot . '/assets/js/*.js') ?: [];
+        $this->assertGreaterThanOrEqual(2, count($scripts), 'the script scan found fewer than two files');
+        foreach ($scripts as $script) {
+            $js = (string) preg_replace(['#/\*.*?\*/#s', '#^\s*//.*$#m'], '', (string) file_get_contents($script));
+            $this->assertDoesNotMatchRegularExpression(
+                $tone,
+                $js,
+                basename($script) . ' names a --dark/--inverted class; that vocabulary retired at #1111'
             );
         }
 

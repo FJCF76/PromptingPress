@@ -119,8 +119,7 @@ function pp_footer_linkify_contact(string $contact): string {
  *     through wp_allowed_protocols() (http, https, mailto, tel, relative, anchors)
  *     and drops javascript:/vbscript:/data: and their obfuscated variants.
  *   - Non-string input (null / number / array from a malformed JSON payload)
- *     coerces to '' rather than tripping a type error — the defensive coercion every
- *     render-time helper in this file applies to raw prop input.
+ *     coerces to '' rather than tripping a type error.
  *
  * NOTE ON "plain text unchanged": markup-free copy round-trips unchanged, but
  * wp_kses normalizes entities exactly as WordPress does elsewhere (a bare `&`

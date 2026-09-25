@@ -745,5 +745,6 @@ class StoredCompositionAliasRenderTest extends TestCase
         $html = $this->renderStored($id);
         $this->assertStringContainsString('Legacy', $html, 'the page still renders');
         $this->assertStringNotContainsString('--dark', $html, 'but not as the muted band (no tone class of any prefix, #1111)');
+        $this->assertStringNotContainsString('--inverted', $html);
     }
 }
