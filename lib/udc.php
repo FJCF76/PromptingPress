@@ -6633,6 +6633,122 @@ function _pp_udc_paints_surface(string $value, string $longhand): bool {
 }
 
 /**
+ * WHICH ROLES THE BAND RENDERS WITH THESE PROPS (#1125, ruling E1-A): role => bool, read off the
+ * component's OWN template rendered in-process, or null when that cannot be answered (no DOM
+ * extension, a template that failed), in which case callers keep their unfiltered answer:
+ * unknown is never silence.
+ *
+ * WHY. The accessor answers what the band's compiled CSS paints on each role's element; it does not
+ * know whether the element exists for these props. Hero `surface` renders only in the split layout's
+ * second column, the eyebrow only with an `eyebrow` prop, a card role only when there is a card. A
+ * finding about an element the page does not have is advice about nothing. A per-role hand-written
+ * render predicate would be a copy of template logic, the drift class the accessor exists to remove,
+ * so the template itself is asked.
+ *
+ * SIDE-EFFECT FREE, and pinned so: the render goes into an output buffer that is always closed; the
+ * loader's WP_DEBUG missing-prop notices are swallowed by a handler that is always restored; component
+ * templates enqueue nothing and register nothing (they are called once per band on every page view
+ * already). Findings paths only; the caller asks at most once per band, and only when a finding is
+ * about to be emitted.
+ *
+ * @param array    $item   The band (composable components only; chrome is not rendered here).
+ * @param string[] $roles  role => selector, the roles to answer for.
+ * @return array<string, array{band: bool, items: array<string, bool>}>|null
+ */
+function _pp_udc_rendered_roles(array $item, array $roles): ?array {
+    $component = isset($item['component']) && is_scalar($item['component']) ? (string) $item['component'] : '';
+    $id        = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
+    if ($component === '' || pp_udc_is_chrome($component) || !pp_udc_valid_band_id($id) || !class_exists('DOMDocument')) {
+        return null;
+    }
+    $props = pp_udc_promote_band_identity($item, isset($item['props']) && is_array($item['props']) ? $item['props'] : []);
+    $level = ob_get_level();
+    ob_start();
+    set_error_handler(static fn (): bool => true, E_USER_WARNING | E_USER_NOTICE | E_WARNING | E_NOTICE);
+    try {
+        pp_get_component($component, $props);
+        $html = (string) ob_get_contents();
+    } catch (\Throwable $e) {
+        $html = null;
+    } finally {
+        restore_error_handler();
+        while (ob_get_level() > $level) {
+            ob_end_clean();
+        }
+    }
+    if ($html === null || trim($html) === '') {
+        return null;
+    }
+    $dom      = new \DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $loaded   = $dom->loadHTML('<?xml encoding="utf-8"?><div id="pp-presence-root">' . $html . '</div>');
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+    if (!$loaded) {
+        return null;
+    }
+    $xpath = new \DOMXPath($dom);
+    $band  = $xpath->query('//*[@data-pp-band="' . $id . '"]');
+    if ($band === false || $band->length === 0) {
+        return null;
+    }
+    $root = $band->item(0);
+    $out  = [];
+    foreach ($roles as $role => $selector) {
+        $path = _pp_udc_selector_xpath((string) $selector);
+        if ($path === null) {
+            return null; // A selector outside the small grammar: do not guess.
+        }
+        $found = $xpath->query('.' . $path, $root);
+        $items = [];
+        foreach ($found === false ? [] : $found as $node) {
+            for ($up = $node; $up instanceof \DOMElement && $up !== $root; $up = $up->parentNode) {
+                if ($up->hasAttribute('data-pp-item')) {
+                    $items[$up->getAttribute('data-pp-item')] = true;
+                    break;
+                }
+            }
+        }
+        $out[(string) $role] = ['band' => $found !== false && $found->length > 0, 'items' => $items];
+    }
+    return $out;
+}
+
+/**
+ * A role selector as a descendant XPath (#1125, E1-A). Role selectors are schema-owned and charset-
+ * gated (_pp_udc_selector_is_emittable(): `[A-Za-z0-9_ .>[]-]`, presence-only attribute terms), so the
+ * grammar is compounds of an optional tag, `.class` and `[attr]` terms, joined by descendant spaces
+ * or `>`. Anything else returns null.
+ */
+function _pp_udc_selector_xpath(string $selector): ?string {
+    $selector = trim((string) preg_replace('/\s*>\s*/', ' > ', $selector));
+    if ($selector === '') {
+        return null;
+    }
+    $path = '';
+    $axis = '//';
+    foreach (preg_split('/\s+/', $selector) as $token) {
+        if ($token === '>') {
+            $axis = '/';
+            continue;
+        }
+        if (!preg_match('/^([A-Za-z][A-Za-z0-9]*)?((?:\.[A-Za-z0-9_-]+|\[[A-Za-z][A-Za-z0-9_-]*\])*)\z/', $token, $m) || $token === '') {
+            return null;
+        }
+        $step = $m[1] !== '' ? strtolower($m[1]) : '*';
+        preg_match_all('/\.([A-Za-z0-9_-]+)|\[([A-Za-z][A-Za-z0-9_-]*)\]/', $m[2], $terms, PREG_SET_ORDER);
+        foreach ($terms as $term) {
+            $step .= ($term[1] ?? '') !== ''
+                ? "[contains(concat(' ', normalize-space(@class), ' '), ' " . $term[1] . " ')]"
+                : '[@' . $term[2] . ']';
+        }
+        $path .= $axis . $step;
+        $axis = '//';
+    }
+    return $path;
+}
+
+/**
  * The specificity of a selector the renderer prints, as [ids, classes/attributes/pseudo-
  * classes, types] (#1125). The selectors come from _pp_udc_emitted_selector() over schema-owned
  * role selectors (charset-gated by _pp_udc_selector_is_emittable()) and engine-owned scopes, so
@@ -8762,6 +8878,12 @@ function pp_udc_composition_findings(array $items): array {
     // memoised per call (per component: a band-independent constant of this request).
     $ink_disclosed       = 0;
     $role_paint_defaults = [];
+    // THE RENDER BUDGET (ruling E1-A cost condition): the on-the-page check renders a band through its
+    // template only when a finding is about to fire, at most this many bands per call. Measured: +3.2 ms
+    // on a realistic 12-band write with two firing bands (one a 30-card grid); one render of a 200-card
+    // grid is 4.8 ms. The bound is Check 8e's named lever class (25 bands). Past it, presence is unknown
+    // and the finding keeps its unfiltered answer: unknown is never silence (evidence-t2/compile-cost).
+    $presence_renders_left = 25;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -9268,6 +9390,10 @@ function pp_udc_composition_findings(array $items): array {
                         }
                     }
                     $item_roles_here = (array) (pp_udc_item_roles($component)['roles'] ?? []);
+                    // ON THE PAGE (ruling E1-A): asked of the component's own template, once per band and
+                    // only when a finding is about to be emitted; null means unknown and filters nothing.
+                    $presence       = null;
+                    $presence_asked = false;
                     // The cards a band-level element stands for: every card without its own element for
                     // the role (no cards at all still means the role's element, rendered for any card).
                     $card_entry_ids = [];
@@ -9346,6 +9472,26 @@ function pp_udc_composition_findings(array $items): array {
                         }
                         if ($fired === []) {
                             continue;
+                        }
+                        if ($ink_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                            break; // Capped: stop before the render too, not only the output.
+                        }
+                        if (!$presence_asked) {
+                            $presence_asked = true;
+                            $asked = [];
+                            foreach ($roles as $asked_role => $asked_def) {
+                                if (($asked_def['text_content'] ?? false) === true) {
+                                    $asked[(string) $asked_role] = (string) ($asked_def['selector'] ?? '');
+                                }
+                            }
+                            $presence = $presence_renders_left > 0 ? _pp_udc_rendered_roles($item, $asked) : null;
+                            $presence_renders_left--;
+                        }
+                        if ($presence !== null) {
+                            $on_page = $presence[$element['role']] ?? ['band' => false, 'items' => []];
+                            if ($element['item'] === '' ? !$on_page['band'] : !isset($on_page['items'][$element['item']])) {
+                                continue; // The element is not rendered with these props: nothing to name.
+                            }
                         }
                         if ($ink_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                             break;

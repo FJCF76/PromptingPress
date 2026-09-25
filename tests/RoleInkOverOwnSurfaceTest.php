@@ -249,7 +249,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'component' => 'section', 'id' => 'pp-a1b2c3d4',
             'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
                             'panel' => ['background' => ['image' => 9002], 'typography' => ['color' => '@color-bg']]],
-            'props'     => ['title' => 'T', 'body' => 'b'],
+            'props'     => ['title' => 'T', 'body' => 'b', 'layout' => 'text-panel', 'panel_body' => 'Panel text'],
         ]]));
         $this->assertCount(1, $found, 'no attachment 9002 in the store');
         $this->assertStringContainsString('role "panel"', $found[0]['message']);
@@ -272,7 +272,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(
             ['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'button-secondary' => ['typography' => ['color' => '@color-bg']]],
             'cta',
-            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x']
+            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y']
         );
         $this->assertSame([], $found, 'at rest the secondary button is transparent; its :hover default also re-inks it');
     }
@@ -324,7 +324,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
              'button-secondary' => ['typography' => [':hover' => ['color' => '#fff5a0']]]],
             'cta',
-            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x']
+            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y']
         );
         $this->assertCount(1, $found);
         $this->assertStringContainsString('role "button-secondary"', $found[0]['message']);
@@ -338,7 +338,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
      */
     public function testFollowingTheStateAdviceLiterallyClearsTheFinding(): void
     {
-        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x'];
+        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y'];
         $ink   = ['typography' => ['color' => '#ffffff', ':hover' => ['color' => '#ffffff']]];
         [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'button-secondary' => $ink], 'cta', $props);
         $this->assertCount(1, $found);
@@ -371,7 +371,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
      */
     public function testAnInkInACombinedStateIsNamed(): void
     {
-        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x'];
+        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y'];
         foreach ([':active', ':focus-visible'] as $state) {
             [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
                 'button-secondary' => ['typography' => ['color' => '#ffffff', $state => ['color' => '#fff5a0']]]], 'cta', $props);
@@ -653,6 +653,89 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertMatchesRegularExpression('/directly( \([^)]*\))?\.\z/', $sibling[0]['message'], 'the message ends at its advice');
     }
 
+    // ── On the page (ruling E1-A): only roles the band renders with these props ─────────────
+
+    /** The ordinary dark hero (centered, no proof) renders no `surface`: the band ink there names nothing. */
+    public function testACenteredHeroNamesNoSurfaceItDoesNotRender(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
+            'hero', ['layout' => 'centered', 'title' => 'H', 'subheading' => 'S', 'button_text' => 'Go', 'button_url' => '/x']);
+        $this->assertSame([], $found);
+    }
+
+    /** The eyebrow renders only with an `eyebrow` prop: the same ink without it names nothing. */
+    public function testAnEyebrowWithoutItsPropIsNotNamed(): void
+    {
+        $udc = ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]];
+        [, $found] = $this->write($udc, 'section', ['title' => 'T', 'body' => 'b']);
+        $this->assertSame([], $found);
+        [, $found] = $this->write($udc, 'section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']);
+        $this->assertCount(1, $found, 'premise: with the prop it is named');
+    }
+
+    /**
+     * THE RENDER IS SIDE-EFFECT FREE (ruling E1-A condition): nothing is emitted, the output-buffer level
+     * and the error handler are restored, no global is added, and the store is untouched.
+     */
+    public function testThePresenceRenderIsSideEffectFree(): void
+    {
+        $band = ['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'props' => ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>'], 'udc' => []];
+        $level   = ob_get_level();
+        $globals = array_keys($GLOBALS);
+        $store   = serialize($GLOBALS['_pp_test_store']);
+        $marker  = static fn (): bool => false;
+        set_error_handler($marker);
+        ob_start();
+        $presence = _pp_udc_rendered_roles($band, ['surface' => '.hero__surface', 'eyebrow' => '.hero__eyebrow']);
+        $emitted  = ob_get_clean();
+        $restored = set_error_handler(static fn (): bool => false);
+        restore_error_handler();
+        restore_error_handler();
+        $this->assertSame('', $emitted, 'nothing is emitted');
+        $this->assertSame($level, ob_get_level(), 'the buffer level is restored');
+        $this->assertSame($marker, $restored, 'the error handler is restored');
+        $this->assertSame([], array_values(array_diff(array_keys($GLOBALS), $globals)), 'no global is added');
+        $this->assertSame($store, serialize($GLOBALS['_pp_test_store']), 'the store is untouched');
+        $this->assertTrue($presence['surface']['band']);
+        $this->assertFalse($presence['eyebrow']['band']);
+    }
+
+    /**
+     * THE RENDER IS BOUNDED (E1-A cost condition): at most 25 bands per call are rendered; past that,
+     * presence is unknown and the finding keeps its unfiltered answer (never silence). 30 centered heroes
+     * render no surface: the first 25 are silenced by the render, the last 5 are not rendered and keep firing.
+     */
+    public function testThePresenceRenderIsBoundedPerCall(): void
+    {
+        $bands = [];
+        for ($b = 0; $b < 30; $b++) {
+            $bands[] = ['component' => 'hero', 'id' => sprintf('pp-%08x', $b + 1), 'props' => ['layout' => 'centered', 'title' => 'H'],
+                'udc' => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]]];
+        }
+        $found = $this->only(pp_udc_composition_findings($bands));
+        $this->assertSame([25, 26, 27, 28, 29], array_column($found, 'index'));
+    }
+
+    /** The selector-to-XPath reader covers the shipped selector grammar and refuses anything else. */
+    public function testTheRoleSelectorReaderCoversTheShippedGrammar(): void
+    {
+        $count = 0;
+        foreach (array_merge(array_keys(pp_composable_components()), pp_udc_chrome_names()) as $component) {
+            foreach (pp_udc_component_roles((string) $component) as $role => $definition) {
+                if ($role === '_band') {
+                    continue;
+                }
+                $count++;
+                $this->assertNotNull(_pp_udc_selector_xpath((string) $definition['selector']), $component . ' ' . $role);
+            }
+        }
+        $this->assertSame(131, $count);
+        $this->assertSame("//*[contains(concat(' ', normalize-space(@class), ' '), ' faq__item ')][@open]/*[contains(concat(' ', normalize-space(@class), ' '), ' faq__question ')]",
+            _pp_udc_selector_xpath('.faq__item[open] > .faq__question'));
+        $this->assertNull(_pp_udc_selector_xpath('a:hover'));
+        $this->assertNull(_pp_udc_selector_xpath(''));
+    }
+
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
     public function testASingleWidthIsNamedInTheSingular(): void
     {
@@ -740,7 +823,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     {
         $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
         $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
-        $band = ['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'T', 'title_accent' => 'T'],
+        $band = ['component' => 'hero', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'T', 'title_accent' => 'T', 'eyebrow' => 'E'],
             'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(6,10,28,0.72)']],
                       'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
         $this->assertTrue(pp_udc_band_has_overlay($band), 'premise: the band is marked');
@@ -776,10 +859,12 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             $found = $this->only(pp_udc_composition_findings([
                 ['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'props' => $props,
                  'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'step-number' => ['typography' => ['color' => '#101828']]]],
-                ['component' => 'section', 'id' => 'pp-a1b2c3d5', 'props' => [],
+                ['component' => 'section', 'id' => 'pp-a1b2c3d5', 'props' => ['eyebrow' => 'E', 'title' => 'T'],
                  'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#fff']]]],
             ]));
-            $this->assertSame([0, 1], array_column($found, 'index'), json_encode($props));
+            // The malformed grid renders no step-number (no cards): nothing of it is named, and the
+            // later band still reports.
+            $this->assertSame([1], array_column($found, 'index'), json_encode($props));
         }
     }
 
@@ -840,10 +925,13 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertCount(1, $found);
     }
 
-    /** A band ink on an item role with no cards at all: nothing covers the role's own surface. */
-    public function testABandGrainItemRoleInkWithNoCardsIsDisclosed(): void
+    /**
+     * INVERTED BY RULING E1-A: an item role with no cards at all renders no element, so there is nothing
+     * to name (it was named when the finding read the schema's roles, not the rendered band).
+     */
+    public function testAnItemRoleWithNoCardsRendersNothingToName(): void
     {
-        $this->assertCount(1, $this->gridFindingsWithItems(['step-number' => ['typography' => ['color' => '#ffffff']]], []));
+        $this->assertSame([], $this->gridFindingsWithItems(['step-number' => ['typography' => ['color' => '#ffffff']]], []));
     }
 
     /** A per-card ink whose own card map also sets the fill is covered at its own grain. */
@@ -957,13 +1045,13 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         // single-role band first makes the count odd, so it reaches 199 before a two-role band.
         $bands[] = ['component' => 'section', 'id' => 'pp-0000ffff',
             'udc'   => ['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'eyebrow' => ['typography' => ['color' => '@color-bg']]],
-            'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']];
+            'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b', 'layout' => 'text-panel', 'panel_body' => 'Panel text']];
         for ($b = 0; $b < 150; $b++) {
             $bands[] = ['component' => 'section', 'id' => sprintf('pp-%08x', $b + 1),
                 'udc'   => ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
                             'eyebrow' => ['typography' => ['color' => '@color-bg']],
                             'panel'   => ['typography' => ['color' => '@color-bg']]],
-                'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']];
+                'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b', 'layout' => 'text-panel', 'panel_body' => 'Panel text']];
         }
         $count = count($this->only(pp_udc_composition_findings($bands)));
         $this->assertSame(PP_UDC_MAX_EMIT_DROPS, $count, 'capped exactly at the shared bound');
