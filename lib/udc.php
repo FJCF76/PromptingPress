@@ -9527,18 +9527,35 @@ function pp_udc_composition_findings(array $items): array {
         // rather than rely on inheritance. That helps the author who reads them; I35
         // is about the author who does not.
         foreach (_pp_udc_band_values_cancelled_by_role_defaults($item['udc'], $component) as $property => $names) {
+            // Following "set it on those roles directly" on a role that ships its OWN fill puts the new
+            // colour on that fill, which udc_role_ink_over_own_surface then names (cycle 2, api-contract):
+            // say so here, so one piece of advice does not walk the author into the other finding.
+            $own_fill = [];
+            if ((string) $property === 'color') {
+                foreach ($names as $name) {
+                    $fill = $roles[$name]['defaults']['background']['fill'] ?? null;
+                    foreach (is_array($fill) ? $fill : [$fill] as $tier_fill) {
+                        if (is_string($tier_fill) && $tier_fill !== '' && strcasecmp(trim($tier_fill), 'transparent') !== 0) {
+                            $own_fill[] = $name;
+                            break;
+                        }
+                    }
+                }
+            }
             $findings[] = [
                 'type'    => 'udc_band_value_shadowed_by_role_default',
                 'message' => sprintf(
                     'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
-                    . 'own default for it wins over inheritance. Set it on %s directly. The other roles take it '
+                    . 'own default for it wins over inheritance. Set it on %s directly%s. The other roles take it '
                     . 'on their own element, but text inside them shows it only where no role inside them sets '
                     . 'its own.',
                     $component,
                     (string) $property,
                     implode(', ', $names),
                     count($names) === 1 ? 'that role\'s' : 'those roles\'',
-                    count($names) === 1 ? 'that role' : 'those roles'
+                    count($names) === 1 ? 'that role' : 'those roles',
+                    $own_fill === [] ? '' : sprintf(' (%s %s own fill, so set %s background.fill with the colour)',
+                        implode(', ', $own_fill), count($own_fill) === 1 ? 'ships its' : 'ship their', count($own_fill) === 1 ? 'its' : 'each one\'s')
                 ),
                 'index'   => is_int($i) ? $i : null,
             ];

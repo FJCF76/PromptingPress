@@ -598,6 +598,19 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringContainsString(self::BAND_INK, $found[0]['message']);
     }
 
+    /**
+     * The sibling's "set it on those roles directly" names which of them ship their own fill (cycle 2,
+     * api-contract), so following it does not walk the author into this finding.
+     */
+    public function testTheSiblingAdviceNamesTheRolesThatNeedTheirFillToo(): void
+    {
+        [, , $all] = $this->write(['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
+            'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>', 'eyebrow' => 'E']);
+        $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
+        $this->assertCount(1, $sibling);
+        $this->assertStringContainsString('Set it on those roles directly (cta-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour).', $sibling[0]['message']);
+    }
+
     /** A single width left on the default is named in the singular, with its one breakpoint key. */
     public function testASingleWidthIsNamedInTheSingular(): void
     {
