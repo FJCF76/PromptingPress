@@ -658,10 +658,10 @@ final class OverlayAccentOffScrimTest extends TestCase
         }
         $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'currentColor']]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('has a background you set of currentColor, which paints its own text colour behind the text', $found[0]['message']);
+        $this->assertStringContainsString('has a background you set (currentColor), which paints its own text colour behind the text', $found[0]['message']);
         $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'inherit']]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('has a background you set of inherit, which takes its parent\'s background, and the engine cannot read that', $found[0]['message']);
+        $this->assertStringContainsString('has a background you set (inherit), which takes its parent\'s background, and the engine cannot read that', $found[0]['message']);
     }
 
     /** #1142 item 4: the marker's catch logs like its sibling in the findings path (call shape pinned; no stored shape is known to throw). */

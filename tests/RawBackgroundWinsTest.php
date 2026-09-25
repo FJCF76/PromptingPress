@@ -374,6 +374,47 @@ final class RawBackgroundWinsTest extends TestCase
     }
 
     /**
+     * A SCRIM WITH NO IMAGE UNDER A RAW BACKGROUND IS NOT TOLD TO SET AN IMAGE THE RAW BACKGROUND WOULD RESET (/ship pass 2
+     * red team): at the same width, at a narrower width, and under a raw desktop background. It keeps "no usable
+     * background.image" and names the raw background as what would reset one; the advice is followable.
+     */
+    public function testANoImageScrimUnderARawBackgroundIsNotAdvisedToSetAnImageTheRawBackgroundWouldReset(): void
+    {
+        $o = 'rgba(0,0,0,0.6)';
+        foreach ([
+            'same width'      => ['background' => ['overlay' => $o], PP_UDC_CSS_KEY => ['background' => '#ffffff']],
+            'narrower'        => ['background' => ['overlay' => ['t' => $o]], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]],
+            'desktop raw'     => ['background' => ['overlay' => ['t' => $o]], PP_UDC_CSS_KEY => ['background' => '#ffffff']],
+        ] as $label => $band) {
+            foreach (['cta', 'section'] as $component) {
+                $reasons = $this->rawWonReasons($band, $component);
+                $this->assertCount(1, $reasons, "{$label} {$component}");
+                $this->assertStringNotContainsString('Set background.image (an attachment id)', $reasons[0], "{$label} {$component}");
+                $this->assertStringContainsString('no usable background.image here, and the raw background in _css would reset one', $reasons[0], "{$label} {$component}");
+                $this->assertStringContainsString('replace the raw background with background.fill, then set background.image', $reasons[0], "{$label} {$component}");
+            }
+        }
+        // Control: a narrower fill that is NOT under a raw background keeps the plain no-image advice (an image set there paints).
+        $plain = $this->rawWonReasons(['background' => ['overlay' => ['t' => $o], 'fill' => ['t' => '#222222']]]);
+        $this->assertStringContainsString('Set background.image (an attachment id)', $plain[0]);
+    }
+
+    /**
+     * A ROLE OTHER THAN `_band` WHOSE SCRIM STILL PAINTS AT OTHER WIDTHS is not told to remove the image everywhere
+     * (/ship pass 2 api-contract).
+     */
+    public function testANonBandRoleIsAdvisedToRemoveTheOverlayAtThisWidthOnly(): void
+    {
+        $drops = [];
+        pp_udc_compile_band(['component' => 'cta', 'id' => 'pp-a1b2c3d4', 'props' => [], 'udc' => ['text' => ['background' => ['image' => 9001,
+            'overlay' => ['d' => 'rgba(0,0,0,0.7)', 't' => 'rgba(0,0,0,0.6)']], PP_UDC_CSS_KEY => ['background' => ['t' => '#ffffff']]]]], 'authored', $drops);
+        $reason = implode(' ', array_column(array_filter($drops, static fn (array $d): bool => ($d['code'] ?? '') === 'overlay_without_image'), 'reason'));
+        $this->assertStringContainsString('the raw background in _css resets the background here', $reason);
+        $this->assertStringNotContainsString('remove background.image and the overlay', $reason);
+        $this->assertStringContainsString('remove the overlay at this width (and background.image, if it paints at no other width)', $reason);
+    }
+
+    /**
      * THE MARKER IS NOT CLAIMED WHERE NO TEMPLATE PRINTS IT (/ship red team): only the accent claim, on a component whose
      * roles re-light, speaks of the marked band; section says only where the scrim still paints. And the unmarked
      * arm's advice tail is pinned for both (/ship testing).

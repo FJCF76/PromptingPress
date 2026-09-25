@@ -2641,6 +2641,18 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
             }
         }
     }
+    // A SCRIM WITH NO IMAGE UNDER A RAW BACKGROUND (/ship pass 2 red team): the no-image reason would advise setting
+    // background.image, which the raw background at that width would reset (own bucket raw, or a narrower width under a
+    // raw desktop background, which no image is borrowed into). Flagged so the reason names both fixes.
+    $desktop_raw = !empty($by_bp['d']['background']['raw']);
+    foreach ($by_bp as $bp => $declarations) {
+        if (is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)
+            && empty($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'])
+            && !isset($declarations['background-image'])
+            && (!empty($declarations['background']['raw']) || ((string) $bp !== 'd' && $desktop_raw))) {
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_blocks_image'] = true;
+        }
+    }
     return $by_bp;
 }
 
@@ -2755,15 +2767,29 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       // claimed only beside the accent claim that depends on it (/ship red team).
                       !empty($overlay['band_relights']) ? ', so the band stays marked and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background' : '',
                       !empty($overlay['band_relights']) ? 'remove the overlay at this width and set the accents\' typography.color for this width' : 'remove the overlay at this width')
-                    : 'the raw background in _css resets the background here, so background.image and this scrim do not '
+                    : (isset($overlay['band_scrim_at'])
+                    // The band at rest where no width paints a scrim: the image and overlay can go as a whole.
+                    ? 'the raw background in _css resets the background here, so background.image and this scrim do not '
                       . 'paint at this width'
-                      . (isset($overlay['band_scrim_at']) && !empty($overlay['band_relights'])
+                      . (!empty($overlay['band_relights'])
                           ? ', and with no scrim the band is not marked, so the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
                           : '')
                       . '. Remove the raw background (put a colour in background.fill beside the image '
                       . 'instead), or remove background.image and the overlay if the raw background is what you want: a raw '
                       . 'background cannot carry an image'
-                      . (!empty($overlay['band_relights']) ? '. On a dark background, set the accents\' typography.color' : ''))
+                      . (!empty($overlay['band_relights']) ? '. On a dark background, set the accents\' typography.color' : '')
+                    // Any other role: its scrim may still paint at other widths, so the advice stays at this width
+                    // (/ship pass 2 api-contract).
+                    : 'the raw background in _css resets the background here, so background.image and this scrim do not '
+                      . 'paint at this width. Remove the raw background at this width (put a colour in background.fill beside '
+                      . 'the image instead), or, if the raw background is what you want here, remove the overlay at this width '
+                      . '(and background.image, if it paints at no other width): a raw background cannot carry an image'))
+                    // No image, under a raw background that would reset one (/ship pass 2 red team): "Set background.image"
+                    // alone would paint nothing, so the reason names both steps.
+                    : (!empty($overlay['raw_background_blocks_image'])
+                    ? 'an overlay paints only over an image, and there is no usable background.image here, and the raw '
+                      . 'background in _css would reset one at this width, so the scrim was dropped. Put the tint in that raw '
+                      . 'background, or replace the raw background with background.fill, then set background.image'
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -2777,7 +2803,7 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // branch cannot tell the two causes apart and must not blame the author.
                     : 'an overlay paints only over an image, and this role has no usable background.image '
                       . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or remove the overlay')))),
+                      . 'background.image (an attachment id), or remove the overlay'))))),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -9865,7 +9891,8 @@ function pp_udc_composition_findings(array $items): array {
                         }
                         $keyword = strtolower(trim($resolved_css));
                         if ($keyword === 'currentcolor' || $keyword === 'inherit') {
-                            $conditions[] = [sprintf('%s, has a background %s of %s, %s', $where, $origin, $keyword === 'inherit' ? 'inherit' : 'currentColor',
+                            // `inherit` reaches here only from stored data: the colour grammar admits `transparent` and `currentColor` alone.
+                            $conditions[] = [sprintf('%s, has a background %s (%s), %s', $where, $origin, $keyword === 'inherit' ? 'inherit' : 'currentColor',
                                 $keyword === 'inherit' ? 'which takes its parent\'s background, and the engine cannot read that'
                                     : 'which paints its own text colour behind the text'), $enclosing[$role_name]];
                             $named_surface[$locator . '|' . $role_name] = true;
