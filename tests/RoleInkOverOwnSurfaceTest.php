@@ -716,6 +716,29 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([25, 26, 27, 28, 29], array_column($found, 'index'));
     }
 
+    /**
+     * THE RENDER RUNS NO SHORTCODE (cycle 2, red team): `embed` echoes do_shortcode(), and in WordPress a
+     * real shortcode (`[embed]`) fetches over HTTP and writes a cache post. The registry is emptied for the
+     * render and restored after. The test bootstrap's do_shortcode() ignores the registry, so what is
+     * observable here is the restoration, plus the clearing statement pinned by its call shape.
+     */
+    public function testThePresenceRenderRunsNoShortcodeAndRestoresTheRegistry(): void
+    {
+        global $shortcode_tags;
+        $before         = $shortcode_tags ?? null;
+        $shortcode_tags = ['probe' => static fn (): string => 'X'];
+        try {
+            $presence = _pp_udc_rendered_roles(['component' => 'embed', 'id' => 'pp-a1b2c3d4',
+                'props' => ['title' => 'T', 'content' => '<p>[probe]</p>'], 'udc' => []], ['content' => '.embed__content']);
+            $this->assertTrue($presence['content']['band']);
+            $this->assertSame(['probe'], array_keys($shortcode_tags), 'the registry is restored');
+        } finally {
+            $shortcode_tags = $before;
+        }
+        $source = (string) file_get_contents(dirname(__DIR__) . '/lib/udc.php');
+        $this->assertMatchesRegularExpression('/\$saved_shortcodes = \$shortcode_tags \?\? null;\n\s+\$shortcode_tags\s+= \[\];/', $source);
+    }
+
     /** The selector-to-XPath reader covers the shipped selector grammar and refuses anything else. */
     public function testTheRoleSelectorReaderCoversTheShippedGrammar(): void
     {

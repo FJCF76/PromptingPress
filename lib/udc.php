@@ -6646,9 +6646,11 @@ function _pp_udc_paints_surface(string $value, string $longhand): bool {
  * so the template itself is asked.
  *
  * SIDE-EFFECT FREE, and pinned so: the render goes into an output buffer that is always closed; the
- * loader's WP_DEBUG missing-prop notices are swallowed by a handler that is always restored; component
- * templates enqueue nothing and register nothing (they are called once per band on every page view
- * already). Findings paths only; the caller asks at most once per band, and only when a finding is
+ * loader's WP_DEBUG missing-prop notices are swallowed by a handler that is always restored; and the
+ * shortcode registry is emptied for the render and restored after, because `embed` runs its content
+ * through do_shortcode() and a real shortcode (`[embed]`) makes an HTTP fetch and writes an oEmbed
+ * cache post (cycle 2, red team). Presence needs the markup the template writes, not what a shortcode
+ * expands to. Findings paths only; the caller asks at most once per band, and only when a finding is
  * about to be emitted.
  *
  * @param array    $item   The band (composable components only; chrome is not rendered here).
@@ -6662,6 +6664,9 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         return null;
     }
     $props = pp_udc_promote_band_identity($item, isset($item['props']) && is_array($item['props']) ? $item['props'] : []);
+    global $shortcode_tags;
+    $saved_shortcodes = $shortcode_tags ?? null;
+    $shortcode_tags   = [];
     $level = ob_get_level();
     ob_start();
     set_error_handler(static fn (): bool => true, E_USER_WARNING | E_USER_NOTICE | E_WARNING | E_NOTICE);
@@ -6675,6 +6680,7 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         while (ob_get_level() > $level) {
             ob_end_clean();
         }
+        $shortcode_tags = $saved_shortcodes;
     }
     if ($html === null || trim($html) === '') {
         return null;
