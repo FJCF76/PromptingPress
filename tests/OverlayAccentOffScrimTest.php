@@ -5,13 +5,14 @@
  *
  * THE DEFECT. The overlay tier re-lights the accent inks to the near-white on-overlay ink on
  * every band the engine marks overlaid, on the premise that the accent sits on a dark scrim.
- * Three authored shapes break that premise and the write said nothing: a light panel the
- * author set under the accent (#fafbff on #ffffff, 1.03:1), a scrim set only at some widths
- * (the accent re-lit over the unscrimmed image elsewhere), and a light scrim.
+ * Authored shapes break that premise and the write said nothing: a light surface on a role
+ * that encloses the accent, or on the accent itself (#fafbff on #ffffff, 1.03:1); a scrim set
+ * only at some widths; a scrim that is light, fades to transparent, or cannot be read.
  *
  * THE RULING (1 = A). The tier stays (D4 = B); the engine discloses rather than outguesses.
  * `udc_overlay_accent_off_scrim` names the re-lit accent roles AND the triggering condition.
- * Authored wins: an accent whose ink the author set is not re-lit and not named.
+ * Which roles enclose an accent is schema data (`within`). Authored wins: an accent whose
+ * RESTING ink the author set at every width is not re-lit and not named.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -184,7 +185,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     }
 
     /** An unreadable scrim and an unreadable enclosing panel are both named: the engine cannot tell they are dark. */
-        public function testAnUnreadableScrimAndAnUnreadablePanelAreBothNamed(): void
+    public function testAnUnreadableScrimAndAnUnreadablePanelAreBothNamed(): void
     {
         $scrim = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'color-mix(in srgb, white 50%, black)']]]);
         $this->assertCount(1, $scrim, 'a scrim the engine cannot read is named: it cannot tell it is dark');
@@ -206,11 +207,17 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertStringContainsString('(#ffffff)', $found[0]['message']);
     }
 
-    /** A re-lit accent role's own panel is not a panel "under" the accent: it is skipped. */
-    public function testTheReLitRoleItselfIsNotItsOwnPanel(): void
+    /** A light surface on the accent itself (a highlighter behind the word) is named as such. */
+    public function testALightSurfaceOnTheAccentItselfIsNamed(): void
     {
-        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM],
-            'heading-accent' => ['background' => ['fill' => '#ffffff']]]));
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['fill' => '#ffffff']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('role "heading-accent", the accent itself, has a background you set (#ffffff)', $found[0]['message']);
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM],
+            'title-accent' => ['_css' => ['background' => 'linear-gradient(transparent 60%, #fde68a 60%)']]],
+            'hero', ['title' => 'T', 'title_accent' => 'A', 'layout' => 'centered']), 'a highlighter gradient');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['fill' => '#101828']]]),
+            'a dark chip keeps the premise');
     }
 
     /** Several re-lit roles are named together, in the plural. */
@@ -247,7 +254,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     /** A colour keyword inside a name is part of the name, not a colour: the value stays unread. */
     public function testAColourKeywordInsideANameIsNotReadAsAColour(): void
     {
-        $this->assertFalse(_pp_udc_value_is_light('linear-gradient(off-white, black)', []), 'off-white is a name, not white');
+        $this->assertNull(_pp_udc_value_is_light('linear-gradient(off-white, black)', []), 'off-white is a name, not white: the stop is unread, so the value is');
         foreach (['var(--no-such-white)', 'url(white.png)', '@not-a-black-token', 'offwhite'] as $value) {
             $this->assertNull(_pp_udc_value_is_light($value, []), $value);
         }
@@ -332,6 +339,105 @@ final class OverlayAccentOffScrimTest extends TestCase
             'props' => []]]);
         $this->assertIsArray($found);
         $this->assertLessThan(16 * 1048576, memory_get_usage() - $before);
+    }
+
+    /** The engine's own minted responsive scrim (`@_band-background-overlay-d`) is read, on the stored map. */
+    public function testAMintedResponsiveDarkScrimIsRead(): void
+    {
+        $item = ['component' => 'cta', 'id' => 'pp-a1b2c3d4',
+            'props' => ['title' => 'C', 'title_accent' => 'A', 'button_text' => 'Go', 'button_url' => '/x'],
+            'udc'   => ['_band' => ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(6,10,28,0.72)', 'p' => 'rgba(6,10,28,0.8)']]]]];
+        $stored = pp_udc_normalize_composition([$item]);
+        $this->assertStringStartsWith('@_band-', (string) ($stored[0]['udc']['_band']['background']['overlay']['d'] ?? ''), 'premise: the write mints it');
+        $this->assertSame([], array_values(array_filter(pp_udc_composition_findings($stored), static fn ($f) => $f['type'] === self::TYPE)));
+
+        $light = $item;
+        $light['udc']['_band']['background']['overlay'] = ['d' => 'rgba(255,255,255,0.8)', 'p' => 'rgba(6,10,28,0.8)'];
+        $found = array_values(array_filter(pp_udc_composition_findings(pp_udc_normalize_composition([$light])), static fn ($f) => $f['type'] === self::TYPE));
+        $this->assertCount(1, $found, 'a minted light tier is still read as light');
+        $this->assertStringContainsString('the scrim you set is light', $found[0]['message']);
+    }
+
+    /** An accent inked at some widths only is still re-lit at the others, so it is named. */
+    public function testABreakpointOnlyAccentInkIsNotAResting(): void
+    {
+        $light = ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.8)'];
+        $this->assertCount(1, $this->found(['_band' => ['background' => $light], 'heading-accent' => ['typography' => ['color' => ['t' => '#111111']]]]));
+        $this->assertSame([], $this->found(['_band' => ['background' => $light], 'heading-accent' => ['typography' => ['color' => ['d' => '#111111', 't' => '#222222']]]]),
+            'a map with the base tier inks every width');
+    }
+
+    /** A stop the reader cannot place makes the whole value unread, never judged by the others. */
+    public function testAGradientWithAnUnreadStopIsUnread(): void
+    {
+        foreach (['linear-gradient(#000, ivory)', 'linear-gradient(#000, rgb(100% 100% 100%))', 'linear-gradient(black, hsl(0.5turn 0% 100%))',
+            'linear-gradient(@no-such-token, black)'] as $value) {
+            $this->assertNull(_pp_udc_value_is_light($value, []), $value);
+        }
+        $this->assertCount(1, $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'linear-gradient(@no-such-token, rgba(0,0,0,0.7))']]]),
+            'an unresolved reference beside a colour is unread, and named');
+        $this->assertFalse(_pp_udc_value_is_light('linear-gradient(to bottom right, rgba(0,0,0,0.7) 0%, #000 100%)', []), 'gradient syntax around readable stops');
+    }
+
+    /** hsl(): the hue and the alpha are read, not only the lightness. */
+    public function testHslHueAndAlphaAreRead(): void
+    {
+        $this->assertSame([[255, 255, 0, 1.0]], _pp_udc_value_colours('hsl(60 100% 50%)', []));
+        $this->assertSame([[0, 0, 255, 1.0]], _pp_udc_value_colours('hsl(240, 100%, 50%)', []));
+        $this->assertTrue(_pp_udc_value_is_light('hsl(60 100% 50%)', []), 'yellow is light');
+        $this->assertFalse(_pp_udc_value_is_light('hsl(240 100% 50%)', []), 'blue is dark');
+        $this->assertFalse(_pp_udc_value_is_light('hsla(0, 0%, 100%, 0.1)', []), 'a thin white wash is not a light colour');
+    }
+
+    /** The amplification guard holds for an input under the byte bound. */
+    public function testTheAmplificationGuardHoldsUnderTheByteBound(): void
+    {
+        $before = memory_get_peak_usage();
+        $this->assertSame([], _pp_udc_value_colours(str_repeat('@x', 256), ['x' => str_repeat('a', 100000)]));
+        $this->assertLessThan(8 * 1048576, memory_get_peak_usage() - $before);
+        $this->assertSame([], _pp_udc_value_colours('@x', ['x' => str_repeat('#ffffff ', 200)]), 'a colour-bearing token past the bound is unread');
+    }
+
+    /** The map's own fill beats a preset's; the _css shorthand and background-image are read; a state's fill is read. */
+    public function testSurfacePrecedenceShorthandAndStateFills(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'white-role2', 'grain' => 'role', 'udc' => ['background' => ['fill' => '#ffffff']]])['ok']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_preset' => 'white-role2', 'background' => ['fill' => '#101828']]]));
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background' => '#ffffff']]]));
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-image' => 'linear-gradient(#ffffff, #ffffff)']]]));
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => [':hover' => ['fill' => '#ffffff']]]]), 'a state-only fill');
+    }
+
+    /** A malformed `within` entry in a hand-edited schema is skipped, never a PHP warning. */
+    public function testMalformedWithinEntriesAreSkipped(): void
+    {
+        // A theme root whose cta schema was hand-edited past CI (the gate runs in CI only).
+        $root = sys_get_temp_dir() . '/pp-within-' . getmypid();
+        exec('rm -rf ' . escapeshellarg($root));
+        mkdir($root, 0777, true);
+        foreach (['components', 'assets'] as $dir) {
+            exec('cp -r ' . escapeshellarg(dirname(__DIR__) . '/' . $dir) . ' ' . escapeshellarg($root . '/' . $dir));
+        }
+        $schema_file = $root . '/components/cta/schema.json';
+        $schema      = json_decode((string) file_get_contents($schema_file), true);
+        $this->assertArrayHasKey('within', $schema['roles']['heading-accent'], 'premise');
+        $schema['roles']['heading-accent']['within'] = [['text'], 5, 'text'];
+        file_put_contents($schema_file, json_encode($schema));
+
+        $errors = [];
+        $GLOBALS['_pp_test_template_dir'] = $root;
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+        set_error_handler(static function (int $no, string $msg) use (&$errors): bool { $errors[] = $msg; return true; });
+        try {
+            $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => '#ffffff']]]);
+        } finally {
+            restore_error_handler();
+            unset($GLOBALS['_pp_test_template_dir']);
+            $GLOBALS['_pp_registered_components_invalidate'] = true;
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+        $this->assertCount(1, $found, 'the valid entry still works');
+        $this->assertSame([], $errors);
     }
 
     /** Bounded across the composition like its sibling arms. */
