@@ -310,6 +310,8 @@ final class RawBackgroundWinsTest extends TestCase
         $this->assertCount(1, $cta);
         $this->assertStringNotContainsString('finding', $cta[0]);
         $this->assertStringContainsString('accent', $cta[0], 'cta has overlay-tier roles');
+        // Followable (cycle 3, design): the drop row clears only when the overlay at this width goes too.
+        $this->assertStringContainsString("remove the overlay at this width and set the accents' typography.color for this width", $cta[0]);
         foreach ([$band, ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']]] as $map) {
             $section = $this->rawWonReasons($map, 'section');
             $this->assertCount(1, $section);

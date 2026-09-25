@@ -2744,7 +2744,7 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'background is what you want here, %s: a raw background cannot carry an image',
                       _pp_udc_widths_phrase($overlay['band_scrim_at']),
                       !empty($overlay['band_relights']) ? ' and the accent roles it re-lights stay near-white on this background' : '',
-                      !empty($overlay['band_relights']) ? 'set the accents\' typography.color for this width' : 'remove the overlay at this width')
+                      !empty($overlay['band_relights']) ? 'remove the overlay at this width and set the accents\' typography.color for this width' : 'remove the overlay at this width')
                     : 'the raw background in _css resets the background here, so background.image and this scrim do not '
                       . 'paint at this width'
                       . (isset($overlay['band_scrim_at'])
@@ -6458,7 +6458,9 @@ function _pp_udc_emission_scopes(string $component, string $id, bool $compositio
  * A tier whose image a background REPLACED also carries `raw`: true when that background came from `_css` (#1141),
  * false when the group set it. It is absent on every other tier; readers use !empty().
  *
- * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, partial: bool, raw?: bool}>, states: array<int, string>}
+ * `repeat` is the tier's `background-repeat` as emitted (band tokens unresolved), so a message can say how it tiles.
+ *
+ * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, repeat: string, partial: bool, raw?: bool}>, states: array<int, string>}
  */
 function pp_udc_band_effective_background(array $compiled): array {
     $declared = [];
@@ -6513,6 +6515,7 @@ function pp_udc_band_effective_background(array $compiled): array {
         $size   = $sizing[$bp]['size'] ?? ($sizing['d']['size'] ?? '');
         $repeat = $sizing[$bp]['repeat'] ?? ($sizing['d']['repeat'] ?? '');
         $tiers[$bp]['size']    = $size;
+        $tiers[$bp]['repeat']  = $repeat;
         $tiers[$bp]['partial'] = !empty($tiers[$bp]['image']) && ($tiers[$bp]['scrim'] ?? '') !== ''
             && _pp_udc_scrim_leaves_part_uncovered(_pp_udc_compiled_value($size, $compiled), _pp_udc_compiled_value($repeat, $compiled));
     }
@@ -6533,15 +6536,7 @@ function _pp_udc_scrim_leaves_part_uncovered(string $size, string $repeat): bool
     }
     $axes = preg_split('/\s+/', $size);
     $axes = [$axes[0], $axes[1] ?? 'auto'];
-    $rep  = preg_split('/\s+/', strtolower(trim($repeat)));
-    if ($rep === [''] ) {
-        $tiles = [true, true]; // the CSS initial value, `repeat`
-    } elseif (count($rep) === 1) {
-        $tiles = $rep[0] === 'repeat-x' ? [true, false] : ($rep[0] === 'repeat-y' ? [false, true]
-            : [in_array($rep[0], ['repeat', 'round'], true), in_array($rep[0], ['repeat', 'round'], true)]);
-    } else {
-        $tiles = [in_array($rep[0], ['repeat', 'round'], true), in_array($rep[1], ['repeat', 'round'], true)];
-    }
+    $tiles = array_map(static fn (string $r): bool => in_array($r, ['repeat', 'round'], true), _pp_udc_repeat_axes($repeat));
     foreach ($axes as $i => $axis) {
         $covers = $axis === 'auto' || (preg_match('/^(\d+(?:\.\d+)?|\.\d+)%\z/', $axis, $m) && (float) $m[1] >= 100.0);
         if (!$covers && !$tiles[$i]) {
@@ -6549,6 +6544,37 @@ function _pp_udc_scrim_leaves_part_uncovered(string $size, string $repeat): bool
         }
     }
     return false;
+}
+
+/**
+ * A `background-repeat` value as its two per-axis keywords [x, y], as CSS reads it: '' is the initial `repeat`;
+ * repeat-x and repeat-y are one-axis shorthands; one keyword applies to both axes. One parse for the coverage check and
+ * the words the off-scrim finding uses for it.
+ *
+ * @return array{0: string, 1: string}
+ */
+function _pp_udc_repeat_axes(string $repeat): array {
+    $rep = preg_split('/\s+/', strtolower(trim($repeat)));
+    if ($rep === ['']) {
+        return ['repeat', 'repeat'];
+    }
+    if (count($rep) === 1) {
+        return $rep[0] === 'repeat-x' ? ['repeat', 'no-repeat'] : ($rep[0] === 'repeat-y' ? ['no-repeat', 'repeat'] : [$rep[0], $rep[0]]);
+    }
+    return [$rep[0], $rep[1]];
+}
+
+/**
+ * How a partial scrim tiles, in the words the off-scrim finding shows (PR-2 review cycle 3, design): "without tiling"
+ * is true only where neither axis tiles.
+ */
+function _pp_udc_repeat_phrase(string $repeat): string {
+    $axes = _pp_udc_repeat_axes($repeat);
+    if (in_array('space', $axes, true)) {
+        return 'and spaced, which can leave gaps';
+    }
+    $tiles = array_map(static fn (string $r): bool => in_array($r, ['repeat', 'round'], true), $axes);
+    return $tiles[0] && !$tiles[1] ? 'and tiled only across' : (!$tiles[0] && $tiles[1] ? 'and tiled only down' : 'without tiling');
 }
 
 /** Whether a compiled band paints a scrim over its image at any width: the overlay marker's predicate. */
@@ -9771,15 +9797,16 @@ function pp_udc_composition_findings(array $items): array {
                 $partial_by_size = []; // shown size => [bp, ...], in breakpoint order
                 foreach ($effective['tiers'] as $bp => $tier) {
                     if (!empty($tier['partial']) && $accent_may_not_read($bp)) {
-                        $partial_by_size[_pp_udc_reflect(_pp_udc_compiled_display((string) $tier['size'], $band_compiled))][] = (string) $bp;
+                        $partial_by_size[_pp_udc_reflect(_pp_udc_compiled_display((string) $tier['size'], $band_compiled)) . ' '
+                            . _pp_udc_repeat_phrase(_pp_udc_compiled_value((string) ($tier['repeat'] ?? ''), $band_compiled))][] = (string) $bp;
                     }
                 }
                 if ($partial_by_size !== []) {
                     $sized = [];
                     foreach ($partial_by_size as $shown_size => $size_bps) {
-                        $sized[] = $shown_size . ' without tiling' . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
+                        $sized[] = $shown_size . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
                     }
-                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or let it tile, and the scrim covers the band)',
+                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or set its repeat to repeat, and the scrim covers the band)',
                         implode(' and ', $sized)), $relit];
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)

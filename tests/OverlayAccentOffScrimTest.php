@@ -731,7 +731,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $this->found($fill('#ffffff')), 'a light fill set at the phone width is named');
         $this->assertCount(1, $this->found($fill('currentColor')), 'an unreadable one is named');
         $found = $this->found($partial('#ffffff'));
-        $this->assertStringContainsString('size the image cover, or let it tile, and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
+        $this->assertStringContainsString('size the image cover, or set its repeat to repeat, and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
     }
 
     /**
@@ -803,5 +803,25 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame('center / cover no-repeat #0a0a12', $colour, 'the words stay beside the colour');
         $this->assertSame(['repeating-linear-gradient(#000 0 10px, #fff 10px 20px)', 'transparent'],
             _pp_udc_split_background_shorthand('repeating-linear-gradient(#000 0 10px, #fff 10px 20px)'));
+    }
+
+    /**
+     * THE PARTIAL WORDING NAMES THE REPEAT (PR-2 review cycle 3, design): "without tiling" is true only where neither
+     * axis tiles; repeat-x and repeat-y tile one axis, and space can leave gaps.
+     */
+    public function testThePartialWordingNamesTheRepeat(): void
+    {
+        $across = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '100% 50%', 'repeat' => 'repeat-x']]]);
+        $this->assertCount(1, $across);
+        $this->assertStringContainsString('sized 100% 50% and tiled only across, so part of the band', $across[0]['message']);
+        $down = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50% 100%', 'repeat' => 'repeat-y']]]);
+        $this->assertStringContainsString('sized 50% 100% and tiled only down', $down[0]['message']);
+        $spaced = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '40%', 'repeat' => 'space']]]);
+        $this->assertStringContainsString('sized 40% and spaced, which can leave gaps', $spaced[0]['message']);
+        foreach ([$across, $down, $spaced] as $found) {
+            $this->assertStringNotContainsString('without tiling', $found[0]['message']);
+        }
+        $none = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50%', 'repeat' => 'no-repeat']]]);
+        $this->assertStringContainsString('sized 50% without tiling', $none[0]['message']);
     }
 }
