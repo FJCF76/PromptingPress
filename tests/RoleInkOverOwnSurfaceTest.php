@@ -1273,7 +1273,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
         $found = $this->only(pp_udc_composition_findings([$band(str_repeat('x', 600000))]));
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(Not checked against the rendered page: this band could not be rendered or read here', $found[0]['message']);
+        $this->assertStringContainsString("(Not checked against the rendered page: this band is past the check's size budget", $found[0]['message'],
+            'a band over the parse bound is a SIZE reason, not an unreadable one');
         $found = $this->only(pp_udc_composition_findings([$band('small')]));
         $this->assertCount(1, $found);
         $this->assertStringNotContainsString('Not checked', $found[0]['message'], 'premise: the small twin is checked');
@@ -1342,5 +1343,75 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringContainsString('(button-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour)', $sibling('cta'));
         $this->assertStringContainsString('(eyebrow ships its own fill, so set its background.fill with the colour)', $sibling('faq'));
         $this->assertStringEndsWith('Set it on those roles directly.', $sibling('stats'));
+    }
+
+    /**
+     * THE MATCHER IS LINEAR IN NESTING DEPTH (/ship security specialist). A right-to-left descendant match
+     * climbed every ancestor of every candidate, so author HTML nested 240 deep (libxml stops at 256)
+     * around many links made one 480 KB band cost 8.3 s and 25 of them a write past max_execution_time;
+     * neither budget counted it (a string prop is 0 cards). Memoised per element and step, the same band
+     * is linear. The answer is pinned too, so a fast wrong matcher cannot pass.
+     */
+    public function testThePresenceMatcherIsLinearInNestingDepth(): void
+    {
+        // The same bytes twice: the links 240 levels deep, and beside 240 empty siblings. A matcher (or a
+        // card lookup) that climbs per node costs ~depth times more on the first; a linear one does not.
+        // A RATIO, so a slow machine cannot fail it and a fast one cannot hide a climb.
+        $links = str_repeat('<a href="/x">l</a>', 25000);
+        $read  = static function (string $body): array {
+            $start = hrtime(true);
+            $roles = _pp_udc_rendered_roles(['component' => 'section', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'T', 'body' => $body]],
+                ['body-link' => '.section__content a', 'eyebrow' => '.section__eyebrow']);
+            return [$roles, (hrtime(true) - $start) / 1e9];
+        };
+        [$flat_roles, $flat] = $read(str_repeat('<div></div>', 240) . $links);
+        [$deep_roles, $deep] = $read(str_repeat('<div>', 240) . $links . str_repeat('</div>', 240));
+        $this->assertNotNull($deep_roles, 'premise: the band is under the parse bound and is read');
+        $this->assertTrue($deep_roles['body-link']['band'], 'a link 240 levels deep is still found');
+        $this->assertFalse($deep_roles['eyebrow']['band']);
+        $this->assertTrue($flat_roles['body-link']['band']);
+        $this->assertLessThan(3 * $flat + 0.05, $deep, sprintf('linear in depth: deep %.3f s vs flat %.3f s', $deep, $flat));
+    }
+
+    /**
+     * THE MARKUP IS BUDGETED PER CALL (/ship security specialist): 25 bands each just under the 512 KB bound
+     * are 12.5 MB of parsing. A band that would take the call past its markup budget is not parsed; its
+     * finding stays unfiltered and says the size budget was the reason (never silence).
+     */
+    public function testThePresenceMarkupIsBudgetedPerCall(): void
+    {
+        $bands = [];
+        for ($b = 0; $b < 6; $b++) {
+            $bands[] = ['component' => 'section', 'id' => sprintf('pp-%08x', $b + 1),
+                'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => '<p>' . str_repeat('x', 400000) . '</p>'],
+                'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
+        }
+        $start = hrtime(true);
+        $found = $this->only(pp_udc_composition_findings($bands));
+        $elapsed = (hrtime(true) - $start) / 1e9;
+        $this->assertSame([0, 1, 2, 3, 4, 5], array_column($found, 'index'), 'every eyebrow is named: checked or not');
+        $this->assertStringNotContainsString('Not checked', $found[0]['message'], 'the first bands fit the budget and are checked');
+        $this->assertStringNotContainsString('Not checked', $found[1]['message']);
+        foreach ([2, 3, 4, 5] as $k) {
+            $this->assertStringContainsString("(Not checked against the rendered page: this band is past the check's size budget", $found[$k]['message'], "band {$k}");
+        }
+        $this->assertLessThan(3.0, $elapsed);
+    }
+
+    /**
+     * EACH "NOT CHECKED" NOTE NAMES ITS OWN REASON (/ship maintainability specialist): a small band past the
+     * 25-render count is not "past a size budget", and a band over the parse bound is not "unreadable".
+     */
+    public function testTheNotCheckedNoteNamesItsReason(): void
+    {
+        $bands = [];
+        for ($b = 0; $b < 26; $b++) {
+            $bands[] = ['component' => 'hero', 'id' => sprintf('pp-%08x', $b + 1), 'props' => ['layout' => 'centered', 'title' => 'H'],
+                'udc' => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]]];
+        }
+        $found = $this->only(pp_udc_composition_findings($bands));
+        $this->assertSame([25], array_column($found, 'index'), 'premise: only the 26th band is left unchecked');
+        $this->assertStringContainsString('(Not checked against the rendered page: this write already checked its limit of 25 bands', $found[0]['message']);
+        $this->assertStringNotContainsString('size budget', $found[0]['message']);
     }
 }

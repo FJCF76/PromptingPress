@@ -142,6 +142,16 @@
 const PP_UDC_MAX_EMIT_DROPS = 200;
 
 /**
+ * The on-the-page check's markup bounds (#1125, /ship security specialist): the most rendered
+ * bytes one band may have to be parsed, and the most one findings call parses in total. Past
+ * either, presence is unknown and the finding says the size budget was the reason. Parsing
+ * costs in proportion to bytes and a string prop counts 0 cards, so the card budget alone did
+ * not bound it (25 bands just under the band bound were 12.5 MB).
+ */
+const PP_UDC_PRESENCE_MARKUP_BAND = 524288;
+const PP_UDC_PRESENCE_MARKUP_CALL = 1048576;
+
+/**
  * Most reference locators one delete scan will COLLECT (#1016).
  *
  * The same rule, for the same reason, as the emit-drop cap above: the one consumer
@@ -6666,11 +6676,18 @@ function _pp_udc_paints_surface(string $value, string $longhand): bool {
  * expands to. Findings paths only; the caller asks at most once per band, and only when a finding is
  * about to be emitted.
  *
- * @param array    $item   The band (composable components only; chrome is not rendered here).
- * @param string[] $roles  role => selector, the roles to answer for.
+ * BOUNDED BY MARKUP (/ship security specialist): a band over PP_UDC_PRESENCE_MARKUP_BAND bytes is not
+ * parsed, and every parsed band is charged to `$markup_left`, the caller's per-call budget; a band that
+ * would overdraw it is not parsed either. Both answer null with `$why` = 'size'.
+ *
+ * @param array       $item        The band (composable components only; chrome is not rendered here).
+ * @param string[]    $roles       role => selector, the roles to answer for.
+ * @param int         $markup_left The caller's remaining markup budget in bytes, charged here.
+ * @param string|null $why         Set on null: 'size' (a markup bound) or 'unrenderable' (anything else).
  * @return array<string, array{band: bool, items: array<string, bool>}>|null
  */
-function _pp_udc_rendered_roles(array $item, array $roles): ?array {
+function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = PHP_INT_MAX, ?string &$why = null): ?array {
+    $why       = 'unrenderable';
     $component = isset($item['component']) && is_scalar($item['component']) ? (string) $item['component'] : '';
     $id        = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
     if ($component === '' || pp_udc_is_chrome($component) || !pp_udc_valid_band_id($id) || !class_exists('DOMDocument')) {
@@ -6695,11 +6712,16 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         }
         $shortcode_tags = $saved_shortcodes;
     }
-    // A band whose markup is past this size is not parsed: unknown (the caller keeps the finding and
-    // says it was not checked), the same answer as the per-call budgets give.
-    if ($html === null || trim($html) === '' || strlen($html) > 524288) {
+    if ($html === null || trim($html) === '') {
         return null;
     }
+    // A band whose markup is past the per-band bound, or past what is left of the call's budget, is not
+    // parsed: unknown (the caller keeps the finding and says it was not checked, naming size).
+    if (strlen($html) > PP_UDC_PRESENCE_MARKUP_BAND || strlen($html) > $markup_left) {
+        $why = 'size';
+        return null;
+    }
+    $markup_left -= strlen($html);
     $dom      = new \DOMDocument();
     $previous = libxml_use_internal_errors(true);
     $loaded   = $dom->loadHTML('<?xml encoding="utf-8"?><div id="pp-presence-root">' . $html . '</div>');
@@ -6737,7 +6759,8 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
             }
         }
     }
-    $out = [];
+    $out       = [];
+    $item_memo = [];
     foreach ($roles as $role => $selector) {
         $steps = _pp_udc_selector_steps((string) $selector);
         if ($steps === null) {
@@ -6746,18 +6769,17 @@ function _pp_udc_rendered_roles(array $item, array $roles): ?array {
         $last       = $steps[count($steps) - 1];
         $candidates = $last['classes'] !== [] ? ($by_class[$last['classes'][0]] ?? []) : ($by_tag[$last['tag']] ?? []);
         $found      = [];
+        $memo       = [];
         foreach ($candidates as $candidate) {
-            if (_pp_udc_steps_match($candidate, $steps, count($steps) - 1, $root)) {
+            if (_pp_udc_steps_match($candidate, $steps, count($steps) - 1, $root, $memo)) {
                 $found[] = $candidate;
             }
         }
         $items = [];
         foreach ($found as $node) {
-            for ($up = $node; $up instanceof \DOMElement && $up !== $root; $up = $up->parentNode) {
-                if ($up->hasAttribute('data-pp-item')) {
-                    $items[$up->getAttribute('data-pp-item')] = true;
-                    break;
-                }
+            $card = _pp_udc_enclosing_item($node, $root, $item_memo);
+            if ($card !== '') {
+                $items[$card] = true;
             }
         }
         $out[(string) $role] = ['band' => $found !== [], 'items' => $items];
@@ -6832,24 +6854,66 @@ function _pp_udc_step_matches(\DOMElement $el, array $step): bool {
 /**
  * Whether `$el` matches steps[0..$i], matching right to left inside `$root` (the band, which is the scope
  * the renderer prefixes: `[data-pp-band] .selector`), as CSS does.
+ *
+ * LINEAR IN NESTING DEPTH (/ship security specialist). A descendant step used to climb every ancestor of
+ * every candidate, so author HTML nested 240 deep (libxml's limit is 256) around many links cost one
+ * 480 KB band 8.3 s. Each answer is memoised per (element, step) for one role's pass, and "some ancestor
+ * matches steps[0..$i]" is itself memoised up the chain, so a pass costs O(elements x steps) whatever
+ * the depth. A memo entry holds its node, so the wrapper cannot be freed and its object id reused by
+ * another node inside the pass.
  */
-function _pp_udc_steps_match(\DOMElement $el, array $steps, int $i, \DOMElement $root): bool {
-    if (!_pp_udc_step_matches($el, $steps[$i])) {
-        return false;
+function _pp_udc_steps_match(\DOMElement $el, array $steps, int $i, \DOMElement $root, array &$memo = []): bool {
+    $key = 'm' . $i . ':' . spl_object_id($el);
+    if (isset($memo[$key])) {
+        return $memo[$key][1];
     }
-    if ($i === 0) {
-        return $el !== $root;
+    if (!_pp_udc_step_matches($el, $steps[$i])) {
+        $match = false;
+    } elseif ($i === 0) {
+        $match = $el !== $root;
+    } elseif ($steps[$i]['axis'] === 'child') {
+        $parent = $el->parentNode;
+        $match  = $parent instanceof \DOMElement && $parent !== $root && _pp_udc_steps_match($parent, $steps, $i - 1, $root, $memo);
+    } else {
+        $match = _pp_udc_ancestor_matches($el, $steps, $i - 1, $root, $memo);
+    }
+    $memo[$key] = [$el, $match];
+    return $match;
+}
+
+/**
+ * The `data-pp-item` of the nearest element at or above `$el` inside `$root`, '' for none: the card a
+ * matched element belongs to. Memoised per element across the whole read (linear in depth, like the
+ * matcher: a per-node climb cost O(matches x depth) on deep author HTML).
+ */
+function _pp_udc_enclosing_item(\DOMElement $el, \DOMElement $root, array &$memo): string {
+    $key = spl_object_id($el);
+    if (isset($memo[$key])) {
+        return $memo[$key][1];
+    }
+    if ($el === $root) {
+        $card = '';
+    } elseif ($el->hasAttribute('data-pp-item')) {
+        $card = $el->getAttribute('data-pp-item');
+    } else {
+        $parent = $el->parentNode;
+        $card   = $parent instanceof \DOMElement ? _pp_udc_enclosing_item($parent, $root, $memo) : '';
+    }
+    $memo[$key] = [$el, $card];
+    return $card;
+}
+
+/** Whether some ancestor of `$el` strictly inside `$root` matches steps[0..$i] (memoised with the matcher). */
+function _pp_udc_ancestor_matches(\DOMElement $el, array $steps, int $i, \DOMElement $root, array &$memo): bool {
+    $key = 'a' . $i . ':' . spl_object_id($el);
+    if (isset($memo[$key])) {
+        return $memo[$key][1];
     }
     $parent = $el->parentNode;
-    if ($steps[$i]['axis'] === 'child') {
-        return $parent instanceof \DOMElement && $parent !== $root && _pp_udc_steps_match($parent, $steps, $i - 1, $root);
-    }
-    for ($up = $parent; $up instanceof \DOMElement && $up !== $root; $up = $up->parentNode) {
-        if (_pp_udc_steps_match($up, $steps, $i - 1, $root)) {
-            return true;
-        }
-    }
-    return false;
+    $match  = $parent instanceof \DOMElement && $parent !== $root
+        && (_pp_udc_steps_match($parent, $steps, $i, $root, $memo) || _pp_udc_ancestor_matches($parent, $steps, $i, $root, $memo));
+    $memo[$key] = [$el, $match];
+    return $match;
 }
 
 /**
@@ -8992,6 +9056,10 @@ function pp_udc_composition_findings(array $items): array {
     // 260-346 ms), so the budget also counts rendered cards per call. A band past either budget is not
     // rendered: its findings stay unfiltered and SAY so (a named note), never silence.
     $presence_cards_left   = 500;
+    // AND BY MARKUP (/ship security specialist): parsing costs in proportion to the rendered bytes, and a
+    // string prop counts 0 cards, so 25 bands just under the per-band bound were 12.5 MB of parsing. The
+    // call parses at most this much in total; see _pp_udc_rendered_roles().
+    $presence_markup_left  = PP_UDC_PRESENCE_MARKUP_CALL;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -9595,15 +9663,18 @@ function pp_udc_composition_findings(array $items): array {
                                     $band_cards += count($prop_value);
                                 }
                             }
-                            $presence_reason = 'budget';
                             $presence        = null;
                             if (pp_udc_is_chrome($component)) {
                                 $presence_reason = 'chrome';
-                            } elseif ($presence_renders_left > 0 && $band_cards <= $presence_cards_left) {
-                                $presence = _pp_udc_rendered_roles($item, $asked);
+                            } elseif ($presence_renders_left <= 0) {
+                                $presence_reason = 'renders';
+                            } elseif ($band_cards > $presence_cards_left) {
+                                $presence_reason = 'size';
+                            } else {
+                                $presence = _pp_udc_rendered_roles($item, $asked, $presence_markup_left, $presence_why);
                                 $presence_renders_left--;
                                 $presence_cards_left -= $band_cards;
-                                $presence_reason = $presence === null ? 'unrenderable' : '';
+                                $presence_reason = $presence === null ? (string) $presence_why : '';
                             }
                         }
                         if ($presence !== null) {
@@ -9700,11 +9771,11 @@ function pp_udc_composition_findings(array $items): array {
                                 $qualifier,
                                 $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where)
                             ) . ($presence === null
-                                ? ' (Not checked against the rendered page: ' . ($presence_reason === 'chrome'
-                                    ? 'the header and footer are not rendered by this check'
-                                    : ($presence_reason === 'unrenderable'
-                                        ? 'this band could not be rendered or read here'
-                                        : 'this band is past the check\'s size budget'))
+                                ? ' (Not checked against the rendered page: ' . ([
+                                    'chrome'  => 'the header and footer are not rendered by this check',
+                                    'renders' => 'this write already checked its limit of 25 bands',
+                                    'size'    => 'this band is past the check\'s size budget',
+                                ][$presence_reason] ?? 'this band could not be rendered or read here')
                                   . ', so this role may not be rendered with these props.)'
                                 : ''),
                             'index'   => is_int($i) ? $i : null,
