@@ -51,16 +51,15 @@ band's design. The engine now discards both before it decides.
 - `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
   gives a reason naming the raw background, not "Set background.image". A raw desktop background that
   removes the image drops a scrim set only at a narrower width (its own fill there included) with
-  the same reason. Its advice is one sentence, true on every role: remove the raw background at this
-  width (a colour in `background.fill` beside the image instead), or remove the overlay at this width
-  (and `background.image`, if it paints at no other width). On the band at rest it also says where the
-  scrim still paints ("The scrim still paints at the …"). Only on a component whose roles re-light
-  (those declaring `overlay_defaults`) does it speak of the marked band and of the accents whose colour
-  you have not set, and add setting their `typography.color` for this width. A scrim that never had an
-  image, under a raw background that would reset one, is not told to set `background.image` alone: where
-  the raw background paints at this width the reason says to put the tint in it at this width, or replace
-  it with `background.fill` and then set the image; where a narrower width's own fill paints instead, it
-  says to put the tint in that fill, or move the desktop raw background into `background.fill` first.
+  the same reason. The reason states facts only: which raw background, at which declared width, removed
+  the image ("the raw background in _css at the desktop width removed the image"); that the scrim, named
+  by its source ("the scrim from preset \"x\""), does not paint there; on the band at rest, where it
+  still paints ("The scrim still paints at the …"); and, only on a component whose roles re-light (those
+  declaring `overlay_defaults`), the marked band and the accents whose colour you have not set. Its one
+  advice line is the same as `udc_css_overrides_group_value`'s: write the whole treatment in one place. A
+  scrim that never had an image, under a raw background that would reset one, is told which raw
+  background would reset it, at this width or before it reaches this width, not to set
+  `background.image` alone.
 - `udc_overlay_accent_off_scrim`: the two new causes above. "Unreadable" is no colour, or any colour
   under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient fading into
   one); only a background whose every colour is an opaque-enough dark keeps it silent. Where the

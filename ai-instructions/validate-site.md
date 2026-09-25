@@ -64,17 +64,15 @@ This checks:
      wins, because it resets the image under it (contract §2'.3). The reason then names the raw
      background, not a missing image. A raw desktop `background` that removes the image drops a scrim
      set only at a narrower width with no image of its own (its own fill included) the same way.
-     The advice is one sentence, true on every role: remove the raw background at this width (a colour
-     in `background.fill` beside the image instead), or remove the overlay at this width (and
-     `background.image`, if it paints at no other width). On the band at rest the reason also names the
-     widths where the scrim still paints ("The scrim still paints at the …"). Only on a component whose
-     roles re-light (those declaring `overlay_defaults`) does it speak of the marked band and of the
-     accents whose colour you have not set, and add setting their `typography.color` for this width.
-     A scrim that never had an image, under a raw background that would reset one, is not told to set
-     `background.image` alone (that would paint nothing): where the raw background paints at this width
-     it says to put the tint in it at this width, or replace it with `background.fill` and then set the
-     image; where a narrower width's own fill paints instead, to put the tint in that fill, or move the
-     desktop raw background into `background.fill` first. `wp pp check page` reports it as this finding; the readiness report
+     The reason states facts, not fixes: which raw background, at which declared width, removed the
+     image; that the scrim (named by its source when a preset supplies it) does not paint there; on the
+     band at rest, the widths where it still paints ("The scrim still paints at the …"); and, only on a
+     component whose roles re-light (those declaring `overlay_defaults`), the marked band and the
+     accents whose colour you have not set. Its one advice line is "write the whole treatment in one
+     place", as `udc_css_overrides_group_value` says: where the conflicting value was written (your map,
+     a preset, a card, a wider width) is yours to see. A scrim that never had an image, under a raw
+     background that would reset one, is told which raw background would reset it (setting
+     `background.image` alone would paint nothing). `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.

@@ -884,9 +884,11 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     $leaves   = is_array($value) ? $value : [$value];
                     $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
                     foreach ($leaves as $leaf) {
-                        // A NUMBER TOO (/ship pass 3 red team, ruling A): the gate accepts what the engine compiles
-                        // (`typography.weight: 700`); a checker stricter than the compiler would report a role the engine
-                        // renders as unreportable. Booleans and non-finite numbers are not values.
+                        // A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a
+                        // checker stricter than the compiler would report a role the engine renders as unreportable.
+                        // SHAPE ONLY: this checks a leaf's shape (single-line string, finite number, not a boolean),
+                        // not each parameter's grammar; a value of the right shape the parameter refuses is dropped at
+                        // compile and ledgered (scoped verification, design).
                         $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
                             || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
                     }
