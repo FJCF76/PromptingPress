@@ -151,6 +151,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'eyebrow' => ['_css' => ['color' => '#ffffff']],
         ]);
         $this->assertCount(1, $found);
+        $this->assertStringContainsString("you set this role's text colour (typography.color, a preset or _css)", $found[0]['message'],
+            'the message names the channel, not typography.color alone');
     }
 
     /** A band darkened through a preset the author applied is an authored band surface. */

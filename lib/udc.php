@@ -2662,14 +2662,15 @@ function _pp_udc_map_covers_fill(array $role_map): bool {
 /**
  * The background colours a role map paints, as strings, in the emitter's precedence (#1010
  * review): its own `background.fill` (every breakpoint tier), else a group-grain then a
- * role-grain preset's fill, plus any state's fill and any `_css` background value. The
- * caller reads each one.
+ * role-grain preset's fill, plus any state's fill and any `_css` background value, each as
+ * [value, preset name or null]: a preset's references resolve against site tokens only.
  *
- * @return array<int, string>
+ * @return array<int, array{0: string, 1: ?string}>
  */
 function _pp_udc_role_map_surface_values(array $role_map): array {
     $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
     $fill       = $background['fill'] ?? null;
+    $from       = null;
     if ($fill === null) {
         foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
             $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
@@ -2677,25 +2678,31 @@ function _pp_udc_role_map_surface_values(array $role_map): array {
             $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
             if (is_array($group) && array_key_exists('fill', $group)) {
                 $fill = $group['fill'];
+                $from = (string) $name;
                 break;
             }
         }
     }
-    $values = array_values(array_filter(is_array($fill) ? $fill : [$fill], 'is_string'));
+    $values = [];
+    foreach (is_array($fill) ? $fill : [$fill] as $value) {
+        if (is_string($value)) {
+            $values[] = [$value, $from];
+        }
+    }
     // A fill set only for a state (`background[":hover"].fill`) paints in that state.
     foreach (pp_udc_states() as $state => $unused) {
         $state_fill = $background[$state]['fill'] ?? null;
         foreach (is_array($state_fill) ? $state_fill : [$state_fill] as $value) {
             if (is_string($value)) {
-                $values[] = $value;
+                $values[] = [$value, null];
             }
         }
     }
-    $raw    = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
+    $raw = isset($role_map[PP_UDC_CSS_KEY]) && is_array($role_map[PP_UDC_CSS_KEY]) ? $role_map[PP_UDC_CSS_KEY] : [];
     foreach (['background', 'background-color', 'background-image'] as $property) {
         foreach ((array) ($raw[$property] ?? []) as $value) {
             if (is_string($value)) {
-                $values[] = $value;
+                $values[] = [$value, null];
             }
         }
     }
@@ -8823,10 +8830,12 @@ function pp_udc_composition_findings(array $items): array {
         // engine marks overlaid, the accent inks re-light to the near-white on-overlay ink on
         // the premise that they sit on a dark scrim. Authored shapes that break the premise
         // are named rather than outguessed: a scrim set only at some widths; a scrim that is
-        // light, partly transparent, or unreadable; and a light (or unreadable) surface the
-        // author set on a role that ENCLOSES a re-lit accent, which each accent's schema
-        // declares as data (`within`), so a light button beside the heading is not named.
-        // Authored wins: an accent whose resting ink the author set is not re-lit and not named.
+        // light, partly transparent, or unreadable; and a light (or unreadable) surface, at
+        // rest or in a state, on the accent itself or on a role that ENCLOSES it, which each
+        // accent's schema declares as data (`within`), so a light button beside the heading
+        // is not named. Values a preset supplies read site tokens only, as the emitter does.
+        // Authored wins: an accent whose resting ink the author set at every width (the base
+        // tier) is not re-lit and not named.
         if ($relit_disclosed < PP_UDC_MAX_EMIT_DROPS && pp_udc_band_has_overlay($item)) {
             $relit = [];
             foreach ($roles as $role_name => $definition) {
@@ -8839,7 +8848,10 @@ function pp_udc_composition_findings(array $items): array {
             if ($relit !== []) {
                 $band_tokens = is_array($item['udc']['_tokens'] ?? null) ? $item['udc']['_tokens'] : [];
                 $conditions  = []; // [condition text, the re-lit roles it concerns]
-                $overlay     = _pp_udc_band_overlay_value($item['udc']['_band']);
+                [$overlay, $scrim_preset] = _pp_udc_band_overlay_source($item['udc']['_band']);
+                // The emitter resolves a preset's references against site tokens only.
+                $scrim_tokens = $scrim_preset === null ? $band_tokens : [];
+                $scrim_label  = $scrim_preset === null ? 'the scrim you set' : sprintf('the scrim from preset "%s"', _pp_udc_reflect($scrim_preset));
                 // A breakpoint map without the base tier paints the scrim only at the widths it names.
                 if (is_array($overlay) && !array_key_exists('d', $overlay)) {
                     $breakpoints = pp_udc_breakpoints();
@@ -8856,22 +8868,22 @@ function pp_udc_composition_findings(array $items): array {
                     if (!is_string($scrim)) {
                         continue;
                     }
-                    $colours = _pp_udc_value_colours($scrim, $band_tokens);
+                    $colours = _pp_udc_value_colours($scrim, $scrim_tokens);
                     $shown   = _pp_udc_reflect($scrim);
                     if ($colours === []) {
-                        $conditions[] = [sprintf('the engine cannot read the scrim you set (%s), so it cannot tell whether it is dark', $shown), $relit];
+                        $conditions[] = [sprintf('the engine cannot read %s (%s), so it cannot tell whether it is dark', $scrim_label, $shown), $relit];
                         break;
                     }
-                    if (_pp_udc_value_is_light($scrim, $band_tokens) === true) {
-                        $conditions[] = [sprintf('the scrim you set is light (%s)', $shown), $relit];
+                    if (_pp_udc_value_is_light($scrim, $scrim_tokens) === true) {
+                        $conditions[] = [sprintf('%s is light (%s)', $scrim_label, $shown), $relit];
                         break;
                     }
                     if (array_filter($colours, static fn (array $c): bool => $c[3] < PP_UDC_SCRIM_MIN_ALPHA) !== []) {
-                        $conditions[] = [sprintf('the scrim you set (%s) is transparent in part, so part of the band shows the unscrimmed image', $shown), $relit];
+                        $conditions[] = [sprintf('%s (%s) is transparent in part, so part of the band shows the unscrimmed image', $scrim_label, $shown), $relit];
                         break;
                     }
                 }
-                // A surface the author painted on a role that encloses a re-lit accent.
+                // A surface on the accent itself or on a role that encloses it.
                 $enclosing = [];
                 foreach ($relit as $accent) {
                     // The accent's own surface too (a highlighter behind the accent word).
@@ -8890,10 +8902,12 @@ function pp_udc_composition_findings(array $items): array {
                             continue;
                         }
                         $where = ($locator === '' ? '' : sprintf('item "%s" ', _pp_udc_reflect($locator))) . sprintf('role "%s"', $role_name);
-                        foreach (_pp_udc_role_map_surface_values($role_map) as $surface) {
-                            if (strtolower($surface) !== 'transparent' && _pp_udc_value_is_light($surface, $band_tokens) !== false) {
-                                $conditions[] = [sprintf('%s, %s, has a background you set (%s) that is light or that the engine cannot read',
+                        foreach (_pp_udc_role_map_surface_values($role_map) as [$surface, $surface_preset]) {
+                            if (strtolower($surface) !== 'transparent'
+                                && _pp_udc_value_is_light($surface, $surface_preset === null ? $band_tokens : []) !== false) {
+                                $conditions[] = [sprintf('%s, %s, has a background %s (%s) that is light or that the engine cannot read',
                                     $where, in_array($role_name, $relit, true) ? 'the accent itself' : 'which encloses it',
+                                    $surface_preset === null ? 'you set' : sprintf('from preset "%s"', _pp_udc_reflect($surface_preset)),
                                     _pp_udc_reflect($surface)), $enclosing[$role_name]];
                                 continue 2;
                             }
@@ -10202,27 +10216,42 @@ function pp_udc_band_has_overlay(array $item): bool {
  * @return mixed
  */
 function _pp_udc_band_overlay_value(array $band_map) {
+    return _pp_udc_band_overlay_source($band_map)[0];
+}
+
+/**
+ * [value, preset name or null] for the scrim a band map paints (#1010 review): which rung
+ * supplied it matters, because the emitter resolves a preset's `@token` references against
+ * SITE tokens only, never the band's `_tokens` (a band token cannot shadow a preset).
+ *
+ * @return array{0: mixed, 1: ?string}
+ */
+function _pp_udc_band_overlay_source(array $band_map): array {
     $background = isset($band_map['background']) && is_array($band_map['background']) ? $band_map['background'] : [];
     $present = static fn ($value): bool => is_scalar($value) ? (string) $value !== '' : (is_array($value) && $value !== []);
     if ($present($background['overlay'] ?? null)) {
-        return $background['overlay'];
+        return [$background['overlay'], null];
     }
     foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$band_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
         $preset   = is_string($name) ? pp_udc_resolve_preset($name) : null;
         $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
         $group    = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
         if (is_array($group) && $present($group['overlay'] ?? null)) {
-            return $group['overlay'];
+            return [$group['overlay'], (string) $name];
         }
     }
-    return null;
+    return [null, null];
 }
 
 /**
  * The colours a CSS colour or gradient value paints, as [[r, g, b, alpha], ...] (#1010
  * review), after resolving `@token` references (band `_tokens`, then site tokens) and one
- * level of `var(--token)`. Reads hex, rgb()/rgba(), hsl()/hsla() and the keywords
- * white/black/transparent, inside a plain colour or a gradient. Anything else (another
+ * few levels of `var(--token)`; `@` references include the engine's own mint names
+ * (`@_band-background-overlay-d`). Reads hex, rgb()/rgba() (numeric or percentage
+ * channels), hsl()/hsla() and the keywords white/black/transparent, inside a plain colour
+ * or a gradient. The read is ALL OR NOTHING: every colour-bearing part must be read, so a
+ * gradient with one unread stop, keyword or unit is unread as a whole, never judged by the
+ * stops that parsed. Anything else (another
  * colour function such as color-mix(), an unresolved reference, a value over
  * PP_UDC_COLOUR_READ_MAX_BYTES before or after expansion) is NOT read: the result is [],
  * which callers treat as unknown. The bound matters because this reads stored maps that
@@ -10243,10 +10272,14 @@ function _pp_udc_value_colours(string $value, array $band_tokens): array {
     if (strlen($value) > PP_UDC_COLOUR_READ_MAX_BYTES) {
         return [];
     }
-    $value = (string) preg_replace_callback('/var\(\s*(--[a-z0-9-]+)\s*\)/i', static function (array $m): string {
-        $site = pp_design_tokens();
-        return isset($site[$m[1]]['value']) ? substr((string) $site[$m[1]]['value'], 0, PP_UDC_COLOUR_READ_MAX_BYTES + 1) : $m[0];
-    }, $value);
+    // A site token may hold another `var()` (a component token pointing at a colour token),
+    // so references expand a few levels deep, still under the byte bound.
+    for ($depth = 0; $depth < 8 && stripos($value, 'var(') !== false && strlen($value) <= PP_UDC_COLOUR_READ_MAX_BYTES; $depth++) {
+        $value = (string) preg_replace_callback('/var\(\s*(--[a-z0-9-]+)\s*\)/i', static function (array $m): string {
+            $site = pp_design_tokens();
+            return isset($site[$m[1]]['value']) ? substr((string) $site[$m[1]]['value'], 0, PP_UDC_COLOUR_READ_MAX_BYTES + 1) : $m[0];
+        }, $value);
+    }
     if (strlen($value) > PP_UDC_COLOUR_READ_MAX_BYTES || str_contains($value, '@') || stripos($value, 'var(') !== false) {
         return [];
     }
@@ -10261,7 +10294,12 @@ function _pp_udc_value_colours(string $value, array $band_tokens): array {
     // Every colour-bearing part must be read, or the value is unread: judging a gradient by
     // the stops that happened to parse would call `linear-gradient(#000, ivory)` dark.
     $leftover = (string) preg_replace('/#[0-9a-f]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)|(?<![\w.-])(?:white|black|transparent)(?![\w.-])/i', ' ', $value);
-    $leftover = (string) preg_replace('/(?:repeating-)?(?:linear|radial|conic)-gradient\(|-?[0-9.]+(?:deg|%|px|em|rem)?|\b(?:to|at|from|in|left|right|top|bottom|center|circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner)\b|[\s,()\/]/i', '', $leftover);
+    // Numbers and units come from the write gate's own dimension grammar (lib/apply.php),
+    // so an angle or length the gate accepts is never mistaken for an unread stop.
+    $units    = array_merge(pp_css_length_units(), ['%', 'deg', 'grad', 'rad', 'turn']); // letters and % only: no escaping needed
+    $number   = '-?' . _pp_css_number_body() . '(?:' . implode('|', $units) . ')?';
+    $leftover = (string) preg_replace('/(?:repeating-)?(?:linear|radial|conic)-gradient\(|' . $number
+        . '|\b(?:to|at|from|in|left|right|top|bottom|center|circle|ellipse|closest-side|closest-corner|farthest-side|farthest-corner)\b|[\s,()\/]/i', '', $leftover);
     if ($leftover !== '') {
         return [];
     }
@@ -10278,8 +10316,14 @@ function _pp_udc_value_colours(string $value, array $band_tokens): array {
                     strlen($hex) === 8 ? hexdec(substr($hex, 6, 2)) / 255 : 1.0];
             } elseif (($m[2] ?? '') !== '') {
                 $parts = preg_split('/[\s,\/]+/', trim($m[2]));
+                // rgb(0%, 0%, 0%) is the gate-accepted percentage form of the same bytes.
+                for ($c = 0; $c < 3 && $c < count($parts); $c++) {
+                    if (str_ends_with($parts[$c], '%') && is_numeric(substr($parts[$c], 0, -1))) {
+                        $parts[$c] = (string) round((float) substr($parts[$c], 0, -1) * 2.55);
+                    }
+                }
                 if (!(count($parts) >= 3 && is_numeric($parts[0]) && is_numeric($parts[1]) && is_numeric($parts[2]))) {
-                    return []; // rgb(100% 100% 100%), rgb(var(--x) ...): a stop this reader cannot place
+                    return []; // rgb(var(--x) ...), a missing channel: a stop this reader cannot place
                 }
                 $colours[] = [(int) $parts[0], (int) $parts[1], (int) $parts[2], $alpha_of($parts[3] ?? null)];
             } elseif (($m[3] ?? '') !== '') {

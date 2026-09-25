@@ -218,6 +218,9 @@ final class OverlayAccentOffScrimTest extends TestCase
             'hero', ['title' => 'T', 'title_accent' => 'A', 'layout' => 'centered']), 'a highlighter gradient');
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['fill' => '#101828']]]),
             'a dark chip keeps the premise');
+        $image = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['image' => 9003]]]);
+        $this->assertCount(1, $image);
+        $this->assertStringContainsString('role "heading-accent", the accent itself, has a background image you set', $image[0]['message']);
     }
 
     /** Several re-lit roles are named together, in the plural. */
@@ -245,7 +248,7 @@ final class OverlayAccentOffScrimTest extends TestCase
             'udc' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.85)']]])['ok']);
         $found = $this->found(['_band' => ['_preset' => 'light-wash']]);
         $this->assertCount(1, $found, 'role-grain preset scrim');
-        $this->assertStringContainsString('the scrim you set is light (rgba(255,255,255,0.85))', $found[0]['message']);
+        $this->assertStringContainsString('the scrim from preset "light-wash" is light (rgba(255,255,255,0.85))', $found[0]['message']);
 
         $this->assertCount(1, $this->found(['_tokens' => ['wash' => '#ffffffee'],
             '_band' => ['background' => ['image' => 9001, 'overlay' => '@wash']]]), 'band token resolved for lightness');
@@ -370,7 +373,7 @@ final class OverlayAccentOffScrimTest extends TestCase
     /** A stop the reader cannot place makes the whole value unread, never judged by the others. */
     public function testAGradientWithAnUnreadStopIsUnread(): void
     {
-        foreach (['linear-gradient(#000, ivory)', 'linear-gradient(#000, rgb(100% 100% 100%))', 'linear-gradient(black, hsl(0.5turn 0% 100%))',
+        foreach (['linear-gradient(#000, ivory)', 'linear-gradient(#000, lab(98% 0 0))', 'linear-gradient(#000, rgb(255 255))', 'linear-gradient(black, hsl(0.5turn 0% 100%))',
             'linear-gradient(@no-such-token, black)'] as $value) {
             $this->assertNull(_pp_udc_value_is_light($value, []), $value);
         }
@@ -406,6 +409,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background' => '#ffffff']]]));
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-image' => 'linear-gradient(#ffffff, #ffffff)']]]));
         $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => [':hover' => ['fill' => '#ffffff']]]]), 'a state-only fill');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => [':hover' => ['fill' => ['d' => '#ffffff']]]]]), 'a per-breakpoint state fill');
     }
 
     /** A malformed `within` entry in a hand-edited schema is skipped, never a PHP warning. */
@@ -421,7 +425,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         $schema_file = $root . '/components/cta/schema.json';
         $schema      = json_decode((string) file_get_contents($schema_file), true);
         $this->assertArrayHasKey('within', $schema['roles']['heading-accent'], 'premise');
-        $schema['roles']['heading-accent']['within'] = [['text'], 5, 'text'];
+        $schema['roles']['heading-accent']['within'] = [['text'], 5, '', 'heading-accent', 'text'];
         file_put_contents($schema_file, json_encode($schema));
 
         $errors = [];
@@ -430,6 +434,7 @@ final class OverlayAccentOffScrimTest extends TestCase
         set_error_handler(static function (int $no, string $msg) use (&$errors): bool { $errors[] = $msg; return true; });
         try {
             $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['background' => ['fill' => '#ffffff']]]);
+            $self  = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'heading-accent' => ['background' => ['fill' => '#ffffff']]]);
         } finally {
             restore_error_handler();
             unset($GLOBALS['_pp_test_template_dir']);
@@ -438,6 +443,43 @@ final class OverlayAccentOffScrimTest extends TestCase
         }
         $this->assertCount(1, $found, 'the valid entry still works');
         $this->assertSame([], $errors);
+        $this->assertStringContainsString('so role "heading-accent" re-lights', $found[0]['message'], 'named once, in the singular');
+        $this->assertCount(1, $self);
+        $this->assertStringContainsString('so role "heading-accent" re-lights', $self[0]['message'], 'a `within` naming the accent itself does not list it twice');
+    }
+
+    /** Angles and lengths the write gate accepts are read, so a dark scrim using them is not "unreadable". */
+    public function testGateAcceptedAngleAndLengthUnitsAreRead(): void
+    {
+        foreach (['linear-gradient(0.5turn, rgba(0,0,0,.6), rgba(0,0,0,.8))', 'linear-gradient(90grad, #000, #111)', 'linear-gradient(1.57rad, #000a, #000c)',
+            'linear-gradient(180deg, rgba(0,0,0,.6) 0vh, rgba(0,0,0,.8) 60vh)', 'radial-gradient(at 50vw 20vh, rgba(0,0,0,.6), rgba(0,0,0,.85))',
+            'linear-gradient(#000 3ch, #111)', 'radial-gradient(at 10vmin 20%, #000, #111)'] as $scrim) {
+            $this->assertFalse(_pp_udc_value_is_light($scrim, []), $scrim);
+            $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => $scrim]]]), $scrim);
+        }
+    }
+
+    /** A preset's references resolve against SITE tokens, as the emitter resolves them; a band token cannot shadow them. */
+    public function testPresetSuppliedValuesReadSiteTokensNotBandShadows(): void
+    {
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'darkscrim', 'grain' => 'background', 'udc' => ['image' => 9001, 'overlay' => '@overlay-bg']])['ok']);
+        $this->assertSame([], $this->found(['_tokens' => ['overlay-bg' => '#ffffff'], '_band' => ['background' => ['_preset' => 'darkscrim']]]),
+            'the page paints the site --overlay-bg (dark), not the band token');
+
+        $this->assertTrue(pp_execute_action('save_preset', ['name' => 'lightpanel', 'grain' => 'background', 'udc' => ['fill' => '@color-bg']])['ok']);
+        $found = $this->found(['_tokens' => ['color-bg' => '#000000'], '_band' => ['background' => self::DARK_SCRIM],
+            'heading-accent' => ['background' => ['_preset' => 'lightpanel']]]);
+        $this->assertCount(1, $found, 'the page paints the site --color-bg (light) behind the re-lit accent');
+        $this->assertStringContainsString('has a background from preset "lightpanel" (@color-bg)', $found[0]['message']);
+    }
+
+    /** rgb() with percentage channels and a site token that points at another token are read. */
+    public function testPercentageChannelsAndNestedTokensAreRead(): void
+    {
+        $this->assertSame([[0, 0, 0, 0.6]], _pp_udc_value_colours('rgba(0%, 0%, 0%, 0.6)', []));
+        $this->assertTrue(_pp_udc_value_is_light('rgb(100% 100% 100%)', []));
+        $this->assertSame([], $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0%, 0%, 0%, 0.6)']]]));
+        $this->assertFalse(_pp_udc_value_is_light('var(--text-meta-color)', []), 'a token holding var(--color-muted) resolves to it');
     }
 
     /** Bounded across the composition like its sibling arms. */
