@@ -229,6 +229,7 @@ final class RawBackgroundOverlayCoverageTest extends TestCase
     {
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('a raw `background` cancels every `background` value there (image and scrim included)', $prompt);
-        $this->assertStringContainsString('a width where a background you set replaces the image, a scrim covering only part of the band', $prompt);
+        // The two new causes carry their lightness gate in the prompt too (/ship api-contract + design).
+        $this->assertStringContainsString('a light or unreadable background replacing the image or beside a partial scrim', $prompt);
     }
 }
