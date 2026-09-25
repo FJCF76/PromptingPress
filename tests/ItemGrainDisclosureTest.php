@@ -1181,4 +1181,38 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertGreaterThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($drops), 'premise: the fixture reaches the cap');
         $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($drops));
     }
+
+    /** The shadow memo is keyed by component: one preset on the same role name of two components. */
+    public function testTheShadowMemoIsKeyedByComponent(): void
+    {
+        $this->savePreset('probe-hd', ['typography' => ['weight' => '800']]);
+        [, $r] = $this->page([
+            ['component' => 'cta', 'udc' => ['heading' => ['_preset' => 'probe-hd']], 'props' => ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x']],
+            ['component' => 'grid', 'udc' => ['heading' => ['_preset' => 'probe-hd']], 'props' => ['title' => 'G', 'items' => [['title' => 'One']]]],
+        ]);
+
+        $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('Component "grid"', $found[0]['message']);
+    }
+
+    /** A phone-only authored STATE value does not hide the desktop state loss either. */
+    public function testAPhoneOnlyAuthoredStateValueDoesNotHideTheShadowFinding(): void
+    {
+        $this->savePreset('probe-hov2', ['typography' => [':hover' => ['color' => '#aa0000']]]);
+        [, $r] = $this->page($this->grid(['card-link' => ['_preset' => 'probe-hov2', 'typography' => [':hover' => ['color' => ['p' => '#111111']]]]]));
+
+        $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('typography.color (:hover)', $found[0]['message']);
+    }
+
+    /** Per tier inside a STATE too: a preset :hover value only at phone paints over a base-only default. */
+    public function testAStatePresetTierTheDefaultNeverCoversIsNotReported(): void
+    {
+        $this->savePreset('probe-hov3', ['typography' => [':hover' => ['color' => ['p' => '#aa0000']]]]);
+        [, $r] = $this->page($this->grid(['card-link' => ['_preset' => 'probe-hov3']]));
+
+        $this->assertSame([], $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default'));
+    }
 }
