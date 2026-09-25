@@ -707,4 +707,30 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertStringContainsString('at the phone width the raw background in _css replaces the image and its scrim, so the accent sits on that background', $conditions);
         $this->assertStringNotContainsString('the scrim is set only at', $conditions, 'the author set the scrim there (design review)');
     }
+
+    /**
+     * ONE LIGHTNESS RULE FOR THE THREE SURFACE CONDITIONS (ruling A, PR-2 review, design): the re-lit accent exists to
+     * read on dark, so a partial scrim, or a width where a background replaced the image, is named only when the
+     * background the accent then sits on is light or unreadable, as the enclosing-surface check already does.
+     */
+    public function testTheNewConditionsGateOnTheBackgroundTheAccentSitsOn(): void
+    {
+        $partial = static fn (string $fill): array => ['_band' => ['background' => self::DARK_SCRIM + ['fill' => $fill, 'size' => '50%', 'repeat' => 'no-repeat']]];
+        $this->assertSame([], $this->found($partial('#0a0a12')), 'partial over a dark own background: the accent reads');
+        $this->assertCount(1, $this->found($partial('#ffffff')), 'partial over a light own background');
+        $this->assertCount(1, $this->found($partial('currentColor')), 'partial over an unreadable own background');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50%', 'repeat' => 'no-repeat']]]),
+            'no fill: the component\'s own default background (light) is what shows');
+        $raw = static fn (string $bg): array => ['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $bg]]]];
+        $this->assertSame([], $this->found($raw('#0a0a12')), 'a dark raw background at the phone width: the accent reads');
+        $this->assertCount(1, $this->found($raw('#ffffff')), 'a light one is named');
+        $filled = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => '#0a0a12']]]]);
+        $this->assertSame([], $filled, 'a dark fill set at the phone width');
+        $this->assertCount(1, $this->found($raw('currentColor')), 'an unreadable raw background is named');
+        $fill = static fn (string $f): array => ['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $f]]]];
+        $this->assertCount(1, $this->found($fill('#ffffff')), 'a light fill set at the phone width is named');
+        $this->assertCount(1, $this->found($fill('currentColor')), 'an unreadable one is named');
+        $found = $this->found($partial('#ffffff'));
+        $this->assertStringContainsString('size the image cover, or let it tile, and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
+    }
 }

@@ -9624,15 +9624,27 @@ function pp_udc_composition_findings(array $items): array {
                     }
                 }
                 $missing = array_values(array_diff(array_keys($breakpoints), $covered));
+                // ONE LIGHTNESS RULE, ONE HELPER (PR-2 review, design ruling A). The re-lit accent exists to read on
+                // dark. The three conditions that put it on a background other than the scrim (a width where a
+                // background replaced the image, a scrim sized over part of the band, and a surface on or around the
+                // accent further down) are named only where that background is light or unreadable, read with
+                // _pp_udc_value_is_light(). A readably dark background is the design working: firing there is the
+                // refused false-alarm class. A new condition of this kind goes through this gate, not a rule of its
+                // own. (The unscrimmed-image width is not gated: the engine cannot read an image; see #1152.)
+                $accent_may_not_read = static fn ($bp): bool => _pp_udc_value_is_light(
+                    (string) _pp_udc_band_own_background($band_compiled, (string) $bp), []) !== false;
                 if ($covered !== [] && $missing !== []) {
                     // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
                     // the band's own background, not on an image (PR-2 review, security).
                     // BY CAUSE (PR-2 review, design): "the scrim is set only at ..." is true only for a width with an
                     // image and no scrim. Where the image itself is gone, the author may well have set the scrim; what
                     // replaced it is a background set at that width, raw (`_css`, #1141) or through the group.
+                    // Where the image is gone, the accent sits on the background that replaced it, so those widths are
+                    // named only where that background is light or unreadable (the lightness gate, below).
                     $imaged   = array_values(array_filter($missing, static fn ($k): bool => !empty($effective['tiers'][$k]['image'])));
-                    $raw_won  = array_values(array_filter($missing, static fn ($k): bool => empty($effective['tiers'][$k]['image']) && !empty($effective['tiers'][$k]['raw'])));
-                    $filled   = array_values(array_diff($missing, $imaged, $raw_won));
+                    $replaced = array_values(array_filter(array_diff($missing, $imaged), $accent_may_not_read));
+                    $raw_won  = array_values(array_filter($replaced, static fn ($k): bool => !empty($effective['tiers'][$k]['raw'])));
+                    $filled   = array_values(array_diff($replaced, $raw_won));
                     $parts    = [];
                     if ($imaged !== []) {
                         $parts[] = sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
@@ -9646,7 +9658,9 @@ function pp_udc_composition_findings(array $items): array {
                         $parts[] = sprintf('at the %s the background you set there replaces the image and its scrim, so the accent sits on that background',
                             _pp_udc_widths_phrase($filled));
                     }
-                    $conditions[] = [implode(', and ', $parts), $relit];
+                    if ($parts !== []) {
+                        $conditions[] = [implode(', and ', $parts), $relit];
+                    }
                 }
                 foreach ($effective['tiers'] as $tier) {
                     [$layers, $source] = [$tier['scrim'], $tier['source']];
@@ -9676,7 +9690,7 @@ function pp_udc_composition_findings(array $items): array {
                 // it show them) with the widths it holds at (PR-2 review, maintainability).
                 $partial_by_size = []; // shown size => [bp, ...], in breakpoint order
                 foreach ($effective['tiers'] as $bp => $tier) {
-                    if (!empty($tier['partial'])) {
+                    if (!empty($tier['partial']) && $accent_may_not_read($bp)) {
                         $partial_by_size[_pp_udc_reflect(_pp_udc_compiled_display((string) $tier['size'], $band_compiled))][] = (string) $bp;
                     }
                 }
@@ -9685,7 +9699,7 @@ function pp_udc_composition_findings(array $items): array {
                     foreach ($partial_by_size as $shown_size => $size_bps) {
                         $sized[] = $shown_size . ' without tiling' . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
                     }
-                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim',
+                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or let it tile, and the scrim covers the band)',
                         implode(' and ', $sized)), $relit];
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
@@ -11748,6 +11762,28 @@ function _pp_udc_hsl_to_rgb(float $h, float $s, float $l): array {
         return (int) round($v * 255);
     };
     return [$channel($h + 1 / 3), $channel($h), $channel($h - 1 / 3)];
+}
+
+/**
+ * The background the band itself paints at a width, read off the compiled band (PR-2 review, design ruling A): the
+ * resting `_band` block's `background-color` or `background` at that width, else at the desktop width (the tablet
+ * and phone tiers are disjoint and each inherits only from the base). Band tokens are put back. Null when the band
+ * declares none there: the component's own background shows, which the engine does not read.
+ */
+function _pp_udc_band_own_background(array $band_compiled, string $bp): ?string {
+    $found = [];
+    foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
+        if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '' || ($block['state'] ?? '') !== '') {
+            continue;
+        }
+        foreach (['background-color', 'background'] as $property) {
+            $css = $block['decls'][$property]['css'] ?? null;
+            if (is_string($css) && !isset($found[(string) ($block['bp'] ?? '')])) {
+                $found[(string) ($block['bp'] ?? '')] = _pp_udc_compiled_value($css, $band_compiled);
+            }
+        }
+    }
+    return $found[$bp] ?? $found['d'] ?? null;
 }
 
 /**
