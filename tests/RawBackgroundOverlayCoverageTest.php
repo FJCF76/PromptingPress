@@ -184,7 +184,7 @@ final class RawBackgroundOverlayCoverageTest extends TestCase
     public function testAnEmptyOverlayDefaultsValueIsRefused(): void
     {
         $errors = pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => []]]], 'role', 'c role r');
-        $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string, or a breakpoint map of them.', $errors);
+        $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string or a number, or a breakpoint map of them.', $errors);
         $errors = pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => ['d' => '#fff', 't' => "a\rb"]]]], 'role', 'c role r');
         $this->assertNotSame([], $errors, 'a line break inside a breakpoint leaf');
     }

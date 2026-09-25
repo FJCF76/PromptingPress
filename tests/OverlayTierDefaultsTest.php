@@ -374,8 +374,13 @@ final class OverlayTierDefaultsTest extends TestCase
         $role = static fn ($value): array => ['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => $value]]];
         $this->assertSame([], pp_schema_definition_errors($role('@color-accent-on-overlay'), 'role', 'c role r'));
         $this->assertSame([], pp_schema_definition_errors($role(['d' => '#fff', 'p' => '#eee']), 'role', 'c role r'), 'a breakpoint map');
-        foreach ([['deep' => ['x' => 1]], "two\nlines", 7, '', [':hover' => '#fff'], ['d' => '#000', 'hover' => '#fff']] as $bad) {
-            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string, or a breakpoint map of them.',
+        // A number is a value the engine compiles (typography.weight 700), so the gate accepts it (/ship pass 3 red team).
+        $this->assertSame([], pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'],
+            'overlay_defaults' => ['typography' => ['weight' => 700]]], 'role', 'c role r'), 'a numeric leaf');
+        $this->assertSame([], pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'],
+            'overlay_defaults' => ['typography' => ['weight' => ['d' => 700, 'p' => 600]]]], 'role', 'c role r'), 'a numeric breakpoint map');
+        foreach ([['deep' => ['x' => 1]], "two\nlines", true, '', [':hover' => '#fff'], ['d' => '#000', 'hover' => '#fff']] as $bad) {
+            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string or a number, or a breakpoint map of them.',
                 pp_schema_definition_errors($role($bad), 'role', 'c role r'), var_export($bad, true));
         }
     }

@@ -876,7 +876,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                         continue;
                     }
                     // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
-                    // sink, so a value is a single-line string, or a breakpoint map of them, as `defaults` values are.
+                    // sink, so a value is a single-line string or a number (what the engine compiles), or a breakpoint map of them.
                     // The SAME standard as `selector` and `description`, deliberately: pp_udc_is_single_line() refuses
                     // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
                     // under the theme root, so what else they carry rests on theme-root integrity, not on this check
@@ -884,10 +884,14 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     $leaves   = is_array($value) ? $value : [$value];
                     $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
                     foreach ($leaves as $leaf) {
-                        $shape_ok = $shape_ok && is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf);
+                        // A NUMBER TOO (/ship pass 3 red team, ruling A): the gate accepts what the engine compiles
+                        // (`typography.weight: 700`); a checker stricter than the compiler would report a role the engine
+                        // renders as unreportable. Booleans and non-finite numbers are not values.
+                        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
+                            || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
                     }
                     if (!$shape_ok) {
-                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string, or a breakpoint map of them.";
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
                     }
                 }
             }
