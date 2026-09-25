@@ -951,6 +951,46 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString("card's own map", $found[0]['message']);
     }
 
+    /** An authored value at the SAME narrower tier the default took from the preset covers it. */
+    public function testAnAuthoredNarrowerTierCoversTheSameLostTier(): void
+    {
+        $this->savePreset('probe-p', ['typography' => ['line-height' => ['d' => '1.9', 'p' => '2']]]);
+        // card-title's default line-height is base-tier only, so the preset loses only `d`;
+        // an author value at `d` removes it, one at `p` alone does not.
+        [, $d] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-p', 'typography' => ['line-height' => ['d' => '1.5']]]]));
+        $this->assertSame([], $this->findingsOfType($d, 'udc_preset_value_shadowed_by_role_default'));
+
+        [, $p] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-p', 'typography' => ['line-height' => ['p' => '1.5']]]]), 'p only');
+        $this->assertCount(1, $this->findingsOfType($p, 'udc_preset_value_shadowed_by_role_default'));
+
+        // A default that covers `p` too: the author's `p` value covers that lost tier.
+        $this->savePreset('probe-size', ['typography' => ['size' => ['p' => '2rem']]]);
+        $roles = pp_udc_component_roles('grid');
+        $default_size = $roles['card-title']['defaults']['typography']['size'] ?? null;
+        if (!is_array($default_size) || !array_key_exists('p', $default_size)) {
+            $this->markTestIncomplete('premise: needs a role default with a `p` tier for size');
+        }
+        [, $cover] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-size', 'typography' => ['size' => ['p' => '1.5rem']]]]), 'cover p');
+        $this->assertSame([], $this->findingsOfType($cover, 'udc_preset_value_shadowed_by_role_default'));
+    }
+
+    /** A card's own image whose attachment is gone falls back to its preset's image, as the emitter does. */
+    public function testADeletedOwnCardImageFallsBackToThePresetImage(): void
+    {
+        foreach ([9001, 9002] as $att) {
+            $GLOBALS['_pp_test_store']['posts'][$att]               = ['post_type' => 'attachment'];
+            $GLOBALS['_pp_test_store']['attachment_is_image'][$att] = true;
+        }
+        $this->savePreset('probe-img2', ['background' => ['image' => 9002]]);
+        [$id] = $this->page($this->grid(
+            ['card' => ['_preset' => 'probe-img2', 'background' => ['image' => 9001]]],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+        unset($GLOBALS['_pp_test_store']['posts'][9001], $GLOBALS['_pp_test_store']['attachment_is_image'][9001]);
+
+        $this->assertSame(9002, _pp_udc_role_map_background_image(pp_get_composition($id)[0]['props']['items'][0]['udc']['card']));
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {

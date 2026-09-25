@@ -2443,7 +2443,9 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = f
  */
 function _pp_udc_role_map_background_image(array $role_map) {
     $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
-    if (array_key_exists('image', $background)) {
+    // The map's own image wins — while it RESOLVES. One whose attachment was deleted is
+    // dropped at place time, and the emitter then paints the preset's image beneath it.
+    if (array_key_exists('image', $background) && pp_udc_background_image_url($background['image']) !== null) {
         return $background['image'];
     }
     foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
@@ -2472,21 +2474,36 @@ function _pp_udc_value_tiers($value): array {
 }
 
 /**
- * The shadow label for one preset value against one role default, per tier (#1116): null
- * when the default covers none of the preset's tiers (the preset paints there), the plain
- * label when it covers all of them (the value is not applied anywhere), and the label
- * naming the lost tiers when it covers some.
+ * The shadow entry for one preset value against one role default, per tier (#1116): null
+ * when the default covers none of the preset's tiers (the preset paints there), otherwise
+ * [label, lost tiers, preset tiers] — worded by _pp_udc_shadow_entry_label().
  */
-function _pp_udc_shadow_label_for_tiers(string $label, $preset_value, $default_value): ?string {
+function _pp_udc_shadow_entry_for_tiers(string $label, $preset_value, $default_value): ?array {
     $preset_tiers = _pp_udc_value_tiers($preset_value);
     $lost = array_values(array_intersect($preset_tiers, _pp_udc_value_tiers($default_value)));
-    if ($lost === []) {
-        return null;
-    }
+    return $lost === [] ? null : [$label, $lost, $preset_tiers];
+}
+
+/**
+ * Words one shadow entry: the plain label when every preset tier is lost (the value is
+ * not applied anywhere), otherwise the label naming the lost tiers.
+ */
+function _pp_udc_shadow_entry_label(array $entry): string {
+    [$label, $lost, $preset_tiers] = $entry;
     if (count($lost) === count($preset_tiers)) {
         return $label;
     }
     return $label . ' at breakpoint ' . implode('/', array_map('_pp_udc_reflect', $lost));
+}
+
+/**
+ * The tiers an authored value covers against a role default: `true` (all) when it paints
+ * at the base tier, otherwise the narrower tiers it names.
+ *
+ * @return array<int, string>|true
+ */
+function _pp_udc_authored_tiers($value) {
+    return _pp_udc_value_covers_base_tier($value) ? true : _pp_udc_value_tiers($value);
 }
 
 /**
@@ -2504,7 +2521,11 @@ function _pp_udc_value_covers_base_tier($value): bool {
  * _pp_udc_preset_values_shadowed_by_role_defaults() reports, so the shadow finding can
  * leave out what the author already wrote (their value outranks preset and default).
  *
- * @return array<int, string>
+ * Keyed by label; each value is the tiers the author's value covers, where a value
+ * covering the base tier covers them all (it is band-scoped and prints after the
+ * component-scoped defaults, so it wins at every width the default takes).
+ *
+ * @return array<string, array<int, string>|true>  true = every tier
  */
 function _pp_udc_authored_value_labels(array $role_map): array {
     $states = pp_udc_states();
@@ -2520,15 +2541,11 @@ function _pp_udc_authored_value_labels(array $role_map): array {
             }
             if (isset($states[$key])) {
                 foreach (is_array($value) ? $value : [] as $param => $state_value) {
-                    if (_pp_udc_value_covers_base_tier($state_value)) {
-                        $labels[] = $group . '.' . (string) $param . ' (' . $key . ')';
-                    }
+                    $labels[$group . '.' . (string) $param . ' (' . $key . ')'] = _pp_udc_authored_tiers($state_value);
                 }
                 continue;
             }
-            if (_pp_udc_value_covers_base_tier($value)) {
-                $labels[] = $group . '.' . $key;
-            }
+            $labels[$group . '.' . $key] = _pp_udc_authored_tiers($value);
         }
     }
     return $labels;
@@ -8138,6 +8155,19 @@ function pp_udc_format_obligation_groups(array $groups): string {
  * @return array<int, string>  e.g. ['typography.color', 'typography.color (:hover)']
  */
 function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array $role_def): array {
+    return array_map(
+        '_pp_udc_shadow_entry_label',
+        _pp_udc_preset_values_shadowed_entries($fragment, $role_def)
+    );
+}
+
+/**
+ * The shadow entries behind the labels above: [base label, lost tiers, preset tiers], so a
+ * caller can subtract what the author covers PER TIER before wording the label (#1116).
+ *
+ * @return array<int, array{0: string, 1: array<int, string>, 2: array<int, string>}>
+ */
+function _pp_udc_preset_values_shadowed_entries(array $fragment, array $role_def): array {
     $defaults  = isset($role_def['defaults']) && is_array($role_def['defaults'])
         ? $role_def['defaults']
         : [];
@@ -8175,13 +8205,13 @@ function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array 
                     : [];
                 foreach ($value as $param => $state_value) {
                     if (isset($state_defaults[(string) $param])) {
-                        $label = _pp_udc_shadow_label_for_tiers(
+                        $entry = _pp_udc_shadow_entry_for_tiers(
                             $group . '.' . (string) $param . ' (' . $key . ')',
                             $state_value,
                             $state_defaults[(string) $param]
                         );
-                        if ($label !== null) {
-                            $shadowed[] = $label;
+                        if ($entry !== null) {
+                            $shadowed[] = $entry;
                         }
                     }
                 }
@@ -8189,9 +8219,9 @@ function _pp_udc_preset_values_shadowed_by_role_defaults(array $fragment, array 
             }
 
             if (isset($group_defaults[$key])) {
-                $label = _pp_udc_shadow_label_for_tiers($group . '.' . $key, $value, $group_defaults[$key]);
-                if ($label !== null) {
-                    $shadowed[] = $label;
+                $entry = _pp_udc_shadow_entry_for_tiers($group . '.' . $key, $value, $group_defaults[$key]);
+                if ($entry !== null) {
+                    $shadowed[] = $entry;
                 }
             }
         }
@@ -8428,23 +8458,30 @@ function pp_udc_composition_findings(array $items): array {
                     }
                 }
                 // The author's own labels, once per role map (not once per reference).
-                $authored_labels = $preset_refs === [] ? [] : array_flip(_pp_udc_authored_value_labels($role_map));
+                $authored_labels = $preset_refs === [] ? [] : _pp_udc_authored_value_labels($role_map);
                 foreach ($preset_refs as [$preset_name, $fragment, $preset_group]) {
                     $shadow_key = $component . "\0" . $role_name . "\0" . $preset_group . "\0" . $preset_name;
                     if (!array_key_exists($shadow_key, $shadow_memo)) {
-                        $shadow_memo[$shadow_key] = _pp_udc_preset_values_shadowed_by_role_defaults(
+                        $shadow_memo[$shadow_key] = _pp_udc_preset_values_shadowed_entries(
                             $fragment,
                             $roles[(string) $role_name]
                         );
                     }
                     // A value THIS map already sets paints — the author's own value outranks
                     // both the preset and the default — so it is not "not applied".
-                    // Compared on the label without its tier suffix: an authored base-tier
-                    // value outranks the preset at every tier the default took from it.
-                    $shadowed = array_values(array_filter(
-                        $shadow_memo[$shadow_key],
-                        static fn (string $label): bool => !isset($authored_labels[explode(' at breakpoint ', $label, 2)[0]])
-                    ));
+                    // PER TIER: an authored value covers the lost tiers it names (all of them
+                    // when it paints at the base tier); what is left is still lost.
+                    $shadowed = [];
+                    foreach ($shadow_memo[$shadow_key] as [$entry_label, $entry_lost, $entry_tiers]) {
+                        $covered = $authored_labels[$entry_label] ?? [];
+                        if ($covered === true) {
+                            continue;
+                        }
+                        $still_lost = array_values(array_diff($entry_lost, $covered));
+                        if ($still_lost !== []) {
+                            $shadowed[] = _pp_udc_shadow_entry_label([$entry_label, $still_lost, $entry_tiers]);
+                        }
+                    }
                     if ($shadowed === []) {
                         continue;
                     }
