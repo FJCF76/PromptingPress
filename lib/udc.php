@@ -2556,6 +2556,56 @@ function _pp_udc_authored_value_labels(array $role_map): array {
 }
 
 /**
+ * A role's own default surface (#1125): the first non-transparent `background.fill` its
+ * defaults declare, at any breakpoint tier, or null when it has none. A transparent fill
+ * is no surface: the band shows through, which is what the author just set.
+ */
+function _pp_udc_role_own_surface_fill(array $role_def): ?string {
+    $fill = $role_def['defaults']['background']['fill'] ?? null;
+    foreach (is_array($fill) ? $fill : [$fill] as $tier_value) {
+        if (is_string($tier_value) && $tier_value !== '' && strtolower($tier_value) !== 'transparent') {
+            return $tier_value;
+        }
+    }
+    return null;
+}
+
+/** Whether a role map authors a text colour, at rest or in any state (#1125). */
+function _pp_udc_map_sets_ink(array $role_map): bool {
+    $typography = isset($role_map['typography']) && is_array($role_map['typography']) ? $role_map['typography'] : [];
+    if (array_key_exists('color', $typography)) {
+        return true;
+    }
+    foreach (pp_udc_states() as $state => $unused) {
+        if (isset($typography[$state]) && is_array($typography[$state]) && array_key_exists('color', $typography[$state])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Whether a role map supplies its own surface (#1125): a `background.fill` or `image` in the
+ * map itself, or from a preset it applies at role grain or inside `background`. One level:
+ * a preset never references another.
+ */
+function _pp_udc_map_covers_fill(array $role_map): bool {
+    $background = isset($role_map['background']) && is_array($role_map['background']) ? $role_map['background'] : [];
+    if (array_key_exists('fill', $background) || array_key_exists('image', $background)) {
+        return true;
+    }
+    foreach ([[$background[PP_UDC_PRESET_KEY] ?? null, 'background'], [$role_map[PP_UDC_PRESET_KEY] ?? null, 'role']] as [$name, $grain]) {
+        $preset = is_string($name) ? pp_udc_resolve_preset($name) : null;
+        $fragment = $preset === null ? null : _pp_udc_preset_fragment($preset, $grain);
+        $group = $grain === 'role' ? ($fragment['background'] ?? null) : $fragment;
+        if (is_array($group) && (array_key_exists('fill', $group) || array_key_exists('image', $group))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * The ledger locator for a dropped overlay (#1117): the card when there is one, the role,
  * and the state / breakpoint bucket it was dropped from — each fragment cleaned, because
  * these are stored keys riding an operator-facing row (the rule _pp_udc_place() states).
@@ -8318,6 +8368,7 @@ function pp_udc_composition_findings(array $items): array {
     // once per card. Per call, not static, so a preset saved mid-request is never stale.
     $overlay_preset_memo = [];
     $shadow_memo         = [];
+    $ink_disclosed       = 0;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -8568,6 +8619,51 @@ function pp_udc_composition_findings(array $items): array {
                             pp_udc_bounded_list($shadowed, 6, $total),
                             $total === 1 ? 'it' : 'them',
                             $total === 1 ? 'it was' : 'they were'
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
+                }
+            }
+        }
+
+        // A ROLE'S OWN SURFACE UNDER A NEW INK (#1125, ruling D5 = B). Darken a band, recolour
+        // a role's text, and a role that ships its OWN background fill keeps that surface
+        // under the new ink: the eyebrow pill measured 1.82:1. Both values apply correctly;
+        // they clash, and the write used to say nothing. Named, not measured: the engine does
+        // no contrast maths, it names the pairing and the author judges it.
+        //
+        // GATED ON AN AUTHORED BAND SURFACE (the ruling): only a band whose `_band` map
+        // authors a background fill or image, i.e. the author changed what the band sits on.
+        // A light band keeping its light roles is the design working, not a trap.
+        $band_background = isset($item['udc']['_band']['background']) && is_array($item['udc']['_band']['background'])
+            ? $item['udc']['_band']['background'] : [];
+        if ((array_key_exists('fill', $band_background) || array_key_exists('image', $band_background))
+            && $ink_disclosed < PP_UDC_MAX_EMIT_DROPS) {
+            foreach ($preset_maps as [$locator, $map]) {
+                foreach ($map as $role_name => $role_map) {
+                    if ((string) $role_name === '_band' || !is_array($role_map) || !isset($roles[(string) $role_name])
+                        || ($locator !== '' && !in_array((string) $role_name, $preset_item_roles, true))) {
+                        continue;
+                    }
+                    $own_fill = _pp_udc_role_own_surface_fill($roles[(string) $role_name]);
+                    if ($own_fill === null || !_pp_udc_map_sets_ink($role_map) || _pp_udc_map_covers_fill($role_map)) {
+                        continue;
+                    }
+                    if ($ink_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break 2;
+                    }
+                    $ink_disclosed++;
+                    $findings[] = [
+                        'type'    => 'udc_role_ink_over_own_surface',
+                        'message' => sprintf(
+                            'Component "%s"%s role "%s": you set typography.color, but this role keeps its own '
+                            . 'default background.fill (%s), which the band background you set does not replace, '
+                            . 'so the new ink sits on that surface. Set background.fill for this role too, or check '
+                            . 'the pair reads (AA: 4.5:1 for body text, 3:1 for large text).',
+                            $component,
+                            $locator === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($locator)),
+                            (string) $role_name,
+                            _pp_udc_reflect($own_fill)
                         ),
                         'index'   => is_int($i) ? $i : null,
                     ];
