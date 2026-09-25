@@ -772,7 +772,7 @@ final class ItemGrainDisclosureTest extends TestCase
         $found = $this->findingsOfType($result, 'udc_overlay_without_image');
         $this->assertCount(1, $found);
         $this->assertStringContainsString("card's own map", $found[0]['message']);
-        $this->assertStringNotContainsString('none is set', $found[0]['message']);
+        $this->assertStringNotContainsString('or remove the overlay', $found[0]['message'], 'not the generic reason');
     }
 
     /** An authored STATE value is left out of the shadow finding at state grain only. */
@@ -830,6 +830,33 @@ final class ItemGrainDisclosureTest extends TestCase
         $found = $this->findingsOfType($r, 'udc_overlay_without_image');
         $this->assertCount(1, $found);
         $this->assertStringContainsString("card's own map", $found[0]['message']);
+    }
+
+    /**
+     * The cross-grain band-scrim reason allows for a deleted band image, and counts only
+     * a card image on an ITEM role (any other role is dropped whole on a card).
+     */
+    public function testTheCardImageReasonAllowsADeletedBandImageAndOnlyItemRoles(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $r] = $this->page($this->grid(
+            ['card' => ['background' => ['image' => 9001]]],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+        $found = $this->findingsOfType($r, 'udc_overlay_without_image');
+        $this->assertStringContainsString('deleted', $found[0]['message']);
+
+        $stored = ['component' => 'grid', 'id' => 'pp-a1b2c3d4',
+                   'udc'   => ['heading' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]],
+                   'props' => ['title' => 'G', 'items' => [['id' => 'it-0000abcd', 'title' => 'One',
+                       'udc' => ['heading' => ['background' => ['image' => 9001]]]]]]];
+        $overlay = array_values(array_filter(
+            pp_udc_composition_findings([$stored]),
+            static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
+        ));
+        $this->assertCount(1, $overlay);
+        $this->assertStringNotContainsString("card's own map", $overlay[0]['message'], 'heading is not an item role');
     }
 
     /** The readiness channel (the emit-drop ledger) carries the same fact. */

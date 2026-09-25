@@ -2558,9 +2558,10 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // the band's scrim reaches none of them.
                     : ($cards_set_image
                     ? 'an overlay on the band\'s map is layered only over a background.image on the band\'s '
-                      . 'map, and this role has none there; the image a card sets for this role replaces '
-                      . 'that card\'s whole background, so this scrim reaches no card. Put the overlay on each '
-                      . 'card\'s own map, or set background.image on the band\'s map'
+                      . 'map, and this role has no usable one there (none is set, or the attachment it names was '
+                      . 'deleted); the image a card sets for this role replaces that card\'s whole background, so '
+                      . 'this scrim reaches no card. Put the overlay on each card\'s own map, or set (or '
+                      . 're-import) background.image on the band\'s map'
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -5186,9 +5187,13 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                 // only when a ledger is kept (render paths never pay for it).
                 if ($drops !== null && !isset($card_image_roles)) {
                     $card_image_roles = [];
+                    // Item roles only: any other role on a card is dropped whole at item
+                    // grain, so its image never paints and cannot be what hides the scrim.
+                    $card_item_roles = (array) (pp_udc_item_roles((string) ($item['component'] ?? ''))['roles'] ?? []);
                     foreach (pp_udc_item_maps($item) as $card_map) {
                         foreach ($card_map as $card_role => $card_role_map) {
-                            if (is_array($card_role_map) && isset($card_role_map['background'])
+                            if (is_array($card_role_map) && in_array((string) $card_role, $card_item_roles, true)
+                                && isset($card_role_map['background'])
                                 && is_array($card_role_map['background'])
                                 && array_key_exists('image', $card_role_map['background'])) {
                                 $card_image_roles[(string) $card_role] = true;
