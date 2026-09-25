@@ -47,6 +47,10 @@ This checks:
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
+   - `udc_role_ink_over_own_surface` — on a band whose background you set, you recoloured a
+     role's text but the role still sits on its OWN default `background.fill` (an eyebrow
+     pill, a panel, a card), so the new ink lands on that surface. Set the role's
+     `background.fill` too, or check the pair reads (AA: 4.5:1 body text, 3:1 large text).
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle

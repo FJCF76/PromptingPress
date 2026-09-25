@@ -317,11 +317,15 @@ because the engine warns about a value that cannot take effect and not about a r
 that survives a change you made to a different role.
 
 **You own the contrast, and you own it per ROLE, not per band.** Nothing re-lights text for
-you. Check every colour against the surface it actually sits on — which is the nearest
+you, with one exception: on an image band with an overlay, the accent-ink roles default to
+`@color-accent-on-overlay` (#1010), and your own value for them still wins. Check every colour against the surface it actually sits on — which is the nearest
 ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
 WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
 un-recoloured renders dark ink on dark, or light ink on light, and that is the single most
-common way this goes wrong.
+common way this goes wrong. The second most common: a role that ships its own
+`background.fill` (an eyebrow pill, a `panel`, a card) keeps that light surface when you
+darken the band, so a new light ink lands on light. Set its `background.fill` alongside its
+`typography.color`. The write names each such role as `udc_role_ink_over_own_surface` (#1125).
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and

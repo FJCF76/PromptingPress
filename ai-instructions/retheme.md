@@ -171,8 +171,11 @@ never against the band behind it. So a retheme that makes a band darker does not
 matching panel-CTA adjustment — keep `--color-accent` legible against
 `--color-surface`, which is the surface that button actually sits on.
 
-**The FOCUS ring is the one dark-band affordance that is still automatic, and since #986 it
-follows the scrim rather than a class.** The engine emits `data-pp-band-overlay` when a band
+**The FOCUS ring is automatic on a scrim band, and since #986 it follows the scrim rather
+than a class. Since #1010 so are the accent inks:** on a band carrying `data-pp-band-overlay`,
+`hero`'s `title-accent` and the `heading-accent` of `cta`, `faq` and `stats` default to
+`--color-accent-on-overlay` instead of `--color-accent` (1.05:1 over a dark scrim), and any
+value you author for those roles still wins. The engine emits `data-pp-band-overlay` when a band
 paints both a `background.image` and a `background.overlay`, and the outline routes to
 `--color-accent-on-overlay` from there — on any v2 layout, and without the author switching
 it on. Two limits worth knowing: a band you merely DARKEN with a fill carries no such marker
