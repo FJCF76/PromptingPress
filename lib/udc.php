@@ -11310,6 +11310,14 @@ function _pp_udc_is_mint_shaped_name(string $name): bool {
  * rendering, never a borrowed design.
  */
 function pp_udc_promote_band_identity(array $item, array $props): array {
+    // THE ENGINE-OWNED FLAGS ARE THE ENGINE'S, IN BOTH DIRECTIONS (#1073). Stored props reach
+    // here by paths that validate nothing (a raw `_pp_composition` meta write; a restore, which
+    // reports without blocking, #233), and every template reads the flag with !empty(), so a
+    // stored "false", "0 " or "no" emitted `data-pp-band-overlay` on a band painting no scrim (the
+    // near-white on-overlay focus ring on a light band), and a stored band id borrowed another
+    // band's design. Whatever the props carry is discarded; only the engine's own verdict below
+    // is promoted.
+    unset($props['__pp_udc_overlay'], $props['__pp_udc_band']);
     if (isset($item['id']) && is_scalar($item['id']) && pp_udc_valid_band_id((string) $item['id'])) {
         $props['__pp_udc_band'] = (string) $item['id'];
     }
