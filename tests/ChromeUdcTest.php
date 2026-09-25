@@ -1950,4 +1950,36 @@ class ChromeUdcTest extends TestCase
             . 'the engine a way to negate a reference'
         );
     }
+
+    /**
+     * A STORED COMPOSITION ROW NAMED AFTER CHROME STAYS ON ITS BAND ID (#1125, found by the
+     * /ship coverage audit). The write gate refuses a `nav` or `footer` row
+     * (`template_owned_component`), but a row already in storage (raw meta, a legacy import,
+     * a restore) still reaches pp_udc_page_authored_css() through the page render. A
+     * refactor that routed pp_udc_band_css() through the chrome scope printed that row as
+     * `[data-pp-chrome="nav"] .nav__menu{color:#f00;}`, and the defaults tier the same way: a
+     * restored composition restyling the live site header. A composition row is a band; it prints under its band id, which the
+     * chrome templates never carry. Chrome's own authored CSS keeps the chrome scope.
+     */
+    public function testAStoredChromeNamedCompositionRowStaysScopedToItsBandId(): void
+    {
+        foreach (['nav' => 'menu', 'footer' => '_band'] as $chrome => $role) {
+            $row = ['component' => $chrome, 'id' => 'pp-a1b2c3d4', 'udc' => [$role => ['typography' => ['color' => '#f00']]]];
+            $css = pp_udc_page_authored_css([$row]);
+            $this->assertNotSame('', $css, "the {$chrome} probe row must emit something, or this proves nothing");
+            $this->assertStringContainsString('[data-pp-band="pp-a1b2c3d4"]', $css, "{$chrome}: the row prints under its band id");
+            $this->assertStringNotContainsString('[data-pp-chrome=', $css, "{$chrome}: a composition row never reaches the site header");
+
+            // The DEFAULTS tier the page prints for that row too (pp_udc_page_css() runs
+            // pp_udc_component_defaults_css() per component): under the component scope, as
+            // main printed it, never re-printing chrome defaults after the site's own chrome CSS.
+            $page = pp_udc_page_css([$row]);
+            $this->assertStringContainsString('[data-pp-component="' . $chrome . '"]', $page, "{$chrome}: row defaults print under the component scope");
+            $this->assertStringNotContainsString('[data-pp-chrome=', $page, "{$chrome}: no tier of a composition row reaches the site header");
+        }
+
+        // The chrome surface itself is untouched: its authored CSS keeps the chrome scope.
+        $this->assertTrue($this->write(['nav' => ['menu' => ['typography' => ['color' => '#f00']]]])['ok']);
+        $this->assertStringContainsString('[data-pp-chrome="nav"]', pp_udc_chrome_css('nav', 'authored'));
+    }
 }

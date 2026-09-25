@@ -6250,7 +6250,8 @@ function pp_udc_band_css(array $item): string {
     if ($compiled['id'] === '') {
         return '';
     }
-    [$scope, $root_scope] = _pp_udc_emission_scopes((string) ($item['component'] ?? ''), $compiled['id'])['authored'];
+    // A COMPOSITION ROW, whatever its component name (#1125 /ship coverage audit): the band id.
+    [$scope, $root_scope] = _pp_udc_emission_scopes((string) ($item['component'] ?? ''), $compiled['id'], true)['authored'];
     return _pp_udc_render_blocks($compiled, $scope, $root_scope);
 }
 
@@ -6268,14 +6269,23 @@ function pp_udc_band_css(array $item): string {
  * ROOT rules print under `:where()` (and in the `pp-zero` cascade layer), see
  * pp_udc_component_defaults_css().
  *
+ * $composition_row = true is the three COMPOSITION emitters (pp_udc_component_defaults_css,
+ * _pp_udc_overlay_tier_css, pp_udc_band_css): a composition row is a band for EVERY component
+ * name, so it prints under the component scope and its band id. A stored row named after a
+ * chrome component is refused at write, but raw meta, a legacy import or a restore still
+ * carry it to the page render; under the chrome scope it would restyle the live site header
+ * (#1125 /ship coverage audit; main scoped it this way, and a refactor here had not). Chrome
+ * itself is pp_udc_chrome_css(); pp_udc_role_paint() reads the surface as it paints.
+ *
  * @return array{defaults: array{0: string, 1: string}, overlay: array{0: string, 1: string}, authored: array{0: string, 1: string}}
  */
-function _pp_udc_emission_scopes(string $component, string $id): array {
-    $base     = pp_udc_is_chrome($component)
+function _pp_udc_emission_scopes(string $component, string $id, bool $composition_row = false): array {
+    $chrome   = !$composition_row && pp_udc_is_chrome($component);
+    $base     = $chrome
         ? '[data-pp-chrome="' . $component . '"]'
         : '[data-pp-component="' . $component . '"]';
     $overlay  = ':where(' . $base . ')[data-pp-band-overlay]';
-    $authored = pp_udc_is_chrome($component) ? $base : '[data-pp-band="' . $id . '"]';
+    $authored = $chrome ? $base : '[data-pp-band="' . $id . '"]';
     return [
         'defaults' => [$base, ':where(' . $base . ')'],
         'overlay'  => [$overlay, $overlay],
@@ -6929,7 +6939,7 @@ function pp_udc_component_defaults_css(string $component): string {
     //
     // The root tier now yields to #430/#431 STRUCTURALLY rather than by load
     // order, so a plugin reordering the enqueues can no longer invert it either.
-    [$scope, $root_scope] = _pp_udc_emission_scopes($component, '')['defaults'];
+    [$scope, $root_scope] = _pp_udc_emission_scopes($component, '', true)['defaults'];
 
     return _pp_udc_render_blocks($compiled, $scope, $root_scope, 'pp-zero')
         . _pp_udc_overlay_tier_css($component);
@@ -6981,7 +6991,7 @@ function _pp_udc_overlay_tier_css(string $component): string {
     if ($compiled === null) {
         return '';
     }
-    [$overlay_scope] = _pp_udc_emission_scopes($component, '')['overlay'];
+    [$overlay_scope] = _pp_udc_emission_scopes($component, '', true)['overlay'];
     return _pp_udc_render_blocks($compiled, $overlay_scope);
 }
 
