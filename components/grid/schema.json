@@ -174,6 +174,7 @@
     },
     "header": {
       "selector": ".grid__header",
+      "text_content": true,
       "description": "The eyebrow/title/subheading block above the cards. It owns the alignment of the whole header — v1's retired `title_align` prop — and nothing else: measured, it declared no padding, no margin and no background of its own at any viewport. Set `typography.align` to centre the text; the eyebrow pill is an inline-block whose BOX does not follow text alignment once the header is a flex column, so centre it with `layout.align` in the same write. IT DECLARES NO `layout` GROUP, and that is a box fact rather than an omission: `.grid__header` is an ordinary block, so `justify-content` or `align-items` on it would paint nothing at any value (the #1006 inert class). Centre the header with `typography.align` — the eyebrow pill is an inline-level box, so it follows the text alignment — and give the heading and subheading `spacing.margin-left`/`margin-right` of `auto` if you also want their capped boxes centred rather than only their text.",
       "groups": [
         "typography",
@@ -186,6 +187,7 @@
     },
     "eyebrow": {
       "selector": ".grid__eyebrow",
+      "text_content": true,
       "description": "The kicker pill above the heading. Measured byte-identical to cta's, section's, faq's and hero's eyebrow roles, and declared per-schema rather than extracted for the reason #1023 recorded: role declaration is data the engine shares, so a fifth copy of the same values is the contract working rather than duplication to factor out. It carries its own `@color-surface-accent` fill, which is why a dark band does not strand it the way it strands `subheading`.",
       "groups": [
         "typography",
@@ -221,6 +223,7 @@
     },
     "heading": {
       "selector": ".grid__heading",
+      "text_content": true,
       "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, AND THAT IS A MEASURED PORT RATHER THAN A TRANSCRIPTION. v1's rule was `color: var(--grid-heading-color, var(--color-text))` — a pinned literal — but the only way v1 could render a dark grid band was `theme: \"inverted\"`, which supplied a light heading colour through `--pp-grid-heading-theme-color`, and that prop is retired. Measured both ways before choosing: `#101828` on a light band and `#fcfdff` on an inverted one, so a pinned literal would reproduce exactly one of the two and would pin the heading against the one band shape v2 newly makes easy. `currentColor` in the `color` property is defined to mean `inherit`, so an authored `_band` -> `typography.color` reaches this heading and an authored value on this role still wins. Identical to `@color-text` on every band v1 could actually express. ITS WEIGHT, LEADING AND RHYTHM ARE RESTATED and its family, tracking and `text-wrap` are not: the weight and leading came from `main > .grid .grid__heading` rules that existed ONLY inside media queries, so dropping them would have restyled every tier, while the other three come from base.css's shared h1-h6 rule and restating a global value would move it to the unlayered tier and beat that rule in every state. Measured letter-spacing is exactly -0.03em at all three tiers, which IS base.css's global — hence no default.",
       "groups": [
         "typography",
@@ -256,6 +259,7 @@
     },
     "heading-accent": {
       "selector": ".grid__heading-accent",
+      "text_content": true,
       "description": "The accented substring inside the heading, rendered only when title_accent occurs in title exactly. It PINS `@color-accent` and therefore does NOT follow a band colour — on `@color-bg-inverted` that measures 3.23:1, which passes the 3:1 large-text floor only because the heading's clamp floors at 28px. It is an 80% cut in margin beside a 17.54:1 heading, so re-ink it deliberately on a dark band rather than by accident.",
       "groups": [
         "typography",
@@ -274,6 +278,7 @@
     },
     "subheading": {
       "selector": ".grid__subheading",
+      "text_content": true,
       "description": "The supporting line below the heading. IT PINS `@color-muted` AND THAT IS THE MEASURED PORT, not an oversight — and it is the one role on this component where neither `currentColor` nor a pinned literal reproduces both of v1's configurations. Measured: `rgb(94,102,119)` on a light band and `#fcfdff` on a v1 `inverted` one. `currentColor` would reproduce the dark case and CHANGE the light one, which is the overwhelmingly common band; the literal reproduces every band v1 could express and strands only the band shape v2 newly makes easy. The literal wins, and the cost is recorded here and as an obligation on `_band`: darken the band and this line needs its own `typography.color` in the same write. Its size and leading come from base.css and are deliberately not restated. ITS MEASURE IS A PORTED DEFAULT, not an omission: v1 declared `max-width: 40rem` on this element at every tier (measured), the same measure section's and testimonials' subheadings carry, so it is `sizing.max-width` here rather than a literal left in the stylesheet. ON A DARK BAND IT IS THE ONE THAT NEEDS ITS OWN WRITE AND CARRIES A NUMBER: pinned at `@color-muted`, it measures rgb(94, 102, 119) on rgb(15, 23, 42) = 3.10:1, under the 4.5:1 AA floor for body text. v1's `theme: \"inverted\"` re-coloured it automatically (measured rgb(252, 253, 255)); the v2 route does not, which is why the `_band` retirement note says a dark band is at least two writes.",
       "groups": [
         "typography",
@@ -438,6 +443,7 @@
     },
     "card-title": {
       "selector": ".grid__item-title",
+      "text_content": true,
       "description": "The card heading (an <h3>). It PINS `@color-text` and therefore does not follow a band or card colour — measured byte-identical on a v1 `default` and `inverted` band, because v1 kept cards light on a dark band. Darken the card and you must set this too. Its size, weight and leading are restated because they came from media-query-scoped rules that would otherwise have restyled every tier; the measured weight is genuinely tier-variant (660 on the phone, 670 above it), which is a real breakpoint map rather than a rounding artefact.",
       "groups": [
         "typography",
@@ -474,6 +480,7 @@
     },
     "card-text": {
       "selector": ".grid__item-text",
+      "text_content": true,
       "description": "The card's supporting paragraph. ITS COLOUR IS A BREAKPOINT MAP AND THAT IS MEASURED, NOT INVENTED: v1 rendered `@color-muted` below 768px and `@color-text-secondary` from 768px up, because the premium typography tier only lightened the paragraph at the wider tiers. Porting one of the two would have changed the other. Like every ink inside a card it pins rather than inherits, so darkening a card fill needs this role set in the same write.",
       "groups": [
         "typography",
@@ -516,6 +523,7 @@
     },
     "card-bullets": {
       "selector": ".grid__item-bullets",
+      "text_content": true,
       "description": "The checklist below the card text — the <ul>. It owns the colour, type and gap of the whole list; the individual line's indent is `card-bullet`. NOTE THE MEASURED ASYMMETRY WITH `card-text`, which is a real v1 behaviour rather than an inconsistency to tidy: the bullet list has NO desktop tier of its own, so it stays `@color-muted` at every viewport while the paragraph above it lightens to `@color-text-secondary` from 768px up. Setting this role's colour is what makes the two agree. THE CHECK-MARK GLYPH'S COLOUR HAS NO v2 ADDRESS: it is painted by a pseudo-element, which Addendum B6 exclusion 6 defers, so v1's `--grid-item-bullet-color` retired with a stated narrowing — measured live exposure on the owner's site was ZERO bands. #1028 is the ruling that would give it a home.",
       "groups": [
         "typography",
@@ -546,6 +554,7 @@
     },
     "card-bullet": {
       "selector": ".grid__item-bullet",
+      "text_content": true,
       "description": "One checklist line. It exists as its own role for exactly one measured value: the 1.5rem left indent that makes room for the check-mark glyph. Colour, size and leading are NOT declared here — they inherit from `card-bullets`, which is where you set them, and restating them would give this role a direct declaration that beat its own container for no reason.",
       "groups": [
         "spacing",
@@ -562,6 +571,7 @@
     },
     "card-link": {
       "selector": ".grid__item-link",
+      "text_content": true,
       "description": "The card's 'Read more' link. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so darkening a card means setting this colour in the same write. ITS FOCUS RING IS DRAWN INSET, AND THAT IS STRUCTURAL RATHER THAN DECORATIVE: `.grid__item` declares `overflow: hidden` to clip a banner image to the card radius, and base.css paints focus rings 2px OUTSIDE the control, so an outset ring on this link lands entirely in the clipped region and paints nothing. v1 survived that only because the card's padding happened to be wider than the 4px the ring needs; in v2 that padding is an ordinary authored value on `card-body`, so the defect was one write away (#1056). The remedy is #1046's, already proven on faq: a negative outline offset, applied structurally so no authored value can reopen it. ITS UNDERLINE IS A STATE PAIR, ported whole: base.css underlines every `a`, v1 removed it at rest and put it back on hover, and measured `text-decoration-line` read `none` at rest and `underline` on hover with `@color-accent-hover` ink. Both halves are defaults here — `typography.decoration` plus a `:hover` block — on nav `link`'s precedent, because keeping the rest half in the stylesheet would have left an authored `decoration` unable to win the hover. ITS INLINE PADDING IS THE ROOM THE FOCUS RING LANDS IN, and the equal negative margin is what keeps the label optically aligned with the copy above it. The ring is drawn INSIDE this box (see above); an inline-flex box hugs its text, so without the padding the stroke cuts through the glyphs — measured at 1280, the first glyph sat exactly on the border box edge. Change the pair together or not at all: zeroing the padding puts the ring back over the label, which still beats the pre-#1056 state where it painted nothing, but it is a regression you are choosing.",
       "groups": [
         "typography",
@@ -607,6 +617,7 @@
     },
     "step-number": {
       "selector": ".grid__step-number",
+      "text_content": true,
       "description": "The filled circular number badge on the steps layout. Renders only when `layout` is 'steps'. Its fill and its numeral ink are a PAIR: the fill defaults to `@color-accent` and the numeral to `@color-bg`, so setting one without the other is how a light badge ends up with invisible numerals. Its measured box is tier-variant — 40px on the phone, 44px from 768px up — and the 44px is the shared tap-target floor rather than a free choice (#1058).",
       "groups": [
         "typography",
@@ -660,6 +671,7 @@
     },
     "empty": {
       "selector": ".grid__empty",
+      "text_content": true,
       "description": "The line rendered when the band has no items. IT SITS ON THE BAND FILL, NOT INSIDE A CARD, which is the whole reason it needs its own mention: darkening the cards cannot strand it and re-inking the card roles cannot rescue it. It pins `@color-muted`, so a dark BAND strands it at roughly 3.1:1 unless you set this role's colour in the same write.",
       "groups": [
         "typography",

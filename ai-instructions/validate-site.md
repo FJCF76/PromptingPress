@@ -37,8 +37,11 @@ This checks:
      group-grain `_preset` (inside `typography`, say), naming the group.
    - `udc_role_ink_over_own_surface` — on a band whose background you set (a header or footer
      reports it on the `pp_site_udc` write envelope instead, not here),
-     the text colour you set on a role paints over that role's OWN default background (an eyebrow
-     pill, a panel, a card), which your band background does not replace. It names the card, the
+     the text colour you set on a role (or on the whole band, reaching a role with no colour of
+     its own) paints over that role's OWN default background, which your band background does
+     not replace. Only a role whose own element renders text is named (`text_content` in the
+     schema: an eyebrow pill, a panel, a hero surface); a container whose text roles set their
+     own colour (a card, an FAQ item, a table head) is not reported. It names the card, the
      state or the width when the clash is only there, and says where the fill goes (a `":hover"`
      map, a breakpoint map). Set the role's `background.fill` there too, or check the pair reads (AA: 4.5:1 body text, 3:1 large text). A text role INSIDE a filled role
      (a testimonial `quote` in its `card`) is not reported: check that pair yourself.

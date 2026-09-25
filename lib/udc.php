@@ -9299,6 +9299,14 @@ function pp_udc_composition_findings(array $items): array {
                         return false;
                     };
                     foreach ($paint_elements as $element) {
+                        // ONLY WHERE THE INK CAN SHOW (ruling A): a role whose own element renders author
+                        // text, schema data set by a Chromium measurement (`text_content`). A container whose
+                        // text roles all set their own colour (faq `item`, grid `card`, table `head`) takes the
+                        // ink on its element and shows it on no glyph: naming it was a false alarm whose
+                        // advice (darken the container) put dark default text on a dark fill.
+                        if (($roles[$element['role']]['text_content'] ?? false) !== true) {
+                            continue;
+                        }
                         $fired = []; // state => [bp, ...]
                         $shown = null;
                         $kinds = []; // 'own' | 'band' => true
@@ -9518,7 +9526,9 @@ function pp_udc_composition_findings(array $items): array {
                 'type'    => 'udc_band_value_shadowed_by_role_default',
                 'message' => sprintf(
                     'Component "%s": the "%s" you set on the whole band does not reach %s, because %s '
-                    . 'own default for it wins over inheritance. Set it on %s directly.',
+                    . 'own default for it wins over inheritance. Set it on %s directly. The other roles take it '
+                    . 'on their own element, but text inside them shows it only where no role inside them sets '
+                    . 'its own.',
                     $component,
                     (string) $property,
                     implode(', ', $names),

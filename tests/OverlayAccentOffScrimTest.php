@@ -592,7 +592,7 @@ final class OverlayAccentOffScrimTest extends TestCase
             }
         }
         sort($promising);
-        $this->assertSame(['AI_CONTEXT.md', 'ai-instructions/build-landing-page.md', 'ai-instructions/style-component.md',
+        $this->assertSame(['AI_CONTEXT.md', 'ai-instructions/add-component.md', 'ai-instructions/build-landing-page.md', 'ai-instructions/style-component.md',
             'ai-instructions/validate-site.md', 'lib/ai-context.php', 'lib/udc.php'], $promising);
         // EVERY mention, not the file: each one must carry the limit within the same passage.
         $checked = 0;
@@ -606,7 +606,7 @@ final class OverlayAccentOffScrimTest extends TestCase
                 $checked++;
             }
         }
-        $this->assertSame(6, $checked, 'every promise was checked (vacuity floor)');
+        $this->assertSame(8, $checked, 'every promise was checked (vacuity floor)');
         $prompt = pp_ai_system_prompt();
         $mentions = 0;
         for ($at = strpos($prompt, 'udc_role_ink_over_own_surface'); $at !== false; $at = strpos($prompt, 'udc_role_ink_over_own_surface', $at + 1)) {

@@ -142,12 +142,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     public function testABandDarkenedByAPresetIsAnAuthoredBandSurface(): void
     {
         $this->savePreset('probe-dark', 'background', ['fill' => '#101828']);
-        $found = $this->only(pp_udc_composition_findings([[
-            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
-            'udc'       => ['_band' => ['background' => ['_preset' => 'probe-dark']], 'card' => ['typography' => ['color' => '#ffffff']]],
-            'props'     => ['title' => 'G', 'items' => [['id' => 'it-0000ab01', 'title' => 'A']]],
-        ]]));
-        $this->assertCount(1, $found);
+        $this->assertCount(1, $this->gridFindings(['_band' => ['background' => ['_preset' => 'probe-dark']],
+            'step-number' => ['typography' => ['color' => '#101828']]], [null], false));
     }
 
     /**
@@ -224,13 +220,13 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
 
     /**
      * Every role that ships its own surface also DEFAULTS that fill, so no preset fill can ever
-     * paint on one: the default outranks it. Pinned on a card at band grain too, so the
+     * paint on one: the default outranks it. Pinned on an item role too (grid `step-number`), so the
      * missed-trap fix is not an eyebrow special case.
      */
-    public function testAShadowedPresetFillOnACardDoesNotCoverIt(): void
+    public function testAShadowedPresetFillOnAnItemRoleDoesNotCoverIt(): void
     {
-        $this->savePreset('card-dark', 'background', ['fill' => '#1d2939']);
-        $found = $this->gridFindings(['card' => ['background' => ['_preset' => 'card-dark'], 'typography' => ['color' => '#ffffff']]], [null]);
+        $this->savePreset('badge-dark', 'background', ['fill' => '#1d2939']);
+        $found = $this->gridFindings(['step-number' => ['background' => ['_preset' => 'badge-dark'], 'typography' => ['color' => '#101828']]], [null]);
         $this->assertCount(1, $found, 'a shadowed preset fill never paints, whatever the grain');
     }
 
@@ -295,13 +291,14 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'the message names every channel an ink comes through');
     }
 
-    /** An ink a preset supplies, on a role whose colour is NOT defaulted, paints and is disclosed. */
+    /** An ink a preset supplies, on a role whose colour is NOT defaulted, paints and is disclosed (hero `surface`). */
     public function testAPaintingPresetInkIsDisclosed(): void
     {
         $this->savePreset('ink-role', 'role', ['typography' => ['color' => '#ffffff']]);
-        $found = $this->gridFindings(['card' => ['_preset' => 'ink-role']], [null]);
-        $this->assertCount(1, $found, 'grid card defaults a fill and no colour, so the preset ink paints');
-        $this->assertStringContainsString('role "card"', $found[0]['message']);
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'surface' => ['_preset' => 'ink-role']],
+            'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>Proof</p>']);
+        $this->assertCount(1, $found, 'hero surface defaults a fill and no colour, so the preset ink paints');
+        $this->assertStringContainsString('role "surface"', $found[0]['message']);
     }
 
     /** An ink authored only for a state lands on the role's own surface in that state. */
@@ -353,15 +350,17 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
 
     public function testFollowingTheWidthAdviceLiterallyClearsTheFinding(): void
     {
-        $nav = static fn (array $menu): array => [[
-            'component' => 'nav', 'id' => 'nav', 'props' => [],
-            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'menu' => $menu],
-        ]];
-        $found = $this->only(pp_udc_composition_findings($nav(['typography' => ['color' => '#f7f8fa']])));
+        $ink = ['typography' => ['color' => '#ffffff']];
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '@color-surface-accent', 'p' => '#101828']]]]);
+        $this->assertSame([], $found, 'premise: every width authored');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => $ink + ['background' => ['fill' => ['p' => '#101828']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('a breakpoint map, e.g. {"p": ...}', $found[0]['message']);
-        $this->assertSame([], $this->only(pp_udc_composition_findings($nav(['typography' => ['color' => '#f7f8fa'],
-            'background' => ['fill' => ['d' => 'transparent', 'p' => '#101828']]]))));
+        $this->assertStringContainsString('a breakpoint map, e.g. {"d": ..., "t": ...}', $found[0]['message']);
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => $ink + ['background' => ['fill' => ['d' => '#101828', 't' => '#101828', 'p' => '#101828']]]]);
+        $this->assertSame([], $found, 'the fill set where the message said clears it');
     }
 
     /**
@@ -389,12 +388,11 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     /** A clash only at rest says "at rest" when the element has another state the author covered. */
     public function testARestOnlyClashIsQualifiedWhenAnotherStateIsCovered(): void
     {
-        $found = $this->gridFindings(['card' => ['background' => [':hover' => ['fill' => '#1d2939']]]],
-            [['card' => ['typography' => ['color' => '#ffffff']]]]);
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => [':hover' => ['fill' => '#1d2939']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-bg) at rest, on any text', $found[0]['message']);
-        $this->assertStringContainsString('Text roles inside this one that set their own colour keep it', $found[0]['message'],
-            'a container role: its own ink does not reach text that sets its own colour');
+        $this->assertStringContainsString('(@color-surface-accent) at rest, on any text', $found[0]['message']);
+        $this->assertStringContainsString('Text roles inside this one that set their own colour keep it', $found[0]['message']);
     }
 
     // ── An ink the role INHERITS from the band (ruling D3 = A) ────────────────────────────
@@ -443,72 +441,164 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([], $found, 'section: eyebrow and panel default their own colour');
     }
 
-    /** A card part under a card root that sets its own colour takes the CARD's ink, not the band's: not blamed on the band. */
-    public function testACardPartUnderAnInkedCardRootIsNotBlamedOnTheBand(): void
+    /**
+     * The arm keeps a card's own root colour from being blamed on the band for a card PART. With the
+     * measured key that branch has no shipped subject: no item part has its own default surface, no
+     * colour default AND renders its own text. When a schema adds one, this fails so the branch gets a
+     * real test instead of a green suite over an unreachable path.
+     */
+    public function testNoShippedItemPartYetTakesTheBandInkThroughItsCard(): void
     {
-        $found = $this->only(pp_udc_composition_findings([[
-            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
-            'udc'       => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]],
-            'props'     => ['title' => 'G', 'items' => [['id' => 'it-0000ab01', 'title' => 'A', 'bar' => true,
-                'udc' => ['card' => ['typography' => ['color' => '#f7f8fa']]]]]],
-        ]]));
-        foreach ($found as $f) {
-            $this->assertFalse(str_contains($f['message'], 'role "card-bar"') && str_contains($f['message'], self::BAND_INK),
-                'card-bar sits in a card that sets its own colour');
+        $checked = 0;
+        foreach (array_keys(pp_composable_components()) as $component) {
+            $decl = pp_udc_item_roles((string) $component);
+            if ($decl === null) {
+                continue;
+            }
+            foreach ($decl['roles'] as $role) {
+                if ($role === $decl['root']) {
+                    continue;
+                }
+                $checked++;
+                $def  = pp_udc_component_roles((string) $component)[$role];
+                $fill = $def['defaults']['background']['fill'] ?? null;
+                $own_surface = $fill !== null && $fill !== 'transparent';
+                $no_colour   = !isset($def['defaults']['typography']['color']);
+                $this->assertFalse($own_surface && $no_colour && ($def['text_content'] ?? false) === true, $component . ' ' . $role);
+            }
         }
+        $this->assertGreaterThan(5, $checked, 'vacuity floor: the item parts were read');
     }
 
     /**
-     * THE TWO FINDINGS NEVER CONTRADICT (D3 condition 2), asserted over every shape here: a role this
-     * finding names as reached by the band's ink is never one the sibling names as NOT reached.
+     * THE TWO FINDINGS NEVER CONTRADICT (D3 condition 2, extended under ruling A): a role this finding
+     * names as reached by the band's ink is never one the sibling names as NOT reached, and it is always a
+     * role that renders its own text (text_content); no container role is ever named.
      */
     public function testTheBandInkNeverContradictsTheSiblingDisclosure(): void
     {
         $band = ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']]];
         $shapes = [
             ['hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>P</p>', 'eyebrow' => 'E']],
-            ['section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']],
+            ['section', ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b', 'layout' => 'text-panel', 'panel_body' => 'x']],
             ['faq', ['title' => 'F', 'items' => [['question' => 'Q?', 'answer' => '<p>A</p>']]]],
-            ['grid', ['title' => 'G', 'items' => [['title' => 'T', 'text' => 'x', 'bar' => true]]]],
+            ['grid', ['layout' => 'steps', 'title' => 'G', 'items' => [['number' => '1', 'title' => 'T', 'text' => 'x']]]],
             ['table', ['title' => 'T', 'headers' => ['A'], 'rows' => [['1']]]],
             ['testimonials', ['items' => [['quote' => 'Q', 'author' => 'A']]]],
             ['cta', ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'eyebrow' => 'E']],
         ];
-        $named = 0;
+        $named = [];
         foreach ($shapes as [$component, $props]) {
             $all = pp_udc_composition_findings([['component' => $component, 'id' => 'pp-a1b2c3d4', 'udc' => $band, 'props' => $props]]);
             $not_reached = [];
             foreach ($all as $f) {
                 if ($f['type'] === 'udc_band_value_shadowed_by_role_default' && str_contains($f['message'], '"color"')) {
-                    preg_match_all('/\b([a-z][a-z0-9-]*)\b/', substr($f['message'], (int) strpos($f['message'], 'does not reach')), $m);
+                    $this->assertStringContainsString('The other roles take it on their own element, but text inside them shows it only where no role inside them sets its own.',
+                        $f['message'], 'the sibling says element-reach and text-reach apart');
+                    preg_match_all('/\\b([a-z][a-z0-9-]*)\\b/', substr($f['message'], (int) strpos($f['message'], 'does not reach')), $m);
                     $not_reached = array_merge($not_reached, $m[1]);
                 }
             }
             foreach ($this->only($all) as $f) {
-                if (!str_contains($f['message'], self::BAND_INK)) {
-                    continue;
-                }
-                $named++;
                 preg_match('/role "([^"]+)"/', $f['message'], $role);
-                $this->assertNotContains($role[1], $not_reached, $component . ': the sibling says the band colour does not reach ' . $role[1]);
+                $this->assertTrue(pp_udc_component_roles($component)[$role[1]]['text_content'] ?? false, $component . ' ' . $role[1] . ' renders its own text');
+                if (str_contains($f['message'], self::BAND_INK)) {
+                    $named[] = $component . '.' . $role[1];
+                    $this->assertNotContains($role[1], $not_reached, $component . ': the sibling says the band colour does not reach ' . $role[1]);
+                }
             }
         }
-        $this->assertGreaterThanOrEqual(5, $named, 'vacuity floor: the band-ink wording fired across the shapes');
+        $this->assertContains('hero.surface', $named, 'vacuity floor: the one shipped band-ink subject fired');
+    }
+
+    /**
+     * `text_content` IS DATA FROM A MEASUREMENT (ruling A): the flagged set is pinned exactly to the
+     * Chromium sweep (evidence-t2/text-content-sweep.txt: each role inked alone, a visible glyph in its
+     * ink). Changing a schema's key means re-measuring, not editing this list by reasoning. And the
+     * definition gate refuses any value but `true`.
+     */
+    public function testTheTextContentKeyMatchesTheMeasurementAndIsGated(): void
+    {
+        $flagged = [];
+        foreach (array_merge(array_keys(pp_composable_components()), pp_udc_chrome_names()) as $component) {
+            foreach (pp_udc_component_roles((string) $component) as $role => $definition) {
+                if (($definition['text_content'] ?? null) === true) {
+                    $flagged[] = $component . '.' . $role;
+                }
+            }
+        }
+        sort($flagged);
+        $this->assertSame([
+            'cta.body', 'cta.body-link', 'cta.button', 'cta.button-secondary', 'cta.eyebrow', 'cta.heading',
+            'cta.heading-accent', 'cta.inner', 'cta.text', 'embed.content', 'embed.content-link', 'embed.heading',
+            'faq.answer', 'faq.answer-link', 'faq.empty', 'faq.eyebrow', 'faq.heading', 'faq.heading-accent',
+            'faq.question', 'faq.question-open', 'footer.address', 'footer.address-link', 'footer.blurb',
+            'footer.brand', 'footer.columns', 'footer.contact', 'footer.copyright', 'footer.heading',
+            'footer.inner', 'footer.link', 'footer.note', 'grid.card-bullet', 'grid.card-bullets',
+            'grid.card-link', 'grid.card-text', 'grid.card-title', 'grid.empty', 'grid.eyebrow', 'grid.header',
+            'grid.heading', 'grid.heading-accent', 'grid.step-number', 'grid.subheading', 'hero.cta',
+            'hero.cta-secondary', 'hero.eyebrow', 'hero.inner', 'hero.proof', 'hero.proof-link', 'hero.subtitle',
+            'hero.surface', 'hero.title', 'hero.title-accent', 'logos.heading', 'logos.label', 'nav.link',
+            'nav.link-current', 'nav.logo', 'nav.toggle', 'section.body', 'section.body-link', 'section.eyebrow',
+            'section.heading', 'section.heading-accent', 'section.inline-items', 'section.panel',
+            'section.panel-body', 'section.panel-cta', 'section.panel-heading', 'section.panel-list',
+            'section.panel-row', 'section.panel-row-label', 'section.panel-row-value', 'section.subheading',
+            'stats.heading', 'stats.heading-accent', 'stats.label', 'stats.number', 'table.caption', 'table.cell',
+            'table.cell-link', 'table.empty', 'table.header', 'table.heading', 'testimonials.author',
+            'testimonials.eyebrow', 'testimonials.heading', 'testimonials.heading-accent', 'testimonials.meta',
+            'testimonials.quote', 'testimonials.subheading',
+        ], $flagged);
+
+        $role = ['selector' => '.a', 'description' => 'd', 'groups' => ['typography'], 'defaults' => []];
+        $this->assertSame([], pp_schema_definition_errors($role + ['text_content' => true], 'role', 'r'));
+        foreach ([false, 'yes', 1, []] as $bad) {
+            $this->assertStringContainsString('`text_content` must be true',
+                implode(' | ', pp_schema_definition_errors($role + ['text_content' => $bad], 'role', 'r')), json_encode($bad));
+        }
     }
 
     // ── Widths ───────────────────────────────────────────────────────────────────────────
 
-    /** A surface that exists at one width only is named with that width (nav `menu`: phone only). */
+    /** A default surface left at some widths only is named with those widths (the author filled the phone width). */
     public function testATierOnlySurfaceIsNamedWithItsWidth(): void
     {
-        $found = $this->only(pp_udc_composition_findings([[
-            'component' => 'nav', 'id' => 'nav',
-            'udc'       => ['_band' => ['background' => ['fill' => '#101828']], 'menu' => ['typography' => ['color' => '#f7f8fa']]],
-            'props'     => [],
-        ]]));
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#ffffff'], 'background' => ['fill' => ['p' => '#101828']]]]);
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('(@color-bg)', $found[0]['message']);
-        $this->assertStringContainsString('(@color-bg) at the phone width, on any text', $found[0]['message']);
+        $this->assertStringContainsString('(@color-surface-accent) at the desktop and tablet widths, on any text', $found[0]['message']);
+    }
+
+    /**
+     * INVERTED BY RULING A (text_content): nav `menu` ships a phone-only fill, but its links set their own
+     * colour, so an ink on `menu` shows on no glyph (measured). It was named; it is now correctly silent.
+     */
+    public function testAContainerWhoseTextSetsItsOwnColourIsNotNamed(): void
+    {
+        foreach ([['nav', 'nav', 'menu', []], ['grid', 'pp-a1b2c3d4', 'card', ['title' => 'G', 'items' => [['title' => 'T']]]],
+                  ['faq', 'pp-a1b2c3d4', 'item', ['title' => 'F', 'items' => [['question' => 'Q?', 'answer' => '<p>A</p>']]]],
+                  ['table', 'pp-a1b2c3d4', 'head', ['title' => 'T', 'headers' => ['A'], 'rows' => [['1']]]],
+                  ['testimonials', 'pp-a1b2c3d4', 'card', ['items' => [['quote' => 'Q', 'author' => 'A']]]]] as [$component, $id, $role, $props]) {
+            $this->assertNotTrue(pp_udc_component_roles($component)[$role]['text_content'] ?? false, 'premise: measured container');
+            $this->assertSame([], $this->only(pp_udc_composition_findings([['component' => $component, 'id' => $id, 'props' => $props,
+                'udc' => ['_band' => ['background' => ['fill' => '#101828'], 'typography' => ['color' => '#ffffff']],
+                          $role => ['typography' => ['color' => '#ffffff']]]]])), $component . ' ' . $role);
+        }
+    }
+
+    /**
+     * THE DOCUMENTED DARK-FAQ MIGRATION IS SILENT (ruling A, condition 3): its map, copied from
+     * docs/howto-migrate-a-faq-band-to-v2.md and asserted to still be there, produces no ink finding.
+     * It is a correct design (light items, dark default text); naming it advised a dark item fill
+     * under that dark text.
+     */
+    public function testTheDocumentedDarkFaqMigrationProducesNoInkFinding(): void
+    {
+        $doc = (string) file_get_contents(dirname(__DIR__) . '/docs/howto-migrate-a-faq-band-to-v2.md');
+        $this->assertStringContainsString('"_band": { "background": { "fill": "#0f172a" }, "typography": { "color": "#fcfdff" } }', $doc,
+            'premise: the documented map is still the one this pins');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#0f172a'], 'typography' => ['color' => '#fcfdff']]],
+            'faq', ['title' => 'F', 'items' => [['question' => 'Q?', 'answer' => '<p>A</p>']]]);
+        $this->assertSame([], $found);
     }
 
     /** An authored base fill outranks a default's narrower tier (the authored rule prints later). */
@@ -523,18 +613,14 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertSame([], $found);
     }
 
-    /** Several states: each is named with its own widths, joined in emission order, and the surface named is the first that fires. */
+    /** Several states: each is named with its own widths, joined in emission order. */
     public function testSeveralStatesAreNamedTogether(): void
     {
-        $found = $this->only(pp_udc_composition_findings([[
-            'component' => 'nav', 'id' => 'nav',
-            'udc'       => ['_band' => ['background' => ['fill' => '#101828']],
-                            'menu' => ['typography' => ['color' => '#f7f8fa', ':hover' => ['color' => '#ffffff']]]],
-            'props'     => [],
-        ]]));
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '#f7f8fa', ':hover' => ['color' => '#ffffff']], 'background' => ['fill' => ['p' => '#101828']]]]);
         $this->assertCount(1, $found);
         $this->assertStringContainsString(
-            '(@color-bg) at rest at the phone width, and in the :hover state at the phone width, on any text',
+            '(@color-surface-accent) at rest at the desktop and tablet widths, and in the :hover state at the desktop and tablet widths, on any text',
             $found[0]['message']
         );
     }
@@ -583,7 +669,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         foreach (['junk', ['items' => 'junk'], ['items' => [1, 'x', null]]] as $props) {
             $found = $this->only(pp_udc_composition_findings([
                 ['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'props' => $props,
-                 'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'card' => ['typography' => ['color' => '#fff']]]],
+                 'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'step-number' => ['typography' => ['color' => '#101828']]]],
                 ['component' => 'section', 'id' => 'pp-a1b2c3d5', 'props' => [],
                  'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#fff']]]],
             ]));
@@ -593,21 +679,26 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
 
     // ── Cards (item grain) ───────────────────────────────────────────────────────────────
 
-    private function gridFindings(array $band_udc, array $item_udcs): array
+    /**
+     * A steps grid: `step-number` is the item role that ships its own surface AND renders its own text
+     * (text_content, measured). The card ROOT is a container whose text roles set their own colour, so
+     * item-grain behaviour is pinned on the badge, not on the card (ruling A).
+     */
+    private function gridFindings(array $band_udc, array $item_udcs, bool $dark = true): array
     {
         $items = [];
         foreach ($item_udcs as $n => $udc) {
-            $items[] = ['id' => sprintf('it-0000ab%02d', $n), 'title' => 'T' . $n] + ($udc === null ? [] : ['udc' => $udc]);
+            $items[] = ['id' => sprintf('it-0000ab%02d', $n), 'number' => (string) ($n + 1), 'title' => 'T' . $n] + ($udc === null ? [] : ['udc' => $udc]);
         }
-        return $this->gridFindingsWithItems($band_udc, $items);
+        return $this->gridFindingsWithItems($band_udc, $items, $dark);
     }
 
-    private function gridFindingsWithItems(array $band_udc, array $items): array
+    private function gridFindingsWithItems(array $band_udc, array $items, bool $dark = true): array
     {
         return $this->only(pp_udc_composition_findings([[
             'component' => 'grid', 'id' => 'pp-a1b2c3d4',
-            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']]] + $band_udc,
-            'props'     => ['title' => 'G', 'items' => $items],
+            'udc'       => ($dark ? ['_band' => ['background' => ['fill' => '@color-bg-inverted']]] : []) + $band_udc,
+            'props'     => ['layout' => 'steps', 'title' => 'G', 'items' => $items],
         ]]));
     }
 
@@ -615,18 +706,18 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     public function testABandGrainFillCoversAnItemGrainInk(): void
     {
         $this->assertSame([], $this->gridFindings(
-            ['card' => ['background' => ['fill' => '#1d2939']]],
-            [['card' => ['typography' => ['color' => '#ffffff']]]]
+            ['step-number' => ['background' => ['fill' => '#1d2939']]],
+            [['step-number' => ['typography' => ['color' => '#ffffff']]]]
         ));
-        $this->assertCount(1, $this->gridFindings([], [['card' => ['typography' => ['color' => '#ffffff']]]]),
+        $this->assertCount(1, $this->gridFindings([], [['step-number' => ['typography' => ['color' => '#ffffff']]]]),
             'premise: the same ink with no fill at either grain is disclosed');
     }
 
     /** The band's `card` ink is covered only where a card sets its own fill. */
     public function testABandGrainInkIsCoveredOnlyWhereACardSetsItsFill(): void
     {
-        $filled = ['card' => ['background' => ['fill' => '#1d2939']]];
-        $ink    = ['card' => ['typography' => ['color' => '#ffffff']]];
+        $filled = ['step-number' => ['background' => ['fill' => '#1d2939']]];
+        $ink    = ['step-number' => ['typography' => ['color' => '#ffffff']]];
         $this->assertSame([], $this->gridFindings($ink, [$filled, $filled]));
         $one = $this->gridFindings($ink, [$filled, null]);
         $this->assertCount(1, $one, 'the second card keeps its own light surface under the band ink');
@@ -636,9 +727,9 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     /** A card whose id the emitter cannot use renders without its map, so its fill covers nothing. */
     public function testACardTheEmitterCannotAddressDoesNotCoverTheBandInk(): void
     {
-        $found = $this->gridFindingsWithItems(['card' => ['typography' => ['color' => '#ffffff']]], [
-            ['id' => 'it-0000ab01', 'title' => 'A', 'udc' => ['card' => ['background' => ['fill' => '#1d2939']]]],
-            ['id' => 'not an id', 'title' => 'B', 'udc' => ['card' => ['background' => ['fill' => '#1d2939']]]],
+        $found = $this->gridFindingsWithItems(['step-number' => ['typography' => ['color' => '#ffffff']]], [
+            ['id' => 'it-0000ab01', 'title' => 'A', 'udc' => ['step-number' => ['background' => ['fill' => '#1d2939']]]],
+            ['id' => 'not an id', 'title' => 'B', 'udc' => ['step-number' => ['background' => ['fill' => '#1d2939']]]],
         ]);
         $this->assertCount(1, $found);
     }
@@ -646,13 +737,13 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     /** A band ink on an item role with no cards at all: nothing covers the role's own surface. */
     public function testABandGrainItemRoleInkWithNoCardsIsDisclosed(): void
     {
-        $this->assertCount(1, $this->gridFindingsWithItems(['card' => ['typography' => ['color' => '#ffffff']]], []));
+        $this->assertCount(1, $this->gridFindingsWithItems(['step-number' => ['typography' => ['color' => '#ffffff']]], []));
     }
 
     /** A per-card ink whose own card map also sets the fill is covered at its own grain. */
     public function testAnItemMapCoveringItsOwnFillIsSilent(): void
     {
-        $this->assertSame([], $this->gridFindings([], [['card' => ['typography' => ['color' => '#ffffff'],
+        $this->assertSame([], $this->gridFindings([], [['step-number' => ['typography' => ['color' => '#ffffff'],
             'background' => ['fill' => '#1d2939']]]]));
     }
 
@@ -664,7 +755,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     public function testACardWithAnUnrelatedMapDoesNotCopyTheBandFinding(): void
     {
         $unrelated = array_fill(0, 20, ['card-text' => ['typography' => ['size' => '1rem']]]);
-        $found = $this->gridFindings(['card' => ['typography' => ['color' => '#ffffff']]], $unrelated);
+        $found = $this->gridFindings(['step-number' => ['typography' => ['color' => '#ffffff']]], $unrelated);
         $this->assertCount(1, $found);
         $this->assertStringNotContainsString('item "', $found[0]['message'], 'a band-grain finding');
     }
@@ -676,14 +767,15 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
             'udc' => ['eyebrow' => ['typography' => ['color' => '@color-bg']]]]]));
     }
 
-    /** Item grain through the real surface: named with the card's locator. */
+    /** Item grain through the real surface: named with the card's locator (the steps badge, measured text). */
     public function testACardInkOverTheCardsOwnSurfaceIsDisclosedWithTheItemLocator(): void
     {
         $id = pp_create_page('ink card', 'draft');
         $result = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [[
             'component' => 'grid',
             'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']]],
-            'props'     => ['title' => 'G', 'items' => [['title' => 'One', 'udc' => ['card' => ['typography' => ['color' => '@color-bg']]]]]],
+            'props'     => ['layout' => 'steps', 'title' => 'G', 'items' => [['number' => '1', 'title' => 'One',
+                'udc' => ['step-number' => ['typography' => ['color' => '#101828']]]]]],
         ]]]);
         $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
         $found = $this->only($result['findings'] ?? []);
@@ -691,13 +783,18 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
 
         $this->assertCount(1, $found);
         $this->assertStringContainsString('item "' . $item_id . '"', $found[0]['message']);
-        $this->assertStringContainsString('role "card"', $found[0]['message']);
+        $this->assertStringContainsString('role "step-number"', $found[0]['message']);
     }
 
     // ── Channels, prompt, bound ──────────────────────────────────────────────────────────
 
-    /** The chrome write envelope carries it too, with no band offset. */
-    public function testAChromeWriteDisclosesItWithNoIndex(): void
+    /**
+     * INVERTED BY RULING A: the chrome write runs the same arm, and no shipped header or footer role both
+     * ships its own fill and renders its own text (nav `submenu` / `menu` are containers whose links set
+     * their own colour, measured), so a submenu ink is not named. The channel still carries findings
+     * with no band offset; the band-grain tests pin the arm itself.
+     */
+    public function testAChromeWriteDoesNotNameAContainerRole(): void
     {
         $result = pp_execute_action('update_site_option', [
             'key'   => 'pp_site_udc',
@@ -705,12 +802,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
                 'submenu' => ['typography' => ['color' => '#f7f8fa']]]]),
         ]);
         $this->assertTrue($result['ok'], (string) ($result['error'] ?? ''));
-        $found = $this->only($result['findings'] ?? []);
-        $this->assertCount(1, $found);
-        $this->assertStringContainsString('Component "nav"', $found[0]['message']);
-        $this->assertStringContainsString('role "submenu"', $found[0]['message']);
-        $this->assertStringContainsString('(@color-surface) at the desktop and tablet widths, on any text', $found[0]['message'], 'submenu is transparent on phones');
-        $this->assertNull($found[0]['index']);
+        $this->assertSame([], $this->only($result['findings'] ?? []));
     }
 
     /** The runtime prompt names the finding on the band and the chrome channels. */

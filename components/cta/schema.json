@@ -113,6 +113,7 @@
     },
     "inner": {
       "selector": ".cta__inner",
+      "text_content": true,
       "description": "The band's content column (or, on `inline` from 768px, its row). Owns the gap between the text block and the buttons. IT DOES NOT GOVERN THE SPACE BETWEEN THE TWO BUTTONS — that is the `buttons` role's `spacing.gap`, and the distinction is worth stating because the two gaps look like one on a single-button band and diverge the moment a second button appears. v1 made the same disclosure about `--cta-inner-gap`; it survives the rebuild because the geometry did. Its flex direction, alignment and text alignment are the two layout modifiers' geometry and stay in the stylesheet.",
       "groups": [
         "spacing",
@@ -129,6 +130,7 @@
     },
     "text": {
       "selector": ".cta__text",
+      "text_content": true,
       "description": "The eyebrow/heading/body block, rendered only when at least one of them is set. Its `sizing.max-width` is the measure v1 gave it on the full-width layout; the centring that goes with it (`margin-inline: auto`) is that layout's geometry and stays in the stylesheet. On `inline` v1 left this uncapped, and the engine has no layout-scoped role defaults, so one value now serves both layouts. STATED PRECISELY, because the earlier wording misattributed the cause: on the measured fixture the cap does not bind at any of the three tiers, but that is a property of the FIXTURE'S COPY LENGTH, not of the tier. At 1280 an `inline` row leaves about 52.75rem for this block (72rem container, less 2x2rem container padding, less the button's 13.25rem min-width and the `inner` gap), which is 12.75rem MORE than the 40rem cap — so copy longer than 40rem wraps here where v1 let it run, at 1280 and not only on some wider viewport. Set `sizing.max-width` to `none` on this role for the v1 inline behaviour.",
       "groups": [
         "typography",
@@ -147,6 +149,7 @@
     },
     "eyebrow": {
       "selector": ".cta__eyebrow",
+      "text_content": true,
       "description": "The kicker pill above the heading.",
       "groups": [
         "typography",
@@ -182,6 +185,7 @@
     },
     "heading": {
       "selector": ".cta__title",
+      "text_content": true,
       "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor`, WHICH IS THE FAITHFUL PORT OF v1's `inherit` — AND THE DIFFERENCE BETWEEN THE TWO IS NOT COSMETIC. v1's rule was `color: var(--cta-heading-color, inherit)`. The fallback was the inherited value, so it is tempting to conclude that declaring NOTHING reproduces it. It does not: `inherit` was an EXPLICIT DECLARATION doing real work, because base.css gives every h1-h6 an explicit `color: var(--color-text)`, and A RULE THAT MATCHES AN ELEMENT BEATS AN INHERITED VALUE REGARDLESS OF LAYER. With no declaration here the <h2> takes base.css's #101828 and stops following the band, so a dark band authored through `_band` -> `background.fill` would render its heading at 1.01:1 — invisible. `currentColor` in the `color` property is defined to mean `inherit`, so the heading follows the band's text colour again and an authored value still wins. This is the same correction footer's `heading` role took at #994, where the reasoning is recorded in the stylesheet. Its weight, leading and tracking come from the shared heading rules and are not restated here.",
       "groups": [
         "typography",
@@ -207,6 +211,7 @@
     },
     "heading-accent": {
       "selector": ".cta__title-accent",
+      "text_content": true,
       "description": "The accented substring inside the heading, rendered only when title_accent matches.",
       "groups": [
         "typography",
@@ -231,6 +236,7 @@
     },
     "body": {
       "selector": ".cta__body",
+      "text_content": true,
       "description": "The supporting line below the heading. FOUR of its five values are breakpoint maps or measured literals that v1 declared ONLY inside media queries, and reading them without their wrappers is the #1023 media-scope trap exactly. v1 had no unconditional rule for this element's weight or leading at all: `main > .cta .cta__body` inside `@media (min-width: 768px)` gave 430/1.66 and its twin inside `@media (max-width: 767px)` gave 430/1.65, while the colour and size split the same way — the unscoped base rule supplied the phone colour and the desktop rule overrode it. Measured at 375/768/1280: `rgb(94,102,119)`/16px/26.4px on phone against `rgb(45,54,72)`/16.64px/27.62px above it. Carrying the desktop literals unconditionally would have restyled the phone tier; dropping the weight and leading with the rules that carried them would have restyled every tier. It carries NO measure: v1 declared `max-width: none` and rendered `none`.",
       "groups": [
         "typography",
@@ -270,6 +276,7 @@
     },
     "body-link": {
       "selector": ".cta__body a",
+      "text_content": true,
       "description": "Links inside the inline-HTML body. THIS ROLE DECLARES NO DEFAULTS, and that is the faithful port rather than an omission. Measured, a body link renders `@color-accent` underlined with an `@color-accent-hover` hover — byte-identical to what `base.css` already gives every anchor. Identical in VALUE, different in CASCADE POSITION: a role block is emitted unlayered, so restating those values here would outrank the shared premium `main .btn:not(...)` rule, and an author-written `<a class=\"btn\">` inside the body is an anchor too — which is the #545 nested-author-button defect, reintroduced through a role selector. It cannot be fixed by narrowing the selector: the engine's gate admits `[A-Za-z0-9_ .>\\[\\]-]` only (widened by `[` and `]` at #1046, for faq's `[open]` role), so `:not(.btn)` is still not expressible — a bracket term is an attribute PRESENCE test, and `:` is what a negation would need. An author who sets a colour here still outranks base.css, which is what a dark band needs.",
       "groups": [
         "typography",
@@ -300,6 +307,7 @@
     },
     "button": {
       "selector": ".cta__button--primary",
+      "text_content": true,
       "description": "The primary button, and ONLY the primary: it selects `.cta__button--primary`, a modifier the template puts on the first anchor. `.cta__button` alone would match BOTH anchors, and a role selector's charset admits no `:` so `:not(.cta__button--secondary)` is not expressible — the same reason hero's primary carries a modifier (#986). IT DECLARES NO DESIGN DEFAULTS AT ALL, for two reasons that point the same way. First, measured: every resting and hover value it renders — the gradient fill, the inverted ink, the 1px accent ring, the bevel, the padding, the 44px-plus target, the #540 three-property transition — comes from the shared `.btn` and premium `main .btn:not(...)` rules in `@layer pp-v1`. Restating a global value as a role default changes its CASCADE POSITION even at an identical value: the role block is unlayered, so it would beat the premium `:hover` for the same property and strand the button in its resting paint. Second, role defaults outrank presets, so a default here would suppress exactly the part of a `button` preset that makes it a button. Apply `\"_preset\": \"button\"` and it lands whole; anything set beside a preset wins over it.",
       "groups": [
         "typography",
@@ -315,6 +323,7 @@
     },
     "button-secondary": {
       "selector": ".cta__button--secondary",
+      "text_content": true,
       "description": "The second button — the only role here with colour-bearing defaults, and deliberately so. With `button2_variant` retired both buttons render as a bare `.btn`, which MATCHES the shared premium filled family, so with nothing declared an unauthored cta would show two identical filled buttons side by side. v1 defaulted the second to `outline`; losing that is a default-experience regression, not a narrowing worth documenting. The values are v1's outline treatment as MEASURED (transparent fill, accent ink, a 2px accent edge at the button radius), every one an `@token` reference so a retune moves it and no colour is baked into schema data. THE HOVER SHIPS WITH THE REST, by rule: an unlayered resting value outranks the `pp-v1` hover rules in every state, so a resting colour without its state map is a button that never responds to a pointer. `shadow.box` is load-bearing and easy to miss — `background.fill` emits the `background` SHORTHAND and therefore clears the premium gradient, but nothing clears the premium BEVEL, so without it the outline button would ship with a filled button's elevation. It carries no `:hover` twin because rest and hover measured the same value. IT ALSO COSTS THE FOCUS HALO, AND THAT ONE IS A REAL LOSS RATHER THAN A WASH: `main .btn:focus, main .btn:focus-visible` carries a three-layer halo and, unlike the filled-primary rules, has NO `:not(.btn--outline)` exclusion, so v1's outline second button DID get it (the rest rule was `.cta__button` at (0,1,0) and lost to (0,2,1) in the same layer). An unlayered rest value outranks `pp-v1` in EVERY state, so this `none` erases it. It is NOT restated as a `\":focus-visible\"` map because the engine's `shadow` grammar cannot express that value — it refuses inset and multi-layer outright (\"No inset, multi-layer, or url()\"), and the halo is both. The 2px `outline` is a separate property and still paints, so focus stays visible and WCAG 1.4.11 holds; what is lost is the halo, which the PRIMARY still has because `button` declares nothing. The pair's focus treatment is therefore inconsistent until the grammar widens (#1041). TWO COSTS, STATED: these are the `button-secondary` preset's own values duplicated, so applying a DIFFERENT preset here is partly suppressed (a role naming its own preset as its DEFAULT is not reachable yet — the engine leaves that path inert deliberately and files it as #1018; #974, which an earlier draft cited here, is CLOSED and was about a preset test seam, not this); and the button's transition narrows from five properties to three, because a bare `.btn` picks up the #540 snap list and `motion` carries only duration and timing-function by ruling A3.",
       "groups": [
         "typography",

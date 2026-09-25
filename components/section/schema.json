@@ -272,6 +272,7 @@
     },
     "eyebrow": {
       "selector": ".section__eyebrow",
+      "text_content": true,
       "description": "The kicker pill above the heading.",
       "groups": [
         "typography",
@@ -307,6 +308,7 @@
     },
     "heading": {
       "selector": ".section__title",
+      "text_content": true,
       "description": "The band heading (an <h2>). Its `sizing.max-width` is 40rem because that is what v1 RENDERED, not because a rule said so: v1 capped `.section__body`, the wrapper holding the header block, the prose and the trust strip, at `var(--section-body-measure, 40rem)`, and that rule's own comment said in terms that 'the remaining headings keep 40rem'. The rebuild's first cut declared `none` here on the claim that 'the section title has never carried a cap' — the SAME ancestor fact that produced the `body` role's 40rem, checked for one child and asserted away for another two rows later in the same table. 40rem also happens to be `--measure-heading`, which the other eight band components already route their headings through, so this makes section consistent rather than exceptional. Corrected at #1023 review.",
       "groups": [
         "typography",
@@ -342,6 +344,7 @@
     },
     "heading-accent": {
       "selector": ".section__title-accent",
+      "text_content": true,
       "description": "The accented substring inside the heading, rendered only when title_accent matches.",
       "groups": [
         "typography",
@@ -360,6 +363,7 @@
     },
     "subheading": {
       "selector": ".section__subheading",
+      "text_content": true,
       "description": "The supporting line below the heading. Its `sizing.max-width` is 40rem for the same reason the `heading` role's is: v1 capped `.section__body`, the wrapper holding the header, the content and the trust strip, so all three rendered inside one 40rem measure.",
       "groups": [
         "typography",
@@ -384,6 +388,7 @@
     },
     "body": {
       "selector": ".section__content",
+      "text_content": true,
       "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, AND MEASURED IS THE OPERATIVE WORD. v1 capped this element from four rules at once, and an earlier cut of this rebuild picked 49rem by reading those four and taking the winner — which was wrong, because the winning rule among those targeting an element is not what the element renders. `.section__content` sits inside `.section__body`, which capped at 40rem, so the 49rem literal never bound and a default band rendered at 640px. Measured in a browser at 375/768/1280: text-only 640px, centered 672px, image and panel layouts narrower still. v2 has no layout-specific role defaults, so one value serves all five layouts; 40rem is chosen because `text-only` is this component's own default `layout`, which makes the band an agent gets when it specifies nothing byte-identical to v1. A `centered` band is 32px narrower than it was — set `sizing.max-width` to `42rem` on that band for the old width.",
       "groups": [
         "typography",
@@ -426,6 +431,7 @@
     },
     "body-link": {
       "selector": ".section__content a",
+      "text_content": true,
       "description": "Links inside the rich-text body. THIS ROLE DECLARES NO DEFAULTS, and that is the faithful port rather than an omission — the same reasoning as `inline-items`' type. base.css already gives every `a` the accent colour, an underline and an accent-hover, so a role default here would have been byte-identical in VALUE and different in CASCADE POSITION: a role block is emitted unlayered, so it outranks the shared premium button rule, and an author-written `<a class=\"btn\">` inside the prose is an anchor too. Pinning the defaults here painted such a button's label accent-on-accent-gradient — the #545 nested-author-button defect, reintroduced through a role selector, because the selector grammar cannot say \"an anchor that is not a button\". Leaving the role silent restores v1 exactly: an unauthored prose link takes the global anchor treatment, and the button rule keeps winning for buttons. An author who sets a colour here (a dark band needs one) outranks both, which is also what v1 did on its inverted bands.",
       "groups": [
         "typography",
@@ -460,6 +466,7 @@
     },
     "inline-items": {
       "selector": ".section__inline-items",
+      "text_content": true,
       "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because that prop also switches the separator mechanism; the packing alone is this role's `layout.justify` (#1084), which outranks it. THIS ROLE DELIBERATELY DECLARES NO TYPE DEFAULT, and that is the faithful port rather than an omission. v1 declared `font-size: var(--section-body-size, inherit)` on the row — the fallback is `inherit`, not a value — and the row is a SIBLING of `.section__content`, so the premium body rule never reached it and it inherited from its wrapper (measured 16px/400 at every tier, where copying the body's literals gave 17.04px/430). `inherit` cannot be carried forward as a value; a role that declines to default reproduces it exactly, and it restores the follow-the-body behaviour the shared slot pair used to give. Set `typography` on this role for a slimmer or bolder strip. Its `sizing.max-width` is 40rem for the same reason the `body` role's is: v1 gave both the same cap by sharing one wrapper, and the row's `max-width: 100%` was 100% OF THAT. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR was the `--section-separator-color` slot and is now NOT AUTHORABLE BY ANY MEANS (#1028): the mark is drawn with `content` on a pseudo-element and ruling A3 defers pseudo-elements, so no role can reach it, and there is no site-wide surface for it either — do not offer one. What renders is `currentColor`, so the mark follows this role's own `typography.color`, which is the only lever, and it moves the item text with it. That is deliberate and it is what the v1 muted default achieved through band-class remaps a v2 band cannot carry; the cost is that a mark DIFFERENT in colour from its sibling text is no longer expressible. Reopening condition: a composition needs a non-middot separator, or per-band separator colour; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
       "groups": [
         "typography",
@@ -506,6 +513,7 @@
     },
     "panel": {
       "selector": ".section__panel",
+      "text_content": true,
       "description": "The right-hand panel surface on the text-panel layout.",
       "groups": [
         "typography",
@@ -540,6 +548,7 @@
     },
     "panel-heading": {
       "selector": ".section__panel-heading",
+      "text_content": true,
       "description": "The panel's heading (an <h3>). Its `spacing.margin-bottom` default is the SEPARATION FROM WHATEVER FOLLOWS IT, and it is a faithful port, not a taste call: v1's `.section__panel-heading` rule set `color` and `margin-bottom: var(--space-md)` together, and the rebuild's first cut read the colour (which the `panel` role now supplies by inheritance) and dropped the margin with the rule. base.css zeroes every margin, so the heading rendered flush against the panel body — the panel's first structural relationship, gone at role defaults. Restored at #1023 review.",
       "groups": [
         "typography",
@@ -558,6 +567,7 @@
     },
     "panel-body": {
       "selector": ".section__panel-body",
+      "text_content": true,
       "description": "The panel's supporting paragraph.",
       "groups": [
         "typography",
@@ -572,6 +582,7 @@
     },
     "panel-list": {
       "selector": ".section__panel-list",
+      "text_content": true,
       "description": "The panel's list container. The space between entries is design; the marker glyph is the panel_items_marker prop. Its indent and bottom rhythm are this role's spacing; the disc glyph itself is structural, because the global reset strips list markers and restoring one is normalize rather than design.",
       "groups": [
         "typography",
@@ -591,6 +602,7 @@
     },
     "panel-row": {
       "selector": ".section__panel-row",
+      "text_content": true,
       "description": "One paired { label, value } row inside the panel list. A rule between rows is this role's border, and the gap between label and value is its `spacing.gap`, responsive by default to match what the v1 stylesheet declared at each width (@space-md in the desktop row, @space-xs in the phone column). The two halves have their own roles: see `panel-row-label` and `panel-row-value`.",
       "groups": [
         "typography",
@@ -614,6 +626,7 @@
     },
     "panel-row-label": {
       "selector": ".section__panel-row-label",
+      "text_content": true,
       "description": "The label half of a paired panel row. A DISTINCT VISUAL JOB, which is why it is its own role rather than folded into `panel-row`: stacked on a phone, position no longer separates label from value, so the label is the small tracked one and the value carries the weight (#568, the theme's own stacked key/value idiom). The SIZE step is load-bearing — the theme ships no webfont, so a weight-only treatment renders pixel-identical in a bare font environment. BOTH PARAMETERS ARE PHONE-ONLY MAPS (a `p` key with `d` and `t` silent), because v1 declared them ONLY inside `@media (max-width: 767px)`: at desktop and tablet the two halves of a row simply inherited, and position did the distinguishing. An earlier cut of this rebuild carried them unconditionally, which restyled the desktop panel — measured v1 at 1280 and 768 is 16px with normal tracking. Naming `d` in the map would reintroduce that: `d` carries no media query and emits in the base tier, so it paints at every width. RECORDED BECAUSE IT WAS REVERSED: an earlier cut of the v2 rebuild folded this role and `panel-row-value` into `panel-row` to keep the role count at the precedent ceiling. The rendered evidence overturned that — a count heuristic lost to a load-bearing visual distinction — so do not re-merge them on role-count grounds alone.",
       "groups": [
         "typography",
@@ -637,6 +650,7 @@
     },
     "panel-row-value": {
       "selector": ".section__panel-row-value",
+      "text_content": true,
       "description": "The value half of a paired panel row. Carries the weight that distinguishes it from its label ONCE THE ROW STACKS — so `typography.weight` is a phone-only map (a `p` key with `d` and `t` silent), matching v1, where the rule lived only inside `@media (max-width: 767px)` and the value inherited its weight at wider viewports (measured 400 at 1280 and 768). `typography.align` is the map that does the same distinguishing job on desktop and tablet, where `justify-content: space-between` puts the value at the far edge; it flips to `left` on the phone tier, where the pair shares one left edge.",
       "groups": [
         "typography",
@@ -662,6 +676,7 @@
     },
     "panel-cta": {
       "selector": ".section__panel-cta",
+      "text_content": true,
       "description": "The panel's call-to-action button. Its resting AND hover treatment both live here — apply the `button` or `button-secondary` preset, or set the groups directly. Its `spacing.margin-top` default is a faithful port of v1's `.section__panel-cta { margin-top: var(--space-sm) }`, which the rebuild dropped with that rule; without it the button's only separation from the list above is that list's own bottom margin.",
       "groups": [
         "typography",

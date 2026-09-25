@@ -129,6 +129,7 @@
     },
     "inner": {
       "selector": ".site-footer__inner",
+      "text_content": true,
       "description": "The footer's inner container: the width and padding of the whole footer block.",
       "groups": [
         "typography",
@@ -149,6 +150,7 @@
     },
     "columns": {
       "selector": ".site-footer__columns",
+      "text_content": true,
       "description": "The column row. The space between columns is design; the track geometry is structural.",
       "groups": [
         "typography",
@@ -173,6 +175,7 @@
     },
     "brand": {
       "selector": ".site-footer__brand",
+      "text_content": true,
       "description": "The brand column: logo or wordmark plus the blurb.",
       "groups": [
         "typography",
@@ -193,6 +196,7 @@
     },
     "blurb": {
       "selector": ".site-footer__blurb",
+      "text_content": true,
       "description": "The short brand paragraph under the footer logo. Its `sizing.max-width` is the footer's only measure cap, and it is a `ch` value on purpose: `ch` scales with the font, so the line stays short at ANY type size instead of fixing a pixel width the next type-scale change would invalidate. The footer is a tight marketing surface, not a general builder — the blurb is a descriptor beside two or three menu columns, not body copy.",
       "groups": [
         "typography",
@@ -262,6 +266,7 @@
     },
     "heading": {
       "selector": ".site-footer__heading",
+      "text_content": true,
       "description": "Every optional column heading (the menu, contact and secondary labels). Its colour defaults to `currentColor`, which in the `color` property means \"inherit\" — so a heading follows the footer's own text colour, and setting `_band.typography.color` for a dark footer carries the headings with it. Set a colour here only when a heading should differ from the text around it.",
       "groups": [
         "typography",
@@ -311,6 +316,7 @@
     },
     "link": {
       "selector": ".site-footer__nav ul li a",
+      "text_content": true,
       "description": "Footer menu links, in both the primary and secondary columns.",
       "groups": [
         "typography",
@@ -335,6 +341,7 @@
     },
     "contact": {
       "selector": ".site-footer__contact",
+      "text_content": true,
       "description": "The contact COLUMN — the optional heading plus the address block beneath it. Its type size and line-height set the column's reading rhythm; the <address> element inside it is the `address` role and the mailto:/tel: links are `address-link`.",
       "groups": [
         "typography",
@@ -354,6 +361,7 @@
     },
     "address": {
       "selector": ".site-footer__address",
+      "text_content": true,
       "description": "The contact block.",
       "groups": [
         "typography",
@@ -378,6 +386,7 @@
     },
     "address-link": {
       "selector": ".site-footer__address a",
+      "text_content": true,
       "description": "The mailto: and tel: links inside the contact block.",
       "groups": [
         "typography",
@@ -400,6 +409,7 @@
     },
     "copyright": {
       "selector": ".site-footer__copyright",
+      "text_content": true,
       "description": "The copyright line.",
       "groups": [
         "typography",
@@ -463,6 +473,7 @@
     },
     "note": {
       "selector": ".site-footer__note",
+      "text_content": true,
       "description": "The optional secondary line in the bottom bar.",
       "groups": [
         "typography",
