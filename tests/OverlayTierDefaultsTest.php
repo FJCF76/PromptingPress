@@ -345,4 +345,64 @@ final class OverlayTierDefaultsTest extends TestCase
         $this->assertNotFalse($author);
         $this->assertGreaterThan($tier, $author, 'the authored block prints later at the same weight');
     }
+
+    /**
+     * #1142 item 2: `overlay_defaults` and `within` are validated at the definition gate. A state key would print at
+     * (0,3,0) and outrank an author's resting value (contradicting "your value wins"); a non-parameter key was dropped
+     * silently at render; a `within` name that is no role of the component names a surface that never exists.
+     */
+    public function testTheDefinitionGateValidatesOverlayDefaultsAndWithin(): void
+    {
+        $role = ['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => '@color-accent-on-overlay']]];
+        $this->assertSame([], pp_schema_definition_errors($role, 'role', 'c role r'), 'premise: a valid tier');
+        $bad = $role;
+        $bad['overlay_defaults']['typography'][':hover'] = ['color' => '#fff'];
+        $this->assertContains('c role r: `overlay_defaults` group `typography` must not hold a state (`:hover`): the tier is a resting default.', pp_schema_definition_errors($bad, 'role', 'c role r'));
+        $bad = $role;
+        $bad['overlay_defaults']['typography']['nope'] = '1';
+        $this->assertContains('c role r: `overlay_defaults` group `typography` has no parameter `nope`.', pp_schema_definition_errors($bad, 'role', 'c role r'));
+        $within = $role + ['within' => ['text', 'ghost']];
+        $this->assertSame([], pp_schema_definition_errors($within, 'role', 'c role r'), 'without the sibling roster the name cannot be checked');
+        $this->assertContains('c role r: `within` names `ghost`, which is not a role of this component.',
+            pp_schema_definition_errors($within, 'role', 'c role r', ['r' => true, 'text' => true]));
+        $this->assertSame([], pp_schema_definition_errors($role + ['within' => ['text']], 'role', 'c role r', ['r' => true, 'text' => true]));
+    }
+
+    /** `overlay_defaults` VALUES are checked too: a single-line string, or a breakpoint map of them (PR-2 review, security). */
+    public function testTheDefinitionGateChecksOverlayDefaultValues(): void
+    {
+        $role = static fn ($value): array => ['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => $value]]];
+        $this->assertSame([], pp_schema_definition_errors($role('@color-accent-on-overlay'), 'role', 'c role r'));
+        $this->assertSame([], pp_schema_definition_errors($role(['d' => '#fff', 'p' => '#eee']), 'role', 'c role r'), 'a breakpoint map');
+        // A number is a value the engine compiles (typography.weight 700), so the gate accepts it (/ship pass 3 red team).
+        $this->assertSame([], pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'],
+            'overlay_defaults' => ['typography' => ['weight' => 700]]], 'role', 'c role r'), 'a numeric leaf');
+        $this->assertSame([], pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'],
+            'overlay_defaults' => ['typography' => ['weight' => ['d' => 700, 'p' => 600]]]], 'role', 'c role r'), 'a numeric breakpoint map');
+        foreach ([['deep' => ['x' => 1]], "two\nlines", true, '', [':hover' => '#fff'], ['d' => '#000', 'hover' => '#fff']] as $bad) {
+            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string or a number, or a breakpoint map of them.',
+                pp_schema_definition_errors($role($bad), 'role', 'c role r'), var_export($bad, true));
+        }
+    }
+
+    /** A GROUP that is not a map of parameters is refused, so no value reaches `wp pp schema` unchecked (PR-2 red team, informational; needs a schema write). */
+    public function testAnOverlayDefaultsGroupMustBeAMapOfParameters(): void
+    {
+        foreach (["x\ny\u{202E}", 7, ['#fff']] as $bad) {
+            $this->assertContains('c role r: `overlay_defaults` group `typography` must be a MAP of parameters.',
+                pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => $bad]], 'role', 'c role r'),
+                var_export($bad, true));
+        }
+    }
+
+    /**
+     * A group the registry does not know cannot compile, and its keys would reach `wp pp schema` with no parameter-name
+     * check, so it is refused even when the role lists it in `groups` (PR-2 review cycle 2, security).
+     */
+    public function testAnOverlayDefaultsGroupMustBeARegisteredGroup(): void
+    {
+        $errors = pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography', 'nosuchgroup'],
+            'overlay_defaults' => ['nosuchgroup' => ["k\u{202E}" => 'v']]], 'role', 'c role r');
+        $this->assertContains('c role r: `overlay_defaults` group `nosuchgroup` is not a UDC group.', $errors);
+    }
 }

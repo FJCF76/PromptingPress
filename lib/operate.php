@@ -2925,6 +2925,31 @@ function pp_component_schema_report(string $component): array|WP_Error {
                     $gated
                 );
             }
+            // THE THREE KEYS THE FINDINGS READ (#1144), each only when declared, for the same reason
+            // obligations are: a CLI or SSH-only agent is told to run this command INSTEAD of carrying
+            // a copy of the schema. `overlay_defaults` is the ink a role re-lights to on a scrimmed band;
+            // `within` the enclosing roles udc_overlay_accent_off_scrim reads; `text_content` marks the roles
+            // the own-surface finding (#1125) can name. The role has already passed the composable-role
+            // gate above, so its definition is well-formed. `overlay_defaults` and `text_content` are
+            // reported as declared; `within` is filtered to this component's role names (below). The
+            // runtime prompt does not carry these keys: this command is where an agent reads them.
+            if (is_array($definition['overlay_defaults'] ?? null) && $definition['overlay_defaults'] !== []) {
+                $entry['overlay_defaults'] = $definition['overlay_defaults'];
+            }
+            if (is_array($definition['within'] ?? null)) {
+                // ONLY NAMES OF THIS COMPONENT'S ROLES (PR-2 review, security). This sink prints raw unicode, and the
+                // definition gate's roster check runs in the CI walk over SHIPPED schemas only, so a third-party
+                // schema's non-role names (a bidi-laced one included) went out verbatim; "as declared" rested on
+                // that false premise. Filtered here as the obligations projection above filters its partners.
+                $within = array_values(array_filter($definition['within'], static fn ($outer): bool => is_string($outer)
+                    && isset($roles[$outer]) && preg_match(PP_ROLE_NAME_PATTERN, $outer)));
+                if ($within !== []) {
+                    $entry['within'] = $within;
+                }
+            }
+            if (($definition['text_content'] ?? null) === true) {
+                $entry['text_content'] = true;
+            }
             $report['roles'][] = $entry;
         }
         // THE ITEM-GRAIN DECLARATION, for the same reason `udc_raw_css` is here (#1101).

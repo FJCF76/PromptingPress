@@ -566,7 +566,11 @@ final class OverlayAccentOffScrimTest extends TestCase
             $this->assertCount(1, $found, json_encode($extra));
         }
         $tier = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', 'fill' => ['p' => '#ffffff']]]]);
-        $this->assertStringContainsString('so at the phone width the accent sits on the unscrimmed image', $tier[0]['message']);
+        // PR-2 review (security): a phone fill REPLACES the image there, so the accent sits on the band's own
+        // background at that width, not on an unscrimmed image (the old pinned wording was false).
+        // PR-2 review (design): the scrim WAS set at the phone width; the fill set there replaces the image and scrim.
+        $this->assertStringContainsString('at the phone width the background you set there replaces the image and its scrim, so the accent sits on that background', $tier[0]['message']);
+        $this->assertStringNotContainsString('the scrim is set only at', $tier[0]['message']);
         $state = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)', ':hover' => ['fill' => '#ffffff']]]]);
         $this->assertStringContainsString("in the :hover state the band's own background replaces the scrimmed image", $state[0]['message']);
         $raw = $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], '_css' => ['background' => ['p' => '#ffffff']]]]);
@@ -631,5 +635,193 @@ final class OverlayAccentOffScrimTest extends TestCase
         $count = count(array_filter(pp_udc_composition_findings($bands), static fn ($f) => $f['type'] === self::TYPE));
         $this->assertGreaterThan(150, $count, 'premise: three conditions per band would exceed the cap');
         $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, $count);
+    }
+
+    /** #1142 item 1: a partial scrim is named through the finding, with the size, so the author knows why. */
+    public function testAScrimCoveringPartOfTheBandIsNamed(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '200px 200px', 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('the image and its scrim are sized 200px 200px without tiling, so part of the band shows its own background instead of the scrim', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '200px', 'repeat' => 'repeat']]]), 'a tiling scrim covers');
+    }
+
+    /**
+     * #1142 item 3 (premise corrected in its body): `initial`, `unset` and `none` paint no surface, like `transparent`
+     * (the shared classifier _pp_udc_paints_surface()); `currentColor` paints the text's own colour behind the text and
+     * `inherit` takes the parent's background, so both stay named, each with words that are true of it.
+     */
+    public function testNonSurfaceKeywordsAreNotNamedAndCurrentColorAndInheritAreWordedTruly(): void
+    {
+        foreach (['initial', 'unset', 'none', 'TRANSPARENT', 'rgba(255,255,255,0)'] as $value) {
+            $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => $value]]]), $value);
+        }
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'currentColor']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('has a background you set (currentColor), which paints its own text colour behind the text', $found[0]['message']);
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'inherit']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('has a background you set (inherit), which takes its parent\'s background, and the engine cannot read that', $found[0]['message']);
+    }
+
+    /** #1142 item 4: the marker's catch logs like its sibling in the findings path (call shape pinned; no stored shape is known to throw). */
+    public function testTheMarkerLogsACompileFailure(): void
+    {
+        $fn  = new ReflectionFunction('pp_udc_band_has_overlay');
+        $src = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1, $fn->getEndLine() - $fn->getStartLine() + 1));
+        $this->assertMatchesRegularExpression('/catch \(\\\\Throwable \$e\) \{\s*error_log\(\'PromptingPress: overlay marker compile failed/s', $src);
+    }
+
+    /** The partial-scrim condition names its widths when it holds only at some (PR-2 review, testing). */
+    public function testAPartialScrimAtSomeWidthsNamesThem(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => ['p' => '100px']]]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('sized 100px without tiling at the phone width', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => 'contain', 'repeat' => 'no-repeat']]]),
+            'contain fills the band: nothing to name (ruling A)');
+    }
+
+    /** The partial message speaks the author's value, never an internal token name (PR-2 review, maintainability). */
+    public function testThePartialMessageShowsTheAuthorsSize(): void
+    {
+        $found = $this->found(['_tokens' => ['sz' => '200px'], '_band' => ['background' => self::DARK_SCRIM + ['size' => '@sz', 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('var(--pp-', $found[0]['message']);
+        $this->assertStringContainsString('sized 200px without tiling', $found[0]['message'], 'the value, as the neighbouring conditions show band tokens');
+    }
+
+    /** Different sizes at different widths are each named with their widths (PR-2 review, maintainability). */
+    public function testEachPartialSizeIsNamedWithItsWidths(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => ['d' => '50px', 'p' => '70%'], 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('sized 50px without tiling at the desktop and tablet widths and 70% without tiling at the phone width', $found[0]['message']);
+    }
+
+    /** Where the uncovered width has no image (a raw background won there), the accent sits on the band's own background, not an image (PR-2 review, security). */
+    public function testAnUncoveredWidthWithNoImageIsWordedAsTheBandsOwnBackground(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => '#ffffff']]]]);
+        $conditions = implode(' | ', array_column($found, 'message'));
+        $this->assertStringContainsString('at the phone width the raw background in _css replaces the image and its scrim, so the accent sits on that background', $conditions);
+        $this->assertStringNotContainsString('the scrim is set only at', $conditions, 'the author set the scrim there (design review)');
+    }
+
+    /**
+     * ONE LIGHTNESS RULE FOR THE THREE SURFACE CONDITIONS (ruling A, PR-2 review, design): the re-lit accent exists to
+     * read on dark, so a partial scrim, or a width where a background replaced the image, is named only when the
+     * background the accent then sits on is light or unreadable, as the enclosing-surface check already does.
+     */
+    public function testTheNewConditionsGateOnTheBackgroundTheAccentSitsOn(): void
+    {
+        $partial = static fn (string $fill): array => ['_band' => ['background' => self::DARK_SCRIM + ['fill' => $fill, 'size' => '50%', 'repeat' => 'no-repeat']]];
+        $this->assertSame([], $this->found($partial('#0a0a12')), 'partial over a dark own background: the accent reads');
+        $this->assertCount(1, $this->found($partial('#ffffff')), 'partial over a light own background');
+        $this->assertCount(1, $this->found($partial('currentColor')), 'partial over an unreadable own background');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50%', 'repeat' => 'no-repeat']]]),
+            'no fill: the component\'s own default background (light) is what shows');
+        $raw = static fn (string $bg): array => ['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $bg]]]];
+        $this->assertSame([], $this->found($raw('#0a0a12')), 'a dark raw background at the phone width: the accent reads');
+        $this->assertCount(1, $this->found($raw('#ffffff')), 'a light one is named');
+        $filled = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => '#0a0a12']]]]);
+        $this->assertSame([], $filled, 'a dark fill set at the phone width');
+        $this->assertCount(1, $this->found($raw('currentColor')), 'an unreadable raw background is named');
+        $fill = static fn (string $f): array => ['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $f]]]];
+        $this->assertCount(1, $this->found($fill('#ffffff')), 'a light fill set at the phone width is named');
+        $this->assertCount(1, $this->found($fill('currentColor')), 'an unreadable one is named');
+        $found = $this->found($partial('#ffffff'));
+        $this->assertStringContainsString('size the image cover, or set its repeat to repeat, where you set them (background.size and background.repeat, or background-size and background-repeat in _css), and the scrim covers the band', $found[0]['message'], 'the fix that restores the scrim leads');
+    }
+
+    /**
+     * NO COLOUR IS NOT DARK (PR-2 red team RT1, ruling A). An own background that paints no surface, or whose
+     * colours all sit under the scrim's minimum alpha, shows whatever is behind the band, which the engine does
+     * not read: the gate counts it UNREADABLE, so it fires. Otherwise `fill: transparent` would silence a
+     * finding that leaving the fill out raises. Three values across the three gated arms.
+     */
+    public function testAnOwnBackgroundWithNoReadableOpaqueColourDoesNotSilenceTheGate(): void
+    {
+        foreach (['transparent', 'rgba(0,0,0,0)', 'rgba(255,255,255,0.2)'] as $value) {
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => $value, 'size' => '50%', 'repeat' => 'no-repeat']]]),
+                "partial scrim over {$value}");
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $value]]]]),
+                "fill {$value} at the phone width");
+            $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $value]]]]),
+                "raw background {$value} at the phone width");
+        }
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => 'rgba(10,10,18,0.9)', 'size' => '50%', 'repeat' => 'no-repeat']]]),
+            'a readable, opaque-enough dark still silences');
+    }
+
+    /**
+     * UNDER THE IMAGE, ONLY THE COLOUR SHOWS (red team cycle 2 B, ruling A). Where the image paints, the emitted
+     * `background-image` replaces the image layers of the fill's `background` shorthand, so a partial scrim leaves
+     * the shorthand's COLOUR visible (transparent when it has none): a gradient-only fill is unreadable and fires,
+     * while a readably dark colour beside it (a raw background-color, printed after the shorthand) stays silent.
+     */
+    public function testUnderThePaintingImageTheGateReadsOnlyTheColourLeftVisible(): void
+    {
+        $partial = ['fill' => 'linear-gradient(#0a0a12, #0a0a12)', 'size' => '50%', 'repeat' => 'no-repeat'];
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial]]), 'a gradient-only fill leaves transparent');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial, '_css' => ['background-color' => '#0a0a12']]]),
+            'a readably dark colour beside the gradient is what shows');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + $partial, '_css' => ['background-color' => '#ffffff']]]),
+            'a light one fires');
+        // At a narrower width that borrows the image, too.
+        $this->assertCount(1, $this->found(['_band' => ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(6,10,28,0.72)', 't' => 'rgba(6,10,28,0.72)'],
+            'fill' => ['t' => 'linear-gradient(#0a0a12, #0a0a12)'], 'size' => ['t' => '50%'], 'repeat' => 'no-repeat']]]), 'tablet borrows the image');
+    }
+
+    /**
+     * ANY STOP UNDER THE FLOOR IS UNREADABLE (red team cycle 2 C, ruling A): the scrim reader's own rule. A background
+     * fading to transparent shows whatever is behind the band over part of it; only every stop readably opaque dark
+     * silences the gate.
+     */
+    public function testABackgroundFadingToTransparentDoesNotSilenceTheGate(): void
+    {
+        $fade = 'linear-gradient(#0a0a12, transparent)';
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => $fade]]]]), 'fill');
+        $this->assertCount(1, $this->found(['_band' => ['background' => self::DARK_SCRIM, '_css' => ['background' => ['p' => $fade]]]]), 'raw');
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => 'linear-gradient(#0a0a12, #101828)']]]]),
+            'every stop readably dark still silences');
+    }
+
+    /** The shorthand splitter's contract, pinned directly (PR-2 review cycle 3, testing). */
+    public function testSplitBackgroundShorthandContract(): void
+    {
+        $this->assertSame(['linear-gradient(#000, #111)', 'transparent'], _pp_udc_split_background_shorthand('linear-gradient(#000, #111)'), 'no colour named');
+        $this->assertSame(['', '#0a0a12'], _pp_udc_split_background_shorthand('#0a0a12'), 'a colour alone');
+        $this->assertSame(['url(x.png), linear-gradient(red, rgba(0,0,0,.5))', '#111'],
+            _pp_udc_split_background_shorthand('url(x.png), linear-gradient(red, rgba(0,0,0,.5)) #111'), 'layers in order, then the colour');
+        $this->assertSame(['url("a(1).png")', 'transparent'], _pp_udc_split_background_shorthand('url("a(1).png")'), 'nested parens inside url()');
+        [$layers, $colour] = _pp_udc_split_background_shorthand('radial-gradient(red, blue) center / cover no-repeat, #0a0a12');
+        $this->assertSame('radial-gradient(red, blue)', $layers);
+        // The words stay beside the colour. The colour readers are not asked to read them: the grammar accepts only a
+        // colour or a gradient in `background` (fill and raw alike), so a compiled band never carries them (probe in
+        // the PR-2 cycle 3 evidence).
+        $this->assertSame('center / cover no-repeat #0a0a12', $colour, 'the words stay beside the colour');
+        $this->assertSame(['repeating-linear-gradient(#000 0 10px, #fff 10px 20px)', 'transparent'],
+            _pp_udc_split_background_shorthand('repeating-linear-gradient(#000 0 10px, #fff 10px 20px)'));
+    }
+
+    /**
+     * THE PARTIAL WORDING NAMES THE REPEAT (PR-2 review cycle 3, design): "without tiling" is true only where neither
+     * axis tiles; repeat-x and repeat-y tile one axis, and space can leave gaps.
+     */
+    public function testThePartialWordingNamesTheRepeat(): void
+    {
+        $across = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '100% 50%', 'repeat' => 'repeat-x']]]);
+        $this->assertCount(1, $across);
+        $this->assertStringContainsString('sized 100% 50% and tiled only across, so part of the band', $across[0]['message']);
+        $down = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50% 100%', 'repeat' => 'repeat-y']]]);
+        $this->assertStringContainsString('sized 50% 100% and tiled only down', $down[0]['message']);
+        $spaced = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '40%', 'repeat' => 'space']]]);
+        $this->assertStringContainsString('sized 40% and spaced, which can leave gaps', $spaced[0]['message']);
+        foreach ([$across, $down, $spaced] as $found) {
+            $this->assertStringNotContainsString('without tiling', $found[0]['message']);
+        }
+        $none = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '50%', 'repeat' => 'no-repeat']]]);
+        $this->assertStringContainsString('sized 50% without tiling', $none[0]['message']);
     }
 }

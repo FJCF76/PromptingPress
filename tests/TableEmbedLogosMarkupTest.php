@@ -411,4 +411,37 @@ class TableEmbedLogosMarkupTest extends TestCase
         $this->assertStringNotContainsString('logos__list', $html);
         $this->assertStringContainsString('<h2 class="logos__heading">Trusted by</h2>', $html);
     }
+
+    /**
+     * THE ENGINE-OWNED FLAGS ARE THE ENGINE'S (#1073, Sprint 3 T2 PR-2). A `props.__pp_udc_overlay` that reached storage
+     * by a non-validating path (raw `_pp_composition` meta, or restore_composition, which reports without blocking)
+     * survived pp_udc_promote_band_identity() and every template read it with !empty(), so "false", "0 " and "no"
+     * all emitted `data-pp-band-overlay` on a band painting NO scrim: the near-white on-overlay focus ring on a light
+     * band. `__pp_udc_band` has the same shape (a forged id borrows another band's design). Both are unset before
+     * the engine decides, through the one function all three render loops call.
+     */
+    public function testForgedEngineFlagsInStoredPropsAreNotTrusted(): void
+    {
+        $light = ['component' => 'cta', 'id' => 'pp-1a2b3c4d', 'udc' => ['_band' => ['background' => ['fill' => '#ffffff']]]];
+        foreach (['1', 'false', '0 ', 'no', true] as $forged) {
+            $shown = var_export($forged, true);
+            $props = pp_udc_promote_band_identity($light, ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/x', '__pp_udc_overlay' => $forged]);
+            $this->assertArrayNotHasKey('__pp_udc_overlay', $props, "a forged overlay flag ({$shown}) over a light band is dropped");
+            $html = $this->render('cta', $props);
+            $this->assertStringNotContainsString('data-pp-band-overlay', $html, "no overlay attribute from a forged flag ({$shown})");
+            $this->assertStringContainsString('data-pp-band="pp-1a2b3c4d"', $html, 'premise: the band still renders with its own id');
+        }
+        // A forged band id: the item's own id wins, and an item with no usable id promotes none.
+        $props = pp_udc_promote_band_identity($light, ['title' => 'T', '__pp_udc_band' => 'pp-deadbeef']);
+        $this->assertSame('pp-1a2b3c4d', $props['__pp_udc_band']);
+        $props = pp_udc_promote_band_identity(['component' => 'cta', 'id' => 'not an id'], ['title' => 'T', 'button_text' => 'Go', 'button_url' => '/x', '__pp_udc_band' => 'pp-deadbeef']);
+        $this->assertArrayNotHasKey('__pp_udc_band', $props, 'an item with no usable id promotes no id, forged or not');
+        $this->assertStringNotContainsString('data-pp-band=', $this->render('cta', $props));
+        // Control: the engine still sets the flag where a scrim paints.
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        $scrim = pp_udc_promote_band_identity(['component' => 'cta', 'id' => 'pp-1a2b3c4d',
+            'udc' => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,.6)']]]], ['title' => 'T']);
+        $this->assertSame('1', $scrim['__pp_udc_overlay'] ?? null, 'control: a real scrim is marked');
+    }
 }

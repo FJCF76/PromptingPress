@@ -670,9 +670,12 @@ function pp_applies_when_clause_met($clause, array $props, array $prop_defs, arr
  * @param  array  $definition  The decoded definition object.
  * @param  string $kind        'slot', 'prop' or 'role' (#1087).
  * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.
+ * @param  array<string, mixed>|null $sibling_roles The component's roles keyed by name; when given, each `within`
+ *                                                name must be one of them (#1142 item 2). Null (the runtime
+ *                                                composable-role gate) skips that check; the schema CI walk passes it.
  * @return string[]            Human-readable errors; empty when the definition is valid.
  */
-function pp_schema_definition_errors(array $definition, string $kind, string $label): array {
+function pp_schema_definition_errors(array $definition, string $kind, string $label, ?array $sibling_roles = null): array {
     $errors = [];
 
     // An explicit dispatch, not a ternary. The two-surface ternary this replaces read
@@ -841,9 +844,58 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             // Compiled as an AUTHORED map (_pp_udc_overlay_tier_css), so a group the role does
             // not permit would be dropped at render with no message on any surface. Refuse it
             // here, where the schema author will see it.
-            foreach (array_keys($definition['overlay_defaults']) as $group) {
+            foreach ($definition['overlay_defaults'] as $group => $group_map) {
                 if (!in_array($group, $definition['groups'], true)) {
                     $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not one of this role's `groups`.";
+                    continue;
+                }
+                // #1142 item 2: a STATE inside the tier would print at (0,3,0) and outrank an author's
+                // resting value, contradicting "your value wins"; a key that is no parameter of the group
+                // was dropped silently at render.
+                // A GROUP must be a map of parameters: a scalar would skip every value check below and still reach
+                // `wp pp schema`'s raw-unicode sink whole (PR-2 red team; it needs a schema write).
+                if (!is_array($group_map) || ($group_map !== [] && pp_is_list($group_map))) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` must be a MAP of parameters.";
+                    continue;
+                }
+                $group_params = pp_udc_groups()[$group]['params'] ?? null;
+                // A group the registry does not know cannot compile, and without its parameter list nothing would
+                // check the keys below before `wp pp schema` prints them (PR-2 review cycle 2, security).
+                if (!is_array($group_params)) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not a UDC group.";
+                    continue;
+                }
+                foreach ($group_map as $key => $value) {
+                    $key = (string) $key;
+                    if (strncmp($key, ':', 1) === 0) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` must not hold a state (`{$key}`): the tier is a resting default.";
+                        continue;
+                    }
+                    if (!isset($group_params[$key])) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` has no parameter `{$key}`.";
+                        continue;
+                    }
+                    // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
+                    // sink, so a value is a single-line string or a number (what the engine compiles), or a breakpoint map of them.
+                    // The SAME standard as `selector` and `description`, deliberately: pp_udc_is_single_line() refuses
+                    // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
+                    // under the theme root, so what else they carry rests on theme-root integrity, not on this check
+                    // (PR-2 review cycle 2, security; option b).
+                    $leaves   = is_array($value) ? $value : [$value];
+                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
+                    foreach ($leaves as $leaf) {
+                        // A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a
+                        // checker stricter than the compiler would report a role the engine renders as unreportable.
+                        // SHAPE ONLY: this checks a leaf's shape (single-line string, finite number, not a boolean),
+                        // not each parameter's grammar. A value of the right shape the parameter refuses is dropped
+                        // when the overlay tier compiles, and that path keeps no ledger, so the drop is silent: check
+                        // overlay values against the group grammar yourself (follow-up filed; final scoped red team).
+                        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
+                            || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
+                    }
+                    if (!$shape_ok) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                    }
                 }
             }
         }
@@ -851,6 +903,14 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['within']) || !pp_is_list($definition['within'])
                 || array_filter($definition['within'], static fn ($r): bool => !is_string($r) || $r === '') !== [])) {
             $errors[] = "{$label}: `within` must be a LIST of role names.";
+        } elseif (isset($definition['within']) && $sibling_roles !== null) {
+            // #1142 item 2: a `within` name that is no role of the component names a surface that never
+            // exists. Checked where the caller knows the component's roster (the schema CI walk).
+            foreach ($definition['within'] as $outer) {
+                if (!isset($sibling_roles[$outer])) {
+                    $errors[] = "{$label}: `within` names `{$outer}`, which is not a role of this component.";
+                }
+            }
         }
         // `text_content` (#1125): written only where a measurement found a glyph in the role's ink,
         // so `true` is the one meaningful value; anything else is a schema typo, refused here.

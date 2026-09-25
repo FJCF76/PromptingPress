@@ -75,34 +75,28 @@ $items            = is_array($raw_items) ? $raw_items : [];
 // restore_composition reports without blocking (#233). Validate, then emit or emit
 // nothing. Pinned behaviourally in StatsLogosV2BandContractTest.
 //
-// WHAT THIS GUARD DOES NOT DO, stated because the engine's own docblock overstates it:
-// `pp_udc_promote_band_identity()` says a band with no usable id "promotes NOTHING, so the
-// component emits no `data-pp-band`". That is true of the PROMOTION but not of the props —
-// it never clears a `__pp_udc_band` already present, so a stored one passes this charset
-// check on its way through and the band can wear ANOTHER band's compiled block. The check
-// here is a grammar check, not a provenance check; only the engine can tell a minted id
-// from a copied one. Filed as #1073 with the overlay half.
+// PROVENANCE IS THE ENGINE'S (#1073): `pp_udc_promote_band_identity()` discards any stored
+// `__pp_udc_band` (and `__pp_udc_overlay`) before it decides, so the id that reaches here
+// is the one the engine promoted from this band's own `id`, never one carried in stored
+// props. This check stays as defence in depth: a grammar check, not a provenance check.
 $raw_band  = $props['__pp_udc_band'] ?? '';
 $band_id   = (is_scalar($raw_band) && pp_udc_valid_band_id((string) $raw_band)) ? (string) $raw_band : '';
 $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : '';
 
 // THE ENGINE DECIDES whether a scrim is being painted; the template just consumes the flag.
 //
-// TWO HONEST LIMITS, both surfaced by #1066's adversarial pass, because the comment that
-// stood here claimed a benefit this component cannot have:
+// ONE HONEST LIMIT AND ONE GUARANTEE, both from #1066's adversarial pass, because the comment
+// that stood here claimed a benefit this component cannot have:
 //
 // 1. NO FOCUS-RING CONSUMER ON THIS BAND. The ring's readers are
 //    `[data-pp-band-overlay] .btn:focus` and `… .faq__question:focus`, and neither stats nor
 //    logos renders a `.btn`, a `.faq__question`, or ANY focusable child. SINCE #1010 THE
 //    ATTRIBUTE DOES HAVE A CONSUMER HERE: the overlay tier of role defaults re-lights
 //    `heading-accent` and `number` to `--color-accent-on-overlay` off this marker.
-// 2. THE FLAG IS AN INPUT-SHAPED PROP AND IS NOT VALIDATED AGAINST THE COMPILED MAP. The
-//    engine sets it, but `pp_udc_promote_band_identity()` never CLEARS a value already in
-//    `$props`, so a raw `_pp_composition` write or a restore (#233) can carry a forged
-//    `__pp_udc_overlay` and switch the hook on a band painting no scrim at all.
-//    Since #1010 that forgery also re-lights accent text (stats), which raises #1073's impact. Filed as
-//    #1073 rather than patched here: the fix belongs in the engine's promotion step, which
-//    is shared by all v2 templates, and a local guard here would leave the other nine.
+// 2. THE FLAG IS THE ENGINE'S ALONE. `pp_udc_promote_band_identity()` discards a stored
+//    `__pp_udc_overlay` before it decides (#1073, fixed in the engine's shared promotion step
+//    for all v2 templates), so a raw `_pp_composition` write or a restore (#233) cannot switch
+//    the hook, or (since #1010) re-light accent text, on a band painting no scrim.
 $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '';
 
 ?>

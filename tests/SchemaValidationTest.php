@@ -5110,7 +5110,9 @@ class SchemaValidationTest extends TestCase
                     continue;
                 }
                 $roleCount++;
-                $errors = array_merge($errors, \pp_schema_definition_errors($def, 'role', "{$component} role {$name}"));
+                // With the component's roster, so every `within` names a role that exists (#1142 item 2).
+                $errors = array_merge($errors, \pp_schema_definition_errors($def, 'role', "{$component} role {$name}",
+                    array_fill_keys(array_map('strval', array_keys((array) $schema['roles'])), true)));
             }
         }
         $this->assertSame([], $errors, "definition-surface violations:\n" . implode("\n", $errors));

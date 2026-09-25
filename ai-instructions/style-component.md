@@ -29,7 +29,10 @@ wp pp schema faq
 
 The report gives you, per role: its `role` name, the `selector` it emits at, the `groups` it
 permits, a `description` explaining what the part is and how it behaves, and `obligations` when the
-role has any. It also carries `udc_groups` (the whole vocabulary, derived from the engine) and
+role has any. When the role declares them it also gives `overlay_defaults` (the ink the role
+re-lights to on a band that paints a scrim over an image), `within` (the roles that enclose it,
+limited to this component's roles) and `text_content: true` (its own element renders text, so the
+own-surface finding can name it). The report also carries `udc_groups` (the whole vocabulary, derived from the engine) and
 `udc_raw_css` (the escape hatch, described below).
 
 **This file deliberately does not list any component's roles.** A roster copied into a document
@@ -259,7 +262,9 @@ report, they can be changed by name, and the engine can tell you when one cannot
 
 Five things to know. A property the vocabulary already owns **keeps its parameter's grammar**, so
 `_css` buys you nothing there and costs you the type check. If you set both, `_css` wins and the
-envelope says so with `udc_css_overrides_group_value`. A property the vocabulary does not know is
+envelope says so with `udc_css_overrides_group_value`. A raw SHORTHAND wins everything it resets: a
+raw `background` cancels every `background.*` value you set at that state and width, the image and its
+scrim included. A property the vocabulary does not know is
 checked for safety only and emitted verbatim, with a `udc_css_unchecked_property` finding — read
 those, they are the only signal a value went out unverified. `@token` references work only on
 properties the vocabulary knows. And no value may name an external resource: a background image is
@@ -322,9 +327,13 @@ you, with one exception: on an image band with an overlay, `hero`'s `title-accen
 `@color-accent-on-overlay` (#1010), and your own value for them still wins. Every other accent
 ink is still yours (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary button is one set). The re-light assumes
 the accent sits on a dark scrim: a light surface you set on the accent itself or on a role that
-encloses it (the cta `text` panel, a stats `item` card), at rest or in a state, a scrim set only at some widths, or a scrim that is light,
-fades to transparent or cannot be read is named on the write as `udc_overlay_accent_off_scrim`,
-and the fix is to set that accent's `typography.color` yourself. Check every colour against the surface it actually sits on — which is the nearest
+encloses it (the cta `text` panel, a stats `item` card), at rest or in a state, a scrim set only at some widths,
+a width where a background you set (a `fill` there, or a raw `background` in `_css`) replaces the image and its scrim,
+a scrim sized to cover only part of the band, or a scrim that is light, fades to transparent or cannot be read is named on
+the write as `udc_overlay_accent_off_scrim`, and the fix is to set that accent's `typography.color` yourself (for a partial
+scrim, size the image `cover` or set its repeat to `repeat`). The replaced-width and partial-scrim cases are named only
+where the background the accent then sits on is light or unreadable (no colour, or any colour under 0.3 alpha); a readably
+dark one is the design working. See `validate-site.md` for the full rule. Check every colour against the surface it actually sits on — which is the nearest
 ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
 WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
 un-recoloured renders dark ink on dark, or light ink on light, and that is the single most
@@ -369,7 +378,13 @@ nothing (a `fill` is a colour, not an image), and the write says so with a
 overlay on one card's map does not combine with an image set on the band's map. The reverse
 holds too: an overlay on the band's map reaches no card that sets its own `image` for that
 role, because the card's image replaces its whole background — put the overlay on each such
-card's map. A `udc_preset_value_shadowed_by_role_default` finding leaves out any value you
+card's map. A raw `background` in `_css` wins its coordinate (contract §2'.3): it resets the image,
+its scrim and every other `background.*` value you set at that state and width, so the image does not
+paint there and the scrim is dropped with a `udc_overlay_without_image` reason that names the raw
+background. A raw background at desktop that removes the image drops a scrim set only at a narrower
+width the same way, even where that width sets its own `fill`. A raw background cannot carry an image:
+put a colour in `background.fill` beside the image instead, or drop the image and overlay if the raw
+background is what you want. A `udc_preset_value_shadowed_by_role_default` finding leaves out any value you
 already set for desktop (a single value, or a breakpoint map with `d`) in that same map: it
 paints. It also compares per breakpoint: a preset value only a narrower tier sets paints there,
 and a value that loses only some tiers is listed with `at breakpoint …`.

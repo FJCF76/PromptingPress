@@ -2583,6 +2583,96 @@ function _pp_udc_overlay_drop_where(string $item_id, string $role, string $state
 }
 
 /**
+ * A RAW `background` SHORTHAND WINS ITS COORDINATE (#1141, ruling D1 = A; contract §2'.3).
+ *
+ * `_css` outranks a group value at the same (state, breakpoint), and a shorthand resets every
+ * longhand it owns. The emitter sorted the raw `background` BEFORE the group's composed
+ * `background-image` (and its scrim and companions), so the image painted over the raw value
+ * while `udc_css_overrides_group_value` told the author it did not. Printing the raw shorthand
+ * last and dropping what it resets paint the same thing; dropping is what this does, so the
+ * compiled band (which the overlay marker and the findings read) says what the page shows: in a
+ * bucket whose `background` is raw, every non-raw `background-*` declaration is removed. Raw
+ * longhands the author also wrote stay (they print after the shorthand). The scrim carrier is
+ * LEFT for _pp_udc_compose_background_layers(), which drops a scrim with no image under it and
+ * says so (`overlay_without_image`, naming the raw background), so no scrim goes silently.
+ *
+ * Per bucket and before a narrower tier borrows the base image, so a scrim declared only at a
+ * narrower width has nothing left to lie over and is dropped with its ledger row.
+ *
+ * The carrier left for the compose stage is tagged so its ledger reason is true: `raw_background_won` where an image
+ * existed at that width and the raw background removed it; `raw_background_blocks_image` (with `raw_paints_here`) where
+ * there was no image and a raw background here, or at desktop, would reset one. Compose picks the reason from these.
+ *
+ * @param array<string, array<string, array>> $by_bp One state's buckets, bp => declarations.
+ * @return array<string, array<string, array>>
+ */
+function _pp_udc_raw_background_wins(array $by_bp): array {
+    $desktop_image_removed = false;
+    // Whether the desktop bucket carries an image a narrower width would inherit or borrow, read before this pass.
+    $base_had_image = isset($by_bp['d']['background-image']);
+    foreach ($by_bp as $bp => $declarations) {
+        if (empty($declarations['background']['raw'])) {
+            continue;
+        }
+        $image_removed = false;
+        foreach ($declarations as $property => $entry) {
+            if (strncmp((string) $property, 'background-', 11) === 0 && empty($entry['raw'])) {
+                if ($property === 'background-image') {
+                    $image_removed = true;
+                }
+                unset($by_bp[$bp][$property]);
+            }
+        }
+        $desktop_image_removed = $desktop_image_removed || ((string) $bp === 'd' && $image_removed);
+        // The scrim left here is dropped by the compose stage; this tells it WHY, so its ledger row names the raw
+        // background rather than asking for an image the author did set (PR-2 review, api-contract). Only where no
+        // image is left: a raw background-image beside the raw background keeps the scrim painting (red team cycle 2 A).
+        // And only where an image existed at this width (removed from this bucket, or inherited from desktop's): a scrim
+        // that never had one is flagged `raw_background_blocks_image` below instead (/ship red team, pass 2).
+        if (($image_removed || ((string) $bp !== 'd' && $base_had_image)) && is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null) && !isset($by_bp[$bp]['background-image'])) {
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at']             = (string) $bp; // where it is declared
+        }
+    }
+    // A raw desktop background that removed the image leaves a scrim set only at a narrower width with no image to
+    // borrow, so its scrim is dropped for the same reason and says so, not "Set background.image" to an author who
+    // set one (red team RT2; a narrower fill included, review cycle 2 design).
+    if ($desktop_image_removed) {
+        foreach ($by_bp as $bp => $declarations) {
+            // A fill of its own at that width does not bring the image back: the cause is still the raw background.
+            if ($bp !== 'd' && !isset($declarations['background-image'])
+                && is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
+                $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+                // The width's OWN raw background, where it has one, is the one named (final scoped design check).
+                if (empty($declarations['background']['raw'])) {
+                    $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at'] = 'd';
+                }
+            }
+        }
+    }
+    // A SCRIM WITH NO IMAGE UNDER A RAW BACKGROUND (/ship pass 2 red team): the no-image reason would advise setting
+    // background.image, which the raw background at that width would reset (own bucket raw, or a narrower width under a
+    // raw desktop background, which no image is borrowed into). Flagged so the reason names both fixes.
+    $desktop_raw = !empty($by_bp['d']['background']['raw']);
+    foreach ($by_bp as $bp => $declarations) {
+        if (is_array($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)
+            && empty($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'])
+            && !isset($declarations['background-image'])
+            && (!empty($declarations['background']['raw']) || ((string) $bp !== 'd' && $desktop_raw))) {
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_blocks_image'] = true;
+            // Whether the raw background is what paints at this width: its own, or a desktop one this width inherits
+            // because the AUTHOR set no background there. A role DEFAULT in the bucket is not the author's (it can be
+            // present when a preset pulls defaults into the authored layer): fact bug, /ship scoped red team.
+            $own_raw = !empty($declarations['background']['raw']);
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_paints_here'] = $own_raw
+                || !isset($declarations['background']) || ($declarations['background']['source'] ?? '') === 'defaults';
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_at'] = $own_raw ? (string) $bp : 'd';
+        }
+    }
+    return $by_bp;
+}
+
+/**
  * Folds the resolved `image` and `overlay` entries into the one CSS declaration
  * that can express them, and removes the carrier.
  *
@@ -2638,6 +2728,11 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
         // `code` so the write-time findings walk can surface THIS discard and no other,
         // and it names the `fill` pairing because that is the mistake an author will
         // actually make: a scrim over a colour is a reasonable thing to expect.
+        // THE FACTS A RAW-BACKGROUND REASON STATES (ruling A, terminal form): the scrim's named source and the width
+        // the raw background that removed or would reset the image is declared at.
+        $scrim_label   = is_array($overlay) && is_string($overlay['source'] ?? null) && strncmp($overlay['source'], 'preset:', 7) === 0
+            ? sprintf('the scrim from preset "%s"', _pp_udc_reflect(substr($overlay['source'], 7))) : 'this scrim';
+        $raw_at_phrase = _pp_udc_widths_phrase([is_array($overlay) ? (string) ($overlay['raw_at'] ?? 'd') : 'd']);
         if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
             $drops[] = [
                 // THE LOCATOR SAYS WHEN THE OVERLAY CAME FROM A PRESET (#1016), exactly as
@@ -2657,6 +2752,32 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     ? 'an overlay inside a state paints only over an image in that same state, and '
                       . 'background.image cannot be set inside a state, so the scrim was dropped even if the '
                       . 'role has a base image. Move the overlay out of the state, or remove it'
+                    // A RAW `_css` BACKGROUND REMOVED THE IMAGE (#1141). FACTS ONLY, the terminal form (/ship, ruling A):
+                    // five rounds falsified five generations of per-case advice, because advice must assume where the
+                    // conflicting value was written, and that is what varies across presets, cards, inheritance and
+                    // defaults. The reason states only what the compile knows: which raw background, at which declared
+                    // width, removed the image; that the scrim (with its named source) does not paint here; where it still
+                    // paints; the accent fact where roles re-light. The one advice line is the neighbouring finding's,
+                    // true whatever the source. Checked BEFORE the card branches (fact bug, /ship scoped design): the
+                    // raw flag is the cause even where cards set their own images.
+                    : (is_array($overlay) && !empty($overlay['raw_background_won'])
+                    ? sprintf('the raw background in _css at the %s removed the image, so background.image and %s do not '
+                      . 'paint at this width', $raw_at_phrase, $scrim_label)
+                      . (is_array($overlay['band_scrim_at'] ?? null) && $overlay['band_scrim_at'] !== []
+                          ? sprintf('. The scrim still paints at the %s', _pp_udc_widths_phrase($overlay['band_scrim_at']))
+                            . (!empty($overlay['band_relights'])
+                                ? ', so the band stays marked and the accent roles it re-lights (those whose colour you have not set) stay near-white on this background'
+                                : '')
+                          : (isset($overlay['band_scrim_at']) && !empty($overlay['band_relights'])
+                              ? ', and with no scrim the band is not marked, so the accent roles it re-lit (those whose colour you have not set) go back to their own colours'
+                              : ''))
+                      . '. Write the whole treatment in one place: a raw background cannot carry an image'
+                    // No image, under a raw background that would reset one: the same facts, in the conditional.
+                    : (is_array($overlay) && !empty($overlay['raw_background_blocks_image'])
+                    ? sprintf('an overlay paints only over an image, and there is no usable background.image here; the raw '
+                      . 'background in _css at the %s would reset one %s, so %s was dropped. Write the whole treatment in one '
+                      . 'place: a raw background cannot carry an image', $raw_at_phrase,
+                      !empty($overlay['raw_paints_here']) ? 'at this width' : 'before it reached this width', $scrim_label)
                     // A CARD's scrim composes only with the card's own image: the item
                     // compile does not combine the band map's image for the same role, so
                     // "set background.image" would be wrong advice to an author who did.
@@ -2675,6 +2796,8 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'this scrim reaches no card. Put the overlay on each card\'s own map'
                       // Not "set background.image on the band's map": a band image would still be
                       // replaced on exactly these cards, silently (#1133).
+                    // A raw `_css` background WON this coordinate (#1141): the author may well have set the image,
+                    // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -2688,7 +2811,7 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // branch cannot tell the two causes apart and must not blame the author.
                     : 'an overlay paints only over an image, and this role has no usable background.image '
                       . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or remove the overlay'))),
+                      . 'background.image (an attachment id), or remove the overlay'))))),
                 'code'   => 'overlay_without_image',
             ];
         }
@@ -5097,7 +5220,7 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                             }
                             _pp_udc_place(
                                 $resolved, $st, [$property => $param], $property,
-                                $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where
+                                $value, $source, $css_tokens, $breakpoints, $referenced, $drops, $css_where, true
                             );
                         }
                     };
@@ -5225,6 +5348,9 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         }
 
         foreach ($resolved as $state => $by_bp) {
+            // A RAW BACKGROUND WINS ITS COORDINATE FIRST (#1141), before a narrower tier borrows an image the
+            // raw shorthand has cancelled.
+            $by_bp = _pp_udc_raw_background_wins($by_bp);
             // THE IMAGE IS SINGLE-VALUED; THE OVERLAY IS NOT. So an author who sets
             // one image and a narrower scrim — `{"image": 42, "overlay": {"d": …,
             // "p": …}}` — resolves the image into the `d` bucket only, and the `p`
@@ -5241,10 +5367,45 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
             $base_image = $by_bp['d']['background-image'] ?? null;
             if ($base_image !== null) {
                 foreach ($by_bp as $bp => $declarations) {
+                    // NOT INTO A BUCKET WHOSE `background` IS RAW (#1141, PR-2 review): the raw shorthand has
+                    // won that coordinate, and a borrowed image would paint over it; the scrim there is then
+                    // dropped by the compose stage with its ledger row.
                     if ($bp !== 'd'
                         && isset($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER])
-                        && !isset($declarations['background-image'])) {
+                        && !isset($declarations['background-image'])
+                        && empty($declarations['background']['raw'])) {
                         $by_bp[$bp]['background-image'] = $base_image;
+                    }
+                }
+            }
+            // WHETHER THE BAND STAYS MARKED, READ FROM THE COMPOSE INPUTS (PR-2 review cycle 2, design). A scrim a raw
+            // background dropped says the band goes unmarked only when no width paints a scrim; otherwise it names
+            // the widths that still do. Rest state of `_band` only: the marker reads nothing else.
+            if ((string) $role_name === '_band' && (string) $state === '') {
+                $composes = static fn (array $d): bool => is_array($d[PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)
+                    && empty($d[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won']) && isset($d['background-image']);
+                $scrim_at = [];
+                foreach (array_keys(pp_udc_breakpoints()) as $bp) {
+                    // As emission reads it: role DEFAULTS in an authored bucket (present when presets are in play) are
+                    // dropped there, so they are not a background of the width's own (final scoped design check).
+                    $bucket = array_filter($by_bp[$bp] ?? [], static fn ($entry): bool => !$defaults_rank_only
+                        || !is_array($entry) || ($entry['source'] ?? '') !== 'defaults');
+                    // A width with no carrier and no background of its own inherits the desktop layers (the cascade).
+                    $paints = ($bp === 'd' || isset($bucket[PP_UDC_BACKGROUND_OVERLAY_CARRIER]) || isset($bucket['background']) || isset($bucket['background-image']))
+                        ? $composes($bucket) : $composes($by_bp['d'] ?? []);
+                    if ($paints) {
+                        $scrim_at[] = (string) $bp;
+                    }
+                }
+                // Accent roles re-light only on a component with overlay-tier roles; the reason speaks of them only there.
+                $relights = false;
+                foreach ($roles as $role_definition) {
+                    $relights = $relights || (is_array($role_definition['overlay_defaults'] ?? null) && $role_definition['overlay_defaults'] !== []);
+                }
+                foreach ($by_bp as $bp => $declarations) {
+                    if (!empty($declarations[PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'])) {
+                        $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['band_scrim_at'] = $scrim_at;
+                        $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['band_relights'] = $relights;
                     }
                 }
             }
@@ -5886,7 +6047,8 @@ function _pp_udc_place(
     array $breakpoints,
     array &$referenced,
     ?array &$drops = null,
-    string $where = ''
+    string $where = '',
+    bool $is_raw = false
 ): void {
     // THE DROP LEDGER (#981, boundary-review item D3).
     //
@@ -6099,8 +6261,11 @@ function _pp_udc_place(
             // verifies the attachment is live, so this is the deleted-afterwards
             // case. Extending 8c to resolve preset references is the fuller fix and
             // is filed as #1018 rather than done here.
+            // Nor where the value came through `_css` (#1141): 8c walks a role's `background.image`,
+            // never its raw map, so a stored raw `background-image` the grammar refuses was dropped
+            // on no channel at all.
             $owned_by_8c = ($params[$param_name]['type'] ?? '') === 'attachment_id'
-                && strncmp($source, 'preset:', 7) !== 0;
+                && strncmp($source, 'preset:', 7) !== 0 && !$is_raw;
             if ($note && !$owned_by_8c) {
                 // THE STORED VALUE IS REFLECTED, SO IT IS BOUNDED AND CLEANED.
                 // This message rides the preflight envelope of every later
@@ -6212,6 +6377,12 @@ function _pp_udc_place(
             'source'  => $source,
             'literal' => $literal,
         ];
+        // WHICH PLACEMENTS ARE RAW (#1141): the `_css` valve's declarations outrank the group's at the
+        // same coordinate (contract §2'.3), and the background shorthand can only do that if the stage
+        // that composes the image layers knows it is raw. Written only when true.
+        if ($is_raw) {
+            $entry['raw'] = true;
+        }
         // THE MARKER IS WRITTEN ONLY WHEN IT IS TRUE, and the inheritance read runs
         // only for a property that can carry one. Both were unconditional, and the
         // pre-landing performance pass measured the four-level read at 0.23 ms of a
@@ -6326,16 +6497,33 @@ function _pp_udc_emission_scopes(string $component, string $id, bool $compositio
  *
  * The overlay marker and the off-scrim finding both read this, so they cannot disagree.
  *
- * @return array{tiers: array<string, array{image: bool, scrim: string, source: string}>, states: array<int, string>}
+ * Each tier also carries `size` and `partial` (#1142 item 1): `background-size` and `background-repeat` are read
+ * from the resting `_band` blocks, each inheriting from `d` on its own, and a scrimmed tier is `partial` when
+ * _pp_udc_scrim_leaves_part_uncovered() says an axis is neither covered nor tiled.
+ *
+ * A tier whose image a background REPLACED also carries `raw`: true when that background came from `_css` (#1141),
+ * false when the group set it. It is absent on every other tier; readers use !empty().
+ *
+ * `repeat` is the tier's `background-repeat` as emitted (band tokens unresolved), so a message can say how it tiles.
+ *
+ * @return array{tiers: array<string, array{image: bool, scrim: string, source: string, size: string, repeat: string, partial: bool, raw?: bool}>, states: array<int, string>}
  */
 function pp_udc_band_effective_background(array $compiled): array {
     $declared = [];
     $states   = [];
+    $sizing   = []; // bp => ['size' => css, 'repeat' => css] as declared at that tier (#1142 item 1)
     foreach ((array) ($compiled['blocks'] ?? []) as $block) {
         if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '') {
             continue;
         }
         $decls = is_array($block['decls'] ?? null) ? $block['decls'] : [];
+        if (($block['state'] ?? '') === '') {
+            foreach (['size' => 'background-size', 'repeat' => 'background-repeat'] as $key => $property) {
+                if (is_string($decls[$property]['css'] ?? null)) {
+                    $sizing[(string) ($block['bp'] ?? 'd')][$key] = strtolower(trim($decls[$property]['css']));
+                }
+            }
+        }
         $image = $decls['background-image'] ?? null;
         $short = $decls['background'] ?? null;
         if (!is_array($image) && !is_array($short)) {
@@ -6360,14 +6548,79 @@ function pp_udc_band_effective_background(array $compiled): array {
             ];
         } else {
             $replaced = is_array($short) ? $short : $image;
-            $declared[$bp] = ['image' => false, 'scrim' => '', 'source' => (string) ($replaced['source'] ?? '')];
+            // `raw`: the replacing background is the `_css` valve's (#1141), so a message can say what replaced the image.
+            $declared[$bp] = ['image' => false, 'scrim' => '', 'source' => (string) ($replaced['source'] ?? ''), 'raw' => !empty($replaced['raw'])];
         }
     }
     $tiers = [];
     foreach (array_keys(pp_udc_breakpoints()) as $bp) {
         $tiers[$bp] = $declared[$bp] ?? ($declared['d'] ?? ['image' => false, 'scrim' => '', 'source' => '']);
+        // A SCRIM THAT COVERS ONLY PART OF THE BOX (#1142 item 1). `background-size` applies to every layer,
+        // so an image sized without tiling paints its scrim on part of the band and the rest shows the band's
+        // own background. Each property inherits from the base tier on its own, as the cascade does.
+        $size   = $sizing[$bp]['size'] ?? ($sizing['d']['size'] ?? '');
+        $repeat = $sizing[$bp]['repeat'] ?? ($sizing['d']['repeat'] ?? '');
+        $tiers[$bp]['size']    = $size;
+        $tiers[$bp]['repeat']  = $repeat;
+        $tiers[$bp]['partial'] = !empty($tiers[$bp]['image']) && ($tiers[$bp]['scrim'] ?? '') !== ''
+            && _pp_udc_scrim_leaves_part_uncovered(_pp_udc_compiled_value($size, $compiled), _pp_udc_compiled_value($repeat, $compiled));
     }
     return ['tiers' => $tiers, 'states' => array_values(array_unique($states))];
+}
+
+/**
+ * WHETHER A SCRIM SIZED THIS WAY LEAVES PART OF THE BOX UNCOVERED (#1142 item 1, ruling A in the PR-2 review), decided
+ * PER AXIS from the scrim layer itself. `background-size` applies to every layer, and a gradient has no natural size,
+ * so under `contain`, `cover`, `auto` or a percentage of 100 or more it fills the box on that axis (Chromium, corner
+ * pixel: scrim). A length, or a percentage under 100, leaves the rest of that axis unscrimmed unless the axis tiles
+ * (`repeat` / `round`; `space` leaves gaps, `no-repeat` none). A value the engine cannot read is not claimed to cover.
+ */
+function _pp_udc_scrim_leaves_part_uncovered(string $size, string $repeat): bool {
+    $size = strtolower(trim($size));
+    if ($size === '' || $size === 'contain' || $size === 'cover') {
+        return false;
+    }
+    $axes = preg_split('/\s+/', $size);
+    $axes = [$axes[0], $axes[1] ?? 'auto'];
+    $tiles = array_map(static fn (string $r): bool => in_array($r, ['repeat', 'round'], true), _pp_udc_repeat_axes($repeat));
+    foreach ($axes as $i => $axis) {
+        $covers = $axis === 'auto' || (preg_match('/^(\d+(?:\.\d+)?|\.\d+)%\z/', $axis, $m) && (float) $m[1] >= 100.0);
+        if (!$covers && !$tiles[$i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * A `background-repeat` value as its two per-axis keywords [x, y], as CSS reads it: '' is the initial `repeat`;
+ * repeat-x and repeat-y are one-axis shorthands; one keyword applies to both axes. One parse for the coverage check and
+ * the words the off-scrim finding uses for it.
+ *
+ * @return array{0: string, 1: string}
+ */
+function _pp_udc_repeat_axes(string $repeat): array {
+    $rep = preg_split('/\s+/', strtolower(trim($repeat)));
+    if ($rep === ['']) {
+        return ['repeat', 'repeat'];
+    }
+    if (count($rep) === 1) {
+        return $rep[0] === 'repeat-x' ? ['repeat', 'no-repeat'] : ($rep[0] === 'repeat-y' ? ['no-repeat', 'repeat'] : [$rep[0], $rep[0]]);
+    }
+    return [$rep[0], $rep[1]];
+}
+
+/**
+ * How a partial scrim tiles, in the words the off-scrim finding shows (PR-2 review cycle 3, design): "without tiling"
+ * is true only where neither axis tiles.
+ */
+function _pp_udc_repeat_phrase(string $repeat): string {
+    $axes = _pp_udc_repeat_axes($repeat);
+    if (in_array('space', $axes, true)) {
+        return 'and spaced, which can leave gaps';
+    }
+    $tiles = array_map(static fn (string $r): bool => in_array($r, ['repeat', 'round'], true), $axes);
+    return $tiles[0] && !$tiles[1] ? 'and tiled only across' : (!$tiles[0] && $tiles[1] ? 'and tiled only down' : 'without tiling');
 }
 
 /** Whether a compiled band paints a scrim over its image at any width: the overlay marker's predicate. */
@@ -9466,6 +9719,7 @@ function pp_udc_composition_findings(array $items): array {
         // ink the compiled band declares at the base tier is not re-lit and not named.
         $band_compiled = null;
         $band_drops    = [];
+        $raw_probe_failed = false; // the collision arm's compile threw once for this band: do not retry it per collision
         $tier_roles    = [];
         foreach ($roles as $role_name => $definition) {
             if (isset($definition['overlay_defaults']) && is_array($definition['overlay_defaults']) && $definition['overlay_defaults'] !== []) {
@@ -9507,11 +9761,58 @@ function pp_udc_composition_findings(array $items): array {
                     }
                 }
                 $missing = array_values(array_diff(array_keys($breakpoints), $covered));
+                // ONE LIGHTNESS RULE, ONE HELPER (PR-2 review, design ruling A). The re-lit accent exists to read on
+                // dark. The three conditions that put it on a background other than the scrim (a width where a
+                // background replaced the image, a scrim sized over part of the band, and a surface on or around the
+                // accent further down) are named only where that background is light or unreadable, read with
+                // _pp_udc_value_is_light(). A readably dark background is the design working: firing there is the
+                // refused false-alarm class. A new condition of this kind goes through this gate, not a rule of its
+                // own. (The unscrimmed-image width is not gated: the engine cannot read an image; see #1152.)
+                // NO COLOUR IS NOT DARK (red team RT1, ruling A), AND NEITHER IS PART OF ONE (red team cycle 2 C, ruling A):
+                // a background with ANY colour under the scrim's minimum alpha shows whatever is behind the band over
+                // part of it, so it counts as unreadable here: the scrim reader's own rule, a few lines below. Only a
+                // background whose every colour is readably opaque dark silences a condition. That also covers every
+                // value _pp_udc_paints_surface() calls no surface (transparent, none, initial, unset, a zero-alpha colour).
+                // Where the image paints, only the colour the image leaves visible is read (cycle 2 B).
+                $accent_may_not_read = static function ($bp) use ($band_compiled, $effective): bool {
+                    $own = _pp_udc_band_own_background($band_compiled, (string) $bp, !empty($effective['tiers'][$bp]['image']));
+                    if ($own === null) {
+                        return true;
+                    }
+                    $colours = _pp_udc_value_colours($own, []);
+                    if ($colours === [] || array_filter($colours, static fn (array $c): bool => $c[3] < PP_UDC_SCRIM_MIN_ALPHA) !== []) {
+                        return true;
+                    }
+                    return _pp_udc_value_is_light($own, []) !== false;
+                };
                 if ($covered !== [] && $missing !== []) {
-                    $label = static fn (array $keys): string => implode(' and ', array_map(static fn ($k) => $breakpoints[$k]['label'], $keys))
-                        . (count($keys) === 1 ? ' width' : ' widths');
-                    $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
-                        $label($covered), $label($missing)), $relit];
+                    // Where the uncovered width has no image (a raw background won there, #1141), the accent sits on
+                    // the band's own background, not on an image (PR-2 review, security).
+                    // BY CAUSE (PR-2 review, design): "the scrim is set only at ..." is true only for a width with an
+                    // image and no scrim. Where the image itself is gone, the author may well have set the scrim; what
+                    // replaced it is a background set at that width, raw (`_css`, #1141) or through the group.
+                    // Where the image is gone, the accent sits on the background that replaced it, so those widths are
+                    // named only where that background is light or unreadable (the lightness gate, below).
+                    $imaged   = array_values(array_filter($missing, static fn ($k): bool => !empty($effective['tiers'][$k]['image'])));
+                    $replaced = array_values(array_filter(array_diff($missing, $imaged), $accent_may_not_read));
+                    $raw_won  = array_values(array_filter($replaced, static fn ($k): bool => !empty($effective['tiers'][$k]['raw'])));
+                    $filled   = array_values(array_diff($replaced, $raw_won));
+                    $parts    = [];
+                    if ($imaged !== []) {
+                        $parts[] = sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
+                            _pp_udc_widths_phrase($covered), _pp_udc_widths_phrase($imaged));
+                    }
+                    if ($raw_won !== []) {
+                        $parts[] = sprintf('at the %s the raw background in _css replaces the image and its scrim, so the accent sits on that background',
+                            _pp_udc_widths_phrase($raw_won));
+                    }
+                    if ($filled !== []) {
+                        $parts[] = sprintf('at the %s the background you set there replaces the image and its scrim, so the accent sits on that background',
+                            _pp_udc_widths_phrase($filled));
+                    }
+                    if ($parts !== []) {
+                        $conditions[] = [implode(', and ', $parts), $relit];
+                    }
                 }
                 foreach ($effective['tiers'] as $tier) {
                     [$layers, $source] = [$tier['scrim'], $tier['source']];
@@ -9534,6 +9835,25 @@ function pp_udc_composition_findings(array $items): array {
                         $conditions[] = [sprintf('%s (%s) is transparent in part, so part of the band shows the unscrimmed image', $scrim_label, $shown), $relit];
                         break;
                     }
+                }
+                // A SCRIM ON PART OF THE BAND (#1142 item 1): sized without tiling, so the rest of the band
+                // shows its own background under the re-lit accent. The marker stays (R4): disclosed, not unset.
+                // Each size is named in the author's terms (band tokens put back, as the conditions beside
+                // it show them) with the widths it holds at (PR-2 review, maintainability).
+                $partial_by_size = []; // shown size => [bp, ...], in breakpoint order
+                foreach ($effective['tiers'] as $bp => $tier) {
+                    if (!empty($tier['partial']) && $accent_may_not_read($bp)) {
+                        $partial_by_size[_pp_udc_reflect(_pp_udc_compiled_display((string) $tier['size'], $band_compiled)) . ' '
+                            . _pp_udc_repeat_phrase(_pp_udc_compiled_value((string) ($tier['repeat'] ?? ''), $band_compiled))][] = (string) $bp;
+                    }
+                }
+                if ($partial_by_size !== []) {
+                    $sized = [];
+                    foreach ($partial_by_size as $shown_size => $size_bps) {
+                        $sized[] = $shown_size . (count($size_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($size_bps));
+                    }
+                    $conditions[] = [sprintf('the image and its scrim are sized %s, so part of the band shows its own background instead of the scrim (size the image cover, or set its repeat to repeat, where you set them (background.size and background.repeat, or background-size and background-repeat in _css), and the scrim covers the band)',
+                        implode(' and ', $sized)), $relit];
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
                 // covers the scrimmed image in that state while the tier keeps re-lighting.
@@ -9573,7 +9893,23 @@ function pp_udc_composition_findings(array $items): array {
                             $named_surface[$locator . '|' . $role_name] = true;
                             break;
                         }
-                        if (strtolower(trim($css)) !== 'transparent' && _pp_udc_value_is_light(_pp_udc_compiled_value($css, $band_compiled), []) !== false) {
+                        // ONE SURFACE CLASSIFIER WITH #1125 (#1142 item 3): transparent, none, initial, unset and a
+                        // zero-alpha colour paint no surface. currentColor and inherit DO paint one, so they stay
+                        // named, each with words that are true of it (premise correction in #1142's body).
+                        $resolved_css = _pp_udc_compiled_value($css, $band_compiled);
+                        if (!_pp_udc_paints_surface($resolved_css, $property === 'background-image' ? 'background-image' : 'background-color')) {
+                            continue;
+                        }
+                        $keyword = strtolower(trim($resolved_css));
+                        if ($keyword === 'currentcolor' || $keyword === 'inherit') {
+                            // `inherit` reaches here only from stored data: the colour grammar admits `transparent` and `currentColor` alone.
+                            $conditions[] = [sprintf('%s, has a background %s (%s), %s', $where, $origin, $keyword === 'inherit' ? 'inherit' : 'currentColor',
+                                $keyword === 'inherit' ? 'which takes its parent\'s background, and the engine cannot read that'
+                                    : 'which paints its own text colour behind the text'), $enclosing[$role_name]];
+                            $named_surface[$locator . '|' . $role_name] = true;
+                            break;
+                        }
+                        if (_pp_udc_value_is_light($resolved_css, []) !== false) {
                             $conditions[] = [sprintf('%s, has a background %s (%s) that is light or that the engine cannot read',
                                 $where, $origin, _pp_udc_reflect(_pp_udc_compiled_display($css, $band_compiled))), $enclosing[$role_name]];
                             $named_surface[$locator . '|' . $role_name] = true;
@@ -10297,6 +10633,36 @@ function pp_udc_composition_findings(array $items): array {
             }
             $role_name = (string) $role_name;
             $states    = pp_udc_states();
+            // WHAT THE BAND COMPILED, not which keys the author wrote (#1141, ruling D1 = A). A stored raw
+            // value the grammar refuses is dropped at emit (and ledgered), so "the raw value is what paints"
+            // was false for it; the collision message is chosen from whether the raw declaration compiled.
+            // Compiled at most once per band, only when a collision is about to be reported (a compile that throws is
+            // logged once and not retried). A band with no usable id emits nothing at all, so there is no compile to
+            // read: the old wording stands there, as it does when the compile fails.
+            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, &$raw_probe_failed, $item, $band_has_id, $role_name): ?bool {
+                if (!$band_has_id || $raw_probe_failed) {
+                    return null;
+                }
+                if ($band_compiled === null) {
+                    try {
+                        $band_drops    = [];
+                        $band_compiled = pp_udc_compile_band($item, 'authored', $band_drops);
+                    } catch (\Throwable $e) {
+                        error_log('PromptingPress: raw-collision findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
+                        $raw_probe_failed = true;
+                        $band_compiled    = null;
+                        $band_drops       = [];
+                        return null;
+                    }
+                }
+                foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
+                    if (($block['role'] ?? '') === $role_name && ($block['item'] ?? '') === '' && (string) ($block['state'] ?? '') === $state_key
+                        && !empty($block['decls'][$raw_property]['raw'])) {
+                        return true;
+                    }
+                }
+                return false;
+            };
 
             // Flatten `_css` to (state, property) pairs so a `:hover` declaration is
             // reported as precisely as a resting one. A state map is the only nesting
@@ -10374,7 +10740,14 @@ function pp_udc_composition_findings(array $items): array {
                     $css_disclosed++;
                     $findings[] = [
                         'type'    => 'udc_css_overrides_group_value',
-                        'message' => sprintf(
+                        'message' => $raw_compiled($state, $property) === false
+                            ? sprintf(
+                                'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" is a shorthand that would reset '
+                                . '%s, but the stored raw value cannot be emitted, so the %s.%s you also set is what paints. '
+                                . 'Fix or remove the raw declaration.',
+                                $component, _pp_udc_reflect($role_name), $state !== '' ? ' ' . $state : '',
+                                _pp_udc_reflect($property), PP_UDC_CSS_KEY, $longhand, $owner['_group'], $owner['_param'])
+                            : sprintf(
                             'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" is a '
                             . 'shorthand that resets %s, so the %s.%s you also set does not '
                             . 'paint. Write the whole treatment in one place.',
@@ -10400,7 +10773,15 @@ function pp_udc_composition_findings(array $items): array {
                         $css_disclosed++;
                         $findings[] = [
                             'type'    => 'udc_css_overrides_group_value',
-                            'message' => sprintf(
+                            'message' => $raw_compiled($state, $property) === false
+                                ? sprintf(
+                                    'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" would outrank the %s.%s you '
+                                    . 'also set, but the stored raw value cannot be emitted, so the %s.%s you also set is what '
+                                    . 'paints. Fix or remove the raw declaration.',
+                                    $component, _pp_udc_reflect($role_name), $state !== '' ? ' ' . $state : '',
+                                    _pp_udc_reflect($property), PP_UDC_CSS_KEY, $typed['_group'], $typed['_param'],
+                                    $typed['_group'], $typed['_param'])
+                                : sprintf(
                                 'Component "%s" role "%s"%s: the raw declaration "%s" in "%s" outranks the '
                                 . '%s.%s you also set, so the raw value is what paints. Remove one of the two '
                                 . '— prefer %s.%s, which the engine can check.',
@@ -11310,6 +11691,14 @@ function _pp_udc_is_mint_shaped_name(string $name): bool {
  * rendering, never a borrowed design.
  */
 function pp_udc_promote_band_identity(array $item, array $props): array {
+    // THE ENGINE-OWNED FLAGS ARE THE ENGINE'S, IN BOTH DIRECTIONS (#1073). Stored props reach
+    // here by paths that validate nothing (a raw `_pp_composition` meta write; a restore, which
+    // reports without blocking, #233), and every template reads the flag with !empty(), so a
+    // stored "false", "0 " or "no" emitted `data-pp-band-overlay` on a band painting no scrim (the
+    // near-white on-overlay focus ring on a light band), and a stored band id borrowed another
+    // band's design. Whatever the props carry is discarded; only the engine's own verdict below
+    // is promoted.
+    unset($props['__pp_udc_overlay'], $props['__pp_udc_band']);
     if (isset($item['id']) && is_scalar($item['id']) && pp_udc_valid_band_id((string) $item['id'])) {
         $props['__pp_udc_band'] = (string) $item['id'];
     }
@@ -11336,7 +11725,10 @@ function pp_udc_promote_band_identity(array $item, array $props): array {
 /**
  * Does this band paint a scrim over a background image?
  *
- * Reads the STORED map rather than the emitted CSS because the renderer runs
+ * A cheap stored-map pre-check, then the verdict from the COMPILED band (so a raw `background` that cancels the
+ * image, #1141, cancels the marker too); a compile failure is logged and the band left unmarked (#1142 item 4).
+ *
+ * Reads the STORED map first, rather than the emitted CSS, because the renderer runs
  * before emission and needs the answer for an attribute. Deliberately narrow: an
  * overlay only paints when there is an image under it (an overlay over nothing is
  * dropped by _pp_udc_compose_background_layers()), so both must be present for the
@@ -11370,6 +11762,7 @@ function pp_udc_band_has_overlay(array $item): bool {
     try {
         return pp_udc_band_paints_scrim(pp_udc_compile_band($item, 'authored'));
     } catch (\Throwable $e) {
+        error_log('PromptingPress: overlay marker compile failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
         return false;
     }
 }
@@ -11531,10 +11924,90 @@ function _pp_udc_hsl_to_rgb(float $h, float $s, float $l): array {
 }
 
 /**
+ * The background the band itself shows at a width, read off the compiled band (PR-2 review, design ruling A): the
+ * resting `_band` blocks at the desktop width and then at that width (the tablet and phone tiers are disjoint and each
+ * inherits only from the base), their `background`, `background-color` and `background-image` taken in emitted order,
+ * as the cascade takes them. Band tokens are put back. Null when the band declares none: the component's own
+ * background shows, which the engine does not read.
+ *
+ * WHERE THE IMAGE PAINTS ($image_paints), ONLY THE COLOUR SHOWS (red team cycle 2 B, ruling A): the emitted
+ * `background-image` replaces every image layer of a `background` shorthand, so what a partial scrim leaves visible is
+ * the shorthand's colour, transparent when it has none (a gradient-only fill). Elsewhere the image layers paint, so
+ * they are returned when present, the colour otherwise.
+ */
+function _pp_udc_band_own_background(array $band_compiled, string $bp, bool $image_paints = false): ?string {
+    $tiers = [];
+    foreach ((array) ($band_compiled['blocks'] ?? []) as $block) {
+        if (($block['role'] ?? '') === '_band' && ($block['item'] ?? '') === '' && ($block['state'] ?? '') === '') {
+            $tiers[(string) ($block['bp'] ?? '')] = (array) ($block['decls'] ?? []);
+        }
+    }
+    $layers = null;
+    $colour = null;
+    foreach (array_unique(['d', $bp]) as $tier) {
+        foreach ($tiers[$tier] ?? [] as $property => $decl) {
+            if (!is_string($decl['css'] ?? null)) {
+                continue;
+            }
+            $css = _pp_udc_compiled_value($decl['css'], $band_compiled);
+            if ($property === 'background') {
+                [$layers, $colour] = _pp_udc_split_background_shorthand($css);
+            } elseif ($property === 'background-color') {
+                $colour = $css;
+            } elseif ($property === 'background-image') {
+                $layers = $css;
+            }
+        }
+    }
+    if ($image_paints) {
+        return $colour;
+    }
+    return ($layers !== null && $layers !== '' && strtolower(trim($layers)) !== 'none') ? $layers : $colour;
+}
+
+/**
+ * A `background` shorthand split into its image layers (gradients and url()s, comma-joined) and its colour
+ * ('transparent' when it names none, as the shorthand resets it). What is left once the image layers are removed is
+ * the colour, with any position, size or repeat words beside it (the colour readers ignore those).
+ *
+ * @return array{0: string, 1: string}
+ */
+function _pp_udc_split_background_shorthand(string $value): array {
+    $layers = [];
+    $rest   = '';
+    $length = strlen($value);
+    for ($i = 0; $i < $length;) {
+        if (preg_match('/\G((?:repeating-)?(?:linear|radial|conic)-gradient|url)\(/i', $value, $m, 0, $i)) {
+            $depth = 0;
+            for ($j = $i + strlen($m[1]); $j < $length; $j++) {
+                if ($value[$j] === '(') {
+                    $depth++;
+                } elseif ($value[$j] === ')' && --$depth === 0) {
+                    break;
+                }
+            }
+            $layers[] = substr($value, $i, $j - $i + 1);
+            $i        = $j + 1;
+            continue;
+        }
+        $rest .= $value[$i];
+        $i++;
+    }
+    $colour = trim((string) preg_replace('/[\s,]+/', ' ', $rest));
+    return [implode(', ', $layers), $colour === '' ? 'transparent' : $colour];
+}
+
+/**
  * Whether a value paints a LIGHT surface (#1010 review): true, false, or null when the
  * engine cannot read it. Light means the theme's near-white on-overlay ink would fall
  * under 3:1 on it: relative luminance above 0.2867, at an alpha of at least 0.3 (a thinner
  * wash is the image, not the colour). A classification, not a contrast measurement.
+ *
+ * FALSE MEANS "NO LIGHT COLOUR FOUND", NOT "DARK". `transparent`, a zero-alpha colour and a thin wash all
+ * answer false, yet they paint nothing readable. A caller that SILENCES something on a dark answer must pair
+ * this with the PP_UDC_SCRIM_MIN_ALPHA floor (ANY colour under it = unreadable, which also covers every value
+ * _pp_udc_paints_surface() calls no surface), as the off-scrim gate in pp_udc_composition_findings() does
+ * (`$accent_may_not_read`, red team RT1 and cycle 2 C).
  */
 function _pp_udc_value_is_light(string $value, array $band_tokens): ?bool {
     $colours = _pp_udc_value_colours($value, $band_tokens);
