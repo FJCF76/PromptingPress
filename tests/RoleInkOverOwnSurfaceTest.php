@@ -322,7 +322,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     {
         [, $found] = $this->write(
             ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
-             'button-secondary' => ['typography' => [':hover' => ['color' => '@color-bg']]]],
+             'button-secondary' => ['typography' => [':hover' => ['color' => '#fff5a0']]]],
             'cta',
             ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x']
         );
@@ -609,6 +609,31 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $sibling = array_values(array_filter($all, static fn ($f) => $f['type'] === 'udc_band_value_shadowed_by_role_default'));
         $this->assertCount(1, $sibling);
         $this->assertStringContainsString('Set it on those roles directly (cta-secondary, eyebrow ship their own fill, so set each one\'s background.fill with the colour).', $sibling[0]['message']);
+    }
+
+    /**
+     * A RESTATED DEFAULT IS NOT A CLASH (ruling, cycle 2 api-contract): an author ink that compiles to the
+     * same value as the default ink it overrides, for that state and width, leaves the designed pair
+     * unchanged. Read off the compiled tiers. A literal that merely equals a token's value still fires
+     * (write the token), which the docs say.
+     */
+    public function testARestatedDefaultInkIsNotAClash(): void
+    {
+        $cta = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x', 'button2_text' => 'More', 'button2_url' => '/y'];
+        foreach ([
+            'cta designed hover pair' => ['cta', ['button-secondary' => ['typography' => ['color' => '@color-bg', ':hover' => ['color' => '@color-bg']]]], $cta],
+            'section eyebrow rest default' => ['section', ['eyebrow' => ['typography' => ['color' => '@color-text']]], ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']],
+            'grid step-number badge' => ['grid', ['step-number' => ['typography' => ['color' => '@color-bg']]], ['layout' => 'steps', 'title' => 'G', 'items' => [['number' => '1', 'title' => 'T']]]],
+        ] as $label => [$component, $udc, $props]) {
+            [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']]] + $udc, $component, $props);
+            $this->assertSame([], $found, $label);
+        }
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '@color-bg']]]);
+        $this->assertCount(1, $found, 'a genuinely different ink still fires');
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'eyebrow' => ['typography' => ['color' => '@color-text', ':hover' => ['color' => '#ffffff']]]]);
+        $this->assertCount(1, $found, 'a restated rest ink with a changed hover ink');
+        $this->assertStringContainsString('(@color-surface-accent) in the :hover state, on any text', $found[0]['message'], 'fires on hover only');
     }
 
     /** A single width left on the default is named in the singular, with its one breakpoint key. */

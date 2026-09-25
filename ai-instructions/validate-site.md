@@ -41,7 +41,9 @@ This checks:
      its own) paints over that role's OWN default background, which your band background does
      not replace. Only a role whose own element renders text is named (`text_content` in the
      schema: an eyebrow pill, a panel, a hero surface); a container whose text roles set their
-     own colour (a card, an FAQ item, a table head) is not reported. It names the card, the
+     own colour (a card, an FAQ item, a table head) is not reported. Writing a role's own default
+     ink back (the same `@token` it already uses) is not a clash and is not named; a literal value
+     that happens to equal the default still fires, so write the token. It names the card, the
      state or the width when the clash is only there, and says where the fill goes (a `":hover"`
      map, a breakpoint map). Set the role's `background.fill` there too, or check the pair reads (AA: 4.5:1 body text, 3:1 large text). A text role INSIDE a filled role
      (a testimonial `quote` in its `card`) is not reported: check that pair yourself.

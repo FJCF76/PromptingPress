@@ -6550,7 +6550,8 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
             foreach ($states as $state) {
                 $active_states = $state === '' ? [] : array_flip(explode('+', $state));
                 foreach (array_keys($bp_meta) as $bp) {
-                    $winners = [];
+                    $winners       = [];
+                    $default_color = null; // the ink the role's defaults (or overlay tier) put here
                     foreach ($rows as $row) {
                         if (($row['state'] !== '' && !isset($active_states[$row['state']]))
                             || ($row['bp'] !== 'd' && $row['bp'] !== $bp)) {
@@ -6559,6 +6560,10 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                         foreach ($row['longhands'] as $longhand => [$css, $literal]) {
                             if (!isset($winners[$longhand]) || ($row['key'] <=> $winners[$longhand]['key']) > 0) {
                                 $winners[$longhand] = ['key' => $row['key'], 'css' => $css, 'literal' => $literal, 'tier' => $row['tier']];
+                            }
+                            if ($longhand === 'color' && in_array($row['tier'], ['defaults', 'overlay'], true)
+                                && ($default_color === null || ($row['key'] <=> $default_color['key']) > 0)) {
+                                $default_color = ['key' => $row['key'], 'css' => $css];
                             }
                         }
                     }
@@ -6574,7 +6579,8 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
                             break;
                         }
                     }
-                    $paint[$state][$bp] = ['color' => $winners['color'] ?? null, 'surface' => $surface];
+                    $paint[$state][$bp] = ['color' => $winners['color'] ?? null, 'surface' => $surface,
+                        'default_color' => $default_color === null ? null : $default_color['css']];
                 }
             }
             $out[] = ['item' => $locator, 'role' => $role, 'paint' => $paint];
@@ -9318,6 +9324,13 @@ function pp_udc_composition_findings(array $items): array {
                                     continue;
                                 }
                                 if ($ink !== null && in_array($ink['tier'], ['band', 'item'], true)) {
+                                    // A RESTATED DEFAULT (ruling, cycle 2 api-contract): the author's ink compiles
+                                    // to the very value the role's default ink puts in this cell, so the designed
+                                    // pair is unchanged and there is nothing to name. Read off the compiled tiers;
+                                    // a literal that merely equals a token's value still fires (write the token).
+                                    if (($cell['default_color'] ?? null) !== null && trim((string) $ink['css']) === trim((string) $cell['default_color'])) {
+                                        continue;
+                                    }
                                     $kind = 'own';
                                 } elseif (isset($band_ink_reaches[$element['role']])
                                     && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)

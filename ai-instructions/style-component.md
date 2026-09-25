@@ -337,7 +337,8 @@ its own default fill, the write names it as `udc_role_ink_over_own_surface` (#11
 card, state or width it applies to and where the fill has to go (a `":hover"` map, a breakpoint
 map). A container whose text roles set their own colour (a card, an FAQ item) and a text role
 inside a filled role (a testimonial `quote` inside its `card`) are not reported, so check those
-pairs yourself.
+pairs yourself. Restating a role's own default ink with the same `@token` is not named; a
+literal value that happens to equal the default still fires, so write the token.
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and
