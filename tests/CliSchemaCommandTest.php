@@ -364,6 +364,46 @@ class CliSchemaCommandTest extends TestCase
         $this->assertGreaterThan(12, $reported, 'the obligations stopped reaching the CLI report');
     }
 
+    /**
+     * #1144: the three role keys the findings read reach the CLI report, each only when declared: `overlay_defaults`
+     * (the ink a role re-lights to on a scrimmed band), `within` (the enclosing roles the off-scrim finding reads) and
+     * `text_content` (the roles udc_role_ink_over_own_surface can name). Derived in both directions over the registry.
+     */
+    public function testTheOverlayWithinAndTextContentKeysAreReportedWhenDeclared(): void
+    {
+        $counts = ['overlay_defaults' => 0, 'within' => 0, 'text_content' => 0];
+        foreach (array_keys(\pp_get_registered_components()) as $component) {
+            $report = \pp_component_schema_report($component);
+            if (!is_array($report) || !isset($report['roles'])) {
+                continue;
+            }
+            $declared_roles = \pp_udc_component_roles($component);
+            foreach ($report['roles'] as $entry) {
+                if (!empty($entry['unreportable'])) {
+                    continue;
+                }
+                $def = $declared_roles[$entry['role']] ?? [];
+                $this->assertSame($def['overlay_defaults'] ?? null, $entry['overlay_defaults'] ?? null, "{$component}.{$entry['role']} overlay_defaults");
+                $within = isset($def['within']) ? array_values((array) $def['within']) : [];
+                $this->assertSame($within === [] ? null : $within, $entry['within'] ?? null, "{$component}.{$entry['role']} within");
+                $this->assertSame(($def['text_content'] ?? null) === true ? true : null, $entry['text_content'] ?? null, "{$component}.{$entry['role']} text_content");
+                foreach ($counts as $key => $n) {
+                    $counts[$key] += isset($entry[$key]) ? 1 : 0;
+                }
+            }
+        }
+        $this->assertSame(91, $counts['text_content'], 'every measured role reaches the CLI (91 of 131)');
+        $this->assertGreaterThanOrEqual(5, $counts['overlay_defaults'], 'hero title-accent, cta/faq/stats heading-accent, stats number');
+        $this->assertGreaterThan(0, $counts['within']);
+        $hero = \pp_component_schema_report('hero');
+        $byRole = array_column($hero['roles'], null, 'role');
+        $this->assertSame(['typography' => ['color' => '@color-accent-on-overlay']], $byRole['title-accent']['overlay_defaults'] ?? null);
+        $this->assertArrayNotHasKey('overlay_defaults', $byRole['title'], 'absent when undeclared, never an empty key');
+        $this->assertTrue($byRole['title']['text_content'] ?? null, 'a measured text role carries it');
+        $this->assertArrayHasKey('media', $byRole, 'premise: hero media is reported');
+        $this->assertArrayNotHasKey('text_content', $byRole['media'], 'a role without it omits the key, never false');
+    }
+
     // ── applies_when: one vocabulary, all-or-nothing ─────────────────────────
 
     public function testAppliesWhenRenderedUsesTheRuntimeCatalogVocabulary(): void

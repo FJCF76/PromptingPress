@@ -2925,6 +2925,23 @@ function pp_component_schema_report(string $component): array|WP_Error {
                     $gated
                 );
             }
+            // THE THREE KEYS THE FINDINGS READ (#1144), each only when declared, for the same reason
+            // obligations are: a CLI or SSH-only agent is told to run this command INSTEAD of carrying
+            // a copy of the schema. `overlay_defaults` is the ink a role re-lights to on a scrimmed band;
+            // `within` the enclosing roles udc_overlay_accent_off_scrim reads; `text_content` marks the roles
+            // the own-surface finding (#1125) can name. The role has already passed the composable-role
+            // gate above, the one the prompt uses, so the two surfaces report the same bytes.
+            if (is_array($definition['overlay_defaults'] ?? null) && $definition['overlay_defaults'] !== []) {
+                $entry['overlay_defaults'] = $definition['overlay_defaults'];
+            }
+            if (is_array($definition['within'] ?? null) && $definition['within'] !== []) {
+                // As declared: the definition gate refuses a name that is no role of the component
+                // (the schema CI walk passes the roster, #1142 item 2), so this reports the schema.
+                $entry['within'] = array_values($definition['within']);
+            }
+            if (($definition['text_content'] ?? null) === true) {
+                $entry['text_content'] = true;
+            }
             $report['roles'][] = $entry;
         }
         // THE ITEM-GRAIN DECLARATION, for the same reason `udc_raw_css` is here (#1101).
