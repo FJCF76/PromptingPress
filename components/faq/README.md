@@ -141,6 +141,8 @@ pp_get_component('faq', [
   `question`, so 44px on `question` alone still permits a 12px open row.
 - Over a background image with a scrim, the focus ring routes to the on-overlay accent —
   emitted by the engine (`data-pp-band-overlay`), never something an author must switch on.
+  Since #1010 so does the `heading-accent` default; `question-open` is not re-lit, because it
+  sits on its item's own light fill.
 - Empty state shows a friendly message rather than an empty section.
 
 ## Structured data

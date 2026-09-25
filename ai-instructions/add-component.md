@@ -196,9 +196,9 @@ your CSS classes, so the roles you declare *are* the component's styling API.
 }
 ```
 
-**Five keys are required in practice and a sixth is optional** (`pp_role_definition_keys()`,
+**Five keys are required in practice and two more are optional** (`pp_role_definition_keys()`,
 `lib/admin.php`): every shipped role declares the five below, so write all five, and add
-`overlay_defaults` only where it applies. An unknown key fails CI,
+`overlay_defaults` (with its `within`) only where it applies. An unknown key fails CI,
 exactly as it does on a prop. Requiredness is enforced for `obligations` alone today;
 the other four are load-bearing rather than policed, so omitting `groups` or `selector`
 buys you a role that passes CI and styles nothing.

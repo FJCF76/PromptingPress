@@ -121,7 +121,10 @@ set `"heading": {"typography": {"color": "@color-bg"}}` and it wins over both.
 Over a scrim, use `@color-accent-on-overlay` (4.59:1 against the worst case) and
 `@color-muted-on-overlay` instead.
 
-**The FOCUS ring is the exception and stays automatic.** #986 keyed it to
+Since #1010 `heading-accent` needs no write over a scrim: on a band painting an image AND an
+overlay it defaults to `@color-accent-on-overlay` (your own value still wins).
+
+**The FOCUS ring is the other exception and stays automatic.** #986 keyed it to
 `data-pp-band-overlay`, which the engine emits when a band paints both an image and an
 overlay — so it follows the scrim across every layout and you cannot forget it. There is no
 equivalent for a band you merely DARKEN with a fill: the engine composes a scrim and knows

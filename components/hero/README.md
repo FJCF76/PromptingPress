@@ -133,7 +133,10 @@ v2 has no variant-scoped defaults and does not guess. The v1 `cover` variant re-
 the title, the accent and the subtitle on the assumption that a cover band is dark; it no
 longer does. A band carrying a dark background or a background image owns its own
 contrast — set `typography.color` on every text role over it, and check each against the
-background for WCAG AA.
+background for WCAG AA. The one exception, since #1010: over an image WITH an overlay,
+`title-accent` defaults to `@color-accent-on-overlay` (your own value still wins, and
+`udc_overlay_accent_off_scrim` names a light panel, a partial or light scrim that breaks the
+premise).
 
 ## Layout
 
