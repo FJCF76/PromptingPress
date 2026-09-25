@@ -106,10 +106,11 @@ There is no `theme` prop. Set the band background, then recolour every text role
 meta all render inside `.testimonials__item`, and the `card` role ships
 `background.fill: "@color-surface"` as its own default — a near-white panel. Darken `_band`,
 re-ink the text, skip `card`, and you get near-white ink on a near-white card at roughly
-**1.01:1** for the quote, on a write that returns `findings: []`. The engine warns about a
-value that cannot take effect, not about a role default you left standing.
+**1.01:1** for the quote, on a write that returns `findings: []`. `card` is a container whose
+text roles set their own colour, and a text role inside a filled role is not checked, so no
+finding names this pair: check it yourself.
 
-**You own the contrast.** Nothing re-lights text for you: colour decisions belong to the values an author chooses, never baked into component CSS. Set a colour on every text role on the new background (`quote`, `author`, `meta`, `heading`, `subheading`, `eyebrow`) and on any link colour, and check each against the background for WCAG AA — 4.5:1 for body text, 3:1 for large text. A dark band with one role left un-recoloured renders dark ink on dark.
+**You own the contrast.** Nothing re-lights text for you: colour decisions belong to the values an author chooses, never baked into component CSS. Set a colour on every text role on the new background (`quote`, `author`, `meta`, `heading`, `subheading`, `eyebrow`) and on any link colour, and check each against the background for WCAG AA — 4.5:1 for body text, 3:1 for large text. A dark band with one role left un-recoloured renders dark ink on dark. `eyebrow` is a pill with its own light `background.fill` (`@color-surface-accent`): recolour its ink and set that fill too, to one your ink reads on that also stands apart from the band. On a band whose background you set, the write names a new ink left on the default pill (#1125).
 
 ## Layout
 
