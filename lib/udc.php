@@ -6340,6 +6340,85 @@ function pp_udc_band_css(array $item): string {
 }
 
 /**
+ * WHAT PAINTS AT TIER X: the band's effective background, as the renderer resolves it
+ * (#1010 review, the one-owner ruling). The single answer to "is this band scrimmed at this
+ * width, or in this state", read off a compiled band (pp_udc_compile_band(), 'authored'):
+ * the emitter has already merged author and preset tiers, resolved the image (a deleted
+ * attachment paints nothing), dropped an overlay with no image, and chosen each
+ * reference's token scope. This function adds only what the CASCADE does with the result:
+ *
+ *   - a tier whose `_band` block declares a background-image carrying url() paints that
+ *     image, with the gradient layers before it as its scrim ('' when none);
+ *   - a tier whose block declares the `background` shorthand with no image after it, or a
+ *     background-image with no url(), REPLACES the image at that width (a per-breakpoint
+ *     fill, a `_css` background): no image, no scrim. Within a block the later
+ *     declaration wins, so a fill printed BEFORE the image leaves the image painting;
+ *   - a tier with no block inherits the base tier (`d`), the cascade order of the
+ *     breakpoint media blocks;
+ *   - a `_band` STATE block that declares either property repaints the band in that state.
+ *
+ * The overlay marker and the off-scrim finding both read this, so they cannot disagree.
+ *
+ * @return array{tiers: array<string, array{image: bool, scrim: string, source: string}>, states: array<int, string>}
+ */
+function pp_udc_band_effective_background(array $compiled): array {
+    $declared = [];
+    $states   = [];
+    foreach ((array) ($compiled['blocks'] ?? []) as $block) {
+        if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '') {
+            continue;
+        }
+        $decls = is_array($block['decls'] ?? null) ? $block['decls'] : [];
+        $image = $decls['background-image'] ?? null;
+        $short = $decls['background'] ?? null;
+        if (!is_array($image) && !is_array($short)) {
+            continue;
+        }
+        if (($block['state'] ?? '') !== '') {
+            $states[] = (string) $block['state'];
+            continue;
+        }
+        $bp = (string) ($block['bp'] ?? 'd');
+        // Within one block the LATER declaration wins: the emitter prints a fill's
+        // `background` shorthand before `background-image`, so a band with a fill AND an
+        // image paints the image; only a shorthand printed after it would erase it.
+        $order        = array_keys($decls);
+        $short_erases = is_array($short) && (!is_array($image)
+            || array_search('background', $order, true) > array_search('background-image', $order, true));
+        if (is_array($image) && is_string($image['css'] ?? null) && stripos($image['css'], 'url(') !== false && !$short_erases) {
+            $declared[$bp] = [
+                'image'  => true,
+                'scrim'  => trim((string) preg_replace('/,?\s*url\(\s*"[^"]*"\s*\)|,?\s*url\([^)]*\)/i', '', $image['css']), " ,"),
+                'source' => (string) ($image['source'] ?? ''),
+            ];
+        } else {
+            $replaced = is_array($short) ? $short : $image;
+            $declared[$bp] = ['image' => false, 'scrim' => '', 'source' => (string) ($replaced['source'] ?? '')];
+        }
+    }
+    $tiers = [];
+    foreach (array_keys(pp_udc_breakpoints()) as $bp) {
+        $tiers[$bp] = $declared[$bp] ?? ($declared['d'] ?? ['image' => false, 'scrim' => '', 'source' => '']);
+    }
+    return ['tiers' => $tiers, 'states' => array_values(array_unique($states))];
+}
+
+/** Whether a compiled band paints a scrim over its image at any width: the overlay marker's predicate. */
+function pp_udc_band_paints_scrim(array $compiled): bool {
+    return _pp_udc_effective_paints_scrim(pp_udc_band_effective_background($compiled));
+}
+
+/** The marker's predicate over an already-read effective background (one read, one answer). */
+function _pp_udc_effective_paints_scrim(array $effective): bool {
+    foreach ((array) ($effective['tiers'] ?? []) as $tier) {
+        if (!empty($tier['image']) && ($tier['scrim'] ?? '') !== '') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * A component's ROLE DEFAULTS, emitted once per page under a component scope.
  *
  * THIS IS WHY IT IS NOT PER BAND. Defaults are component-level constants —
@@ -8795,11 +8874,11 @@ function pp_udc_composition_findings(array $items): array {
                 $band_drops    = [];
             }
         }
-        $scrim_tiers = $band_compiled === null ? [] : _pp_udc_compiled_scrim_tiers($band_compiled);
-        // The marker's own predicate: some tier paints a scrim. An image-only band (an
-        // overlay the emitter dropped, e.g. one set only inside `:hover`) is not marked, so
-        // nothing re-lights and there is nothing to disclose.
-        if (array_filter($scrim_tiers, static fn (array $t): bool => $t[0] !== '') !== []) {
+        // The marker's own predicate, from the one accessor both read: some width paints a
+        // scrim. An image-only band (an overlay the emitter dropped, e.g. one set only inside
+        // `:hover`) is not marked, so nothing re-lights and there is nothing to disclose.
+        $effective = $band_compiled === null ? null : pp_udc_band_effective_background($band_compiled);
+        if ($effective !== null && _pp_udc_effective_paints_scrim($effective)) {
             $blocks = (array) ($band_compiled['blocks'] ?? []);
             $rest_inked = [];
             foreach ($blocks as $block) {
@@ -8813,10 +8892,9 @@ function pp_udc_composition_findings(array $items): array {
                 $conditions  = []; // [condition text, the re-lit roles it concerns]
                 $breakpoints = pp_udc_breakpoints();
                 $covered     = [];
-                foreach (array_keys($breakpoints) as $bp) {
-                    $tier = $scrim_tiers[$bp] ?? ($scrim_tiers['d'] ?? null);
-                    if ($tier !== null && $tier[0] !== '') {
-                        $covered[] = $bp;
+                foreach ($effective['tiers'] as $bp => $tier) {
+                    if ($tier['image'] && $tier['scrim'] !== '') {
+                        $covered[] = (string) $bp;
                     }
                 }
                 $missing = array_values(array_diff(array_keys($breakpoints), $covered));
@@ -8826,7 +8904,8 @@ function pp_udc_composition_findings(array $items): array {
                     $conditions[] = [sprintf('the scrim is set only at the %s, so at the %s the accent sits on the unscrimmed image',
                         $label($covered), $label($missing)), $relit];
                 }
-                foreach ($scrim_tiers as [$layers, $source]) {
+                foreach ($effective['tiers'] as $tier) {
+                    [$layers, $source] = [$tier['scrim'], $tier['source']];
                     if ($layers === '') {
                         continue;
                     }
@@ -8849,12 +8928,9 @@ function pp_udc_composition_findings(array $items): array {
                 }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
                 // covers the scrimmed image in that state while the tier keeps re-lighting.
-                foreach ($blocks as $block) {
-                    if (($block['role'] ?? '') === '_band' && ($block['item'] ?? '') === '' && ($block['state'] ?? '') !== ''
-                        && (isset($block['decls']['background']) || isset($block['decls']['background-image']))) {
-                        $conditions[] = [sprintf('in the %s state the band\'s own background replaces the scrimmed image', _pp_udc_reflect((string) $block['state'])), $relit];
-                        break;
-                    }
+                foreach ($effective['states'] as $state) {
+                    $conditions[] = [sprintf('in the %s state the band\'s own background replaces the scrimmed image', _pp_udc_reflect($state)), $relit];
+                    break;
                 }
                 // A surface on the accent itself or on a role that encloses it, as compiled.
                 $enclosing = [];
@@ -10190,50 +10266,10 @@ function pp_udc_band_has_overlay(array $item): bool {
         return false;
     }
     try {
-        foreach (_pp_udc_compiled_scrim_tiers(pp_udc_compile_band($item, 'authored')) as [$layers]) {
-            if ($layers !== '') {
-                return true;
-            }
-        }
-        return false;
+        return pp_udc_band_paints_scrim(pp_udc_compile_band($item, 'authored'));
     } catch (\Throwable $e) {
         return false;
     }
-}
-
-/**
- * The scrim the RENDERER paints on a compiled band (#1010 review, design ruling): per
- * breakpoint tier whose `_band` rest block declares a background-image, [scrim layers or
- * '' when that tier paints the image alone, the declaration's source]. Read off the
- * compiled output, never re-derived: the emitter has already merged author and preset
- * tiers, resolved the image (a deleted attachment paints nothing and so has no entry),
- * dropped an overlay with no image, and chosen each reference's token scope. A tier whose
- * block replaces the background (the shorthand, or an image-less background-image) is an
- * entry with '' layers; a tier with no entry inherits the base tier at render.
- *
- * @return array<string, array{0: string, 1: string}>
- */
-function _pp_udc_compiled_scrim_tiers(array $compiled): array {
-    $tiers = [];
-    foreach ((array) ($compiled['blocks'] ?? []) as $block) {
-        if (($block['role'] ?? '') !== '_band' || ($block['state'] ?? '') !== '' || ($block['item'] ?? '') !== '') {
-            continue;
-        }
-        $image = $block['decls']['background-image'] ?? null;
-        if (is_array($image) && is_string($image['css'] ?? null) && stripos($image['css'], 'url(') !== false) {
-            $layers = trim((string) preg_replace('/,?\s*url\(\s*"[^"]*"\s*\)|,?\s*url\([^)]*\)/i', '', $image['css']), " ,");
-            $tiers[(string) ($block['bp'] ?? 'd')] = [$layers, (string) ($image['source'] ?? '')];
-            continue;
-        }
-        // A tier that declares the `background` shorthand, or a background-image with no
-        // image, REPLACES the scrimmed image at that width: an unscrimmed tier, not an
-        // inherited one (`fill: {"p": "#fff"}` emits `background:#fff` at the phone width).
-        $replaced = $block['decls']['background'] ?? (is_array($image) ? $image : null);
-        if (is_array($replaced)) {
-            $tiers[(string) ($block['bp'] ?? 'd')] = ['', (string) ($replaced['source'] ?? '')];
-        }
-    }
-    return $tiers;
 }
 
 /**
