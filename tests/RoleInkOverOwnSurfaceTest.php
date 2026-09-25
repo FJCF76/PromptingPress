@@ -134,4 +134,58 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         ]);
         $this->assertCount(1, $found);
     }
+
+    /** A transparent default fill is no surface: the band shows through. */
+    public function testATransparentOwnFillIsNotASurface(): void
+    {
+        [, $found] = $this->write(
+            ['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'button-secondary' => ['typography' => ['color' => '@color-bg']]],
+            'cta',
+            ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x']
+        );
+        $this->assertSame([], $found);
+    }
+
+    /** An ink authored only for a state still lands on the role's own surface. */
+    public function testAStateOnlyInkIsDisclosed(): void
+    {
+        [, $found] = $this->write([
+            '_band'   => ['background' => ['fill' => '@color-bg-inverted']],
+            'eyebrow' => ['typography' => [':hover' => ['color' => '@color-bg']]],
+        ]);
+        $this->assertCount(1, $found);
+    }
+
+    /** A card map speaks only for item roles: a band-only role there is not reported. */
+    public function testABandOnlyRoleInACardMapIsNotReported(): void
+    {
+        $found = array_filter(pp_udc_composition_findings([[
+            'component' => 'grid', 'id' => 'pp-a1b2c3d4',
+            'udc'       => ['_band' => ['background' => ['fill' => '@color-bg-inverted']]],
+            'props'     => ['title' => 'G', 'items' => [['id' => 'it-0000abcd', 'title' => 'One',
+                'udc' => ['eyebrow' => ['typography' => ['color' => '@color-bg']]]]]],
+        ]]), static fn ($f) => $f['type'] === self::TYPE);
+        $this->assertSame([], array_values($found));
+    }
+
+    /** Bounded across the composition like its sibling arms. */
+    public function testTheFindingIsBoundedAcrossTheComposition(): void
+    {
+        $bands = [];
+        // Two own-surface roles per band, so the cap must hold INSIDE a band too; one
+        // single-role band first makes the count odd, so it reaches 199 before a two-role band.
+        $bands[] = ['component' => 'section', 'id' => 'pp-0000ffff',
+            'udc'   => ['_band' => ['background' => ['fill' => '@color-bg-inverted']], 'eyebrow' => ['typography' => ['color' => '@color-bg']]],
+            'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']];
+        for ($b = 0; $b < 150; $b++) {
+            $bands[] = ['component' => 'section', 'id' => sprintf('pp-%08x', $b + 1),
+                'udc'   => ['_band' => ['background' => ['fill' => '@color-bg-inverted']],
+                            'eyebrow' => ['typography' => ['color' => '@color-bg']],
+                            'panel'   => ['typography' => ['color' => '@color-bg']]],
+                'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => 'b']];
+        }
+        $count = count(array_filter(pp_udc_composition_findings($bands), static fn ($f) => $f['type'] === self::TYPE));
+        $this->assertGreaterThan(0, $count, 'premise');
+        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, $count);
+    }
 }
