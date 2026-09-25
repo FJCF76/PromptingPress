@@ -6378,11 +6378,19 @@ function _pp_udc_emission_scopes(string $component, string $id, bool $compositio
 function pp_udc_band_effective_background(array $compiled): array {
     $declared = [];
     $states   = [];
+    $sizing   = []; // bp => ['size' => css, 'repeat' => css] as declared at that tier (#1142 item 1)
     foreach ((array) ($compiled['blocks'] ?? []) as $block) {
         if (($block['role'] ?? '') !== '_band' || ($block['item'] ?? '') !== '') {
             continue;
         }
         $decls = is_array($block['decls'] ?? null) ? $block['decls'] : [];
+        if (($block['state'] ?? '') === '') {
+            foreach (['size' => 'background-size', 'repeat' => 'background-repeat'] as $key => $property) {
+                if (is_string($decls[$property]['css'] ?? null)) {
+                    $sizing[(string) ($block['bp'] ?? 'd')][$key] = strtolower(trim($decls[$property]['css']));
+                }
+            }
+        }
         $image = $decls['background-image'] ?? null;
         $short = $decls['background'] ?? null;
         if (!is_array($image) && !is_array($short)) {
@@ -6413,6 +6421,15 @@ function pp_udc_band_effective_background(array $compiled): array {
     $tiers = [];
     foreach (array_keys(pp_udc_breakpoints()) as $bp) {
         $tiers[$bp] = $declared[$bp] ?? ($declared['d'] ?? ['image' => false, 'scrim' => '', 'source' => '']);
+        // A SCRIM THAT COVERS ONLY PART OF THE BOX (#1142 item 1). `background-size` applies to every layer,
+        // so an image sized without tiling paints its scrim on part of the band and the rest shows the band's
+        // own background. Each property inherits from the base tier on its own, as the cascade does.
+        $size   = $sizing[$bp]['size'] ?? ($sizing['d']['size'] ?? '');
+        $repeat = $sizing[$bp]['repeat'] ?? ($sizing['d']['repeat'] ?? '');
+        $tiles  = in_array($repeat, ['', 'repeat', 'round', 'repeat repeat', 'round round', 'repeat round', 'round repeat'], true);
+        $tiers[$bp]['size']    = $size;
+        $tiers[$bp]['partial'] = !empty($tiers[$bp]['image']) && ($tiers[$bp]['scrim'] ?? '') !== ''
+            && !in_array($size, ['', 'cover', 'auto', 'auto auto'], true) && !$tiles;
     }
     return ['tiers' => $tiers, 'states' => array_values(array_unique($states))];
 }
@@ -9582,6 +9599,19 @@ function pp_udc_composition_findings(array $items): array {
                         break;
                     }
                 }
+                // A SCRIM ON PART OF THE BAND (#1142 item 1): sized without tiling, so the rest of the band
+                // shows its own background under the re-lit accent. The marker stays (R4): disclosed, not unset.
+                $partial_bps = [];
+                foreach ($effective['tiers'] as $bp => $tier) {
+                    if (!empty($tier['partial'])) {
+                        $partial_bps[] = (string) $bp;
+                    }
+                }
+                if ($partial_bps !== []) {
+                    $conditions[] = [sprintf('the image and its scrim are sized %s without tiling%s, so part of the band shows its own background instead of the scrim',
+                        _pp_udc_reflect((string) $effective['tiers'][$partial_bps[0]]['size']),
+                        count($partial_bps) === count($breakpoints) ? '' : ' at the ' . _pp_udc_widths_phrase($partial_bps)), $relit];
+                }
                 // A `_band` state that repaints the background (`background[":hover"].fill`)
                 // covers the scrimmed image in that state while the tier keeps re-lighting.
                 foreach ($effective['states'] as $state) {
@@ -9620,7 +9650,22 @@ function pp_udc_composition_findings(array $items): array {
                             $named_surface[$locator . '|' . $role_name] = true;
                             break;
                         }
-                        if (strtolower(trim($css)) !== 'transparent' && _pp_udc_value_is_light(_pp_udc_compiled_value($css, $band_compiled), []) !== false) {
+                        // ONE SURFACE CLASSIFIER WITH #1125 (#1142 item 3): transparent, none, initial, unset and a
+                        // zero-alpha colour paint no surface. currentColor and inherit DO paint one, so they stay
+                        // named, each with words that are true of it (premise correction in #1142's body).
+                        $resolved_css = _pp_udc_compiled_value($css, $band_compiled);
+                        if (!_pp_udc_paints_surface($resolved_css, $property === 'background-image' ? 'background-image' : 'background-color')) {
+                            continue;
+                        }
+                        $keyword = strtolower(trim($resolved_css));
+                        if ($keyword === 'currentcolor' || $keyword === 'inherit') {
+                            $conditions[] = [sprintf('%s, has a background %s of %s, %s', $where, $origin, $keyword === 'inherit' ? 'inherit' : 'currentColor',
+                                $keyword === 'inherit' ? 'which takes its parent\'s background, and the engine cannot read that'
+                                    : 'which paints its own text colour behind the text'), $enclosing[$role_name]];
+                            $named_surface[$locator . '|' . $role_name] = true;
+                            break;
+                        }
+                        if (_pp_udc_value_is_light($resolved_css, []) !== false) {
                             $conditions[] = [sprintf('%s, has a background %s (%s) that is light or that the engine cannot read',
                                 $where, $origin, _pp_udc_reflect(_pp_udc_compiled_display($css, $band_compiled))), $enclosing[$role_name]];
                             $named_surface[$locator . '|' . $role_name] = true;
@@ -11465,6 +11510,7 @@ function pp_udc_band_has_overlay(array $item): bool {
     try {
         return pp_udc_band_paints_scrim(pp_udc_compile_band($item, 'authored'));
     } catch (\Throwable $e) {
+        error_log('PromptingPress: overlay marker compile failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
         return false;
     }
 }

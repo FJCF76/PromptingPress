@@ -345,4 +345,26 @@ final class OverlayTierDefaultsTest extends TestCase
         $this->assertNotFalse($author);
         $this->assertGreaterThan($tier, $author, 'the authored block prints later at the same weight');
     }
+
+    /**
+     * #1142 item 2: `overlay_defaults` and `within` are validated at the definition gate. A state key would print at
+     * (0,3,0) and outrank an author's resting value (contradicting "your value wins"); a non-parameter key was dropped
+     * silently at render; a `within` name that is no role of the component names a surface that never exists.
+     */
+    public function testTheDefinitionGateValidatesOverlayDefaultsAndWithin(): void
+    {
+        $role = ['selector' => '.x', 'groups' => ['typography'], 'overlay_defaults' => ['typography' => ['color' => '@color-accent-on-overlay']]];
+        $this->assertSame([], pp_schema_definition_errors($role, 'role', 'c role r'), 'premise: a valid tier');
+        $bad = $role;
+        $bad['overlay_defaults']['typography'][':hover'] = ['color' => '#fff'];
+        $this->assertContains('c role r: `overlay_defaults` group `typography` must not hold a state (`:hover`): the tier is a resting default.', pp_schema_definition_errors($bad, 'role', 'c role r'));
+        $bad = $role;
+        $bad['overlay_defaults']['typography']['nope'] = '1';
+        $this->assertContains('c role r: `overlay_defaults` group `typography` has no parameter `nope`.', pp_schema_definition_errors($bad, 'role', 'c role r'));
+        $within = $role + ['within' => ['text', 'ghost']];
+        $this->assertSame([], pp_schema_definition_errors($within, 'role', 'c role r'), 'without the sibling roster the name cannot be checked');
+        $this->assertContains('c role r: `within` names `ghost`, which is not a role of this component.',
+            pp_schema_definition_errors($within, 'role', 'c role r', ['r' => true, 'text' => true]));
+        $this->assertSame([], pp_schema_definition_errors($role + ['within' => ['text']], 'role', 'c role r', ['r' => true, 'text' => true]));
+    }
 }

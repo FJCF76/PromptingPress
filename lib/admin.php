@@ -672,7 +672,7 @@ function pp_applies_when_clause_met($clause, array $props, array $prop_defs, arr
  * @param  string $label       Context for error messages, e.g. 'hero --hero-bg'.
  * @return string[]            Human-readable errors; empty when the definition is valid.
  */
-function pp_schema_definition_errors(array $definition, string $kind, string $label): array {
+function pp_schema_definition_errors(array $definition, string $kind, string $label, ?array $sibling_roles = null): array {
     $errors = [];
 
     // An explicit dispatch, not a ternary. The two-surface ternary this replaces read
@@ -841,9 +841,22 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             // Compiled as an AUTHORED map (_pp_udc_overlay_tier_css), so a group the role does
             // not permit would be dropped at render with no message on any surface. Refuse it
             // here, where the schema author will see it.
-            foreach (array_keys($definition['overlay_defaults']) as $group) {
+            foreach ($definition['overlay_defaults'] as $group => $group_map) {
                 if (!in_array($group, $definition['groups'], true)) {
                     $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not one of this role's `groups`.";
+                    continue;
+                }
+                // #1142 item 2: a STATE inside the tier would print at (0,3,0) and outrank an author's
+                // resting value, contradicting "your value wins"; a key that is no parameter of the group
+                // was dropped silently at render.
+                $group_params = function_exists('pp_udc_groups') ? (pp_udc_groups()[$group]['params'] ?? null) : null;
+                foreach (is_array($group_map) ? array_keys($group_map) : [] as $key) {
+                    $key = (string) $key;
+                    if (strncmp($key, ':', 1) === 0) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` must not hold a state (`{$key}`): the tier is a resting default.";
+                    } elseif (is_array($group_params) && !isset($group_params[$key])) {
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` has no parameter `{$key}`.";
+                    }
                 }
             }
         }
@@ -851,6 +864,14 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['within']) || !pp_is_list($definition['within'])
                 || array_filter($definition['within'], static fn ($r): bool => !is_string($r) || $r === '') !== [])) {
             $errors[] = "{$label}: `within` must be a LIST of role names.";
+        } elseif (isset($definition['within']) && $sibling_roles !== null) {
+            // #1142 item 2: a `within` name that is no role of the component names a surface that never
+            // exists. Checked where the caller knows the component's roster (the schema CI walk).
+            foreach ($definition['within'] as $outer) {
+                if (!isset($sibling_roles[$outer])) {
+                    $errors[] = "{$label}: `within` names `{$outer}`, which is not a role of this component.";
+                }
+            }
         }
         // `text_content` (#1125): written only where a measurement found a glyph in the role's ink,
         // so `true` is the one meaningful value; anything else is a schema typo, refused here.

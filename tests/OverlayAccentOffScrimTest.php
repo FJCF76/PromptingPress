@@ -632,4 +632,39 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertGreaterThan(150, $count, 'premise: three conditions per band would exceed the cap');
         $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, $count);
     }
+
+    /** #1142 item 1: a partial scrim is named through the finding, with the size, so the author knows why. */
+    public function testAScrimCoveringPartOfTheBandIsNamed(): void
+    {
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '200px 200px', 'repeat' => 'no-repeat']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('the image and its scrim are sized 200px 200px without tiling, so part of the band shows its own background instead of the scrim', $found[0]['message']);
+        $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['size' => '200px', 'repeat' => 'repeat']]]), 'a tiling scrim covers');
+    }
+
+    /**
+     * #1142 item 3 (premise corrected in its body): `initial`, `unset` and `none` paint no surface, like `transparent`
+     * (the shared classifier _pp_udc_paints_surface()); `currentColor` paints the text's own colour behind the text and
+     * `inherit` takes the parent's background, so both stay named, each with words that are true of it.
+     */
+    public function testNonSurfaceKeywordsAreNotNamedAndCurrentColorAndInheritAreWordedTruly(): void
+    {
+        foreach (['initial', 'unset', 'none', 'TRANSPARENT', 'rgba(255,255,255,0)'] as $value) {
+            $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => $value]]]), $value);
+        }
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'currentColor']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('has a background you set of currentColor, which paints its own text colour behind the text', $found[0]['message']);
+        $found = $this->found(['_band' => ['background' => self::DARK_SCRIM], 'text' => ['_css' => ['background-color' => 'inherit']]]);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('has a background you set of inherit, which takes its parent\'s background, and the engine cannot read that', $found[0]['message']);
+    }
+
+    /** #1142 item 4: the marker's catch logs like its sibling in the findings path (call shape pinned; no stored shape is known to throw). */
+    public function testTheMarkerLogsACompileFailure(): void
+    {
+        $fn  = new ReflectionFunction('pp_udc_band_has_overlay');
+        $src = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1, $fn->getEndLine() - $fn->getStartLine() + 1));
+        $this->assertMatchesRegularExpression('/catch \(\\\\Throwable \$e\) \{\s*error_log\(\'PromptingPress: overlay marker compile failed/s', $src);
+    }
 }

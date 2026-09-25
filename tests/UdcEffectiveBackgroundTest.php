@@ -141,4 +141,28 @@ final class UdcEffectiveBackgroundTest extends TestCase
         }
         $this->assertSame([], $eff['states']);
     }
+
+    /**
+     * A SCRIM THAT COVERS ONLY PART OF THE BAND IS PARTIAL (#1142 item 1). `background-size` applies to every layer, so a
+     * 200px no-repeat image paints its scrim on a 200px square and the rest of the band shows its own background. The
+     * accessor reads the effective size and repeat per tier (inheriting from `d` per property); a scrimmed tier whose
+     * size is neither `cover` nor `auto` and which does not tile on both axes is partial. The marker is unchanged (R4).
+     */
+    public function testAScrimSizedWithoutTilingIsPartial(): void
+    {
+        $scrim = ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.8)'];
+        [$fx] = $this->read($this->item($scrim + ['size' => '200px 200px', 'repeat' => 'no-repeat']));
+        $this->assertTrue($fx['tiers']['d']['partial']);
+        $this->assertSame('200px 200px', $fx['tiers']['d']['size']);
+        [$fx] = $this->read($this->item($scrim + ['size' => '50%', 'repeat' => 'space']));
+        $this->assertTrue($fx['tiers']['p']['partial'], 'space leaves gaps too; inherited by narrower tiers');
+        [$fx] = $this->read($this->item($scrim + ['size' => ['p' => '100px']]));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'cover at the base tier');
+        $this->assertTrue($fx['tiers']['p']['partial'], 'a phone-only size with the engine\'s no-repeat companion');
+        [$fx] = $this->read($this->item($scrim + ['size' => '200px', 'repeat' => 'repeat']));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'a tiling scrim covers the box');
+        [$fx] = $this->read($this->item($scrim));
+        $this->assertFalse($fx['tiers']['d']['partial'], 'the default cover');
+        $this->assertTrue(pp_udc_band_has_overlay($this->item($scrim + ['size' => '200px 200px', 'repeat' => 'no-repeat'])), 'the marker is unchanged (R4)');
+    }
 }
