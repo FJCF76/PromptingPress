@@ -775,6 +775,63 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringNotContainsString('none is set', $found[0]['message']);
     }
 
+    /** An authored STATE value is left out of the shadow finding at state grain only. */
+    public function testAnAuthoredStateValueIsLeftOutOfTheShadowFinding(): void
+    {
+        $this->savePreset('probe-hov', ['typography' => [':hover' => ['color' => '#aa0000', 'decoration' => 'none']]]);
+        [, $r] = $this->page($this->grid(['card-link' => ['_preset' => 'probe-hov', 'typography' => [':hover' => ['color' => '#111111']]]]));
+
+        $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringNotContainsString('typography.color (:hover)', $found[0]['message']);
+        $this->assertStringContainsString('typography.decoration (:hover)', $found[0]['message']);
+    }
+
+    /** The shadow memo is keyed by role: two roles on one card, one preset, two answers. */
+    public function testTheShadowMemoIsKeyedByRole(): void
+    {
+        $this->savePreset('probe-two', ['typography' => ['letter-spacing' => '0.1em'], 'spacing' => ['margin-bottom' => '0']]);
+        [, $r] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-two'], 'card-text' => ['_preset' => 'probe-two']]));
+
+        $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(2, $found);
+        foreach ($found as $f) {
+            if (str_contains($f['message'], 'role "card-title"')) {
+                $this->assertStringNotContainsString('margin-bottom', $f['message']);
+            } else {
+                $this->assertStringNotContainsString('letter-spacing', $f['message']);
+            }
+        }
+    }
+
+    /** Only a card IMAGE on the SAME role earns the cross-grain band-scrim reason. */
+    public function testABandScrimIsNotBlamedOnCardsThatSetNoImageForItsRole(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        foreach ([['card' => ['background' => ['fill' => '#111111']]], ['card-media' => ['background' => ['image' => 9001]]]] as $n => $card_udc) {
+            [, $r] = $this->page($this->grid($card_udc, ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]), 'p' . $n);
+            $found = $this->findingsOfType($r, 'udc_overlay_without_image');
+            $this->assertCount(1, $found);
+            $this->assertStringNotContainsString("card's own map", $found[0]['message']);
+        }
+    }
+
+    /** Card images outrank a band fill in the scrim reason: the scrim reaches no card either way. */
+    public function testCardImagesOutrankABandFillInTheScrimReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [, $r] = $this->page($this->grid(
+            ['card' => ['background' => ['image' => 9001]]],
+            ['card' => ['background' => ['fill' => '#000000', 'overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+
+        $found = $this->findingsOfType($r, 'udc_overlay_without_image');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString("card's own map", $found[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
