@@ -6725,7 +6725,8 @@ class SchemaValidationTest extends TestCase
      * down in comments on purpose and names these classes. A floor on each surface keeps
      * an empty scan from passing.
      *
-     * SURFACES: every schema; every PHP file under components/ (recursively) and lib/;
+     * SURFACES: every schema; every PHP file under components/, lib/ and templates/
+     * (recursively) plus the theme-root PHP files;
      * assets/js/*.js; assets/css/*.css. The PHP scan also refuses the retired
      * pp_theme_class() by name (a call, a fully-qualified call or a callable string).
      *
@@ -6751,15 +6752,16 @@ class SchemaValidationTest extends TestCase
             );
         }
 
-        // 2. PHP that renders — every file under components/ (recursively, so a partial
-        //    counts) and lib/ (the engine emits markup too): no tone class in code or
+        // 2. The theme's PHP — every file under components/ (recursively, so a partial
+        //    counts), lib/ (the engine emits markup too) and templates/, plus the theme-root
+        //    files (functions.php, page.php, ...): no tone class in code or
         //    markup, and no reference to the retired pp_theme_class() helper by name.
         //    Comments are dropped by the tokenizer; HTML text and string literals are
         //    kept, which is where a class attribute lives. The helper check matters on
         //    its own: a call on a branch no test renders would pass every render test
         //    and fatal on the live page.
         $php = [];
-        foreach (['components', 'lib'] as $dir) {
+        foreach (['components', 'lib', 'templates'] as $dir) {
             $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->themeRoot . '/' . $dir, \FilesystemIterator::SKIP_DOTS));
             foreach ($it as $f) {
                 if ($f->getExtension() === 'php') {
@@ -6767,7 +6769,8 @@ class SchemaValidationTest extends TestCase
                 }
             }
         }
-        $this->assertGreaterThanOrEqual(25, count($php), 'the PHP scan found fewer than 25 files under components/ and lib/');
+        $php = array_merge($php, glob($this->themeRoot . '/*.php') ?: []);
+        $this->assertGreaterThanOrEqual(40, count($php), 'the PHP scan found fewer than 40 files across components/, lib/, templates/ and the theme root');
         foreach ($php as $file) {
             $code = '';
             foreach (token_get_all((string) file_get_contents($file)) as $token) {

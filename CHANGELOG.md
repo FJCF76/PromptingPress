@@ -47,8 +47,10 @@ stays live and pinned on the v2 `_band` → `background.image` path.
   with an undefined function: a child theme's templates or `functions.php`, a plugin, or a
   mu-plugin. A call made while a page renders takes down that whole page. A call made at load time, such as in
   `functions.php`, takes down the whole site, wp-admin included. Before upgrading, run
-  `grep -rn "pp_theme_class" wp-content/` and remove every hit, including a quoted callback
-  name such as `add_filter( 'x', 'pp_theme_class' )`.
+  `grep -rn "pp_theme_class" wp-content/ --exclude-dir=promptingpress` (use your
+  PromptingPress theme folder's name; the theme itself defines and names the helper) and
+  remove every hit, including a quoted callback name such as
+  `add_filter( 'x', 'pp_theme_class' )`.
 
 ### Upgrading
 
