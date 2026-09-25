@@ -9374,62 +9374,16 @@ function pp_udc_composition_findings(array $items): array {
                         }
                     }
                     $paint_elements = pp_udc_role_paint($item, $band_compiled, $role_paint_defaults[$component], $marked);
-                    // A card part sits inside its card's root: a colour on that root (the card's own ink)
-                    // is what the part inherits there, not the band's.
-                    $item_root  = (string) (pp_udc_item_roles($component)['root'] ?? '');
-                    $root_inked = [];
-                    foreach ($paint_elements as $element) {
-                        if ($element['role'] === $item_root && $item_root !== '') {
-                            foreach ($element['paint'] as $root_state => $root_by_bp) {
-                                foreach ($root_by_bp as $root_bp => $root_cell) {
-                                    if ($root_cell['color'] !== null) {
-                                        $root_inked[$element['item'] . '|' . $root_state . '|' . $root_bp] = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    $item_roles_here = (array) (pp_udc_item_roles($component)['roles'] ?? []);
+                    // A CARD PART UNDER AN INKED CARD ROOT takes the card's ink, not the band's. No shipped
+                    // schema has such a subject: band-ink subjects are pinned by
+                    // RoleInkOverOwnSurfaceTest::testNoShippedItemPartYetTakesTheBandInkThroughItsCard to
+                    // hero `surface`. When that pin fails because a card part became a subject, add the
+                    // root-ink interception here WITH a test that exercises it (cycle 2, simplification:
+                    // an untested branch behind a guard is the green-over-unreachable shape).
                     // ON THE PAGE (ruling E1-A): asked of the component's own template, once per band and
                     // only when a finding is about to be emitted; null means unknown and filters nothing.
                     $presence       = null;
                     $presence_asked = false;
-                    // The cards a band-level element stands for: every card without its own element for
-                    // the role (no cards at all still means the role's element, rendered for any card).
-                    $card_entry_ids = [];
-                    $card_entries   = $item['props'][pp_udc_item_roles($component)['prop'] ?? ''] ?? [];
-                    foreach (is_array($card_entries) ? $card_entries : [] as $card_entry) {
-                        $card_entry_ids[] = is_array($card_entry) && is_scalar($card_entry[PP_UDC_ITEM_ID_KEY] ?? null)
-                            ? (string) $card_entry[PP_UDC_ITEM_ID_KEY] : '';
-                    }
-                    $own_elements = [];
-                    foreach ($paint_elements as $element) {
-                        if ($element['item'] !== '') {
-                            $own_elements[$element['role'] . '|' . $element['item']] = true;
-                        }
-                    }
-                    // Whether the band's ink reaches this element in this cell, or every card it stands for
-                    // puts its own root colour in the way.
-                    $band_ink_not_intercepted = static function (array $element, string $state, string $bp) use (
-                        $item_root, $item_roles_here, $root_inked, $card_entry_ids, $own_elements
-                    ): bool {
-                        if ($item_root === '' || $element['role'] === $item_root || !in_array($element['role'], $item_roles_here, true)) {
-                            return true;
-                        }
-                        if (isset($root_inked['|' . $state . '|' . $bp])) {
-                            return false; // a band-level rule inks every card root
-                        }
-                        if ($element['item'] !== '') {
-                            return !isset($root_inked[$element['item'] . '|' . $state . '|' . $bp]);
-                        }
-                        foreach ($card_entry_ids === [] ? [''] : $card_entry_ids as $card_id) {
-                            if (!isset($own_elements[$element['role'] . '|' . $card_id])
-                                && !isset($root_inked[$card_id . '|' . $state . '|' . $bp])) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    };
                     foreach ($paint_elements as $element) {
                         // ONLY WHERE THE INK CAN SHOW (ruling A): a role whose own element renders author
                         // text, schema data set by a Chromium measurement (`text_content`). A container whose
@@ -9459,8 +9413,7 @@ function pp_udc_composition_findings(array $items): array {
                                     }
                                     $kind = 'own';
                                 } elseif (isset($band_ink_reaches[$element['role']])
-                                    && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)
-                                    && $band_ink_not_intercepted($element, (string) $state, (string) $bp)) {
+                                    && ($ink === null || strcasecmp(trim((string) $ink['literal']), 'currentColor') === 0)) {
                                     $kind = 'band';
                                 } else {
                                     continue;
@@ -9492,9 +9445,6 @@ function pp_udc_composition_findings(array $items): array {
                             if ($element['item'] === '' ? !$on_page['band'] : !isset($on_page['items'][$element['item']])) {
                                 continue; // The element is not rendered with these props: nothing to name.
                             }
-                        }
-                        if ($ink_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
-                            break;
                         }
                         $widths = static function (array $bps) use ($breakpoints_meta): string {
                             $labels = [];

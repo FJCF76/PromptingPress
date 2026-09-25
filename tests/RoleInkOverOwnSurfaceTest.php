@@ -446,7 +446,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
      * chrome role that renders its own text, compiled on a band whose `_band` sets a fill and a colour:
      * the cells where its own DEFAULT (or overlay) surface paints under no ink of its own, or a
      * `currentColor` one. That is exactly where the band's ink can be named. Pinned to hero `surface`
-     * alone, so: a card PART becoming a subject (the card-root interception branch goes live), a
+     * alone, so: a card PART becoming a subject (then write the card-root interception, with a test: its ink may be the card's, not the band's), a
      * `currentColor` default under a surface, or a header/footer role with its own fill under its own
      * text (the chrome prompt sentence) each fail here instead of passing over an unreachable branch.
      */
