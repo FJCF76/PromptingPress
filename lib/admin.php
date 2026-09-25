@@ -230,6 +230,8 @@ function pp_role_definition_keys(): array {
         'description',   // required — MAINTAINER-facing prose; reaches `wp pp schema`, NEVER the prompt
         'groups',        // required — the UDC groups this role permits
         'defaults',      // the role's own default values, per group
+        'overlay_defaults', // #1010 — defaults re-lit on a band the engine marks `data-pp-band-overlay`
+        'within',        // #1010 review — the roles whose elements enclose this one (a LIST of role names)
         'obligations',   // #1087 — MODEL-facing pairing/contrast obligations, bounded
     ];
 }
@@ -828,6 +830,25 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['defaults'])
                 || ($definition['defaults'] !== [] && pp_is_list($definition['defaults'])))) {
             $errors[] = "{$label}: `defaults` must be a MAP of groups, not a list.";
+        }
+        if (array_key_exists('overlay_defaults', $definition)
+            && (!is_array($definition['overlay_defaults'])
+                || ($definition['overlay_defaults'] !== [] && pp_is_list($definition['overlay_defaults'])))) {
+            $errors[] = "{$label}: `overlay_defaults` must be a MAP of groups, not a list.";
+        } elseif (isset($definition['overlay_defaults']) && is_array($definition['groups'] ?? null)) {
+            // Compiled as an AUTHORED map (_pp_udc_overlay_tier_css), so a group the role does
+            // not permit would be dropped at render with no message on any surface. Refuse it
+            // here, where the schema author will see it.
+            foreach (array_keys($definition['overlay_defaults']) as $group) {
+                if (!in_array($group, $definition['groups'], true)) {
+                    $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not one of this role's `groups`.";
+                }
+            }
+        }
+        if (array_key_exists('within', $definition)
+            && (!is_array($definition['within']) || !pp_is_list($definition['within'])
+                || array_filter($definition['within'], static fn ($r): bool => !is_string($r) || $r === '') !== [])) {
+            $errors[] = "{$label}: `within` must be a LIST of role names.";
         }
         if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
             $errors[] = "{$label}: `description` must be a string.";

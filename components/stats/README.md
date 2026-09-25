@@ -128,9 +128,12 @@ re-inked the band: `number` → `@color-accent-on-overlay` (#461; bare `@color-a
 measures **1.16:1** over the worst-case scrim), `heading-accent` → the same (#463), and
 `label` → `@color-muted-on-overlay` (#577).
 
-**All three retire with the class.** v2 has no automatic remap — the same as hero, section
-and cta — because the engine cannot know an arbitrary image is dark. Setting a background
-does not recolour anything; you write the ink:
+**All three retire with the class.** v2 has no class-keyed remap — the same as hero, section
+and cta — because the engine cannot know an arbitrary image is dark. The one thing it does
+know is when it paints a scrim over an image: since #1010, `number` and `heading-accent`
+default to `@color-accent-on-overlay` on such a band (and the write names it,
+`udc_overlay_accent_off_scrim`, where that premise breaks). `heading` and `label` are still
+yours, and writing all four as below is still correct:
 
 ```json
 {

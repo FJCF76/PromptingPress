@@ -47,6 +47,13 @@ This checks:
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
+   - `udc_overlay_accent_off_scrim` — this band paints a scrim over an image, so its accent
+     inks re-light to the near-white `@color-accent-on-overlay`, but something you set breaks
+     the dark-scrim premise: a light (or unreadable) background, at rest or in a state, on the
+     accent itself or on a role that encloses it, a scrim set only at some widths, or a scrim that is light, fades to transparent
+     or cannot be read. The message names the re-lit roles and the cause. Where the accent
+     sits on that surface, set its `typography.color` yourself. Like every finding here it
+     makes `wp pp validate site` exit non-zero until you answer it.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
      resets the longhand you also set through a group, so the group value does not paint.
      Write the whole treatment in one place. This is the structured-first principle

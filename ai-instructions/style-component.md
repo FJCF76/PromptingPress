@@ -317,11 +317,22 @@ because the engine warns about a value that cannot take effect and not about a r
 that survives a change you made to a different role.
 
 **You own the contrast, and you own it per ROLE, not per band.** Nothing re-lights text for
-you. Check every colour against the surface it actually sits on — which is the nearest
+you, with one exception: on an image band with an overlay, `hero`'s `title-accent`, the
+`heading-accent` of `cta`, `faq` and `stats`, and the `stats` `number` default to
+`@color-accent-on-overlay` (#1010), and your own value for them still wins. Every other accent
+ink is still yours (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary button is one set). The re-light assumes
+the accent sits on a dark scrim: a light surface you set on the accent itself or on a role that
+encloses it (the cta `text` panel, a stats `item` card), at rest or in a state, a scrim set only at some widths, or a scrim that is light,
+fades to transparent or cannot be read is named on the write as `udc_overlay_accent_off_scrim`,
+and the fix is to set that accent's `typography.color` yourself. Check every colour against the surface it actually sits on — which is the nearest
 ancestor role carrying a `background.fill`, whether you set that fill or it came as a default.
 WCAG AA is 4.5:1 for body text, 3:1 for large text. A dark band with one part left
 un-recoloured renders dark ink on dark, or light ink on light, and that is the single most
-common way this goes wrong.
+common way this goes wrong. The second most common: a role that ships its own
+`background.fill` (an eyebrow pill, a `panel`, a card) keeps that light surface when you
+darken the band, so a new light ink lands on light. Set its `background.fill` alongside its
+`typography.color`, and check each ink against that surface, including a text role inside it (a
+testimonial `quote` inside its `card`).
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and

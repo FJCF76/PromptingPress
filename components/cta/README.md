@@ -46,7 +46,10 @@ HEADING, the accented heading substring, the body, its links at rest and on hove
 `outline`/`ghost` buttons, plus a separation ring on the filled button over a scrim. Those are gone: v2 has no variant-scoped role defaults and does not guess, exactly as
 #986 ruled for `.hero--cover`. **A band with a dark fill or a scrim owns its own contrast.**
 
-The one affordance that stayed automatic is the **focus ring** over a scrim, because #986
+Two things follow the scrim automatically. Since #1010 the `heading-accent` default re-lights
+to `@color-accent-on-overlay` on a band that paints an image AND an overlay (your own value
+still wins, and `udc_overlay_accent_off_scrim` names the shapes that break the dark-scrim
+premise). And the **focus ring** over a scrim, because #986
 gave it an engine-emitted trigger instead of a class: the engine sets `data-pp-band-overlay`
 when a band paints an image AND an overlay, and the stylesheet keys the on-overlay outline
 to that. You cannot forget to switch it on. A band you merely darken with a fill gets the

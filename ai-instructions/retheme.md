@@ -78,16 +78,17 @@ other derived token (see below), so you are told when a base change may not reac
 `background.image` plus `background.overlay` (on v2 a `cover` hero carrying `image_url`
 or `image_id` is REFUSED at write with `inert_prop`; do not author that pair) lays a
 dark `rgba(0,0,0,.55)` scrim over an ARBITRARY image.
-**NO INK ROUTES AUTOMATICALLY ON A SCRIM BAND ANY MORE.** The v1 routing worked by band
-CLASS, and a v2 band has no class — **stats was the last component that had one**, and its
+**NO INK ROUTES AUTOMATICALLY ON A SCRIM BAND ANY MORE, EXCEPT THE ACCENT INKS (#1010, below).**
+The v1 routing worked by band CLASS, and a v2 band has no class — **stats was the last component that had one**, and its
 three corrections (the number, the `title_accent` substring and the label) retired with
 `.stats--has-bg-image` at #1066. YOU own the contrast on every band: set a
 `typography.color` on each text role over the image, reaching for
 `@color-accent-on-overlay` and `@color-muted-on-overlay` by name. Note especially that an
 accented heading SUBSTRING does not inherit the heading's ink — it paints its own colour —
-so `heading` and `heading-accent` are two writes, not one.
+so `heading` and `heading-accent` are two writes, not one (on an image band with an overlay
+the accent write is optional since #1010: it defaults to the on-overlay ink).
 
-THE ONE EXCEPTION IS THE FOCUS RING, and it is not class-bound: since #986 it routes from
+THE FIRST EXCEPTION IS THE FOCUS RING, and it is not class-bound: since #986 it routes from
 `[data-pp-band-overlay]`, which the ENGINE emits on any v2 band painting both an image and
 an overlay, so it reaches such a band without the author switching it on. It
 is drawn outside the button, so it lands on the scrim rather than the button's own fill.
@@ -171,8 +172,15 @@ never against the band behind it. So a retheme that makes a band darker does not
 matching panel-CTA adjustment — keep `--color-accent` legible against
 `--color-surface`, which is the surface that button actually sits on.
 
-**The FOCUS ring is the one dark-band affordance that is still automatic, and since #986 it
-follows the scrim rather than a class.** The engine emits `data-pp-band-overlay` when a band
+**The FOCUS ring is automatic on a scrim band, and since #986 it follows the scrim rather
+than a class. Since #1010 so are the accent inks:** on a band carrying `data-pp-band-overlay`,
+`hero`'s `title-accent`, the `heading-accent` of `cta`, `faq` and `stats`, and the `stats`
+`number` default to `--color-accent-on-overlay` instead of `--color-accent` (1.05:1 over a
+dark scrim), and any value you author for those roles still wins (faq `question-open` is not re-lit because it sits on its item's own light fill; a secondary
+button's ink, border and hover fill stay yours as one set). Where that premise does not hold
+(a light surface you set on the accent or on a role enclosing it, a scrim set only at some widths, a
+scrim that is light, fades to transparent or cannot be read) the write says so as
+`udc_overlay_accent_off_scrim`. The engine emits `data-pp-band-overlay` when a band
 paints both a `background.image` and a `background.overlay`, and the outline routes to
 `--color-accent-on-overlay` from there — on any v2 layout, and without the author switching
 it on. Two limits worth knowing: a band you merely DARKEN with a fill carries no such marker
