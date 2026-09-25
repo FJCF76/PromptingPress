@@ -8,6 +8,117 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
 
+## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)
+
+**What you write in `_css` is what paints.** A raw `background` in a role's `_css` is a CSS
+shorthand: it resets the image, and every other `background-*` value, at its state and width.
+Before this, a raw `background: #fdf6e3` beside a `background.image` left the image and its scrim
+painting over the raw colour, while `udc_css_overrides_group_value` told you the image did not
+paint. The band stayed marked as overlaid, so the accent headings re-lit to near-white on what
+you meant to be a cream band. Now the raw shorthand wins its coordinate (contract §2′.3, ruling
+D1 = A): the page, the overlay marker and every finding agree on what shows.
+
+**The overlay-accent finding names more of the places the scrim stops.** On a band with a
+scrimmed image, the accent inks re-light to near-white. `udc_overlay_accent_off_scrim` now also
+names a scrim sized to cover only part of the band ("sized 50% without tiling", "sized 100% 50%
+and tiled only across"), and a width where a background you set replaces the image and its
+scrim ("the raw background in _css replaces the image and its scrim", "the background you set
+there replaces the image and its scrim"). Both fire only where the background the accent then sits
+on is light or unreadable: a readably dark one is the design working, and says nothing.
+
+**Engine flags in stored data are no longer trusted (#1073).** A composition written straight to
+post meta, or restored, could carry `__pp_udc_overlay` or `__pp_udc_band` in a band's props and
+switch on the overlay marker (and the re-lit accents) on a band painting no scrim, or borrow another
+band's design. The engine now discards both before it decides.
+
+**`wp pp schema <component>` prints the role keys the findings read (#1144):** `overlay_defaults`,
+`within` and `text_content`, each only where a role declares it.
+
+### ⚠️ Breaking
+
+- **A raw `_css` `background` cancels the group's `background.*` values at its state and width,
+  image or not.** `background.image`, its `overlay`, `size`, `position` and `repeat` do not paint
+  there. A raw gradient pattern that relied on `background.size` / `background.repeat` to tile now
+  paints one full-box gradient: move those into `_css` (`background-size`, `background-repeat`),
+  which print after the shorthand and still paint. A narrower width no longer borrows the desktop
+  image into a coordinate whose `background` is raw.
+- A stored raw value the grammar refuses is dropped at emit and does not win; the collision message
+  then says so: "… but the stored raw value cannot be emitted, so the … you also set is what paints.
+  Fix or remove the raw declaration."
+
+### Changed (findings contract)
+
+- `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
+  gives a reason naming the raw background, not "Set background.image". A raw desktop background that
+  removes the image drops a scrim set only at a narrower width (its own fill there included) with
+  the same reason. Where the scrim still paints at other widths the reason says "The scrim still
+  paints at the …, so the band stays marked" and advises removing the raw background at this width,
+  or removing the overlay at this width and setting the accents' `typography.color` for it. Where no
+  width paints a scrim it says the band is not marked. Accent roles are mentioned only on components
+  whose roles re-light (those declaring `overlay_defaults`), and only as the accents whose colour you
+  have not set.
+- `udc_overlay_accent_off_scrim`: the two new causes above. "Unreadable" is no colour, or any colour
+  under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient fading into
+  one); only a background whose every colour is an opaque-enough dark keeps it silent. Where the
+  image still paints, only the colour it leaves visible counts, so a gradient-only `background.fill`
+  under a partial scrim fires. The partial cause leads with its fix: size the image `cover`, or set
+  its repeat to `repeat`, in `background.*` or in `_css`. Uncovered widths are now named by cause
+  instead of always "unscrimmed image". A light background enclosing the accent is read with the same
+  surface rule as `udc_role_ink_over_own_surface` (`transparent`, `none`, `initial`, `unset` and a
+  zero-alpha colour paint nothing; `currentColor` and `inherit` stay named, with words true of them).
+- `udc_css_overrides_group_value`: the message is chosen from what compiled (the "cannot be emitted"
+  wording above). It does not yet name widths (#1159).
+- Role-schema gate (CI): `overlay_defaults` refuses a group the UDC registry does not know ("is not a
+  UDC group"), a group value that is not a map of parameters ("must be a MAP of parameters"), a state
+  key inside the tier, a key that is no parameter of the group, and a value that is not a single-line
+  string or a `d`/`t`/`p` map of them. CI's schema walk also refuses a `within` name that is not one of
+  the component's roles.
+- `wp pp schema <component>`: `roles[].overlay_defaults`, `roles[].within` (filtered to the
+  component's role names) and `roles[].text_content`, each only when declared.
+- A failed compile while deciding the overlay marker is now logged (`error_log`), and the band is left
+  unmarked as before.
+
+### Upgrading
+
+- Emission is byte-identical to `2.0.0-alpha.2` for every map with no raw `background` beside a group
+  `background.*` value at the same state and width (measured: a full dump of every component's CSS,
+  diffed). Where a map has one, the page changes as described under Breaking: check those bands.
+- `wp pp validate site` exits non-zero on advisories, and the overlay-accent finding now names partial
+  scrims and replaced widths on a light or unreadable background. Set the accent's `typography.color`,
+  size the image `cover`, or remove what replaces it.
+- `__pp_udc_overlay` and `__pp_udc_band` were never inputs; a stored copy is now ignored.
+- A custom component's `overlay_defaults` must follow the stricter gate; a `within` must name its own
+  roles.
+
+### Docs
+
+`AI_CONTEXT.md`, the runtime prompt, the validate-site, style-component, retheme, add-component,
+composition and operating-loop instructions, the CLI reference (`wp pp schema` rows) and the Layer 2
+contract (a dated §2′.3 addendum) describe raw-wins, the new causes and the lightness rule, the new
+drop reasons, the stricter schema gate and the new report keys. The stats and logos templates no
+longer say a forged flag passes.
+
+### Tests
+
+`RawBackgroundWinsTest` (19, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
+shorthand winning its coordinate through the write path and in the browser; `OverlayAccentOffScrimTest`,
+`UdcEffectiveBackgroundTest`, `OverlayTierDefaultsTest`, `CliSchemaCommandTest` and
+`TableEmbedLogosMarkupTest` cover the new causes, the lightness rule, the accessor's `size` / `repeat` /
+`partial` / `raw`, the schema gate, the report keys and the forged-flag strip. Each fix was shown to
+fail first, and each new check was shown to fail against a deliberately broken copy.
+
+### Known issues
+
+- #1158: a dark gradient sized to part of the band at a width where it replaces the image reads as
+  dark, so the overlay-accent finding stays silent there. The follow-up is a redesign: readability
+  from the compiled backdrop per width.
+- #1156: an accent colour you set only at the width the overlay-accent finding names is not seen, so
+  the finding still names it there.
+- #1157: `repeat: space` counts as leaving part of the band uncovered even when whole tiles fit.
+- #1159: `udc_css_overrides_group_value` does not name widths.
+- #1155: the post-apply validator renders bands without the forged-flag strip (nothing paints from it).
+- #1152 (item 7): the "scrim set only at some widths" cause is not lightness-gated.
+
 ## A role's own light surface under your new ink is now named on the write (#1125)
 
 **Darken a band, recolour a role, and the write now tells you when that role still sits on its
@@ -55,7 +166,7 @@ headings and links inside the role keep their own colour from the theme styleshe
   carries the same note. Match findings on `type`, not message text.
 - NEW optional role-schema key `text_content`: `true` when author text inside the role's own
   element takes the role's colour (measured in Chromium: 91 of the 131 shipped roles). Any other
-  value is refused at the role-definition gate. `wp pp schema` does not print it yet (#1144).
+  value is refused at the role-definition gate. `wp pp schema <component>` prints it (since #1144).
 
 ### Upgrading
 

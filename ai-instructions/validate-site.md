@@ -40,7 +40,7 @@ This checks:
      the text colour you set on a role (or on the whole band, reaching a role with no colour of
      its own) paints over that role's OWN default background, which your band background does
      not replace. Only a role whose own element renders text is named (`text_content` in the
-     component's `schema.json`: an eyebrow pill, a panel, a hero surface); a container whose text roles set their
+     component's schema, which `wp pp schema <component>` prints: an eyebrow pill, a panel, a hero surface); a container whose text roles set their
      own colour (a card, an FAQ item, a table head) is not reported. Writing a role's own default
      ink back (the same `@token` it already uses) is not a clash and is not named; a literal value
      that happens to equal the default still fires, so write the token. It names the card, the
@@ -59,21 +59,56 @@ This checks:
      state. A scrim on a CARD's own map composes only with an image on that card's map,
      not with one the band's map sets for the same role — and a scrim on the band's map
      with no image of its own there reaches no card that sets its own image for that role.
-     (A band scrim over a band image also misses such cards, and that is NOT reported.) `wp pp check page` reports it as this finding; the readiness report
+     (A band scrim over a band image also misses such cards, and that is NOT reported.)
+     A raw `background` in `_css` also drops the scrim at the coordinate (state and width) it
+     wins, because it resets the image under it (contract §2'.3). The reason then names the raw
+     background, not a missing image. A raw desktop `background` that removes the image drops a scrim
+     set only at a narrower width with no image of its own (its own fill included) the same way.
+     Where the scrim still paints at another width the reason names those widths ("The scrim still
+     paints at the …, so the band stays marked") and advises removing the raw background at this width,
+     or removing the overlay at this width and setting the accents' `typography.color` for it; where no
+     width paints one it says the band is not marked. It speaks of accent roles only on a component
+     whose roles re-light (those declaring `overlay_defaults`); elsewhere it advises removing the
+     overlay at this width. `wp pp check page` reports it as this finding; the readiness report
      (`wp pp apply preflight --run-id=<uuid> --post_id=<id>` for a page's bands, `wp pp readiness status`
      for site chrome) carries the same fact as a `udc_value_cannot_take_effect` row. `<uuid>` is the
      `run_id` that `wp pp operate inspect` returns, not any UUID.
    - `udc_overlay_accent_off_scrim` — this band paints a scrim over an image, so its accent
      inks re-light to the near-white `@color-accent-on-overlay`, but something you set breaks
-     the dark-scrim premise: a light (or unreadable) background, at rest or in a state, on the
-     accent itself or on a role that encloses it, a scrim set only at some widths, or a scrim that is light, fades to transparent
-     or cannot be read. The message names the re-lit roles and the cause. Where the accent
-     sits on that surface, set its `typography.color` yourself. Like every finding here it
-     makes `wp pp validate site` exit non-zero until you answer it.
+     the dark-scrim premise. The causes it names:
+     - a light (or unreadable) background, at rest or in a state, on the accent itself or on a
+       role that encloses it;
+     - a scrim set only at some widths, so at the others the accent sits on the unscrimmed image;
+     - a width where a background replaces the image and its scrim: "the raw background in _css
+       replaces the image and its scrim" or "the background you set there replaces the image and
+       its scrim";
+     - a scrim that covers only part of the band ("sized 50% without tiling", "sized 100% 50% and
+       tiled only across", "… tiled only down", "… spaced, which can leave gaps"), so the rest shows the
+       band's own background. The fix leads the message: size the image `cover`, or set its repeat
+       to `repeat`, where you set them (`background.size` / `background.repeat`, or `background-size` /
+       `background-repeat` in `_css`);
+     - a scrim that is light, fades to transparent or cannot be read.
+
+     The replaced-width and partial-scrim causes fire only where the background the accent then
+     sits on is light or unreadable: a readably dark one is the design working. That background is
+     the band's resting one at that width (desktop's, with the width's own values applied over it).
+     Where the image still paints, only the colour it leaves visible counts, so a gradient-only
+     `background.fill` under the image leaves nothing readable. Unreadable means no colour, or any
+     colour under 0.3 alpha (`transparent`, `none`, a zero-alpha colour, a thin wash, a gradient that
+     fades into one); only a background whose every colour is an opaque-enough dark keeps the finding
+     silent, the same rule the scrim itself is read by. The scrim-set-only-at-some-widths cause is
+     not gated (the engine cannot read an image). The message names the re-lit roles and the cause.
+     Where the accent sits on that surface, set its `typography.color` yourself. Like every finding
+     here it makes `wp pp validate site` exit non-zero until you answer it.
    - `udc_css_overrides_group_value` — a raw `_css` declaration is a SHORTHAND that
-     resets the longhand you also set through a group, so the group value does not paint.
-     Write the whole treatment in one place. This is the structured-first principle
-     arriving as a finding.
+     resets the longhand you also set through a group, so the group value does not paint
+     ("resets background-image, so the background.image you also set does not paint"), or a
+     raw longhand outranks the group value at the same coordinate ("so the raw value is what
+     paints"). A raw `background` resets every group `background.*` value at its coordinate, image
+     or not (contract §2'.3). Where the stored raw value is one the grammar refuses, it cannot be
+     emitted and the message says so instead: "… but the stored raw value cannot be emitted, so the
+     … you also set is what paints. Fix or remove the raw declaration." Write the whole treatment
+     in one place. This is the structured-first principle arriving as a finding.
    - `udc_value_cannot_take_effect` — the value is stored as authored and cannot reach
      the element.
    - `udc_token_minted` — informational: you wrote a literal and it was stored as a

@@ -239,15 +239,20 @@ buys you a role that passes CI and styles nothing.
   band the engine marks `data-pp-band-overlay` (an image under a scrim). Only the seven
   components whose template prints that marker (hero, cta, faq, stats, logos, embed, table)
   ever apply it; the shipped use is the accent inks (`"typography": {"color":
-  "@color-accent-on-overlay"}`). It is a map of groups the role permits (CI refuses any
-  other group), and it is compiled as an AUTHORED map, not as `defaults`: the band-rhythm
-  props above do NOT resolve in it. An author's own value for the role still wins.
+  "@color-accent-on-overlay"}`). The definition gate (CI's `SchemaValidationTest`) refuses
+  anything else: each key is a registered UDC group ("is not a UDC group") that the role's
+  `groups` permits; each group's value is a MAP of that group's parameters ("must be a MAP of
+  parameters"), never a scalar or a list; no state keys (`":hover"`: the tier is a resting
+  default); and each value is a single-line string or a `d`/`t`/`p` breakpoint map of them. It
+  is compiled as an AUTHORED map, not as `defaults`: the band-rhythm props above do NOT resolve
+  in it. An author's own value for the role still wins. `wp pp schema <component>` prints it.
 - **`within`** (optional, #1010 review) — a LIST of this component's role names whose
   elements ENCLOSE this role's element in your template, read off the markup (hero
   `title-accent` sits in `inner`, `content`, `title`). Declare it on every role that carries
   `overlay_defaults`: the `udc_overlay_accent_off_scrim` finding reads a light surface the
   author set on the accent role itself or on these roles only, so a light button BESIDE the
-  heading is not reported.
+  heading is not reported. Every name must be one of this component's roles: CI's schema walk
+  refuses any other name, and `wp pp schema <component>` prints only the names that are roles.
 - **`text_content`** (optional, #1125) — `true` when author text inside this role's element
   takes the colour set on THIS role, i.e. the role's own element renders author text rather
   than only containing other roles that set their own colour. Set it by MEASUREMENT, never by
@@ -257,6 +262,7 @@ buys you a role that passes CI and styles nothing.
   declare their own colour: no, so omit the key. `udc_role_ink_over_own_surface` names only
   roles that carry it (a container is not reported: its own ink shows on no glyph), and #1140's nested-role
   follow-up reads the same key. Any value other than `true` is refused at the definition gate.
+  `wp pp schema <component>` prints it as `text_content: true`.
 
 **`obligations` is required on every role, and `[]` is a real answer** (#1087,
 `SchemaValidationTest`). It is the one part of the role that IS model-facing, so it

@@ -246,6 +246,21 @@ authoring principle the AI surface teaches (§7′) is the other half — **stru
 `_css` for what structure cannot say** — so the finding reads as "you wrote both; here is
 which one painted", not as a refusal.
 
+> **ADDENDUM, #1141 (2026-09-25, ruling D1 = A): a raw `background` shorthand wins its whole
+> coordinate.** CSS reads the shorthand as a reset of every `background-*` longhand, so the
+> group's `background.image`, its `overlay` scrim, `size`, `position` and `repeat` at the same
+> state and width do not paint once a raw `background` wins there, image or not. The engine drops
+> them before emission (`_pp_udc_raw_background_wins()`), so the compiled band, the overlay marker
+> and every finding read what the page shows. A narrower tier no longer borrows the base image into
+> a bucket whose `background` is raw, and a raw desktop `background` that removes the image drops a
+> scrim set only at a narrower width. A scrim dropped this way is ledgered
+> (`udc_overlay_without_image`) with a reason naming the raw background, and a width where the raw
+> background replaced the image is named by `udc_overlay_accent_off_scrim` when the accent then sits
+> on a light or unreadable background. A stored raw value the grammar refuses is dropped at emit
+> and does NOT win: the collision message then says the group value paints ("the stored raw value
+> cannot be emitted"). Raw longhands the author also wrote (`background-size` in `_css`) print after
+> the shorthand and still paint.
+
 **Role `groups` permissions stop bounding what a role can be given.** That is a real
 consequence of R2′ and it is stated rather than buried: a role that does not permit
 `shadow` can still be given a `box-shadow` through `_css`. The `groups` list remains
@@ -627,7 +642,9 @@ from typed-everything (nothing unchecked to disclose). R2′ removed both premis
 adds exactly two, each with a real subject:
 
 - **`udc_css_overrides_group_value`** — this `_css` declaration outranked a group value the
-  author also set; names role, property, group/param, state and breakpoint (§2′.3).
+  author also set; names role, property, group/param, state and breakpoint (§2′.3). Its second
+  wording (#1141): where the stored raw value cannot be emitted, it says the group value is what
+  paints and asks to fix or remove the raw declaration.
 - **`udc_css_unchecked_property`** — this property is not one the unified grammar types, so
   only the security gates ran and the value emits verbatim (§2′.4). This is the design
   doc's `custom_styling_conventions_only` in honest form, and it is the escape telemetry

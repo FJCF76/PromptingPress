@@ -595,7 +595,7 @@ Then set both fields on the component:
 { "component": "hero", "props": { "layout": "split", "image_url": "https://yoursite.com/wp-content/uploads/2026/07/logo.png", "image_id": 123, "image_alt": "Client logo" } }
 ```
 
-Always verify against `components/{name}/schema.json` before writing — the source of truth. Without filesystem access to the theme, `wp pp schema {name}` reads the prop, style-slot, recipe AND ROLE declarations over the CLI — the `roles` block, each role's permitted `groups`, its `description` and its `obligations`, plus `udc_groups` and `udc_raw_css`. For a component on the design contract that block IS the styling contract (the rest of `styling` still needs the file); `wp pp schema` lists every registered component and whether it is composable.
+Always verify against `components/{name}/schema.json` before writing — the source of truth. Without filesystem access to the theme, `wp pp schema {name}` reads the prop, style-slot, recipe AND ROLE declarations over the CLI — the `roles` block, each role's permitted `groups`, its `description` and its `obligations` (and, when the role declares them, its `overlay_defaults`, `within` and `text_content`), plus `udc_groups` and `udc_raw_css`. For a component on the design contract that block IS the styling contract (the rest of `styling` still needs the file); `wp pp schema` lists every registered component and whether it is composable.
 
 ---
 
