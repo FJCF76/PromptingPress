@@ -331,8 +331,18 @@ un-recoloured renders dark ink on dark, or light ink on light, and that is the s
 common way this goes wrong. The second most common: a role that ships its own
 `background.fill` (an eyebrow pill, a `panel`, a card) keeps that light surface when you
 darken the band, so a new light ink lands on light. Set its `background.fill` alongside its
-`typography.color`, and check each ink against that surface, including a text role inside it (a
-testimonial `quote` inside its `card`).
+`typography.color`, to a fill your text colour reads on that also stands apart from the band (the band's own colour erases the
+shape). When that role renders its own text (`text_content`, measured: an eyebrow, a
+`panel`, a hero `surface`) and an ink you set on it, or on the whole band that reaches it, lands on
+its own default fill, the write names it as `udc_role_ink_over_own_surface` (#1125), with the
+card, state or width it applies to and where the fill has to go (a `":hover"` map, a breakpoint
+map). A container whose text roles set their own colour (a card, an FAQ item) and a text role
+inside a filled role (a testimonial `quote` inside its `card`) are not reported, so check those
+pairs yourself. Restating a role's own default ink with the same `@token` is not named; a
+literal value that happens to equal the default still fires, so write the token. A role FILL
+that restates its default (the same colour, however spelled) does not clear it, and a band background
+that paints nothing or restates the component's default does not trigger it. On a dark default
+surface (a step-number badge on the accent) it leads with checking the pair.
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:
 `@color-accent-on-inverted` where the brand accent would otherwise be too dark to read, and

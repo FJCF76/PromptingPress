@@ -244,7 +244,11 @@ a role default or structural geometry, so a band that disagrees can already say 
 - `surface` fills with `@color-surface`. The v1 default was a white-to-surface gradient;
   a gradient cannot carry `var()` colour stops through the value grammar, and a frozen
   literal would stop following a retheme, so the flat token-following fill is the
-  default and a gradient is one authored value away.
+  default and a gradient is one authored value away. `surface` declares no text colour
+  of its own, so on a dark band a colour you set on `_band` (or on `surface`) reaches
+  the proof text and sits on that light fill (measured 1.07:1 with white). Set
+  `surface`'s `background.fill` with the colour; the write names the pair when you
+  do not (#1125).
 
 ### Two capabilities that narrowed
 

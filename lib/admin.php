@@ -233,6 +233,8 @@ function pp_role_definition_keys(): array {
         'overlay_defaults', // #1010 — defaults re-lit on a band the engine marks `data-pp-band-overlay`
         'within',        // #1010 review — the roles whose elements enclose this one (a LIST of role names)
         'obligations',   // #1087 — MODEL-facing pairing/contrast obligations, bounded
+        'text_content',  // #1125 — true when author text inside this role's element takes the colour set on
+                         // this role; set by MEASUREMENT (ink the role alone, look for a glyph in that ink)
     ];
 }
 
@@ -849,6 +851,11 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['within']) || !pp_is_list($definition['within'])
                 || array_filter($definition['within'], static fn ($r): bool => !is_string($r) || $r === '') !== [])) {
             $errors[] = "{$label}: `within` must be a LIST of role names.";
+        }
+        // `text_content` (#1125): written only where a measurement found a glyph in the role's ink,
+        // so `true` is the one meaningful value; anything else is a schema typo, refused here.
+        if (array_key_exists('text_content', $definition) && $definition['text_content'] !== true) {
+            $errors[] = "{$label}: `text_content` must be true (omit it for a role whose own element renders no author text).";
         }
         if (array_key_exists('description', $definition) && !is_string($definition['description'])) {
             $errors[] = "{$label}: `description` must be a string.";

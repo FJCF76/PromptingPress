@@ -121,6 +121,7 @@
     },
     "eyebrow": {
       "selector": ".testimonials__eyebrow",
+      "text_content": true,
       "description": "The kicker pill above the heading.",
       "groups": [
         "typography",
@@ -156,6 +157,7 @@
     },
     "heading": {
       "selector": ".testimonials__heading",
+      "text_content": true,
       "description": "The band heading (an <h2>).",
       "groups": [
         "typography",
@@ -181,6 +183,7 @@
     },
     "heading-accent": {
       "selector": ".testimonials__heading-accent",
+      "text_content": true,
       "description": "The accented substring inside the heading, rendered only when title_accent matches.",
       "groups": [
         "typography",
@@ -199,6 +202,7 @@
     },
     "subheading": {
       "selector": ".testimonials__subheading",
+      "text_content": true,
       "description": "The supporting line below the heading.",
       "groups": [
         "typography",
@@ -275,6 +279,7 @@
     },
     "quote": {
       "selector": ".testimonials__quote",
+      "text_content": true,
       "description": "The quotation itself. Family, style, size and alignment all live here — the four properties #901 reported as unreachable in v1.",
       "groups": [
         "typography",
@@ -316,6 +321,7 @@
     },
     "author": {
       "selector": ".testimonials__author",
+      "text_content": true,
       "description": "The quoted person's name.",
       "groups": [
         "typography",
@@ -335,6 +341,7 @@
     },
     "meta": {
       "selector": ".testimonials__meta",
+      "text_content": true,
       "description": "The role/company line under the name.",
       "groups": [
         "typography",

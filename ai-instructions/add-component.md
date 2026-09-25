@@ -248,6 +248,15 @@ buys you a role that passes CI and styles nothing.
   `overlay_defaults`: the `udc_overlay_accent_off_scrim` finding reads a light surface the
   author set on the accent role itself or on these roles only, so a light button BESIDE the
   heading is not reported.
+- **`text_content`** (optional, #1125) — `true` when author text inside this role's element
+  takes the colour set on THIS role, i.e. the role's own element renders author text rather
+  than only containing other roles that set their own colour. Set it by MEASUREMENT, never by
+  reading the name: render the component, ink this role alone (`"_css": {"color": ...}` on the
+  band) and look for a visible glyph in that colour (at 1280 and 375). A heading, an eyebrow, a
+  `panel` or a link: yes. A card, a list, an FAQ `item` or a table `head` whose text roles
+  declare their own colour: no, so omit the key. `udc_role_ink_over_own_surface` names only
+  roles that carry it (a container is not reported: its own ink shows on no glyph), and #1140's nested-role
+  follow-up reads the same key. Any value other than `true` is refused at the definition gate.
 
 **`obligations` is required on every role, and `[]` is a real answer** (#1087,
 `SchemaValidationTest`). It is the one part of the role that IS model-facing, so it

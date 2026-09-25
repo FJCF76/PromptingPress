@@ -163,8 +163,12 @@ alone leaves the heading at the inherited `@color-text` and renders near-black o
 near-black. The button is its own pair again — a fill and an ink — because a role's
 colours do not follow the band's. So is any role that ships its own surface (the eyebrow
 pill, a `panel`, a card): recolour its ink and it still sits on its own light fill, so set
-that fill too, and check a text role inside it (a testimonial `quote` in its `card`) against
-the same surface.
+that fill too, to a value your text colour reads on that also stands apart from the band (the band's own colour erases the
+pill). For a role that renders its own text (the eyebrow, a `panel`, a hero
+`surface`) the write names it as `udc_role_ink_over_own_surface` when you do not, including
+when the ink is the one you set on the whole band. A container whose text roles set their own
+colour (a card, an FAQ item) and a text role inside a filled role (a testimonial `quote` in
+its `card`) are not reported: check those pairs yourself against the same surface.
 
 **And write the role that OWNS the text, not the one that contains it.** cta has both a
 `text` role (`.cta__text`, the wrapper around eyebrow + heading + body) and a `body` role

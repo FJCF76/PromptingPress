@@ -35,6 +35,22 @@ This checks:
      is listed with `at breakpoint …`.
      Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
      group-grain `_preset` (inside `typography`, say), naming the group.
+   - `udc_role_ink_over_own_surface` — on a band whose background you set (a header or footer
+     reports it on the `pp_site_udc` write envelope instead, not here),
+     the text colour you set on a role (or on the whole band, reaching a role with no colour of
+     its own) paints over that role's OWN default background, which your band background does
+     not replace. Only a role whose own element renders text is named (`text_content` in the
+     component's `schema.json`: an eyebrow pill, a panel, a hero surface); a container whose text roles set their
+     own colour (a card, an FAQ item, a table head) is not reported. Writing a role's own default
+     ink back (the same `@token` it already uses) is not a clash and is not named; a literal value
+     that happens to equal the default still fires, so write the token. It names the card, the
+     state or the width when the clash is only there, and says where the fill goes (a `":hover"`
+     map, a breakpoint map). Set the role's `background.fill` there too, to a fill your text
+     colour reads on that also stands apart from the band, or check the pair reads (AA: 4.5:1 body text, 3:1 large text); on a dark
+     default surface (a step-number badge on the accent) it leads with the check. A band
+     background that paints nothing or restates the component's default does not trigger it, and a
+     role fill that restates the role's default does not clear it. A text role INSIDE a filled role
+     (a testimonial `quote` in its `card`) is not reported: check that pair yourself.
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
      under it, one finding per dropped value (a responsive overlay names each breakpoint). The scrim is dropped: an overlay only paints over an image, and a
      `background.fill` is a colour, not an image. Set `background.image`, put the tint

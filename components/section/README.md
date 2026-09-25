@@ -153,6 +153,12 @@ every text role that sits over your new background — `heading`, `subheading`, 
 at rest will still hover to the theme accent). The old `theme: "inverted"` did this for
 you as a bundle; the trade is that you can now build a band the bundle could not express.
 
+Two roles keep their own light fill when you darken the band: the `eyebrow` pill
+(`@color-surface-accent`) and, on `text-panel`, the `panel` (`@color-surface`). Recolour
+either one's ink and set its `background.fill` in the same write, to a fill your ink reads on
+that also stands apart from the band. On a band whose background you set, the write names a
+new ink left on either default fill (#1125).
+
 **The number, so "you own it" is not an abstraction.** `body-link` declares no colour
 default on purpose (see "What the defaults are"), so an unauthored prose link renders the
 theme accent. Measured, WCAG 2.x:

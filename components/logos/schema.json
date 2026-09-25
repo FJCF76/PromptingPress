@@ -93,6 +93,7 @@
     },
     "heading": {
       "selector": ".logos__heading",
+      "text_content": true,
       "description": "The band heading (an <h2>). ITS `typography.color` IS `currentColor` for the reason table's and embed's are: v1 pinned `var(--logos-heading-color, var(--color-text))` and re-pointed it to `@color-bg` from `.logos--inverted`, both of which retire with the `theme` prop, and `currentColor` reproduces BOTH - `@color-text` on an unauthored band (measured rgb(16, 24, 40), byte-identical) and the band's own ink on a dark one. IT IS NOT CENTRED, AND THAT IS MEASURED RATHER THAN INHERITED FROM ITS SIBLING: stats' heading carries `text-align: center` plus auto side margins (issue 367); logos' measured `text-align: start` with `margin-left: 0` at every tier, so this role declares NEITHER. The two components look like twins and differ here, so the asymmetry is stated rather than quietly flattened - an author who wants the stats treatment writes `typography.align` and the two `spacing.margin-*: auto` values, and gets exactly it. NO `font-weight` AND NO `line-height` DEFAULT: measured 650 and 46.08px, both from base.css's `h2` rule rather than logos' own block (rule 2, the global-value cascade lesson).",
       "groups": [
         "typography",
@@ -214,6 +215,7 @@
     },
     "label": {
       "selector": ".logos__label",
+      "text_content": true,
       "description": "The caption under a labelled logo. ITS COLOUR IS A DIRECT DECLARATION ON THE ELEMENT, so a `_band` ink write does not reach it - `@color-muted` measures 5.66:1 on the default band and about 3.1:1 on an authored `@color-bg-inverted` one, under the 4.5:1 floor at this 13px size, so a dark band owes this role a write. THE v1 DARK-BAND TREATMENT WAS `@color-bg` AT `opacity: 0.75` AND CANNOT BE PORTED AS WRITTEN: `opacity` is in none of the seven UDC groups. It ports as the MEASURED COMPOSITE instead - pixel-sampled at rgb(192, 195, 201) on `@color-bg-inverted`. WHY THAT EXACT VALUE: the composite is (192.75, 195.5, 201.75) and Chromium FLOORS each channel, which is why the measured pixel is 192/195/201 rather than the 193/196/202 that round-half-up predicts — measured 10.11:1 on the inverted band. AND THE SUBSTITUTION IS NOT UNIVERSAL, which matters if the label ever holds more than text: `opacity` dimmed the whole BOX including any descendant and any text decoration, while a colour reaches only the text it is set on. For this label they are equivalent because it renders plain text and nothing else; a caption that later carries a link or an icon would need that child re-inked too. This is the same retirement stats' label takes, and the two were ONE assertion until this rebuild (the #577 A-36 row covered both components); they retire together here, which is why the two rebuilds share a PR.",
       "groups": [
         "typography",

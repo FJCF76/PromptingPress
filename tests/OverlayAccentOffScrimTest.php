@@ -574,20 +574,48 @@ final class OverlayAccentOffScrimTest extends TestCase
     }
 
     /**
-     * The #1125 finding (`udc_role_ink_over_own_surface`) was withdrawn from this release by
-     * the descope ruling; it lands on the compiled-band accessor in its own change. Nothing may
-     * still promise it: not the engine, not the runtime prompt, not an instruction file.
+     * The #1125 finding (`udc_role_ink_over_own_surface`) was withdrawn from PR-C by the descope
+     * ruling and landed on the compiled-band accessor in Sprint 3 T2. Every model-facing surface
+     * that promises it must ALSO state its limit (orchestrator ruling D2 = A: a text role INSIDE
+     * a filled role is not reported, #1140), so no reader takes the finding's silence as a pass
+     * for a nested pair. The promising set is pinned exactly, so a new mention has to be looked at.
      */
-    public function testNoSurfacePromisesTheWithdrawnOwnSurfaceFinding(): void
+    public function testEverySurfaceThatPromisesTheOwnSurfaceFindingStatesItsNestedRoleLimit(): void
     {
         $root  = dirname(__DIR__);
         $files = array_merge(glob($root . '/lib/*.php'), glob($root . '/ai-instructions/*.md'), glob($root . '/components/*/README.md'),
             glob($root . '/docs/*.md'), [$root . '/AI_CONTEXT.md']);
+        $promising = [];
         foreach ($files as $file) {
-            $this->assertStringNotContainsString('udc_role_ink_over_own_surface', (string) file_get_contents($file), basename($file));
+            if (str_contains((string) file_get_contents($file), 'udc_role_ink_over_own_surface')) {
+                $promising[] = substr($file, strlen($root) + 1);
+            }
         }
-        $this->assertStringNotContainsString('udc_role_ink_over_own_surface', pp_ai_system_prompt());
-        $this->assertStringContainsString('`udc_overlay_accent_off_scrim`', pp_ai_system_prompt(), 'premise: the shipped finding is still named');
+        sort($promising);
+        $this->assertSame(['AI_CONTEXT.md', 'ai-instructions/add-component.md', 'ai-instructions/build-landing-page.md', 'ai-instructions/style-component.md',
+            'ai-instructions/validate-site.md', 'lib/ai-context.php', 'lib/udc.php'], $promising);
+        // EVERY mention, not the file: each one must carry the limit within the same passage.
+        $checked = 0;
+        foreach (array_diff($promising, ['lib/udc.php']) as $doc) {
+            $text   = (string) file_get_contents($root . '/' . $doc);
+            $offset = 0;
+            while (($at = strpos($text, 'udc_role_ink_over_own_surface', $offset)) !== false) {
+                $this->assertStringContainsString('not reported', substr($text, $at, 900),
+                    $doc . ' @' . $at . ': the promise carries its nested-role limit');
+                $offset = $at + 1;
+                $checked++;
+            }
+        }
+        // 8 since /ship (ruling 1 = A): AI_CONTEXT's sibling paragraph names where a state-only band colour is reported.
+        $this->assertSame(8, $checked, 'every promise was checked (vacuity floor)');
+        $prompt = pp_ai_system_prompt();
+        $mentions = 0;
+        for ($at = strpos($prompt, 'udc_role_ink_over_own_surface'); $at !== false; $at = strpos($prompt, 'udc_role_ink_over_own_surface', $at + 1)) {
+            $this->assertStringContainsString('not reported', substr($prompt, $at, 900), 'runtime prompt @' . $at);
+            $mentions++;
+        }
+        $this->assertSame(2, $mentions, 'both runtime promises (dark band, chrome) were checked');
+        $this->assertStringContainsString('`udc_overlay_accent_off_scrim`', pp_ai_system_prompt(), 'premise: the sibling finding is still named');
     }
 
     /** Bounded across the composition like its sibling arms. */

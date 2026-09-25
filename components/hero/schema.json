@@ -178,6 +178,7 @@
     },
     "inner": {
       "selector": ".hero__inner",
+      "text_content": true,
       "description": "The row that holds the text column and, on a split layout, the media column. Its track geometry is structural; the space between the two columns is design.",
       "groups": [
         "spacing",
@@ -216,6 +217,7 @@
     },
     "eyebrow": {
       "selector": ".hero__eyebrow",
+      "text_content": true,
       "description": "The kicker pill above the headline.",
       "groups": [
         "typography",
@@ -251,6 +253,7 @@
     },
     "title": {
       "selector": ".hero__title",
+      "text_content": true,
       "description": "The page headline (an <h1>). It declares NO colour and NO weight default, so it inherits both — set them here when the band's background or emphasis needs it. (The weight is deliberately left to base.css's shared h1-h6 rule: the theme's own --font-weight-heading is 650, which CSS Fonts 4 allows and this engine's font-weight grammar does not yet accept, so referencing it here would ship a default the validator refuses. Filed separately.)",
       "groups": [
         "typography",
@@ -274,6 +277,7 @@
     },
     "title-accent": {
       "selector": ".hero__title-accent",
+      "text_content": true,
       "description": "The accented substring inside the headline, rendered only when title_accent matches. Over a dark fill, set this explicitly: the v1 cover variant used to re-colour it for you and v2 does not. Over a background image WITH an overlay it defaults to `@color-accent-on-overlay` (#1010, `overlay_defaults`).",
       "groups": [
         "typography",
@@ -298,6 +302,7 @@
     },
     "subtitle": {
       "selector": ".hero__subtitle",
+      "text_content": true,
       "description": "The supporting line below the headline.",
       "groups": [
         "typography",
@@ -337,6 +342,7 @@
     },
     "cta": {
       "selector": ".hero__cta--primary",
+      "text_content": true,
       "description": "The primary CTA button. DECLARES NO DESIGN DEFAULTS ON PURPOSE: role defaults outrank presets, so a default here would suppress exactly the part of a `button` preset that makes it a button. Apply `\"_preset\": \"button\"` (or `button-secondary`, or your own values) and it lands whole. The v1 `button_variant` prop is gone — a variant was a bundle of colours, which is what a preset is.",
       "groups": [
         "typography",
@@ -352,6 +358,7 @@
     },
     "cta-secondary": {
       "selector": ".hero__cta--secondary",
+      "text_content": true,
       "description": "The second CTA button, rendered only when button2_text is set. CARRIES THE v1 OUTLINE DEFAULT, restored in v2 form (#986): a muted surface, body ink and a border-coloured 2px edge, every value a reference to a site token so a retheme moves it. Without it an unauthored hero rendered two identical filled buttons side by side, because both CTAs are bare `.btn` now that `button2_variant` is gone — a default-experience regression, not a narrowing worth documenting. These values are the `button-secondary` preset's, duplicated deliberately and temporarily: role defaults outrank presets, so applying a DIFFERENT preset to this role is partly suppressed by them until #974 lets a role name its own preset as its default and this block is retired.",
       "groups": [
         "typography",
@@ -393,6 +400,7 @@
     },
     "proof": {
       "selector": ".hero__proof",
+      "text_content": true,
       "description": "The trust-signal row (logos, ratings, counts) rendered under the CTAs. Free-form markup from the `proof` prop sits inside it. LINKS INSIDE IT ARE `proof-link`, NOT THIS ROLE: the colour set here reaches an `<a>` only by inheritance, and base.css's `a` rule matches the anchor directly, which always wins (#1069).",
       "groups": [
         "typography",
@@ -423,6 +431,7 @@
     },
     "proof-link": {
       "selector": ".hero__proof a",
+      "text_content": true,
       "description": "Links inside the free-form proof markup (#1069). THIS ROLE DECLARES NO DEFAULTS, for the reason section's `body-link`, cta's `body-link` and faq's `answer-link` all record: a default would restate base.css's anchor values as an unconditional UNLAYERED declaration and so outrank the shared premium `main .btn:not(...)` rules, repainting an author-written `<a class=\"btn\">` — the #545 defect through a role selector. `proof` is rendered with `wp_kses_post()` (hero.php:286), which admits `class`, so that anchor is reachable here too. An empty defaults block emits nothing, leaving an unauthored proof link on the global anchor treatment exactly as v1 did; an authored value lands unlayered on `.hero__proof a`, which is the address a hero over a dark scrim needs. WHY HERO NEEDED THIS AND ALMOST DID NOT GET IT: `proof` is the sixth rich-text surface in v2, and the first five were enumerated before anyone noticed it — the roster in #1069 said five until its second correction. hero is the one where it bites hardest, because a `cover` hero puts the proof row over a photograph and an unauthored accent link over a scrim is the #1039/#1010 contrast family.",
       "groups": [
         "typography",
@@ -437,6 +446,7 @@
     },
     "surface": {
       "selector": ".hero__surface",
+      "text_content": true,
       "description": "The panel a split hero renders its `proof` markup into, as the second column.",
       "groups": [
         "typography",

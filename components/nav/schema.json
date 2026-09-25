@@ -78,6 +78,7 @@
     },
     "logo": {
       "selector": ".nav__logo",
+      "text_content": true,
       "description": "The logo link: the wordmark when no logo image resolves, and the link wrapping the image when one does. Its accent hover is a role default, so setting `typography.color` here keeps the hover; set a `\":hover\"` colour to override it. The 44px `sizing.min-height` is a pointer-target floor, the same one `.nav__toggle`'s 44x44 keeps structurally — lower it only deliberately.",
       "groups": [
         "typography",
@@ -300,6 +301,7 @@
     },
     "link": {
       "selector": ".nav__menu ul li a",
+      "text_content": true,
       "description": "Every nav link at rest. Its accent hover is a role default and the you-are-here marker is the `link-current` role's, so setting `typography.color` here cancels neither (#992 was fixed by #994). Use the :hover, :focus-visible and :active states here to OVERRIDE the built-in interaction treatment rather than to restore it.",
       "groups": [
         "typography",
@@ -344,6 +346,7 @@
     },
     "link-current": {
       "selector": ".nav__menu ul li.current-menu-item > a",
+      "text_content": true,
       "description": "The link for the page the visitor is on. WordPress marks it current-menu-item on every item it considers current — that class is a superset of current_page_item and of aria-current=\"page\", which core only ever sets alongside it — so this one selector reaches them all. It targets that item's own link as a DIRECT CHILD, so a current page that has a dropdown does not hand the treatment to every link inside it. Both its accent colour and its bold weight are defaults of this role; set values here to change them.",
       "groups": [
         "typography",
@@ -363,6 +366,7 @@
     },
     "toggle": {
       "selector": ".nav__toggle",
+      "text_content": true,
       "description": "The hamburger button, shown on phones only. Its two icons are swapped by structural CSS, not by anything set here, and they inherit this role's colour. Its accent hover is a role default, so setting `typography.color` here keeps it; set a `\":hover\"` colour to override.",
       "groups": [
         "typography",
