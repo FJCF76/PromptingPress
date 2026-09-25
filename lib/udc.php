@@ -2434,6 +2434,16 @@ function _pp_udc_map_may_carry_overlay($map, int $depth = 0, bool $in_preset = f
 }
 
 /**
+ * Whether an authored value paints at the base (desktop) tier: a single value does, and a
+ * breakpoint map does only when it carries `d`. A value written only for narrower tiers
+ * leaves the base tier to whatever outranks the preset there, so it cannot stand in for
+ * the preset's value in the shadow finding (#1116).
+ */
+function _pp_udc_value_covers_base_tier($value): bool {
+    return !is_array($value) || array_key_exists('d', $value);
+}
+
+/**
  * The `group.param` / `group.param (state)` labels a role map sets itself, in the shape
  * _pp_udc_preset_values_shadowed_by_role_defaults() reports, so the shadow finding can
  * leave out what the author already wrote (their value outranks preset and default).
@@ -2453,12 +2463,16 @@ function _pp_udc_authored_value_labels(array $role_map): array {
                 continue;
             }
             if (isset($states[$key])) {
-                foreach (is_array($value) ? array_keys($value) : [] as $param) {
-                    $labels[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                foreach (is_array($value) ? $value : [] as $param => $state_value) {
+                    if (_pp_udc_value_covers_base_tier($state_value)) {
+                        $labels[] = $group . '.' . (string) $param . ' (' . $key . ')';
+                    }
                 }
                 continue;
             }
-            $labels[] = $group . '.' . $key;
+            if (_pp_udc_value_covers_base_tier($value)) {
+                $labels[] = $group . '.' . $key;
+            }
         }
     }
     return $labels;
@@ -5192,10 +5206,13 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
                     $card_item_roles = (array) (pp_udc_item_roles((string) ($item['component'] ?? ''))['roles'] ?? []);
                     foreach (pp_udc_item_maps($item) as $card_map) {
                         foreach ($card_map as $card_role => $card_role_map) {
+                            // A card image counts only if it RESOLVES: an attachment deleted
+                            // since the write paints nothing and hides no scrim.
                             if (is_array($card_role_map) && in_array((string) $card_role, $card_item_roles, true)
                                 && isset($card_role_map['background'])
                                 && is_array($card_role_map['background'])
-                                && array_key_exists('image', $card_role_map['background'])) {
+                                && array_key_exists('image', $card_role_map['background'])
+                                && pp_udc_background_image_url($card_role_map['background']['image']) !== null) {
                                 $card_image_roles[(string) $card_role] = true;
                             }
                         }

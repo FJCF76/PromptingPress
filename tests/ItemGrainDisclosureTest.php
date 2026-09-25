@@ -880,6 +880,41 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertLessThan(0.3, microtime(true) - $started);
     }
 
+    /**
+     * AN AUTHORED VALUE COUNTS ONLY WHERE IT PAINTS. Written at phone alone, it leaves the
+     * desktop tier to the role default, which still outranks the preset there — so the
+     * shadow finding must stay.
+     */
+    public function testAPhoneOnlyAuthoredValueDoesNotHideTheShadowFinding(): void
+    {
+        $this->savePreset('probe-bp', ['typography' => ['size' => '3rem']]);
+        [, $r] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-bp', 'typography' => ['size' => ['p' => '1rem']]]]));
+
+        $found = $this->findingsOfType($r, 'udc_preset_value_shadowed_by_role_default');
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('typography.size', $found[0]['message']);
+    }
+
+    /** A card image whose attachment is gone hides nothing: it is not counted as a card image. */
+    public function testADeletedCardImageDoesNotEarnTheCardImageReason(): void
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        [$id] = $this->page($this->grid(
+            ['card' => ['background' => ['image' => 9001]]],
+            ['card' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]]
+        ));
+        unset($GLOBALS['_pp_test_store']['posts'][9001], $GLOBALS['_pp_test_store']['attachment_is_image'][9001]);
+
+        $found = array_values(array_filter(
+            pp_udc_composition_findings(pp_get_composition($id)),
+            static fn (array $f): bool => $f['type'] === 'udc_overlay_without_image'
+        ));
+        $band = array_values(array_filter($found, static fn (array $f): bool => !str_contains($f['message'], 'item "')));
+        $this->assertCount(1, $band);
+        $this->assertStringNotContainsString('replaces that card', $band[0]['message']);
+    }
+
     /** The readiness channel (the emit-drop ledger) carries the same fact. */
     public function testTheEmitDropLedgerRecordsTheDiscardedOverlay(): void
     {
