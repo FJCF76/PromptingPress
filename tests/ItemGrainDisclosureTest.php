@@ -221,6 +221,7 @@ final class ItemGrainDisclosureTest extends TestCase
 
         $found = $this->findingsOfType($result, 'udc_preset_value_shadowed_by_role_default');
         $this->assertCount(1, $found, 'the card grain is disclosed like the band grain');
+        $this->assertSame(0, $found[0]['index']);
         $item_id = (string) pp_get_composition($id)[0]['props']['items'][0]['id'];
         $this->assertStringContainsString('item "' . $item_id . '"', $found[0]['message']);
         $this->assertStringContainsString('role "card-title"', $found[0]['message']);
@@ -577,6 +578,7 @@ final class ItemGrainDisclosureTest extends TestCase
 
         $rows = json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id)));
         $this->assertStringContainsString('bands_truncated', (string) $rows);
+        $this->assertStringContainsString('styled only at card level', (string) $rows);
     }
 
     /** Unstyled bands spend neither budget: only bands with something to compile count. */
@@ -932,7 +934,8 @@ final class ItemGrainDisclosureTest extends TestCase
         [, $both] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-both']]), 'both tiers');
         $found = $this->findingsOfType($both, 'udc_preset_value_shadowed_by_role_default');
         $this->assertCount(1, $found);
-        $this->assertStringContainsString('typography.line-height at breakpoint d', $found[0]['message']);
+        $this->assertMatchesRegularExpression('/typography\.line-height at breakpoint d(?![\/\w])/', $found[0]['message']);
+        $this->assertStringNotContainsString('d/p', $found[0]['message'], 'only the LOST tier is named');
     }
 
     /** A card image supplied by a card-level PRESET hides the band scrim just like an authored one. */
@@ -1106,5 +1109,58 @@ final class ItemGrainDisclosureTest extends TestCase
         $this->assertStringContainsString('udc_overlay_without_image', $prompt, 'a finding the model is never told about is one it ignores');
         $this->assertStringContainsString('band, card or chrome role still references', $prompt);
         $this->assertStringContainsString('item "<id>"', (string) pp_get_action('delete_preset')['description']);
+    }
+
+    /** A base-tier authored value covers EVERY tier the default took from the preset. */
+    public function testABaseTierAuthoredValueCoversEveryLostTier(): void
+    {
+        $this->savePreset('probe-dp', ['typography' => ['size' => ['d' => '3rem', 'p' => '2rem']]]);
+        [, $none] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-dp']]), 'none');
+        $this->assertCount(1, $this->findingsOfType($none, 'udc_preset_value_shadowed_by_role_default'), 'premise');
+
+        [, $single] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-dp', 'typography' => ['size' => '2rem']]]), 'single');
+        $this->assertSame([], $this->findingsOfType($single, 'udc_preset_value_shadowed_by_role_default'));
+        [, $dmap] = $this->page($this->grid(['card-title' => ['_preset' => 'probe-dp', 'typography' => ['size' => ['d' => '2rem']]]]), 'dmap');
+        $this->assertSame([], $this->findingsOfType($dmap, 'udc_preset_value_shadowed_by_role_default'));
+    }
+
+    /** A band-map reference is still seen on a band whose cards carry their own maps. */
+    public function testABandReferenceOnACardStyledBandIsStillRefused(): void
+    {
+        $this->savePreset('probe-type', ['typography' => ['weight' => '800']]);
+        $this->page($this->grid(['card' => ['background' => ['fill' => '#111111']]], ['card-title' => ['_preset' => 'probe-type']]));
+
+        $result = pp_execute_action('delete_preset', ['name' => 'probe-type']);
+        $this->assertSame('preset_in_use', $result['error_code'] ?? null);
+    }
+
+    /** Band-map rows come first, so card rows cannot take the shared row budget from them. */
+    public function testBandMapDropsWinTheSharedRowBudget(): void
+    {
+        $items = [];
+        for ($c = 0; $c < 12; $c++) {
+            $items[] = ['title' => 'C' . $c, 'udc' => ['card' => ['background' => ['fill' => '#000000', 'overlay' => '#112233']]]];
+        }
+        [$id] = $this->page([
+            ['component' => 'grid', 'props' => ['title' => 'G', 'items' => $items]],
+            ['component' => 'section', 'udc' => ['_band' => ['background' => ['overlay' => 'rgba(0,0,0,0.5)']]], 'props' => ['title' => 'S', 'body' => 'b']],
+        ]);
+
+        $this->assertStringContainsString('band 2', (string) json_encode(pp_check_udc_emit_drops($id, pp_get_composition($id))));
+    }
+
+    /** The overlay row respects the per-compile ledger bound on a band with unbounded cards. */
+    public function testTheOverlayLedgerRowIsBoundedPerCompile(): void
+    {
+        $items = [];
+        for ($c = 0; $c < 210; $c++) {
+            $items[] = ['id' => sprintf('it-%08x', $c + 1), 'title' => 'C' . $c,
+                        'udc' => ['card' => ['background' => ['fill' => '#000000', 'overlay' => '#112233']]]];
+        }
+        $drops = [];
+        pp_udc_compile_band(['component' => 'grid', 'id' => 'pp-a1b2c3d4', 'props' => ['title' => 'G', 'items' => $items]], 'authored', $drops);
+
+        $this->assertGreaterThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($drops), 'premise: the fixture reaches the cap');
+        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($drops));
     }
 }
