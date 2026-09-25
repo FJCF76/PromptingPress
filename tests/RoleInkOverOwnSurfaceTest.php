@@ -543,6 +543,27 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         ]])));
     }
 
+    /**
+     * LINEAR IN THE CARD COUNT (security pass, cycle 1). `items` declares no maximum and the findings
+     * run on restore and check page with no size gate; ranking every card's rows for every card was
+     * quadratic (15.6 s measured at 2,400 cards). 2,000 styled cards must finish well inside the bound;
+     * the quadratic took about 11 s here. Generous on purpose: this catches a complexity class, not noise.
+     */
+    public function testTheCostIsLinearInTheCardCount(): void
+    {
+        $items = [];
+        for ($c = 0; $c < 2000; $c++) {
+            $items[] = ['id' => sprintf('it-%08x', $c + 1), 'title' => 'T', 'udc' => [
+                'card-title' => ['typography' => ['color' => '#fff', ':hover' => ['color' => '#eee'], ':focus-visible' => ['color' => '#ddd']]],
+                'card-link'  => ['typography' => ['color' => '#ccc']],
+            ]];
+        }
+        $start = hrtime(true);
+        pp_udc_composition_findings([['component' => 'grid', 'id' => 'pp-00000001',
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']]], 'props' => ['title' => 'G', 'items' => $items]]]);
+        $this->assertLessThan(3.0, (hrtime(true) - $start) / 1e9, 'the own-surface walk must stay linear in the card count');
+    }
+
     /** Bounded across the composition like its sibling arms, including inside one band. */
     public function testTheFindingIsBoundedAcrossTheComposition(): void
     {

@@ -6487,9 +6487,10 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
     $card_ids         = array_map('strval', array_keys(pp_udc_item_maps($item)));
     $entries          = $item_declaration !== null ? ($item['props'][$item_declaration['prop']] ?? []) : [];
     $needs_generic    = !is_array($entries) || $entries === [];
+    $card_id_set      = array_fill_keys($card_ids, true);
     foreach (is_array($entries) ? $entries : [] as $entry) {
         $entry_id = is_array($entry) && is_scalar($entry[PP_UDC_ITEM_ID_KEY] ?? null) ? (string) $entry[PP_UDC_ITEM_ID_KEY] : '';
-        if (!in_array($entry_id, $card_ids, true)) {
+        if (!isset($card_id_set[$entry_id])) { // a set, not in_array: this loop runs once per card
             $needs_generic = true;
             break;
         }
@@ -6505,20 +6506,31 @@ function pp_udc_role_paint(array $item, array $authored, array $defaults, bool $
         if (in_array($role, $item_roles, true)) {
             $locators = $needs_generic ? array_merge([''], $card_ids) : $card_ids;
         }
-        $states = [''];
+        // INDEXED BY CARD, so an element ranks only the band-level rows and ITS OWN card's rows.
+        // Walking every card's rows for every card was quadratic in the card count, and `items`
+        // declares no maximum: the security pass measured 15.6 s at 2,400 styled cards on a
+        // findings path (restore, check page) that has no size gate in front of it.
+        $rows_by_item = [];
         foreach ($by_role[$role] as $row) {
-            if ($row['state'] !== '' && !in_array($row['state'], $states, true)) {
-                $states[] = $row['state'];
-            }
+            $rows_by_item[$row['item']][] = $row;
         }
         foreach ($locators as $locator) {
+            $rows = $rows_by_item[''] ?? [];
+            if ($locator !== '' && isset($rows_by_item[$locator])) {
+                $rows = array_merge($rows, $rows_by_item[$locator]);
+            }
+            $states = [''];
+            foreach ($rows as $row) {
+                if ($row['state'] !== '' && !in_array($row['state'], $states, true)) {
+                    $states[] = $row['state'];
+                }
+            }
             $paint = [];
             foreach ($states as $state) {
                 foreach (array_keys($bp_meta) as $bp) {
                     $winners = [];
-                    foreach ($by_role[$role] as $row) {
-                        if (($row['item'] !== '' && $row['item'] !== $locator)
-                            || ($row['state'] !== '' && $row['state'] !== $state)
+                    foreach ($rows as $row) {
+                        if (($row['state'] !== '' && $row['state'] !== $state)
                             || ($row['bp'] !== 'd' && $row['bp'] !== $bp)) {
                             continue;
                         }
