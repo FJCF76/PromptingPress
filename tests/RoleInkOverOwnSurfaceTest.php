@@ -322,6 +322,36 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $this->assertStringContainsString('(@color-accent) in the :hover state, which the band', $found[0]['message'], 'light only while hovered, at every width');
     }
 
+    /**
+     * The advice says WHERE the fill goes, and following it literally clears the finding (api-contract
+     * pass, cycle 1: a resting fill cannot cover a default :hover fill, 0,2,0 against 0,3,0, and a
+     * model told only "set background.fill" loops).
+     */
+    public function testFollowingTheStateAdviceLiterallyClearsTheFinding(): void
+    {
+        $props = ['title' => 'C', 'button_text' => 'Go', 'button_url' => '/x'];
+        $ink   = ['typography' => ['color' => '#ffffff', ':hover' => ['color' => '#ffffff']]];
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']], 'button-secondary' => $ink], 'cta', $props);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('background: {":hover": {"fill": ...}}', $found[0]['message']);
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828']],
+            'button-secondary' => $ink + ['background' => [':hover' => ['fill' => '#222222']]]], 'cta', $props);
+        $this->assertSame([], $found, 'the fill set where the message said clears it');
+    }
+
+    public function testFollowingTheWidthAdviceLiterallyClearsTheFinding(): void
+    {
+        $nav = static fn (array $menu): array => [[
+            'component' => 'nav', 'id' => 'nav', 'props' => [],
+            'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'menu' => $menu],
+        ]];
+        $found = $this->only(pp_udc_composition_findings($nav(['typography' => ['color' => '#f7f8fa']])));
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString('a breakpoint map, e.g. {"p": ...}', $found[0]['message']);
+        $this->assertSame([], $this->only(pp_udc_composition_findings($nav(['typography' => ['color' => '#f7f8fa'],
+            'background' => ['fill' => ['d' => 'transparent', 'p' => '#101828']]]))));
+    }
+
     // ── Widths ───────────────────────────────────────────────────────────────────────────
 
     /** A surface that exists at one width only is named with that width (nav `menu`: phone only). */

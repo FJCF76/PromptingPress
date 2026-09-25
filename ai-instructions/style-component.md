@@ -333,7 +333,7 @@ common way this goes wrong. The second most common: a role that ships its own
 darken the band, so a new light ink lands on light. Set its `background.fill` alongside its
 `typography.color`. When you set that role's ink and its own default fill still paints under it,
 the write names it as `udc_role_ink_over_own_surface` (#1125), with the card, state or width it
-applies to. A text role inside it (a testimonial `quote` inside its `card`) is not reported, so
+applies to and where the fill has to go (a `":hover"` map, a breakpoint map). A text role inside it (a testimonial `quote` inside its `card`) is not reported, so
 check those pairs yourself.
 
 Two tokens exist for exactly this and are worth reaching for by name on a dark surface:

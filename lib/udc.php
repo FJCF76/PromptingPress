@@ -9249,20 +9249,41 @@ function pp_udc_composition_findings(array $items): array {
                         } else {
                             $qualifier = ' ' . implode(', and ', $phrases);
                         }
+                        // THE ADVICE SAYS WHERE THE FILL GOES (api-contract pass, cycle 1). A resting fill
+                        // cannot cover a default :hover fill (0,2,0 against 0,3,0), and a base value does
+                        // not reach a width the default fills, so "set background.fill" alone loops a
+                        // model that follows it. Name the state map and the breakpoint keys that fired.
+                        $fill_where = [];
+                        $named_states = array_values(array_filter(array_map('strval', array_keys($fired)), static fn (string $s): bool => $s !== ''));
+                        if ($named_states !== []) {
+                            $fill_where[] = sprintf('inside %s (background: {"%s": {"fill": ...}})',
+                                implode(' and ', array_map('_pp_udc_reflect', $named_states)), _pp_udc_reflect($named_states[0]));
+                        }
+                        $partial_bps = [];
+                        foreach ($fired as $bps) {
+                            if (count($bps) < $all_widths) {
+                                $partial_bps = array_values(array_unique(array_merge($partial_bps, $bps)));
+                            }
+                        }
+                        if ($partial_bps !== []) {
+                            $fill_where[] = sprintf('at %s (a breakpoint map, e.g. {%s})', count($partial_bps) === 1 ? 'that width' : 'those widths',
+                                implode(', ', array_map(static fn (string $bp): string => '"' . $bp . '": ...', $partial_bps)));
+                        }
                         $ink_disclosed++;
                         $findings[] = [
                             'type'    => 'udc_role_ink_over_own_surface',
                             'message' => sprintf(
                                 'Component "%s"%s role "%s": the text colour you set (typography.color, a preset you '
                                 . 'applied, or _css) paints over this role\'s own default background (%s)%s, which the '
-                                . 'band background you set does not replace. Set background.fill for this role as well, '
+                                . 'band background you set does not replace. Set background.fill for this role%s as well, '
                                 . 'or check that the pair reads (AA: 4.5:1 for body text, 3:1 for large text).',
                                 $component,
                                 $element['item'] === '' ? '' : sprintf(' item "%s"', _pp_udc_reflect($element['item'])),
                                 $element['role'],
                                 // A defaults or overlay surface: those compiles mint no band tokens.
                                 _pp_udc_reflect(_pp_udc_compiled_display((string) $shown['css'], [])),
-                                $qualifier
+                                $qualifier,
+                                $fill_where === [] ? '' : ' ' . implode(' and ', $fill_where)
                             ),
                             'index'   => is_int($i) ? $i : null,
                         ];
