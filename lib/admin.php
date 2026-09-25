@@ -858,10 +858,10 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     $errors[] = "{$label}: `overlay_defaults` group `{$group}` must be a MAP of parameters.";
                     continue;
                 }
-                $group_params = function_exists('pp_udc_groups') ? (pp_udc_groups()[$group]['params'] ?? null) : null;
+                $group_params = pp_udc_groups()[$group]['params'] ?? null;
                 // A group the registry does not know cannot compile, and without its parameter list nothing would
                 // check the keys below before `wp pp schema` prints them (PR-2 review cycle 2, security).
-                if (function_exists('pp_udc_groups') && !is_array($group_params)) {
+                if (!is_array($group_params)) {
                     $errors[] = "{$label}: `overlay_defaults` group `{$group}` is not a UDC group.";
                     continue;
                 }
@@ -871,7 +871,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` must not hold a state (`{$key}`): the tier is a resting default.";
                         continue;
                     }
-                    if (is_array($group_params) && !isset($group_params[$key])) {
+                    if (!isset($group_params[$key])) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` has no parameter `{$key}`.";
                         continue;
                     }
@@ -882,7 +882,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     // under the theme root, so what else they carry rests on theme-root integrity, not on this check
                     // (PR-2 review cycle 2, security; option b).
                     $leaves   = is_array($value) ? $value : [$value];
-                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, function_exists('pp_udc_breakpoints') ? pp_udc_breakpoints() : ['d' => 1, 't' => 1, 'p' => 1]) === []);
+                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
                     foreach ($leaves as $leaf) {
                         $shape_ok = $shape_ok && is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf);
                     }
