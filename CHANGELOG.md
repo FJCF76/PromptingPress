@@ -128,6 +128,61 @@ image misses cards that set their own image without being reported (#1133); a fa
 counts as an empty page (#1134); re-saving a used preset at a different grain breaks its
 references (#1135); a raw `_css` value is not counted as the author's own (#1136).
 
+## Accent words stay readable over a darkened photo, and the write tells you when they might not (#1010, #1060)
+
+**Accent inks follow the scrim.** On a band that paints an image under an overlay, the accent
+words of a heading now default to `@color-accent-on-overlay` instead of the bare accent, which
+measured 1.05:1 over a dark scrim. That covers the hero `title-accent`, the `heading-accent` of
+`cta`, `faq` and `stats`, and the stats `number` (2.27:1 → 12.11:1 on the probe page). Your own
+value for any of these still wins. faq `question-open` keeps the bare accent (it sits on its
+item's own light fill), and a secondary button stays yours as one set (#1138).
+
+**The write says when that premise breaks.** A new warning, `udc_overlay_accent_off_scrim`,
+names the re-lit accent roles and the reason: a light (or unreadable) surface you set on the
+accent itself or on a role that encloses it, a scrim that leaves some widths or states
+unscrimmed, or a scrim that is light, fades to transparent, or cannot be read. It reads what
+the page actually paints, not what the map says.
+
+**The overlay marker says what paints.** A band is marked overlaid only when it really paints a
+scrim over an image: a deleted attachment, a band with no usable id, or an overlay the page
+drops no longer marks it, and an image and scrim supplied by a preset do. This also fixes the
+invisible focus ring on a light band whose image was deleted (#1060).
+
+### Changed (schema)
+
+Roles take two optional keys: `overlay_defaults` (values that replace the role's defaults on a
+marked band; only a group the role permits is accepted) and `within` (the roles whose elements
+enclose it, which the warning reads). `ai-instructions/add-component.md` documents both.
+
+### Upgrading
+
+`wp pp validate site` fails on any warning, so a page whose accent now sits on a light panel, a
+partial or light scrim may newly be flagged after upgrading. To clear it, set that accent's
+`typography.color` (or give the panel a dark fill). Pages without an image-and-overlay band are
+unaffected.
+
+### Docs
+
+`AI_CONTEXT.md`, the runtime prompt, `retheme.md`, `style-component.md`, `build-landing-page.md`,
+`validate-site.md`, `add-component.md`, the cta, hero, faq and stats READMEs and the cta and stats
+migration how-tos describe the re-lit accents, their exceptions and the new warning.
+
+### Tests
+
+`OverlayTierDefaultsTest`, `OverlayAccentOffScrimTest` and `UdcEffectiveBackgroundTest` pin the
+tier, the warning and the marker's accessor against the CSS the page emits; the e2e spec reads
+the re-lit colour in Chromium. Every fix was shown to fail first, and deliberately broken copies
+of the code are caught by the tests (57 of 64; the other 7 recorded as equivalent or
+unreachable, with reasons).
+
+### Known issues
+
+Filed, not fixed here: a scrim sized to cover only part of the band still marks it and re-lights
+the accent (#1142); section, grid and testimonials never emit the marker (#1139); a text role
+inside a filled role is not checked (#1140); the raw-CSS override message contradicts what
+paints (#1141). The "own surface under a new ink" warning (#1125) is not in this release; it
+lands separately.
+
 ---
 
 ## [v2.0.0-alpha.2] — 2026-09-22 — v2 Sprint 2 "components": the Sprint-2 gates, author-created presets, the chrome CSS retirement, and `section`, `cta`, `faq`, `table`, `embed`, `stats` + `logos` rebuilt on the design contract, raw CSS as a standing freedom guarantee, the Layout group, the authoring model told what it has to pair, and `grid` — the last v1 component — rebuilt with item-grain styling, which ends the v1 styling system (#1011, #1016, #994, #992, #995, #1023, #988, #1026, #1046, #1066, #1025, #1079, #1069, #1084, #1087, #1101)
