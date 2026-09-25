@@ -2612,6 +2612,11 @@ function _pp_udc_raw_background_wins(array $by_bp): array {
                 unset($by_bp[$bp][$property]);
             }
         }
+        // The scrim left here is dropped by the compose stage; this tells it WHY, so its ledger row names the raw
+        // background rather than asking for an image the author did set (PR-2 review, api-contract).
+        if (is_array($by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER] ?? null)) {
+            $by_bp[$bp][PP_UDC_BACKGROUND_OVERLAY_CARRIER]['raw_background_won'] = true;
+        }
     }
     return $by_bp;
 }
@@ -2709,6 +2714,11 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                       . 'this scrim reaches no card. Put the overlay on each card\'s own map'
                       // Not "set background.image on the band's map": a band image would still be
                       // replaced on exactly these cards, silently (#1133).
+                    // A raw `_css` background WON this coordinate (#1141): the author may well have set the image,
+                    // and setting it again changes nothing, so the reason names the raw background (PR-2 review).
+                    : (!empty($overlay['raw_background_won'])
+                    ? 'the raw background in _css resets the background here, so background.image and this scrim do not '
+                      . 'paint at this width. Remove the raw background, or put the whole treatment in it'
                     // `background` is also where a raw `_css` shorthand lands, so this names
                     // both rather than claiming a background.fill the author may never have written.
                     : (isset($declarations['background'])
@@ -2722,7 +2732,7 @@ function _pp_udc_compose_background_layers(array $declarations, ?array &$drops =
                     // branch cannot tell the two causes apart and must not blame the author.
                     : 'an overlay paints only over an image, and this role has no usable background.image '
                       . '(none is set, or the attachment it names was deleted), so the scrim was dropped. Set '
-                      . 'background.image (an attachment id), or remove the overlay'))),
+                      . 'background.image (an attachment id), or remove the overlay')))),
                 'code'   => 'overlay_without_image',
             ];
         }

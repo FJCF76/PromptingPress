@@ -188,4 +188,26 @@ final class RawBackgroundWinsTest extends TestCase
         $css = pp_udc_band_css($this->band(['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.7)', 'p' => 'rgba(0,0,0,0.5)']]]));
         $this->assertMatchesRegularExpression('/@media \\(max-width: 767px\\)\\{[^}]*background-image:linear-gradient\\(rgba\\(0,0,0,0\\.5\\)/', $css);
     }
+
+    /**
+     * THE SCRIM DROPPED UNDER A RAW BACKGROUND SAYS WHY (PR-2 review, api-contract): the reused "no usable
+     * background.image ... Set background.image" reason told an author who DID set the image to set it again, which
+     * changes nothing while the raw background wins. Both the same-width and the narrower-tier case.
+     */
+    public function testTheScrimDroppedUnderARawBackgroundSaysTheRawBackgroundIsWhy(): void
+    {
+        foreach (['same width' => ['background' => ['image' => 9001, 'overlay' => 'rgba(0,0,0,0.7)'], PP_UDC_CSS_KEY => ['background' => '#ffffff']],
+            'narrower tier' => ['background' => ['image' => 9001, 'overlay' => ['d' => 'rgba(0,0,0,0.7)', 'p' => 'rgba(0,0,0,0.5)']], PP_UDC_CSS_KEY => ['background' => ['p' => '#ffffff']]]] as $label => $band) {
+            $drops = [];
+            pp_udc_compile_band($this->band($band), 'authored', $drops);
+            $rows = array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'));
+            $this->assertCount(1, $rows, $label);
+            $this->assertStringNotContainsString('Set background.image', $rows[0]['reason'], $label);
+            $this->assertStringContainsString('the raw background in _css resets the background here, so background.image and this scrim do not paint', $rows[0]['reason'], $label);
+        }
+        $drops = [];
+        pp_udc_compile_band($this->band(['background' => ['fill' => '#101828', 'overlay' => 'rgba(0,0,0,0.7)']]), 'authored', $drops);
+        $this->assertStringContainsString('Set background.image', array_values(array_filter($drops, static fn (array $r): bool => ($r['code'] ?? '') === 'overlay_without_image'))[0]['reason'],
+            'control: a fill with no image keeps its own advice');
+    }
 }
