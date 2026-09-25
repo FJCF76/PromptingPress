@@ -141,6 +141,13 @@ responds to a pointer. `shadow.box: none` is load-bearing and easy to miss: a ba
 matches the premium filled family, and while `background.fill` emits the `background`
 SHORTHAND (which clears the gradient), nothing clears the premium BEVEL.
 
+**On a dark band it is two surfaces, not one.** At rest the button has no fill, so its accent
+text and edge sit on your band (the accent on `#0f172a` measures 3.23:1, under AA for its
+text): set its `typography.color` at rest there. On `:hover` it fills with the accent, so a
+hover ink you set lands on that accent fill; the write names the pair when the default fill
+still paints under your ink (#1125). The `eyebrow` pill is the same shape at rest: recolour
+its text on a dark band and set its `background.fill` too.
+
 Two costs, stated rather than discovered: these are the `button-secondary` preset's own
 values duplicated, so applying a DIFFERENT preset here is partly suppressed — temporary,
 until #1018 makes a role able to name its own preset as its default — and the button's transition
