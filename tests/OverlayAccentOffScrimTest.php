@@ -786,4 +786,22 @@ final class OverlayAccentOffScrimTest extends TestCase
         $this->assertSame([], $this->found(['_band' => ['background' => self::DARK_SCRIM + ['fill' => ['p' => 'linear-gradient(#0a0a12, #101828)']]]]),
             'every stop readably dark still silences');
     }
+
+    /** The shorthand splitter's contract, pinned directly (PR-2 review cycle 3, testing). */
+    public function testSplitBackgroundShorthandContract(): void
+    {
+        $this->assertSame(['linear-gradient(#000, #111)', 'transparent'], _pp_udc_split_background_shorthand('linear-gradient(#000, #111)'), 'no colour named');
+        $this->assertSame(['', '#0a0a12'], _pp_udc_split_background_shorthand('#0a0a12'), 'a colour alone');
+        $this->assertSame(['url(x.png), linear-gradient(red, rgba(0,0,0,.5))', '#111'],
+            _pp_udc_split_background_shorthand('url(x.png), linear-gradient(red, rgba(0,0,0,.5)) #111'), 'layers in order, then the colour');
+        $this->assertSame(['url("a(1).png")', 'transparent'], _pp_udc_split_background_shorthand('url("a(1).png")'), 'nested parens inside url()');
+        [$layers, $colour] = _pp_udc_split_background_shorthand('radial-gradient(red, blue) center / cover no-repeat, #0a0a12');
+        $this->assertSame('radial-gradient(red, blue)', $layers);
+        // The words stay beside the colour. The colour readers are not asked to read them: the grammar accepts only a
+        // colour or a gradient in `background` (fill and raw alike), so a compiled band never carries them (probe in
+        // the PR-2 cycle 3 evidence).
+        $this->assertSame('center / cover no-repeat #0a0a12', $colour, 'the words stay beside the colour');
+        $this->assertSame(['repeating-linear-gradient(#000 0 10px, #fff 10px 20px)', 'transparent'],
+            _pp_udc_split_background_shorthand('repeating-linear-gradient(#000 0 10px, #fff 10px 20px)'));
+    }
 }
