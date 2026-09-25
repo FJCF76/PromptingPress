@@ -397,7 +397,7 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
 
     // ── An ink the role INHERITS from the band (ruling D3 = A) ────────────────────────────
 
-    private const BAND_INK = 'the text colour you set on the whole band (_band typography.color) reaches this role';
+    private const BAND_INK = 'the text colour you set on the whole band (_band typography.color or _band _css color) reaches this role';
 
     /**
      * THE RED TEAM'S CASE: `_band` darkened and coloured in one place; hero `surface` declares no colour
@@ -587,6 +587,15 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         [, $found] = $this->write(['_band' => $band, 'surface' => ['typography' => [':hover' => ['color' => '#eeeeee']],
             'background' => ['fill' => '#1d2939', ':hover' => ['fill' => '#1d2939']]]], 'hero', $props);
         $this->assertSame([], $found, 'the two fills the advice names clear it');
+    }
+
+    /** A band ink set through `_band` `_css` is credited to that spelling too (cycle 2, maintainability). */
+    public function testABandInkSetThroughRawCssIsCreditedToTheBand(): void
+    {
+        [, $found] = $this->write(['_band' => ['background' => ['fill' => '#101828'], '_css' => ['color' => '#ffffff']]],
+            'hero', ['layout' => 'split', 'title' => 'H', 'proof' => '<p>Proof</p>']);
+        $this->assertCount(1, $found);
+        $this->assertStringContainsString(self::BAND_INK, $found[0]['message']);
     }
 
     /** A single width left on the default is named in the singular, with its one breakpoint key. */

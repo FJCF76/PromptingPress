@@ -9411,9 +9411,9 @@ function pp_udc_composition_findings(array $items): array {
                                 // WHICH OF THE AUTHOR'S MOVES supplied the ink (D3 condition 3).
                                 isset($kinds['own']) && isset($kinds['band'])
                                     ? 'the text colour you set for this role (typography.color, a preset you applied, or _css), '
-                                      . 'and where it sets none the one you set on the whole band (_band typography.color),'
+                                      . 'and where it sets none the one you set on the whole band (_band typography.color or _band _css color),'
                                     : (isset($kinds['band'])
-                                        ? 'the text colour you set on the whole band (_band typography.color) reaches this role '
+                                        ? 'the text colour you set on the whole band (_band typography.color or _band _css color) reaches this role '
                                           . 'because it declares no colour of its own, and'
                                         : 'the text colour you set for this role (typography.color, a preset you applied, or _css)'),
                                 // A defaults or overlay surface: those compiles mint no band tokens.
@@ -10117,13 +10117,15 @@ function _pp_udc_inherited_values_declared(array $udc, string $source_role): arr
  * implementation would be a second chance to get the `currentColor` carve-out
  * or the already-authored exemption wrong on only one of them.
  *
- * @param array       $map         The map declaring the inherited values.
+ * @param array       $udc         The map declaring the inherited values.
+ * @param string      $component   The component whose role defaults are read.
  * @param string      $source_role The role those values sit on.
  * @param array|null  $limit_roles Candidate roles to consider cancelled, or
  *                                 null for every role the component declares.
  *                                 The item tier passes its addressable set,
  *                                 because a role an item cannot address cannot
  *                                 be the place it is told to set the value.
+ * @return array<string, string[]>  property => the roles whose own default cancels it
  */
 function _pp_udc_inherited_values_cancelled_by_role_defaults(
     array $udc,
