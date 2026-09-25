@@ -35,6 +35,12 @@ This checks:
      is listed with `at breakpoint …`.
      Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
      group-grain `_preset` (inside `typography`, say), naming the group.
+   - `udc_role_ink_over_own_surface` — on a band (or a header/footer) whose background you set,
+     the text colour you set on a role paints over that role's OWN default background (an eyebrow
+     pill, a panel, a card), which your band background does not replace. It names the card, the
+     state or the width when the clash is only there. Set the role's `background.fill` too, or
+     check the pair reads (AA: 4.5:1 body text, 3:1 large text). A text role INSIDE a filled role
+     (a testimonial `quote` in its `card`) is not reported: check that pair yourself.
    - `udc_overlay_without_image` — a `background.overlay` with no `background.image`
      under it, one finding per dropped value (a responsive overlay names each breakpoint). The scrim is dropped: an overlay only paints over an image, and a
      `background.fill` is a colour, not an image. Set `background.image`, put the tint

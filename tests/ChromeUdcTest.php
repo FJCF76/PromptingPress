@@ -1170,9 +1170,17 @@ class ChromeUdcTest extends TestCase
 
         $source = file_get_contents(dirname(__DIR__) . '/lib/udc.php');
         $this->assertIsString($source);
+        // The scopes have ONE owner since #1125 (_pp_udc_emission_scopes(), read by the renderer
+        // and by pp_udc_role_paint()); the chrome defaults call must take its root scope from the
+        // defaults tier there, and that tier's root scope must be the :where()-wrapped one.
         $this->assertMatchesRegularExpression(
-            "/_pp_udc_render_blocks\(\s*\\\$compiled,\s*\\\$scope,\s*':where\('/",
+            "/_pp_udc_render_blocks\(\\\$compiled, \\\$scopes\['defaults'\]\[0\], \\\$scopes\['defaults'\]\[1\], 'pp-zero'\)/",
             $source,
+            'the chrome defaults tier must pass the defaults root scope into the pp-zero layer'
+        );
+        $this->assertSame(
+            ':where([data-pp-chrome="nav"])',
+            _pp_udc_emission_scopes('nav', 'nav')['defaults'][1],
             'the chrome defaults tier must pass a :where()-wrapped root scope, so a chrome role '
             . 'default can never outrank the structural CSS it yields to'
         );
