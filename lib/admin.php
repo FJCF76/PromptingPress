@@ -882,9 +882,9 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     // under the theme root, so what else they carry rests on theme-root integrity, not on this check
                     // (PR-2 review cycle 2, security; option b).
                     $leaves   = is_array($value) ? $value : [$value];
-                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, ['d' => 1, 't' => 1, 'p' => 1]) === []);
+                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, function_exists('pp_udc_breakpoints') ? pp_udc_breakpoints() : ['d' => 1, 't' => 1, 'p' => 1]) === []);
                     foreach ($leaves as $leaf) {
-                        $shape_ok = $shape_ok && is_string($leaf) && $leaf !== '' && (!function_exists('pp_udc_is_single_line') || pp_udc_is_single_line($leaf));
+                        $shape_ok = $shape_ok && is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf);
                     }
                     if (!$shape_ok) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string, or a breakpoint map of them.";

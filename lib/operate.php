@@ -2930,7 +2930,9 @@ function pp_component_schema_report(string $component): array|WP_Error {
             // a copy of the schema. `overlay_defaults` is the ink a role re-lights to on a scrimmed band;
             // `within` the enclosing roles udc_overlay_accent_off_scrim reads; `text_content` marks the roles
             // the own-surface finding (#1125) can name. The role has already passed the composable-role
-            // gate above, the one the prompt uses, so the two surfaces report the same bytes.
+            // gate above, so its definition is well-formed. `overlay_defaults` and `text_content` are
+            // reported as declared; `within` is filtered to this component's role names (below). The
+            // runtime prompt does not carry these keys: this command is where an agent reads them.
             if (is_array($definition['overlay_defaults'] ?? null) && $definition['overlay_defaults'] !== []) {
                 $entry['overlay_defaults'] = $definition['overlay_defaults'];
             }
