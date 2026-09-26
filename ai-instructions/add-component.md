@@ -680,7 +680,8 @@ DEFAULTS, and, per Step 3b, refused in an authored `udc` map.
 
 ## Step 6 — Call it from a template
 
-In any template file (e.g. `templates/front-page.php`):
+In a template that renders by name (e.g. `templates/single.php`; NOT `front-page.php` or
+`composition.php`, which render only their stored composition):
 
 ```php
 pp_get_component('mycomponent', [
@@ -688,6 +689,11 @@ pp_get_component('mycomponent', [
     'text'  => pp_field('mycomponent_text')  ?: '<p>Default content.</p>',
 ]);
 ```
+
+**Then add its name to that template's `pp_base_template(..., [...])` list** (#1171). The list
+tells the page head which components' v2 role defaults to print; a component missing from it
+renders as bare markup, and `tests/TemplateBandDefaultsTest.php` fails. See
+`ai-instructions/product-dev-add-page-template.md`.
 
 > **If you call it from `templates/base.php`, it is site chrome, and you are not done.**
 > `base.php` runs on every page, so a component rendered there is *also* placeable in a page
@@ -709,7 +715,8 @@ pp_get_component('mycomponent', [
 > did not choose (#829) — but no validation rule ever vetoes what it replays.)
 >
 > The drift guards in `tests/NavReadinessTest.php` read `base.php` back and fail if you forget.
-> Calling it from any other template (`front-page.php`, `single.php`, …) needs none of this.
+> Calling it from any other template that renders by name (`single.php`, `page.php`, …) needs
+> none of this chrome declaration, but it does need the component list above.
 
 ---
 

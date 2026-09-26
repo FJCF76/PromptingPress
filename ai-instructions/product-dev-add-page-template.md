@@ -46,12 +46,26 @@ pp_base_template(function () {
         'layout' => 'text-only',
     ]);
 
-    // Add more components here
+    // Add more components here, and name each one in the list below
     // pp_get_component('grid', [...]);
     // pp_get_component('cta', [...]);
 
-});
+}, ['hero', 'section']);
 ```
+
+**The list after the callable is required.** It names every component the callable
+renders, by the same names as its `pp_get_component()` calls. The v2 role defaults (a
+component's padding, type scale, card fill and border) are printed in the page head,
+before the callable runs, so the head learns what to print from this list. A component
+missing from it renders as bare, unstyled markup. `tests/TemplateBandDefaultsTest.php`
+fails when a template's list and its calls disagree, and when a call names its component
+through a variable, a callable string, an include or a template part instead of a literal.
+
+That test also pins the SET of templates it checks, so a new template file fails it until you
+add the file's path to the subject list in
+`testEveryTemplateDeclaresExactlyTheComponentsItRendersByLiteralName()` and raise its count of
+templates that render by name. That is deliberate: a new template has to be looked at, not
+silently scanned or skipped.
 
 ---
 
@@ -104,6 +118,7 @@ get_template_part('templates/my-page');
 ## Rules to follow
 
 - Only call `pp_get_component()` and `pp_*` functions inside `pp_base_template()`
+- Name every component you render in `pp_base_template()`'s second argument, and call each by a literal name
 - Do not call WordPress functions directly. Use lib/wp.php wrappers.
 - Do not add `add_action()` or `add_filter()` in template files.
 - Provide fallback values for all `pp_field()` calls so the page renders without ACF.

@@ -342,6 +342,12 @@ Stored `--font-*` overrides — like every design-token override — are re-vali
 | templates/archive.php      | archive.php         | (automatic for category/tag/date/author archives) | No |
 | templates/home.php         | home.php            | (automatic for the posts index, is_home) | No   |
 | templates/search.php       | search.php          | (automatic for search requests, `?s=`) | No     |
+| 404.php (root)             | (itself)            | (automatic for not-found requests) | No         |
+
+The templates that are not composition-aware render their components by name and declare them
+in `pp_base_template()`'s second argument, so those components paint their **v2 role defaults**
+(#1171). They carry no band id, so **no `udc` or authored value reaches them**: restyle them
+through design tokens, and the header and footer through `pp_site_udc` chrome.
 
 `home.php`/`archive.php`/`search.php` iterate `pp_main_query()` (the request's real main query, already correctly filtered for whichever archive/index/search this is) via `pp_the_loop()`, and render `pp_pagination()` under the grid when there's more than one page (#126). `search.php` additionally uses `pp_search_query()`/`pp_result_count()` for its heading and empty state (issue 138).
 
