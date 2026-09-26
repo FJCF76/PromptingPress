@@ -31,7 +31,7 @@
 > clause of this contract that covers it.
 >
 > **Open decisions are in §12.** They come in two kinds. Owner-posture questions (P-1 to P-26)
-> decide how broad content freedom is. Mechanics questions (M-1 to M-18) decide how the
+> decide how broad content freedom is. Mechanics questions (M-1 to M-21) decide how the
 > gates work. Where the text below depends on an open decision it says so and names it.
 >
 > **Two rules decide how to read this document.**
@@ -1564,6 +1564,9 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
 | M-16 | A mitigation for the §6.7 lazy-image channel that keeps P-4 option A | refuse attribute-selector conditions in scoped rules whose compound reads inside an embed band's plugin output, and pin the network-log assertion (T-10) |
 | M-17 | Non-ASCII in selectors | admit UTF-8 letters inside quoted attribute values and class/id names, so content authored in non-Latin scripts is selectable; the byte gate stays an allowlist (Unicode `L*`/`N*` plus the current set) |
 | M-18 | M-8 bounds derivation | the numbers derive from T-17's performance budget; the owner's largest stored band is a floor check, not the source |
+| M-19 | *(advisory from /review, simplification)* One `WP_HTML_Processor::create_full_parser()` walk instead of steps 2-4 | step 5 already fails closed when that parser bails, so every accepted prop is one it can walk; on WP 7.0 it exposes `get_namespace()`, `get_attribute()` (decoded), `remove_attribute()` and `serialize_token()`. One walk inside the per-sink wrapper could enforce the M-4 table, the namespace checks, Δ3, E2, E6, Δ4 and E10, and emit the admitted tokens. kses and its `pre_kses` hazard (§2.4), the style-slot markers and the step-2 raw-text blind spot would then all disappear, with every §4 row and T-row kept. **Recommendation: prototype it (rule 14.3) at implementation time and adopt it if T-9 and T-17 pass;** the §2.1 pipeline stays the contract until then. It supersedes the Q-A1 mechanism only by ruling. |
+| M-20 | *(advisory)* Comma lists in a `_scoped` rule's `selector` | each entry is already emitted as its own rule, so `"a, b"` equals two rules: a second spelling of one thing (the I36 shape §6.3 cites). **Recommendation: refuse a top-level comma** (commas inside `:is()`/`:where()`/`:not()`/`:has()` stay); the 16-entry cap and the split go away |
+| M-21 | *(advisory)* One refusal-code convention | report `custom_island_unknown` and `custom_island_host` as `content_construct_excluded` naming the §7.2 clause, and keep dedicated codes for findings only. **Recommendation: adopt** |
 
 ---
 
