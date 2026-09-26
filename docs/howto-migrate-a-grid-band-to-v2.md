@@ -96,6 +96,15 @@ The engine tells you if you miss one: `udc_item_value_shadowed_by_role_default` 
 role your ink did not reach. **Read it** — `@color-accent` on a `#14141F` card measures
 **3.2:1**, under the 4.5:1 AA floor for the link's 0.9rem weight-600 text.
 
+**The check-mark colour** was `--grid-item-bullet-color`; it is `card-bullets` ->
+`marker.color` (#1028). The check is a `::before` no role addresses, so the param sets a
+colour on the list that each check inherits. Unset, it takes the accent. It works per card
+too, in an item's own `udc`:
+
+```json
+{ "card-bullets": { "marker": { "color": "#FF5C2E" } } }
+```
+
 ## Step 4: `theme`, and the border trap inside it
 
 | old value | v2 write |
@@ -285,9 +294,6 @@ especially: a card whose paragraph is its last element is 16px taller than it wa
 
 ## What you cannot express, and what to do instead
 
-- **The bullet glyph's colour.** `--grid-item-bullet-color` retired with no route: the check
-  mark is a `::before`, pseudo-elements are deferred (A3), and `_css` cannot declare a custom
-  property. The marker takes the shared accent.
 - **A second background layer.** `--grid-featured-texture-color` painted one; `background.fill`
   refuses a multi-layer value.
 - **Anything scoped to `layout: "steps"`.** A role's defaults carry a breakpoint dimension and

@@ -168,10 +168,12 @@ missing knob:
 not items, so a single emphasised row is **not expressible today**. Style `panel-row`,
 `panel-row-label` and `panel-row-value` and the design lands on every row.
 
-**Glyph colour.** `--section-separator-color`, `--section-body-marker-color` and
-`--section-panel-marker-color` have no replacement at all — the marks are pseudo-elements
-and no role can reach them. The list markers render the accent; the separator follows its
-row's ink. See [#1028](https://github.com/FJCF76/PromptingPress/issues/1028).
+**Glyph colour.** `--section-separator-color` -> `inline-items` `marker.color`,
+`--section-body-marker-color` -> `body` `marker.color`, `--section-panel-marker-color` ->
+`panel-list` `marker.color` (#1028). The marks are pseudo-elements no role addresses; the
+param sets a colour on the holding role's box that the mark inherits. Leave it unset and the
+list markers render the accent while the separator follows its row's ink. As in v1, a list on
+the default `disc` marker ignores it: disc is the browser's native marker.
 
 **The two recipes.** `accent-panel` and `spacious-editorial` are deleted. A recipe bundled
 style slots and there are none. `_preset` plus an explicit role map replaces them and is
@@ -213,7 +215,7 @@ supplies only the parameters the role does not already default. Set the value di
 beside the preset.
 
 **Your value validates but nothing changes on screen.** Check whether the property is one
-of the four no role reaches: glyph colour, prose paragraph rhythm, the list indent, or the
+of the four no role reaches: the glyphs themselves (their colour is `marker.color`), prose paragraph rhythm, the list indent, or the
 phone-only gap between stacked panel rows. All four are listed in
 [section's README](../components/section/README.md#what-no-role-reaches).
 

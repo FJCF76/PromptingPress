@@ -236,13 +236,15 @@ a dark `panel` `background.fill` + an accented `panel-row-value` — not a named
 
 To turn `panel_items` into a check-list (the common "benefits beside a panel" pattern),
 set `panel_items_marker: "check"`. `dash` and `arrow` are the other values; `disc` is the
-plain default. **The marker's COLOUR is not authorable — do not offer to change it.** The
-glyph is drawn with `content` on a `::before` and ruling A3 defers pseudo-elements, so no
-role can reach it, and there is no token for it either (#1028). It renders
-`var(--color-accent)`. The only knob that moves it is `update_design_token` on
-`--color-accent` itself, which recolours the accent everywhere on the site — say that
-plainly rather than implying a marker-only setting exists. On a dark panel, reach for the
-panel's own `background.fill` and ink instead. The same marker capability is
+plain default. **On `check`/`dash`/`arrow` the marker's COLOUR is the `panel-list` role's
+`marker.color`** (#1028): `"panel-list": {"marker": {"color": "#FF5C2E"}}` recolours the
+glyphs. `update_component` replaces a role's whole map, so include the role's other groups in
+the same write if it already has any. Unset, they render `var(--color-accent)`. **A `disc` list ignores it**:
+disc is the browser's native marker and takes the text colour, so to colour the bullets pick
+`check`, `dash` or `arrow` first. The glyph itself is a `::before` no role addresses
+(ruling A3); the group sets a colour on the list's own box that the glyph inherits, so it
+takes the same state and breakpoint maps as any colour. On a dark panel, set it together
+with the panel's own `background.fill` and ink. The same marker capability is
 available on `grid` card bullets (always a check) and on `section` body lists
 (`body_marker`, below) — one shared treatment, so a check-list is reachable from any
 list-rendering surface.
@@ -310,7 +312,8 @@ That is the same trade named above — one role, every row.
 **top-level** `<ul>` lists authored in a section's `body` — the same shared marker
 treatment the panel and grid use. `disc` leaves body lists exactly as before;
 `check`/`dash`/`arrow` apply to lists written as a direct child of the body (nested lists
-keep their disc). The marker's colour is not authorable, as above (#1028). Use
+keep their disc). On `check`/`dash`/`arrow` the marker's colour is the `body` role's
+`marker.color` (#1028); unset it takes the accent. A `disc` list ignores it. Use
 `body_marker` when a prose section needs a check-list
 without moving the content into a grid or panel.
 
@@ -339,11 +342,11 @@ set, the row renders after the body.
 The row is the `inline-items` role. It carries the body's type as its own role default, so
 a strip keeps the band's size and weight without you repeating them; override
 `typography.size` / `.weight` / `.color` on the role for a slimmer or bolder strip. The
-separator's glyph is a fixed middot, and like the list markers above its colour is not
-directly authorable — same pseudo-element reason (#1028). **But it resolves differently
-from them on purpose, and that difference is the knob:** the markers land on
-`var(--color-accent)`, which is what they always defaulted to, while the separator lands on
-**`currentColor`**, so it follows whatever `typography.color` you put on `inline-items`.
+separator's glyph is a fixed middot, and its colour is the `inline-items` role's
+`marker.color` (#1028), like the list markers above. **Unset, it resolves differently from
+them on purpose:** the markers land on `var(--color-accent)`, which is what they always
+defaulted to, while the separator lands on **`currentColor`**, so it follows whatever
+`typography.color` you put on `inline-items`.
 That is what the v1 muted default achieved through band-class remaps, which a v2 band has
 no class for — so set the row's colour on a dark band and the separator follows it
 automatically, with nothing else to set. Residual on a default light band: the middot is
@@ -351,10 +354,12 @@ automatically, with nothing else to set. Residual on a default light band: the m
 not the `body` role's colour, which means the mark is the SAME ink as the item text beside
 it, where v1 painted it one step lighter. To get the old
 grey, grey the row: `"inline-items": {"typography": {"color": "@color-muted"}}` moves the
-mark and the item text together. **A band that set the separator to a colour DIFFERENT
-from its body copy** — an accent middot over muted text — does not reproduce, and there is
-no setting that brings it back; `currentColor` is the whole mechanism. Say so rather than
-proposing a substitute.
+mark and the item text together. **A separator DIFFERENT in colour from its text** (an
+accent middot over muted text) is the role's `marker.color`. `update_component` replaces a
+role's whole map, so send the role's other authored groups in the same map (a
+`typography.color`, the `spacing.margin-top: "0"` strip idiom, a `layout.justify`):
+`"inline-items": {"typography": {"color": "@color-muted"}, "marker": {"color": "@color-accent"}}`.
+On a row with nothing authored, `{"marker": {"color": "@color-accent"}}` is enough.
 
 Per-line alignment when the strip wraps is the **`body_items_align` prop** (`start` |
 `center`, default `start`) — a prop and not a role value, because it selects a wrap

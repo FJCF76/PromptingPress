@@ -22,7 +22,7 @@ authoring shape.
 | `body` | string | No¹ | `''` | The band's main prose surface. Rich HTML (sanitized via `wp_kses_post`): block markup, lists, headings and links are allowed. Optional since #488 — omit it for a `body_items`-only strip or a panel-only band. Links inside it are the `body-link` role. |
 | `body_items` | array | No | `[]` | Row of short plain-text items after the body (the "trust strip"). At most 8 items, each at most 80 characters; an over-bound or non-string entry is rejected at write time. The row is the `inline-items` role. |
 | `body_items_align` | enum | No | `start` | How the row packs its lines: `start` (left-packed, line-leading separators clipped) or `center` (centred, separator trailing as a line-end dot). Scaffolding, not styling — see "Why two props survived" below. |
-| `body_marker` | enum | No | `disc` | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Chooses WHICH glyph; the colour is not authorable and renders the accent — see "What narrowed" (#1028). |
+| `body_marker` | enum | No | `disc` | List marker for top-level `<ul>` lists in `body`: `disc` / `check` / `dash` / `arrow`. Chooses WHICH glyph; on `check`/`dash`/`arrow` its colour is the `body` role's `marker.color`, and unset it renders the accent (#1028). A `disc` list is the native marker: it takes the text colour and ignores `marker.color`. |
 | `layout` | enum | No | `text-only` | Structural layout: `text-only` / `image-left` / `image-right` / `centered` / `text-panel`. See Variants. |
 | `image_url` | string | No | `''` | The image column's source on `image-left` / `image-right`. This is the band's CONTENT image; a band BACKGROUND is `_band` `background.image` instead. |
 | `image_alt` | string | No | `''` | Alt text for that image. Empty only if it is purely decorative. |
@@ -222,8 +222,9 @@ The 19 roles cover the visual jobs this component has, with four honest gaps. Th
 shared mechanisms that live in the structural block because the contract has no dimension
 for them; the fourth is a hole.
 
-- **The glyphs' colour** — the list markers and the inline separator. Pseudo-elements, so
-  ruling A3 defers them; see "What narrowed" and #1028.
+- **The glyphs themselves** — the list markers and the inline separator. Pseudo-elements,
+  so ruling A3 defers them. Their COLOUR is reachable: the `marker.color` param on the
+  holding role (#1028; see "What narrowed").
 - **Prose rhythm inside `body`** — `p + p` separation, the list indent and marker restore
   after the base reset, and the panel list's item rhythm. These are relationships between
   SIBLINGS, and a role addresses one element.
@@ -294,8 +295,8 @@ composition that could not be built — not a hypothesis.
 
 ## What narrowed
 
-Three capabilities are smaller after the rebuild. Each is recorded as a narrowing rather
-than a move, and none is an oversight.
+Two capabilities are smaller after the rebuild and one moved (glyph colour, item 1, since
+#1028). Each is recorded here rather than left to be discovered, and none is an oversight.
 
 **0. A `centered` band's body measure is 32px narrower.** v1 gave `centered` its own
 wrapper cap (`--measure-centered`, 56rem) so it rendered **672px** where `text-only`
@@ -305,47 +306,44 @@ all five. `40rem` is the value that makes the default layout byte-identical, whi
 that band. The image and `text-panel` layouts are unaffected — their columns were already
 narrower than either cap.
 
-**1. Glyph colour is not authorable (#1028).** `--section-separator-color`,
-`--section-body-marker-color` and `--section-panel-marker-color` were three authorable
-per-band colours. Every one of those marks is drawn with `content` on a `::before` or
-`::after`, and **ruling A3 defers pseudo-elements to their own ruling**, so no role can
-express them at any value — they are mechanism by construction, not by classification.
+**1. Glyph colour moved from three slots to one role param (#1028).**
+`--section-separator-color`, `--section-body-marker-color` and
+`--section-panel-marker-color` were three authorable per-band colours. Every one of those
+marks is drawn with `content` on a `::before` or `::after`, and **ruling A3 defers
+pseudo-elements**, so no role addresses the glyph itself.
 
-There is no replacement knob, and this README said otherwise until #1028 was filed: the
-`--pp-list-marker-color` property these rules read is internal plumbing, declared on no
-`:root` and registered as no design token, so `update_design_token` refuses it. What is
-lost is per-band control AND glyph-only control; what remains is below.
+**The route is the `marker` group:** `marker.color` on the role that holds the glyph sets
+`--pp-list-marker-color` on that role's own box, and the glyph inherits it. Per band, per
+state, per breakpoint:
 
-**The two LIST MARKERS are unchanged**: they defaulted to `var(--color-accent)` and that
-is what they render, so nothing moves. `--color-accent` is a real design token, so
-`update_design_token` moves them — along with every other accent on the site.
-
-**The SEPARATOR is not, and this is stated rather than rounded off.** It defaulted to
-`var(--color-muted)`, not to the accent — and that muted default existed to make the mark
-FOLLOW ITS SIBLING TEXT: on an inverted band `--color-muted` was remapped to the light
-on-inverted colour, and a background-image band had an explicit rule routing it to
-`--color-bg`. Both were band-class remaps, and a v2 band has no class, so re-using the
-literal would have painted a fixed grey that vanishes on exactly the dark bands v2 makes
-easy. Its fallback is **`currentColor`** instead — the same intent in the mechanism v2 has,
-inheritance — so the mark follows whatever colour you gave the row, on every band,
-including ones v1 could not express.
-
-The residual: on a **default light band** the middot follows the row's inherited text
-colour rather than `--color-muted`. Slightly heavier, still recessive against the item
-text it sits between. **To get the old grey, grey the row** — that is the only lever, and
-it moves the item text too:
+| v1 slot | v2 address |
+|---|---|
+| `--section-separator-color` | `inline-items` -> `marker.color` |
+| `--section-body-marker-color` | `body` -> `marker.color` |
+| `--section-panel-marker-color` | `panel-list` -> `marker.color` |
 
 ```json
-{"inline-items": {"typography": {"color": "@color-muted"}}}
+{"inline-items": {"marker": {"color": "#FF5C2E"}}}
 ```
 
-**If you set `--section-separator-color` to something OTHER than your body text colour,
-read this.** A band that deliberately contrasted its separator against its copy — an
-accent middot over muted text, say — **does not reproduce, and nothing here brings it
-back.** `currentColor` is the entire mechanism: the mark follows the row. This is the one
-v1 capability with no v2 equivalent, tracked as #1028 and blocked on the pseudo-element
-ruling, because a mark that differs from its sibling text needs a role that can address a
-pseudo-element.
+**Only the drawn glyphs read it.** A list left on the default `disc` marker is the browser's
+native `::marker`, which takes the text colour and ignores `marker.color`, exactly as v1's
+body and panel slots were "ignored while `disc`". Choose `check`, `dash` or `arrow` to colour
+the markers.
+
+The group is **authored only** (no role declares a default), and that is what keeps the two
+fallbacks apart on every band that does not set it:
+
+- **The two LIST MARKERS are unchanged**: they defaulted to `var(--color-accent)`, and that
+  is what they render.
+- **The SEPARATOR falls back to `currentColor`.** Its v1 slot defaulted to
+  `var(--color-muted)`, and that default existed to make the mark FOLLOW ITS SIBLING TEXT
+  through band-class remaps a v2 band cannot carry. `currentColor` is the same intent
+  through inheritance: the mark follows whatever colour you gave the row, on every band. On
+  a **default light band** the middot therefore takes the row's text colour rather than
+  `--color-muted`. To get the old grey, set the separator itself
+  (`"inline-items": {"marker": {"color": "@color-muted"}}`) or grey the whole row
+  (`"inline-items": {"typography": {"color": "@color-muted"}}`).
 
 **2. The body-less strip no longer flushes its own top margin.** On v1 the template
 inferred `$has_body_copy` and emitted a `--flush-top` modifier that zeroed the

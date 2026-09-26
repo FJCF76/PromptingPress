@@ -8758,10 +8758,10 @@ function pp_default_homepage_composition(): array {
             'layout'        => 'text-only',
         // Section is a v2 component since #1023, so the starter's styling for this band
         // is a `udc` map keyed by role rather than a flat slot map. Same rendered design,
-        // eleven slot names down to five role entries. `--section-separator-color` has no
-        // equivalent: the inline-items separator is a `::before` glyph and ruling A3
-        // defers pseudo-elements, so the strip's middot takes the shared accent default —
-        // which is the colour this starter was setting it to anyway.
+        // eleven slot names down to six role entries. `--section-separator-color` (the
+        // starter's #FF5C2E) is `inline-items` -> `marker.color` since #1028: the middot
+        // is a `::before` glyph no role addresses, and the group sets a colour on the row
+        // that the glyph inherits. Without it the mark would follow the row's own ink.
         ], 'udc' => [
             '_band'          => [
                 'background' => ['fill' => '#F2EEE5'],
@@ -8775,6 +8775,7 @@ function pp_default_homepage_composition(): array {
                 'background' => ['fill' => '#FBF8F1'],
                 'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
             ],
+            'inline-items'   => ['marker' => ['color' => '#FF5C2E']],
         ]],
 
         // 3 — Mechanism band (native text-panel, monospace dark spec panel).
@@ -8843,17 +8844,17 @@ function pp_default_homepage_composition(): array {
                 ['title' => 'Safer revisions', 'text' => 'AI-assisted updates on live sites stay easy to trust.', 'bullets' => ['Preflight checks', 'Screenshots before apply', 'Rollback-aware actions']],
             ],
         // GRID IS A v2 COMPONENT SINCE #1101 — the last band in this seed to convert, and
-        // the last `style` map anywhere in the theme. Twenty slot names become nine role
+        // the last `style` map anywhere in the theme. Twenty slot names become ten role
         // entries, and the `card_emphasis: uniform` prop above went with the conversion
         // rather than being ported: the featured treatment it opted OUT of no longer
         // exists (ruling D9), so a band that used to ask for peer cards now simply gets
-        // them. The rendered design is unchanged in every respect but the two noted below.
+        // them. The rendered design is unchanged; two slots are noted below only because
+        // they do not look like role values.
         //
-        // TWO SLOTS HAVE NO ROLE, and both are stated rather than quietly dropped:
-        //   - `--grid-item-bullet-color` painted a `::before` check-mark glyph, and ruling
-        //     A3 defers pseudo-elements, so the marker takes the shared accent default.
-        //     This seed was setting it to `#FF5C2E`, so the bullets go from the starter's
-        //     orange to the theme accent on this one band.
+        // TWO SLOTS DO NOT LOOK LIKE ROLE VALUES, and both are stated here:
+        //   - `--grid-item-bullet-color` painted a `::before` check-mark glyph. Since
+        //     #1028 it is `card-bullets` -> `marker.color` below (the starter's #FF5C2E):
+        //     the group sets a colour on the list that each check inherits.
         //   - `--grid-heading-measure` is `heading` -> `sizing.max-width` below, which DOES
         //     have a role — it is listed here only because the slot name does not look
         //     like one.
@@ -8881,6 +8882,7 @@ function pp_default_homepage_composition(): array {
             'card-bar'       => ['background' => ['fill' => '#FF5C2E'], 'sizing' => ['height' => '3px']],
             'card-title'     => ['typography' => ['color' => '#0A0A12']],
             'card-text'      => ['typography' => ['color' => '#3A3A44']],
+            'card-bullets'   => ['marker' => ['color' => '#FF5C2E']],
         ]],
 
         // 5 — Maintainability / proof band (warm cream), prose + workflow strip.
@@ -8895,10 +8897,10 @@ function pp_default_homepage_composition(): array {
             'layout'        => 'text-only',
         // Section is a v2 component since #1023, so the starter's styling for this band
         // is a `udc` map keyed by role rather than a flat slot map. Same rendered design,
-        // eleven slot names down to five role entries. `--section-separator-color` has no
-        // equivalent: the inline-items separator is a `::before` glyph and ruling A3
-        // defers pseudo-elements, so the strip's middot takes the shared accent default —
-        // which is the colour this starter was setting it to anyway.
+        // eleven slot names down to six role entries. `--section-separator-color` (the
+        // starter's #FF5C2E) is `inline-items` -> `marker.color` since #1028: the middot
+        // is a `::before` glyph no role addresses, and the group sets a colour on the row
+        // that the glyph inherits. Without it the mark would follow the row's own ink.
         ], 'udc' => [
             '_band'          => [
                 'background' => ['fill' => '#F2EEE5'],
@@ -8912,6 +8914,7 @@ function pp_default_homepage_composition(): array {
                 'background' => ['fill' => '#FBF8F1'],
                 'border'     => ['width' => '1px', 'style' => 'solid', 'color' => '#E8E2D4'],
             ],
+            'inline-items'   => ['marker' => ['color' => '#FF5C2E']],
         ]],
 
         // 6 — Closing CTA (dark), branded orange button.

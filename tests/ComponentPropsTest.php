@@ -142,7 +142,8 @@ class ComponentPropsTest extends TestCase
      * §3.4's "no inline style emission anywhere in v2 components" true theme-wide for the
      * first time. Four schema tests went with them — the declarations they read
      * (`--grid-item-bullet-color`, `--grid-step-text-color`, the header slots, the
-     * title-accent slot) are role defaults now, or retired with a stated narrowing.
+     * title-accent slot) are role defaults now, an authored role param (the bullet colour
+     * is `card-bullets` -> `marker.color` since #1028), or retired with a stated narrowing.
      *
      * WHERE THE RENDER CLAIMS WENT, because they did not all evaporate:
      *   - the band's design identity is pinned by the `data-pp-band` guard tests, which

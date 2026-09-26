@@ -121,7 +121,7 @@ the light-surface `@color-accent` measures only **3.23:1** there — passing the
 bar and failing every smaller one. And `.stats--inverted .stats__label` set `@color-bg` at
 `opacity: 0.75`.
 
-**`opacity` is in none of the seven UDC groups**, so that de-emphasis ports as the
+**`opacity` is in none of the UDC groups**, so that de-emphasis ports as the
 **pixel-measured composite `rgb(192, 195, 201)`** (10.11:1). That is the standing rule rather
 than a workaround: this family's earlier `opacity: 0.85` was retired at #577 for measuring
 3.87:1, replaced with `--color-muted-on-overlay`, and `base.css` records *"do NOT

@@ -57,7 +57,7 @@
       "item_max_length": 80,
       "required": false,
       "default": [],
-      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The row itself is the `inline-items` role, so its type, colour and gaps are that role's `udc` values, and `body_items_align` selects the wrap technique. The SEPARATOR is not a role value: its glyph is a stated middot and its colour is NOT AUTHORABLE by any surface at all (#1028) — it follows the row's own ink, so set `typography.color` on the `inline-items` role to move it. See that role's description for why. Not for multi-line content — use body or panel_items for that."
+      "description": "Optional row of short plain-text items rendered after the body with a separator between them (the \"trust strip\" pattern). Each entry is a plain-text string (escaped, no HTML); at most 8 items, each at most 80 characters — a write that exceeds either bound, or carries a non-string entry, is rejected. Renders only when non-empty; when both body and body_items are set the row renders after the body. The row itself is the `inline-items` role, so its type, colour and gaps are that role's `udc` values, and `body_items_align` selects the wrap technique. The SEPARATOR is not a role of its own: its glyph is a stated middot, and its colour is the `inline-items` role's `marker.color` (#1028). Unset, it follows the row's own ink. See that role's description. Not for multi-line content — use body or panel_items for that."
     },
     "body_items_align": {
       "type": "enum",
@@ -144,7 +144,7 @@
       ],
       "required": false,
       "default": "disc",
-      "description": "text-panel layout: list marker glyph for the string entries of panel_items. 'disc' (default) is the plain bulleted list; 'check', 'dash' and 'arrow' render that glyph instead. THE GLYPH IS CONTENT, which is why this stays a prop. Its COLOUR is no longer authorable: the glyph is painted by a ::before pseudo-element, and ruling A3 defers pseudo-elements to their own ruling — see retired_props."
+      "description": "text-panel layout: list marker glyph for the string entries of panel_items. 'disc' (default) is the plain bulleted list; 'check', 'dash' and 'arrow' render that glyph instead. THE GLYPH IS CONTENT, which is why this stays a prop. On 'check', 'dash' and 'arrow' its COLOUR is the `panel-list` role's `marker.color` (#1028), and unset it takes the accent. The default 'disc' is the browser's native marker: it takes the text colour and ignores `marker.color` (as v1's slot did). The glyph itself is painted by a ::before, which no role addresses (ruling A3); the marker group reaches it through a colour the list's own box passes down."
     },
     "body_marker": {
       "type": "enum",
@@ -157,7 +157,7 @@
       ],
       "required": false,
       "default": "disc",
-      "description": "List marker glyph for top-level <ul> lists in body. 'disc' (default) leaves body lists unchanged; 'check', 'dash' and 'arrow' render that glyph instead. Applies only to lists authored as a direct child of the body (nested lists keep their disc). Same pseudo-element deferral as panel_items_marker — the glyph is a prop, its colour is not authorable in v2."
+      "description": "List marker glyph for top-level <ul> lists in body. 'disc' (default) leaves body lists unchanged; 'check', 'dash' and 'arrow' render that glyph instead. Applies only to lists authored as a direct child of the body (nested lists keep their disc). The glyph is this prop; its colour on 'check', 'dash' and 'arrow' is the `body` role's `marker.color` (#1028), and unset they take the accent. A 'disc' list is the browser's native marker: it takes the text colour and ignores `marker.color` (as v1's slot did)."
     },
     "panel_cta_text": {
       "type": "string",
@@ -389,14 +389,15 @@
     "body": {
       "selector": ".section__content",
       "text_content": true,
-      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, AND MEASURED IS THE OPERATIVE WORD. v1 capped this element from four rules at once, and an earlier cut of this rebuild picked 49rem by reading those four and taking the winner — which was wrong, because the winning rule among those targeting an element is not what the element renders. `.section__content` sits inside `.section__body`, which capped at 40rem, so the 49rem literal never bound and a default band rendered at 640px. Measured in a browser at 375/768/1280: text-only 640px, centered 672px, image and panel layouts narrower still. v2 has no layout-specific role defaults, so one value serves all five layouts; 40rem is chosen because `text-only` is this component's own default `layout`, which makes the band an agent gets when it specifies nothing byte-identical to v1. A `centered` band is 32px narrower than it was — set `sizing.max-width` to `42rem` on that band for the old width.",
+      "description": "The rich-text body container. Its measure is this role's `sizing.max-width`; the type scale is its `typography`. THE DEFAULT IS THE MEASURED v1 VALUE, AND MEASURED IS THE OPERATIVE WORD. v1 capped this element from four rules at once, and an earlier cut of this rebuild picked 49rem by reading those four and taking the winner — which was wrong, because the winning rule among those targeting an element is not what the element renders. `.section__content` sits inside `.section__body`, which capped at 40rem, so the 49rem literal never bound and a default band rendered at 640px. Measured in a browser at 375/768/1280: text-only 640px, centered 672px, image and panel layouts narrower still. v2 has no layout-specific role defaults, so one value serves all five layouts; 40rem is chosen because `text-only` is this component's own default `layout`, which makes the band an agent gets when it specifies nothing byte-identical to v1. A `centered` band is 32px narrower than it was — set `sizing.max-width` to `42rem` on that band for the old width. Its `marker.color` (#1028) colours the drawn list marker `body_marker` selects (`check`, `dash`, `arrow`); a list left on the default `disc` is a native marker and ignores it.",
       "groups": [
         "typography",
         "spacing",
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "marker"
       ],
       "defaults": {
         "typography": {
@@ -467,7 +468,7 @@
     "inline-items": {
       "selector": ".section__inline-items",
       "text_content": true,
-      "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because that prop also switches the separator mechanism; the packing alone is this role's `layout.justify` (#1084), which outranks it. THIS ROLE DELIBERATELY DECLARES NO TYPE DEFAULT, and that is the faithful port rather than an omission. v1 declared `font-size: var(--section-body-size, inherit)` on the row — the fallback is `inherit`, not a value — and the row is a SIBLING of `.section__content`, so the premium body rule never reached it and it inherited from its wrapper (measured 16px/400 at every tier, where copying the body's literals gave 17.04px/430). `inherit` cannot be carried forward as a value; a role that declines to default reproduces it exactly, and it restores the follow-the-body behaviour the shared slot pair used to give. Set `typography` on this role for a slimmer or bolder strip. Its `sizing.max-width` is 40rem for the same reason the `body` role's is: v1 gave both the same cap by sharing one wrapper, and the row's `max-width: 100%` was 100% OF THAT. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR was the `--section-separator-color` slot and is now NOT AUTHORABLE BY ANY MEANS (#1028): the mark is drawn with `content` on a pseudo-element and ruling A3 defers pseudo-elements, so no role can reach it, and there is no site-wide surface for it either — do not offer one. What renders is `currentColor`, so the mark follows this role's own `typography.color`, which is the only lever, and it moves the item text with it. That is deliberate and it is what the v1 muted default achieved through band-class remaps a v2 band cannot carry; the cost is that a mark DIFFERENT in colour from its sibling text is no longer expressible. Reopening condition: a composition needs a non-middot separator, or per-band separator colour; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
+      "description": "The short-items row rendered after the body (the \"trust strip\"). How the row packs its lines is the `body_items_align` prop, because that prop also switches the separator mechanism; the packing alone is this role's `layout.justify` (#1084), which outranks it. THIS ROLE DELIBERATELY DECLARES NO TYPE DEFAULT, and that is the faithful port rather than an omission. v1 declared `font-size: var(--section-body-size, inherit)` on the row — the fallback is `inherit`, not a value — and the row is a SIBLING of `.section__content`, so the premium body rule never reached it and it inherited from its wrapper (measured 16px/400 at every tier, where copying the body's literals gave 17.04px/430). `inherit` cannot be carried forward as a value; a role that declines to default reproduces it exactly, and it restores the follow-the-body behaviour the shared slot pair used to give. Set `typography` on this role for a slimmer or bolder strip. Its `sizing.max-width` is 40rem for the same reason the `body` role's is: v1 gave both the same cap by sharing one wrapper, and the row's `max-width: 100%` was 100% OF THAT. THE SEPARATOR: its GLYPH is a stated default fixed to a middot, and there is no role parameter for it. Fixing the glyph is what lets the separator be a CSS-generated box of exactly var(--space-sm) — never a content character, so it stays out of the accessibility tree (the `/ \"\"` alternative text empties its a11y name) and the left-pull is an exact token value independent of any glyph's advance width. Its COLOUR is this role's `marker.color` (#1028), which replaced the v1 `--section-separator-color` slot. The mark is drawn with `content` on a pseudo-element, which no role addresses (ruling A3), so the group never touches it: it sets a colour on this row's own box, which the mark inherits. Unset, what renders is `currentColor`, so the mark follows this role's own `typography.color` and moves with the item text; set `marker.color` for a mark DIFFERENT in colour from its sibling text. The group is authored only (no role default), which is what keeps that follow-the-text fallback on every band that does not set it. Reopening condition for the GLYPH: a composition needs a non-middot separator; cheap when it comes, because the box is deliberately glyph-independent and a swap would not move the layout.",
       "groups": [
         "typography",
         "spacing",
@@ -475,7 +476,8 @@
         "background",
         "sizing",
         "motion",
-        "layout"
+        "layout",
+        "marker"
       ],
       "defaults": {
         "spacing": {
@@ -583,14 +585,15 @@
     "panel-list": {
       "selector": ".section__panel-list",
       "text_content": true,
-      "description": "The panel's list container. The space between entries is design; the marker glyph is the panel_items_marker prop. Its indent and bottom rhythm are this role's spacing; the disc glyph itself is structural, because the global reset strips list markers and restoring one is normalize rather than design.",
+      "description": "The panel's list container. The space between entries is design; the marker glyph is the panel_items_marker prop. Its indent and bottom rhythm are this role's spacing; the disc glyph itself is structural, because the global reset strips list markers and restoring one is normalize rather than design. Its `marker.color` (#1028) colours the drawn marker `panel_items_marker` selects (`check`, `dash`, `arrow`); a `disc` list ignores it.",
       "groups": [
         "typography",
         "spacing",
         "border",
         "background",
         "sizing",
-        "motion"
+        "motion",
+        "marker"
       ],
       "defaults": {
         "spacing": {

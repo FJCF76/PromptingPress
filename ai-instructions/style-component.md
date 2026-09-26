@@ -114,7 +114,7 @@ styling write built from an older read.
 
 ### Groups and parameters
 
-Eight groups. `wp pp schema <component>`'s `udc_groups` field states the whole vocabulary, derived
+Nine groups. `wp pp schema <component>`'s `udc_groups` field states the whole vocabulary, derived
 from the engine, and a role permits only the groups its own `groups` list names:
 
 - **typography** — family, size, weight, style, line-height, letter-spacing, align, transform, decoration, wrap, color
@@ -125,6 +125,11 @@ from the engine, and a role permits only the groups its own `groups` list names:
 - **layout** — columns, orientation, wrap, justify, align
 - **shadow** — box
 - **motion** — transition-duration, timing-function
+- **marker** — color. The colour of a list-marker or separator glyph, set on the role that holds
+  it: section `inline-items` (the separator), `body` and `panel-list` (list markers), grid
+  `card-bullets` (the check, also per card). Only drawn glyphs read it: a section list left on
+  the default `disc` marker is native and ignores it. Authored only: unset, the separator
+  follows its row's ink and the drawn markers take the accent (#1028).
 
 Two names appear in two groups and mean different things. `layout.align` is the cross-axis
 alignment of a container's children; `typography.align` is text alignment. `layout.wrap` is flex

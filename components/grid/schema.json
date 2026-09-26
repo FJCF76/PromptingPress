@@ -524,7 +524,7 @@
     "card-bullets": {
       "selector": ".grid__item-bullets",
       "text_content": true,
-      "description": "The checklist below the card text — the <ul>. It owns the colour, type and gap of the whole list; the individual line's indent is `card-bullet`. NOTE THE MEASURED ASYMMETRY WITH `card-text`, which is a real v1 behaviour rather than an inconsistency to tidy: the bullet list has NO desktop tier of its own, so it stays `@color-muted` at every viewport while the paragraph above it lightens to `@color-text-secondary` from 768px up. Setting this role's colour is what makes the two agree. THE CHECK-MARK GLYPH'S COLOUR HAS NO v2 ADDRESS: it is painted by a pseudo-element, which Addendum B6 exclusion 6 defers, so v1's `--grid-item-bullet-color` retired with a stated narrowing — measured live exposure on the owner's site was ZERO bands. #1028 is the ruling that would give it a home.",
+      "description": "The checklist below the card text — the <ul>. It owns the colour, type and gap of the whole list; the individual line's indent is `card-bullet`. NOTE THE MEASURED ASYMMETRY WITH `card-text`, which is a real v1 behaviour rather than an inconsistency to tidy: the bullet list has NO desktop tier of its own, so it stays `@color-muted` at every viewport while the paragraph above it lightens to `@color-text-secondary` from 768px up. Setting this role's colour is what makes the two agree. THE CHECK-MARK GLYPH'S COLOUR is this role's `marker.color` (#1028), which replaced v1's `--grid-item-bullet-color`. The glyph is a pseudo-element (Addendum B6 exclusion 6 still holds), so the group sets a colour on the list's own box that each bullet's check inherits. Unset, it takes the accent. It works per card too: an `items[]` entry's own `udc` may set `card-bullets.marker.color`.",
       "groups": [
         "typography",
         "spacing",
@@ -532,7 +532,8 @@
         "background",
         "sizing",
         "layout",
-        "motion"
+        "motion",
+        "marker"
       ],
       "defaults": {
         "typography": {

@@ -8,16 +8,15 @@
  * after .section__content; the separator is a `li::before` pseudo-element (never a
  * content character) so it stays out of the accessibility tree.
  *
- * THE SEPARATOR'S COLOUR IS NOT AUTHORABLE SINCE #1023, and that is a stated
- * narrowing rather than an oversight: `--section-separator-color` retired with
- * section's slot map, and ruling A3 defers pseudo-elements to their own ruling, so no
- * role can address the mark at any value. It falls back to `currentColor`, which is
- * what the v1 muted default achieved through band-class remaps a v2 band has no class
- * for — so the mark follows whatever colour the author gave the row, and that is the
- * ONLY lever on it: `--pp-list-marker-color` leads the chain in the CSS but is declared
- * nowhere and registered as no design token, so nothing can write it (#1028). The tests
- * below assert exactly that; this header used to sell the retired slot as the feature,
- * and then briefly sold a token that does not exist.
+ * THE SEPARATOR'S COLOUR: `--section-separator-color` retired with section's slot map
+ * (#1023), and ruling A3 defers pseudo-elements, so no role addresses the mark itself.
+ * Since #1028 its colour is the `inline-items` role's `marker.color`, which sets
+ * `--pp-list-marker-color` on the row's own box (tests/UdcMarkerGroupTest.php owns that
+ * route). Unset, it falls back to `currentColor`, which is what the v1 muted default
+ * achieved through band-class remaps a v2 band has no class for: the mark follows
+ * whatever colour the author gave the row. The tests below pin the retirement and that
+ * fallback; this header used to sell the retired slot as the feature, and then briefly
+ * sold a token that does not exist.
  *
  * Hanging-separator clip (issue 489): the separator is on EVERY item's `::before`,
  * each item is pulled left by exactly the separator's occupied width, and the row is
@@ -366,13 +365,14 @@ class SectionInlineItemsTest extends TestCase
         );
     }
 
-    public function testTheSeparatorColourIsNoLongerAuthorable(): void
+    public function testTheSeparatorSlotIsRetiredAndFallsBackToItsRow(): void
     {
-        // THE NARROWING, PINNED RATHER THAN LEFT TO BE NOTICED (#1023). The separator is
-        // drawn with `content` on a `::before`, and ruling A3 defers pseudo-elements to
-        // their own ruling — so no role can address it at any value, and
-        // `--section-separator-color` has no v2 home. Its two rules (the base and the
-        // bg-image re-route) went with the slot.
+        // THE SLOT'S RETIREMENT, PINNED (#1023). The separator is drawn with `content` on a
+        // `::before`, which no role addresses (ruling A3), and `--section-separator-color`
+        // retired with section's slot map; its two rules (the base and the bg-image
+        // re-route) went with it. Its v2 address is `inline-items` -> `marker.color`
+        // (#1028, pinned in tests/UdcMarkerGroupTest.php). This test pins the retirement
+        // and the UNAUTHORED `currentColor` fallback.
         //
         // THE RENDERED COLOUR DOES CHANGE, AND THIS PIN SAYS SO — an earlier draft of this
         // comment claimed byte-identity by carrying the LIST MARKERS' story onto the
@@ -391,8 +391,8 @@ class SectionInlineItemsTest extends TestCase
         // `@color-text-secondary` — the same sibling fact this file's own header cites for
         // the row's TYPE, applied to its COLOUR. The mark therefore matches the item text
         // beside it exactly, which is what currentColor means, where v1 painted it one step
-        // lighter. There is no knob that restores the old grey on its own
-        // (#1028) — greying the ROW greys the mark with it, and that is the whole lever.
+        // lighter. The old grey is `inline-items` -> `marker.color: @color-muted` since
+        // #1028 (the mark alone), or grey the ROW and the mark greys with it.
         //
         // The two halves are asserted separately below, because collapsing them is exactly
         // the mistake this comment is correcting.
@@ -634,9 +634,9 @@ class SectionInlineItemsTest extends TestCase
         // (:not(:last-child)). Its colour used to route through the
         // --section-separator-color slot; that slot is retired with the rest of them, so
         // both modes read the shared --pp-list-marker-color plumbing var — falling back
-        // to `currentColor`, NOT to the accent the two list markers take. Nothing writes
-        // that var (#1028), so the fallback IS the rendered value. See
-        // testTheSeparatorColourIsNoLongerAuthorable() for why the separator's fallback
+        // to `currentColor`, NOT to the accent the two list markers take. Only an authored
+        // `marker.color` writes that var (#1028), so on an unauthored band the fallback IS
+        // the rendered value. See testTheSeparatorSlotIsRetiredAndFallsBackToItsRow() for why the separator's fallback
         // differs from theirs, and for the residual that difference leaves.
         //
         // The point of asserting it HERE too is that the two modes must not diverge: if

@@ -142,10 +142,10 @@ $panel_items = array_values(array_filter(
 
 // List-marker selection (issue 339). A list can carry a marker other than the
 // default disc — check / dash / arrow. THE GLYPH IS CONTENT, which is why these
-// stay props; the marker COLOUR was a style slot and is not authorable in v2,
-// because the glyph is painted by a ::before pseudo-element and ruling A3 defers
-// pseudo-elements to their own ruling (recorded in schema.json's retired_props and
-// in the Addendum B draft's exclusion list). `disc` is the default and adds NO
+// stay props; the marker COLOUR was a style slot and is now the `marker.color`
+// param on the holding role (`body`, `panel-list`; #1028). The glyph itself is a
+// ::before pseudo-element no role addresses (ruling A3); the param sets a colour
+// on the list's own box that the glyph inherits. `disc` is the default and adds NO
 // class, so an un-opted list renders exactly as before.
 $allowed_markers = ['disc', 'check', 'dash', 'arrow'];
 if (!in_array($panel_items_marker, $allowed_markers, true)) {
