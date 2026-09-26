@@ -16,7 +16,7 @@ Before modifying any component styling or composition: run `wp pp check conflict
 
 ## Invariants — never violate these
 
-- Templates call components, by literal name, and list each one in `pp_base_template()`'s second argument (#1171: it is how the page head knows which role defaults to print). Components do not call components.
+- Templates call components. A template that renders components by name calls each by a literal name and lists it in `pp_base_template()`'s second argument (#1171: it is how the page head knows which role defaults to print); a template that renders a stored composition passes no list. Components do not call components.
 - No WordPress functions in /templates/ or /components/. Only /lib/wp.php calls WP.
 - All lib/wp.php functions are prefixed pp_. Use pp_field(), pp_site_title(), etc. — not get_field(), get_bloginfo(), etc.
 - No hooks (add_action, add_filter) in view files. Only in functions.php.
