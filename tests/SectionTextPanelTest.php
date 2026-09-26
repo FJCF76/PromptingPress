@@ -424,12 +424,11 @@ class SectionTextPanelTest extends TestCase
     // ── 4. List markers (issue 339) ───────────────────────────────────────
     //
     // A list can carry a marker other than the default disc — check / dash /
-    // arrow — with an authorable marker colour, on the panel list AND on body
-    // lists. Generic marker capability; `disc` is the untouched default. The
-    // shared paint lives in components.css; StyleSlotContractTest proves the
-    // colour slots are consumed and unbypassed. Here we pin the render-time
-    // class wiring, the clamp, the byte-identical default, and the section
-    // block's colour-slot mapping. The cross-sheet PAINT (that the marker
+    // arrow — on the panel list AND on body lists. Generic marker capability;
+    // `disc` is the untouched default. The colour is `body` / `panel-list` ->
+    // `marker.color` (#1028, pinned in tests/UdcMarkerGroupTest.php). Here we pin
+    // the render-time class wiring, the clamp and the byte-identical default.
+    // The cross-sheet PAINT (that the marker
     // actually renders over the issue-295 disc rules) is pinned in
     // tests/e2e/style-render.spec.ts.
 
@@ -541,26 +540,24 @@ class SectionTextPanelTest extends TestCase
     /**
      * THE MARKER-COLOUR SLOTS ARE RETIRED, and this is the pin for the 7A-2 ruling.
      *
-     * Both slots mapped onto the shared `--pp-list-marker-color` plumbing var, which is
-     * read by a `li::before`. Ruling A3 defers PSEUDO-ELEMENTS to their own ruling, so no
-     * role can address that glyph at any value — the colour has no v2 home, and inventing
-     * one would have pre-empted a ruling the owner has not made.
+     * Both slots mapped onto the shared `--pp-list-marker-color` var, which is read by a
+     * `li::before`. Ruling A3 defers PSEUDO-ELEMENTS, so no role addresses that glyph.
+     * Since #1028 the colour's v2 home is `marker.color` on the `body` / `panel-list`
+     * role, which sets the variable on the list's own box (tests/UdcMarkerGroupTest.php);
+     * the SLOTS stay retired, which is what this pin asserts.
      *
      * The GLYPH CHOICE stays authorable, as the `body_marker` / `panel_items_marker`
-     * props, because a glyph is content. Only its colour went, and the rendered default
-     * does not move: the plumbing var falls back to `var(--color-accent)`, which is
-     * exactly what both slots defaulted to. Measured live exposure: zero marker-variant
-     * lists on any of the owner's five content pages.
-     *
-     * Recorded beside the item-grain deferral in the Addendum B draft's exclusion list,
-     * so the two open pseudo-element questions sit together.
+     * props, because a glyph is content. Its colour moved to `body` / `panel-list` ->
+     * `marker.color` (#1028), and the unauthored default does not move: the var falls
+     * back to `var(--color-accent)`, exactly what both slots defaulted to. Measured live
+     * exposure at the retirement: zero marker-variant lists on the owner's five pages.
      */
     public function testTheMarkerColoursAreRetiredButTheGlyphChoiceIsNot(): void
     {
         $css = preg_replace('#/\*.*?\*/#s', '', file_get_contents($this->themeRoot . '/assets/css/components.css'));
         foreach (['--section-panel-marker-color', '--section-body-marker-color'] as $slot) {
             $this->assertStringNotContainsString($slot, $css,
-                "{$slot} is retired — ruling A3 defers pseudo-elements, so it has no role home.");
+                "{$slot} is retired: its v2 route is the holding role's `marker.color` (#1028), not a slot.");
         }
 
         // The shared glyph still paints, through the plumbing var's accent fallback.

@@ -464,7 +464,8 @@ function pp_udc_preset_names_for_message(array $presets): string {
  * CSS actually accepts. The carrier never reaches a stylesheet.
  *
  * The leading `-pp-` cannot collide with a registry property: every real entry in
- * pp_udc_groups() is a plain CSS property name.
+ * pp_udc_groups() is a plain CSS property name or an engine `--pp-` custom property
+ * (`marker.color` -> `--pp-list-marker-color`, #1028), and `-pp-` is neither.
  */
 /**
  * The cascade-layer order statement, as one string (#986).
@@ -789,6 +790,30 @@ function pp_udc_groups(): array {
             'wrap'        => ['property' => 'flex-wrap',       'type' => 'flex-wrap',       'signed' => false, 'max_values' => 1, 'keywords' => []],
             'justify'     => ['property' => 'justify-content', 'type' => 'justify-content', 'signed' => false, 'max_values' => 1, 'keywords' => []],
             'align'       => ['property' => 'align-items',     'type' => 'align-items',     'signed' => false, 'max_values' => 1, 'keywords' => []],
+        ]],
+        // ── MARKER (#1028) ─────────────────────────────────────────────────
+        //
+        // The colour of a glyph the stylesheet draws with `content` on a ::before or
+        // ::after: the inline-items separator, the body and panel list markers, the grid
+        // card check. Ruling A3 defers pseudo-elements, so no role addresses the glyph;
+        // this param never does either. It sets a CUSTOM PROPERTY on the role's own box,
+        // the glyph rules already read `var(--pp-list-marker-color, <fallback>)`, and a
+        // custom property inherits into the pseudo-element.
+        //
+        // NOT A SITE TOKEN, and #1028 says why: one `:root` value would collapse the two
+        // fallback chains the stylesheet deliberately keeps apart (the separator follows
+        // its row via `currentColor`, the markers take `--color-accent`). Set per role,
+        // per band, per card, the chains survive wherever nothing is authored.
+        //
+        // AUTHORED ONLY, like `layout`: no role may declare a marker default, because a
+        // default would emit the variable on every unauthored band and replace both
+        // fallbacks. tests/UdcMarkerGroupTest.php enforces that, and derives the roles
+        // that expose the group from the stylesheet's own consumers of the variable.
+        //
+        // The property text is looked up here, never taken from author input, so the
+        // `_css` gate's refusal of custom properties is untouched.
+        'marker' => ['params' => [
+            'color' => $typed('--pp-list-marker-color', 'color'),
         ]],
         // MOTION (Addendum A, ruling A3). Exactly two params, by the ruling.
         //

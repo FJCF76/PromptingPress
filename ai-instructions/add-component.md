@@ -212,9 +212,12 @@ buys you a role that passes CI and styles nothing.
   so write it for the next person reading the schema: what the default measured, why
   it is what it is, and which roles it interacts with. Length is not charged to the
   prompt budget here.
-- **`groups`** — the UDC groups this role permits. The eight are `typography`,
-  `spacing`, `border`, `background`, `sizing`, `shadow`, `layout` and `motion`
-  (`pp_udc_groups()`, `lib/udc.php`). Declare only the ones the role's element can
+- **`groups`** — the UDC groups this role permits. The nine are `typography`,
+  `spacing`, `border`, `background`, `sizing`, `shadow`, `layout`, `motion` and `marker`
+  (`pp_udc_groups()`, `lib/udc.php`). `marker` (color) is authored only: never give it a
+  `defaults` entry, and list it only on a role whose element holds a `::before`/`::after`
+  glyph that reads `var(--pp-list-marker-color, …)`; tests/UdcMarkerGroupTest.php derives
+  the permitted roles from those stylesheet consumers in both directions. Declare only the ones the role's element can
   honour: a group listed here is a promise that writing it changes the rendering. A group
   the role does not list is refused at write with `unknown_udc_group`, which names the
   permitted set back to the author.

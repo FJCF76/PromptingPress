@@ -102,7 +102,7 @@ declaration always beats an inherited value.
 ```
 
 **Why that colour.** v1's `.logos--inverted .logos__label` set `@color-bg` at
-`opacity: 0.75`. `opacity` is in none of the seven UDC groups, and since #1079 a role's
+`opacity: 0.75`. `opacity` is in none of the UDC groups, and since #1079 a role's
 `"_css"` map reaches it anyway — so this is a rule you keep, not one the engine keeps for
 you. **Do not port the alpha.** The de-emphasis ports as
 the **pixel-measured composite rgb(192, 195, 201)** (measured 10.11:1; the composite is 192.75/195.5/201.75 and Chromium floors each channel). `@color-muted` itself

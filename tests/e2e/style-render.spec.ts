@@ -4903,22 +4903,21 @@ test.describe('chrome UDC renders (ruling A1)', () => {
    * (0,1,1) and `.section__panel-list { list-style: disc }` (0,1,0) are beaten by
    * the shared marker rules on source order — that is exactly the #342 guard gap
    * (a marker that validates but never paints is the #302 failure mode). Only a
-   * rendered box proves it. Lead with list-style + a slot-driven marker colour
+   * rendered box proves it. Lead with list-style + the marker colour
    * (robust); the ::before content is checked tolerantly (CSSOM quotes `content`
    * inconsistently across engines).
    */
   // REPRICED FOR v2 (#1023). The GLYPH half is unchanged and still the point of #339:
   // `panel_items_marker` beats the disc rule and paints a check. The COLOUR half moved —
   // `--section-panel-marker-color` retired with section's slot map, because the mark is a
-  // `::before` and ruling A3 defers pseudo-elements, so no role can reach it. The colour
-  // is not authorable at all now (#1028): the rule reads `--pp-list-marker-color`, which
-  // is declared nowhere and registered as no design token, so the read's fallback for the
-  // MARKERS — `var(--color-accent)` — IS the rendered value, and it is the exact value
-  // this slot defaulted to. So the marker's rendered colour is unchanged and asserted as
-  // such; what is lost is any way to move it on its own.
+  // `::before` and ruling A3 defers pseudo-elements, so no role addresses it. Its colour
+  // is `panel-list` -> `marker.color` since #1028 (pinned in tests/e2e/marker-colour.spec.ts),
+  // which writes the `--pp-list-marker-color` this rule reads. Unauthored, as here, the
+  // read's fallback for the MARKERS — `var(--color-accent)` — IS the rendered value, the
+  // exact value this slot defaulted to, and it is asserted as such.
   //
-  // The narrowing is proved at the WRITE surface instead: the retired slot is refused,
-  // which is the half an author actually meets. (The separator is the one glyph whose
+  // The slot's retirement is proved at the WRITE surface instead: the retired slot is
+  // refused (its route is `marker.color`), which is the half an author actually meets. (The separator is the one glyph whose
   // fallback is NOT the accent — see the #1023 separator test for why it differs.)
   test('#339/#1023 the panel check marker still beats the disc rule, and its colour slot is refused @smoke', async ({
     page,
@@ -5054,32 +5053,25 @@ test.describe('chrome UDC renders (ruling A1)', () => {
     expect(listStyle).toBe('disc');
   });
 
-  test('#339/#1101 the grid check mark survives on the shared accent, with no handle of its own', async ({
+  test('#339/#1101 the grid check mark survives and falls back to the shared accent when unauthored', async ({
     page,
   }) => {
-    // NARROWED AT #1101, AND THE NARROWING IS THE SUBJECT NOW.
+    // THE UNAUTHORED CHECK MARK.
     //
     // #339 moved grid's bullet rules into the shared block and rewired the colour
-    // through the internal --pp-list-marker-color indirection; this test proved the
-    // check mark still painted in the OPERATOR'S colour afterwards. The grid rebuild
-    // retired `--grid-item-bullet-color` with NO v2 route, and that is a real loss
-    // rather than a move, so it is stated here rather than left to be discovered:
+    // through the --pp-list-marker-color indirection. The grid rebuild retired
+    // `--grid-item-bullet-color` (#1101); its route is `card-bullets` -> `marker.color`
+    // since #1028 (per band or per card, pinned in tests/e2e/marker-colour.spec.ts):
     //
-    //   - the marker is a `::before` pseudo-element, and ruling A3 defers pseudo-elements
-    //     for the whole of v2, so no role can address it;
-    //   - the `_css` valve cannot reach it either, and not by omission: a custom property
-    //     name is unmatchable by `pp_udc_valid_css_property()`'s charset by construction,
-    //     so `--pp-list-marker-color` cannot be declared through it at any grain.
+    //   - the marker is a `::before` pseudo-element, and ruling A3 defers pseudo-elements,
+    //     so no role addresses it; the group sets the variable on the list's own box and
+    //     the check inherits it;
+    //   - the `_css` valve still cannot declare it: a custom property name is unmatchable
+    //     by `pp_udc_valid_css_property()`'s charset by construction.
     //
-    // WHAT SURVIVES IS WHAT IS ASSERTED. The check mark still renders, and it takes the
-    // shared `--color-accent` — so a site that retunes its accent still retunes its check
-    // marks, which is the capability that actually matters and the one a deleted test
-    // would stop protecting. The lost half is the PER-BAND override, recorded in
-    // components/grid/README.md beside `--grid-featured-texture-color`, the other slot
-    // that retired with no route.
-    //
-    // Kept rather than deleted precisely BECAUSE the capability narrowed: a narrowed
-    // capability with no rendered proof is how the remaining half goes quietly too.
+    // WHAT THIS TEST ASSERTS is the unauthored fallback: the check mark renders and takes
+    // the shared `--color-accent`, so a site that retunes its accent still retunes every
+    // check mark nobody coloured.
     pageId = createPage('E2E Grid Bullet Marker');
     setComposition(pageId, [
       {
@@ -9553,15 +9545,11 @@ test.describe('#463 bg-image band title-accent + markers contrast (rendered)', (
 
   // SECTION'S BAND AND ITS TWO SURFACES LEFT IN #1023, for the reason recorded on the
   // #461 block above: the on-overlay routing was a band-class mechanism and a v2 band has
-  // no class. One of the two is worth naming separately, because it is a genuine
-  // capability loss rather than a transfer of responsibility — the LIST MARKER. Its
-  // colour is not authorable at all any more: the glyph is drawn with `content` on a
-  // `::before`, ruling A3 defers pseudo-elements, and the `--pp-list-marker-color` the
-  // rule reads is plumbing nothing can write (#1028). It renders `var(--color-accent)`.
-  // So on a dark v2 band an author who needs a legible marker has exactly one move —
-  // `update_design_token` on `--color-accent` itself, which recolours every accent on the
-  // site. That is disclosed in section's README, the CHANGELOG and composition.md, and it
-  // is the sharp edge #1024's per-item work should look at.
+  // no class. One of the two is worth naming separately — the LIST MARKER. Unauthored it
+  // renders `var(--color-accent)`, which does not follow a dark band, so on a dark v2 band
+  // an author sets `body` / `panel-list` -> `marker.color` together with the band's ink
+  // (#1028): the glyph is a `::before` no role addresses, and the param writes the
+  // `--pp-list-marker-color` the rule reads, on the list's own box.
   // REBUILT ON THE AUTHORED ROUTE AT #1066 PR2, for the same reason as the #461 block and
   // with one extra reason of its own.
   //
@@ -12199,7 +12187,7 @@ test.describe('#577 dead and defeated style slots render', () => {
    *
    * WHAT CHANGED. `theme` is retired on both components, so both `--inverted` rules are
    * gone and with them the last two opacity literals in the theme. `opacity` IS IN NO UDC
-   * GROUP — it has no home in the seven groups the engine compiles, and base.css records
+   * GROUP — it has no home in the groups the engine compiles, and base.css records
    * the standing rule next to `--color-muted-on-overlay`: "do NOT re-introduce an opacity
    * literal". So the de-emphasis cannot port as an opacity; it ports as the PIXEL-MEASURED
    * COMPOSITE of v1's paint, `rgb(192, 195, 201)`, which both READMEs and both migration

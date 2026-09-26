@@ -143,7 +143,7 @@ element, so a band ink write does not reach it — and `@color-muted` measures a
 on `@color-bg-inverted`, under the 4.5:1 floor at this 13px size.
 
 **Why that colour.** v1's `.logos--inverted .logos__label` set `@color-bg` at `opacity: 0.75`.
-`opacity` is in none of the seven UDC groups, so the de-emphasis ports as the
+`opacity` is in none of the UDC groups, so the de-emphasis ports as the
 **pixel-measured composite `rgb(192, 195, 201)`** (10.11:1). See the token note in `base.css`:
 re-introducing an opacity literal is explicitly ruled out.
 

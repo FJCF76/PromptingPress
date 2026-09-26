@@ -3362,7 +3362,7 @@ class SchemaValidationTest extends TestCase
                 . '`currentColor`. WHAT THE ROUTE DOES NOT REACH: `label` pins `@color-muted` '
                 . 'as a direct declaration, so a band ink write does not move it. v1\'s '
                 . 'inverted label was `@color-bg` at `opacity: 0.75`; `opacity` is in none of '
-                . 'the seven UDC groups, so it ports as the pixel-measured composite '
+                . 'the UDC groups, so it ports as the pixel-measured composite '
                 . '`rgb(192, 195, 201)` on `label` -> `typography.color`. The logo IMAGES were '
                 . 'never re-inked by the theme and still are not. `dark` was never an accepted '
                 . 'input value (removed at #605).',
@@ -4106,12 +4106,12 @@ class SchemaValidationTest extends TestCase
         // the migration record rather than extending it: after this there is no slot left
         // anywhere to rename, and `style_component` refuses every component.
         //
-        // FOUR OF THE 38 HAVE NO REPLACEMENT, and each says so in its own note with the
+        // THREE OF THE 38 HAVE NO REPLACEMENT, and each says so in its own note with the
         // measurement behind it rather than a bare "retired": the featured texture colour and
-        // the featured shadow went with `card_emphasis` under ruling D9, the icon size went
-        // with `image_treatment`, and the bullet colour has no address because ruling A3
-        // defers pseudo-elements. Live exposure on the owner's 11 production grid bands was
-        // measured for all four BEFORE the retirement, per ruling D2 — and that measurement
+        // the featured shadow went with `card_emphasis` under ruling D9, and the icon size went
+        // with `image_treatment`. A fourth, the bullet colour, retired here with no address
+        // and was REPLACED at #1028 by `card-bullets` -> `marker.color`. Live exposure on the
+        // owner's 11 production grid bands was measured for all four BEFORE the retirement, per ruling D2 — and that measurement
         // is also what SAVED the two card-bar slots, which 10 of the 11 bands author.
         'grid' => [
             '--grid-padding-top' => 'REPLACED in v2 (#1101) by the `_band` role\'s `spacing.padding-top`.',
@@ -4147,7 +4147,7 @@ class SchemaValidationTest extends TestCase
             '--grid-item-title-size' => 'REPLACED in v2 (#1101) by the `card-title` role\'s `typography.size`, responsive (1.14rem desktop and tablet, 1.06rem phone). THE STEPS VARIANT\'S SMALLER 1.04rem DOES NOT SURVIVE: a role\'s defaults carry a breakpoint dimension and a state dimension and NO variant dimension, so "smaller, but only on steps" has no v2 address — the conditionality gap filed at #1102. A steps card title renders at the shared size now.',
             '--grid-item-title-color' => 'REPLACED in v2 (#1101) by the `card-title` role\'s `typography.color`. It PINS `@color-text` and therefore does not follow a band or card colour — measured byte-identical on a v1 `default` and `inverted` band, because v1 kept cards light on a dark band. That is why the role carries an `outranked_by_default` obligation against `card`.',
             '--grid-item-text-color' => 'REPLACED in v2 (#1101) by the `card-text` role\'s `typography.color`, AND ITS DEFAULT IS A BREAKPOINT MAP because v1\'s rendering was: `@color-muted` below 768px and `@color-text-secondary` from 768px up, the premium typography block overriding the base rule. v1 also used this one slot for the card BULLETS; in v2 those are the `card-bullets` role\'s own `typography.color`, which is a widening rather than a port — the two can differ now.',
-            '--grid-item-bullet-color' => 'RETIRED in v2 (#1101) with NO replacement. It coloured the check-mark glyph drawn by `.grid__item-bullet::before`, and ruling A3 defers pseudo-elements, so no role can address it at any value. The marker takes the shared `--pp-list-marker-color` fallback — `@color-accent` — which is exactly what the slot defaulted to, so an unstyled band is unchanged; a band that AUTHORED it (the starter homepage did, in orange) renders the accent instead. The deferral is #1028.',
+            '--grid-item-bullet-color' => 'REPLACED in v2 (#1028) by the `card-bullets` role\'s `marker.color`, after retiring with no route at #1101. It coloured the check-mark glyph drawn by `.grid__item-bullet::before`; ruling A3 still defers pseudo-elements, so the param never addresses the glyph: it sets `--pp-list-marker-color` on the list\'s own box, which each check inherits. Authored only (no role default), so unset the check keeps the `@color-accent` fallback the slot defaulted to. Per card too, through an item\'s own `udc`.',
             '--grid-item-link-color' => 'REPLACED in v2 (#1101) by the `card-link` role\'s `typography.color`. It PINS `@color-accent`, which measures 3.2:1 on a `#14141F` card fill — under the 4.5:1 AA floor for its 0.9rem weight-600 text — so the role carries an `outranked_by_default` obligation against `card` saying darkening a card means setting this in the same write.',
             '--grid-item-link-hover-color' => 'REPLACED in v2 (#1101) by the `card-link` role\'s `typography` `:hover` map, alongside the underline v1 put back on hover. Both halves are role DEFAULTS now rather than one slot and one stylesheet literal, which is what lets an authored `decoration` win in the hover state too.',
             '--grid-step-bg' => 'REPLACED in v2 (#1101) by the `step-number` role\'s `background.fill`.',
@@ -4182,7 +4182,7 @@ class SchemaValidationTest extends TestCase
             '--stats-number-size' => 'REPLACED in v2 (#1066) by the `number` role\'s `typography.size`, still the 2.5rem literal from stats\' own block.',
             '--stats-number-font' => 'RETIRED in v2 (#1066) with NO replacement default, deliberately. v1 declared `font-family: var(--stats-number-font, inherit)` — an explicit `inherit`, which IS a declaration — but nothing in this theme declares `font-family` on a <span>, so the inherited body face already lands and silence is byte-identical (measured `system-ui, sans-serif` either way). The `number` role still declares the `typography` group, so a distinct numeral face is still authorable.',
             '--stats-number-weight' => 'REPLACED in v2 (#1066) by the `number` role\'s `typography.weight`, still 700. It deliberately does NOT route `@font-weight-heading`, which is 650: a site with a distinct heading face is precisely the site whose rendered numbers would move.',
-            '--stats-label-color' => 'REPLACED in v2 (#1066) by the `label` role\'s `typography.color`, still `@color-muted`. The `.stats--inverted` twin carried `opacity: 0.75` alongside its colour; `opacity` is in none of the seven UDC groups, so that de-emphasis ports as the pixel-measured composite `rgb(192, 195, 201)` rather than as alpha — the same retirement #577 already made on this family, where base.css records \'do NOT re-introduce an opacity literal\'.',
+            '--stats-label-color' => 'REPLACED in v2 (#1066) by the `label` role\'s `typography.color`, still `@color-muted`. The `.stats--inverted` twin carried `opacity: 0.75` alongside its colour; `opacity` is in none of the UDC groups, so that de-emphasis ports as the pixel-measured composite `rgb(192, 195, 201)` rather than as alpha — the same retirement #577 already made on this family, where base.css records \'do NOT re-introduce an opacity literal\'.',
             '--stats-bg-position' => 'REPLACED in v2 (#1066) by the `_band` role\'s `background.position`. It was the LAST position-typed slot in the theme.',
             '--stats-overlay-bg' => 'REPLACED in v2 (#1066) by the `_band` role\'s `background.overlay`, which composes into the band\'s own background layer list — so the `.stats__overlay` <div> this slot painted is gone entirely, as hero\'s, section\'s and cta\'s went at their rebuilds.',
             '--stats-radius' => 'REPLACED in v2 (#1066) by the `_band` role\'s `border.radius`. Not DEFAULTED, only permitted: an unset band stays square, exactly as the inert `0` did.',
@@ -4391,15 +4391,15 @@ class SchemaValidationTest extends TestCase
         //   role carries it too, so that narrowing is reversed by this sprint.
         //
         //   The three GLYPH COLOUR slots — `--section-separator-color`,
-        //   `--section-body-marker-color` and `--section-panel-marker-color` — are a
-        //   NARROWING, and the reason is structural rather than an oversight: every one of
-        //   those marks is drawn with `content` on a `::before`/`::after`, ruling A3 defers
-        //   pseudo-elements to their own ruling, and so NO role can express them at any
-        //   value. THERE IS NO REPLACEMENT KNOB (#1028): an earlier draft of these notes
-        //   said the colour "moved to the site-wide `--pp-list-marker-color` design
-        //   token", which was false in two ways — that property is declared on no `:root`
-        //   and registered as no token, so `update_design_token` refuses it, and the three
-        //   slots do not even share one fallback. The two MARKERS render
+        //   `--section-body-marker-color` and `--section-panel-marker-color` — are not plain
+        //   moves either: they are REPLACED since #1028 through a NEW group param, `marker.color`
+        //   on the holding role (`inline-items`,
+        //   `body`, `panel-list`). Every one of those marks is drawn with `content` on a
+        //   `::before`/`::after` and ruling A3 still defers pseudo-elements, so the param
+        //   never addresses the glyph: it sets `--pp-list-marker-color` on the role's own
+        //   box. (An earlier draft called that property a site-wide design token; it is
+        //   not one, and registering it would have merged two fallback chains.) Unset, the
+        //   three do not share one fallback. The two MARKERS render
         //   `var(--color-accent)`, the exact value they defaulted to, so nothing moves and
         //   the registered `--color-accent` token still moves them site-wide. The
         //   SEPARATOR renders `currentColor` and follows its row's ink. See the SHARED
@@ -4492,9 +4492,9 @@ class SchemaValidationTest extends TestCase
             '--section-panel-cta-hover-border' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `:hover` state, nested inside `border`.',
             '--section-panel-cta-shadow' => 'REPLACED in v2 (#1023) by the `panel-cta` role\'s `shadow.box`.',
             '--section-inline-items-align' => 'REPLACED in v2 (#1023) by the `body_items_align` PROP, not by a role parameter, and that is deliberate: the value selects a WRAP TECHNIQUE (a justify-content value plus the separator mechanism that technique needs), and only the prop can move the separator. The packing half IS a role parameter since #1084 — `inline-items.layout.justify`, which outranks the prop\'s rule — while the `inline-items` role owns the row\'s type, colour and gaps as before. Same two accepted prop values (`start`, `center`).',
-            '--section-separator-color' => 'NARROWED in v2 (#1023): no role replaces it and NO TOKEN replaces it either (#1028). The separator is drawn with `content` on a `::before`/`::after` and ruling A3 defers pseudo-elements, so no role can express it at any value; the `--pp-list-marker-color` property its rule reads is internal plumbing, declared nowhere and registered as no design token. What renders is that read\'s fallback, `currentColor`, so the mark follows its row\'s ink — this slot defaulted to `var(--color-muted)`, so a default light band moves #5e6677 -> #101828 (the row is a SIBLING of `.section__content`, so it inherits `--color-text`, not the `body` role\'s colour) — the same ink as the item text beside it, where v1 painted the mark one step lighter. The `inline-items` role owns the row\'s type, colour and gaps, and its `typography.color` is the only lever on the mark; it moves the item text too. A mark DIFFERENT in colour from its sibling text is no longer expressible.',
-            '--section-body-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Unlike the separator it renders `var(--color-accent)`, the exact value this slot defaulted to, so nothing moves visually; `--color-accent` IS a registered design token, so `update_design_token` still moves it along with every other accent on the site. Per-band and glyph-only control are what is lost. The `body_marker` prop still chooses WHICH glyph, and the `body` role still owns the list text.',
-            '--section-panel-marker-color' => 'NARROWED in v2 (#1023): no role replaces it, for the same pseudo-element reason as `--section-separator-color`, and no token replaces it either (#1028). Like `--section-body-marker-color` it renders `var(--color-accent)`, this slot\'s own default, so nothing moves visually. The `panel_items_marker` prop still chooses WHICH glyph, and the `panel-list` role still owns the list\'s spacing.',
+            '--section-separator-color' => 'REPLACED in v2 (#1028) by the `inline-items` role\'s `marker.color`, after a #1023 narrowing with no route. The separator is drawn with `content` on a `::before`/`::after` and ruling A3 still defers pseudo-elements, so the param sets `--pp-list-marker-color` on the row\'s own box and the mark inherits it. Authored only, so unset the mark keeps its `currentColor` fallback and follows its row\'s ink (the slot defaulted to `var(--color-muted)`; on a default light band the unset mark is therefore the row\'s text colour, one step darker than v1).',
+            '--section-body-marker-color' => 'REPLACED in v2 (#1028) by the `body` role\'s `marker.color`: the glyph is a `::before` no role addresses, so the param sets `--pp-list-marker-color` on the body\'s own box and the glyph inherits it. Unset, it keeps the `@color-accent` fallback the slot defaulted to.',
+            '--section-panel-marker-color' => 'REPLACED in v2 (#1028) by the `panel-list` role\'s `marker.color`, the same mechanism as the body marker. Unset, it keeps the `@color-accent` fallback the slot defaulted to.',
         ],
     ];
 

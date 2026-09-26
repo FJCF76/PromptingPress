@@ -1042,10 +1042,11 @@
    2. GLYPH MECHANISMS. Every one of these draws with `content` on a `::before` or
       `::after`. Ruling A3 defers pseudo-elements to their own ruling, so NO role can
       express them at any value — they are mechanism by construction, not by
-      classification. Their COLOUR is the part that used to be authorable
-      (`--section-separator-color`, `--section-body-marker-color`,
-      `--section-panel-marker-color`) and is not any more; all three now flow from
-      `--pp-list-marker-color`, but they do NOT take the same fallback:
+      classification. Their COLOUR was the v1 slots `--section-separator-color`,
+      `--section-body-marker-color` and `--section-panel-marker-color`; since #1028 it is
+      the `marker.color` group param on the role that holds the glyph (`inline-items`,
+      `body`, `panel-list`), which sets `--pp-list-marker-color` on that role's own box
+      for the glyph to inherit. Unset, they do NOT take the same fallback:
       - the two LIST MARKERS fall back to `var(--color-accent)` — the exact value
         their slots defaulted to, so nothing moves visually there;
       - the SEPARATOR falls back to `currentColor`. Its slot defaulted to
@@ -1153,12 +1154,11 @@
    `--color-text`, NOT the `body` role's `@color-text-secondary`. That is the same ink as
    the item text beside it — the definition of currentColor — where v1 painted the mark one
    step lighter than its row. The mark matches its text now instead of receding from it
-   between. THE OLD GREY IS NOT RECOVERABLE ON ITS OWN (#1028): `--pp-list-marker-color`
-   is internal plumbing that is declared nowhere and registered as no design token, so
-   nothing can write it. `currentColor` is the whole mechanism — grey the ROW
-   (`inline-items` -> typography -> color) and the mark greys with it. A mark whose colour
-   DIFFERS from its sibling text is not expressible until a role can address a
-   pseudo-element. */
+   between. A MARK DIFFERENT IN COLOUR FROM ITS TEXT is the `inline-items` role's
+   `marker.color` (#1028): it sets `--pp-list-marker-color` on the row, which this rule
+   reads first. It is authored only (no role default), so on every band that does not set
+   it `currentColor` stays the whole mechanism: grey the ROW (`inline-items` -> typography
+   -> color) and the mark greys with it. */
 .section__inline-items li::before {
   content: "\00b7" / "";
   display: inline-block;
@@ -1203,15 +1203,15 @@
    section.php always emits the base and a modifier together, so a bare base never
    ships. A future consumer must pair them too.
 
-   Colour flows in through --pp-list-marker-color (internal plumbing, never a schema
-   surface). NO COMPONENT MAPS ANYTHING ONTO IT ANY MORE, and #1101 is where that
-   became true of every one: section's two marker-colour slots retired with its slot
-   map (#1023) and grid's `--grid-item-bullet-color` retired with its own (#1101, the
-   last slot map in the theme). Ruling A3 defers pseudo-elements, so no role can
-   address the glyph at any value; the variable's own fallback below IS the value
-   every consumer renders. The var() is kept rather than inlined because it is the
-   ONE definition the three consumers share — collapsing it would put the same
-   literal in three places for a future ruling to find separately.
+   Colour flows in through --pp-list-marker-color. No slot maps onto it any more
+   (section's two marker-colour slots retired at #1023, grid's `--grid-item-bullet-color`
+   at #1101); since #1028 the `marker.color` group param writes it, on the role that holds
+   each list (`body`, `panel-list`, grid `card-bullets`), and the glyph inherits it. Ruling
+   A3 still defers pseudo-elements: no role addresses the glyph itself. The group is
+   authored only, so wherever nothing sets it the variable's own fallback below IS the
+   value the consumer renders. The var() below is the ONE definition the three list-marker
+   consumers share; the separator rules above read the same variable with their own
+   currentColor fallback, and the two fallbacks must stay apart (#1023).
 
    One definition, three consumers:
    - grid cards        .grid__item-bullet         (always a check, unchanged)

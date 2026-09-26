@@ -962,12 +962,12 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
 // The #475 inline-items separator COLOUR block was deleted at #1023. Its four rules
 // were section's `--section-separator-color` routing, on a `::before`/`::after` glyph.
 // Section is a v2 component now: the glyph is a shared mechanism (see the SHARED GLYPH
-// AND PROSE MECHANISMS block in components.css) and its colour is NOT authorable,
-// because ruling A3 defers pseudo-elements. The rule reads --pp-list-marker-color, which
-// nothing declares and nothing can write (#1028), so its fallback is what renders: the
-// SEPARATOR takes currentColor and follows its row, the two list MARKERS take
-// var(--color-accent) — the exact value their slots defaulted to.
-// Nothing replaced this block: there is no slot left to route.
+// AND PROSE MECHANISMS block in components.css). Ruling A3 defers pseudo-elements, so no
+// role addresses the glyph; the rule reads --pp-list-marker-color, which the `marker.color`
+// group param sets on the holding role's box since #1028 (authored only). Where nothing
+// sets it the fallback renders: the SEPARATOR takes currentColor and follows its row, the
+// two list MARKERS take var(--color-accent), the exact value their slots defaulted to.
+// Nothing replaced this block in the stylesheet: the route is a role value, not a rule.
 // The #222 theme-variant cascade block was DELETED at #1101 with grid's `theme` prop —
 // the last row it had. It guarded a three-tier `slot -> theme-var -> token` chain that
 // existed only because a `.grid--inverted` variant rule at (0,2,0) could never outrank a
@@ -3909,9 +3909,6 @@ describe('CSS lint: bg-image band title-accent + markers route through --color-a
         expect(schema.roles['heading-accent'].defaults.typography.color).toBe('@color-accent');
     });
 
-    // Section body list markers on the overlay band: --pp-list-marker-color is re-mapped
-    // to the overlay role. The selector also carries the near-white color rule, so find the
-    // declaration that actually assigns the marker variable.
 });
 
 /**
