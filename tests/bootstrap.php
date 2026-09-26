@@ -1123,6 +1123,25 @@ if (!function_exists('get_post')) {
     }
 }
 
+// #1181: whether a visitor may see a page. Core answers "viewable post type AND public
+// status (publish)"; the store holds only pages here, so the status decides.
+if (!function_exists('is_post_publicly_viewable')) {
+    function is_post_publicly_viewable($post = null): bool {
+        $id = is_object($post) ? $post->ID : (int) $post;
+        return ($GLOBALS['_pp_test_store']['posts'][$id]['post_status'] ?? '') === 'publish';
+    }
+}
+
+// #1181: core requires the password unless the visitor's cookie carries it. A stored
+// `post_password` is required unless a test sets `_pp_test_password_entered`.
+if (!function_exists('post_password_required')) {
+    function post_password_required($post = null): bool {
+        $id = is_object($post) ? $post->ID : (int) $post;
+        return ($GLOBALS['_pp_test_store']['posts'][$id]['post_password'] ?? '') !== ''
+            && empty($GLOBALS['_pp_test_password_entered']);
+    }
+}
+
 if (!function_exists('get_post_status')) {
     function get_post_status($post = null) {
         $id = is_object($post) ? $post->ID : (int) $post;
