@@ -719,13 +719,15 @@ class PostsPageCompositionTest extends TestCase
         // without firing `the_post` again.
         $GLOBALS['_pp_test_model_post_global'] = true;
         $this->store($this->postsPage, [self::listingBand(), ['component' => 'hero', 'props' => ['title' => 'After']]]);
-        $GLOBALS['post'] = (object) ['ID' => 9000]; // core's register_globals: the first post
+        // Something before the bands moved the current post and did not reset it (a header
+        // loop): main's reset makes the main query's post current regardless.
+        $GLOBALS['post'] = (object) ['ID' => 4242];
         unset($GLOBALS['id'], $GLOBALS['pages'], $GLOBALS['authordata']);
         $GLOBALS['_pp_test_the_post_fires'] = 0;
         ob_start();
         include dirname(__DIR__) . '/templates/home.php';
         ob_end_clean();
-        $this->assertSame(9000, $GLOBALS['post']->ID ?? null, 'the main query\'s first post is current');
+        $this->assertSame($GLOBALS['wp_query']->post, $GLOBALS['post'], 'the main query\'s post is current, as wp_reset_postdata() leaves it');
         foreach (pp_test_generate_postdata($GLOBALS['wp_query']->post) as $name => $value) {
             $this->assertSame($value, $GLOBALS[$name] ?? null, $name . ' is set up for it, as main\'s reset leaves it');
         }
