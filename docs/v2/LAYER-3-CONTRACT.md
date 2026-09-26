@@ -1109,16 +1109,47 @@ refuses"* so that it is an **observation**, not a judgement.
    - the visible text changes (for example, a `<script>` body leaking as text);
    - a PLAIN sink renders markup as literal text.
 3. **Not by design.** The lost construct is **not** in §4's hard-exclusion set. A lost `onclick`
-   is the future contract working as designed, and never fires.
-4. **Visible against the reference.** The loss produces a difference against the
-   reconstruction's reference. The reference is the live page, or the owner's design source
-   where the reconstruction departs from the live page. The difference must show at 375 px or
-   1280 px, or in the accessibility tree: a missing element, a missing style effect, changed
-   text, or a changed accessible name or role.
+   is the future contract working as designed, and never fires. **Exception:** a loss matching
+   a §4 row that an open §12 P-question bears on (P-10, P-11, P-12 and P-13 today) is classed
+   **CANDIDATE-PENDING**, not EXCLUDED (§9.2).
+4. **Visible against the author's intent.** The loss produces a difference between the
+   **sanitized render** and the **intent render**:
+   - for a **carried-over** string, the intent render is `S` itself, rendered **unsanitized**
+     in the isolated sandbox below. The live page cannot be the reference: prod renders the same
+     core sanitizer, so a loss in the stored bytes is already in the live page, and comparing
+     two identically sanitized renders can never show it;
+   - for a string **written for the reconstruction**, the intent render is the owner's design
+     source.
+
+   The difference is observed in every one of these channels: widths 375, 768 and 1280 px; a
+   device-pixel ratio of 2 (a lost `srcset` is invisible at 1); the hover and focus-visible
+   states of every interactive element in the band; and the accessibility tree. It counts when
+   it is a missing element, a missing style effect, changed text, or a changed accessible name
+   or role.
+
+**Hard constraint on the intent render.** Unsanitized authored bytes **never** touch a live
+page context. The intent render happens only in an isolated, script-free document: a
+headless-browser page loaded from a local file or `about:blank` with JavaScript disabled, no
+network access, and no WordPress session or cookie. It is never the dev or prod site, never the
+editor preview, and never a page any other user can load. The bytes are evidence of intent,
+not content.
 
 Condition 4 is **not a demand test**. It separates losses that change the page from losses
 that change nothing: an unused `data-*` attribute, or a declaration that repeats an inherited
 value. It does not ask whether the construct is "needed enough".
+
+### 9.1a The selector-gap route (3B)
+
+A reconstruction effect that no content construct produces, and that only a **scoped-sheet
+selector** (§6) can reach, is not dropped between the two contracts. LAYER-2 §6.15 sends the
+selector-shaped gaps (#1049, #1068, #1069: lists and links inside rich text) to Layer 3, and
+this route receives them. When T4's reference shows such an effect:
+
+- T4 records it: the band, the effect, the selector shape that would reach it, and the
+  screenshot pair;
+- the orchestrator rules, case by case, either a **3B re-entry** of §6 for that selector shape
+  (the §9.3 rules apply), or a **named 2.0.0 fidelity gap** recorded in the release notes;
+- **the outcome is always recorded, never silent.** Neither answer is pre-decided here.
 
 ### 9.2 Procedure
 
@@ -1128,19 +1159,24 @@ value. It does not ask whether the construct is "needed enough".
    read-only export the orchestrator authorizes (**M-13**). T4 also records every new content
    string it authors.
 2. **Run the detector** over every content string. The reference implementation is
-   `t4-content-loss-detector.php` in the T3 evidence set (self-test: probe-07). It is a
-   read-only `wp eval-file` script, not theme code. It reports each loss as **EXCLUDED** (it
-   matches §4) or **CANDIDATE**.
-3. **For each CANDIDATE, judge condition 4** with a screenshot pair at 375 and 1280 px:
-   reference vs rendered. Where the loss is semantic rather than visual, add an
-   accessibility-tree comparison.
+   `t4-content-loss-detector.php` in the T3 evidence set (self-test: probe-07c). It is a
+   read-only `wp eval-file` script, not theme code. It reports each loss as one of:
+   - **EXCLUDED** — it matches a §4 row with no open P-question;
+   - **CANDIDATE-PENDING** — it matches a §4 row an open P-question bears on. It is recorded
+     with that P-number, and it **re-fires as a CANDIDATE if the question is ruled "admit"**;
+   - **CANDIDATE** — anything else.
+3. **For each CANDIDATE, judge condition 4** across the channels of §9.1, sanitized render vs
+   intent render (the intent render under the hard constraint above).
 4. **Fire.** A CANDIDATE that meets condition 4 **fires the trigger.** T4 stops that construct's
    work and hands back a **re-entry record**:
    - sink, band and prop;
    - `S`, `R` and the lost construct;
-   - the screenshot pair;
+   - the render pairs;
    - the clause of this contract that would admit the construct (a §3.2 Δ row, §3.1, or
      "none: §12 needs a ruling first").
+
+   CANDIDATE-PENDING rows are listed in the T4 handoff with their P-numbers, so the evidence
+   reaches the owner with the question it bears on.
 
 ### 9.3 What re-enters
 
@@ -1149,7 +1185,8 @@ clause's rows of the §10 test plan. Examples:
 
 - a dropped `transform` in a `style` attribute re-enters **Δ3**, which means the whole
   style-attribute gate, because Δ3 is one gate and half of it would be a second contract;
-- a dropped inline SVG icon re-enters **Δ1**.
+- a dropped inline SVG icon re-enters **Δ1**;
+- a selector gap ruled for re-entry under §9.1a re-enters §6 for that selector shape.
 
 The re-entry is a **ruled fix**. The orchestrator rules which clause, and routes any §12
 question that clause depends on to the owner first. The rest of Layer 3 stays post-2.0.0.
@@ -1161,13 +1198,14 @@ a silent path.
 
 ### 9.4 What never fires the trigger
 
-- An EXCLUDED loss (§4).
+- An EXCLUDED loss (§4). A CANDIDATE-PENDING loss is recorded, and fires only if its P-question
+  is ruled "admit".
 - Normalisation (§2.2).
-- A **styling** gap that no content construct would close. That is Layer 1/2 territory, with
-  its own routes.
+- A **styling** gap that neither a content construct nor a scoped-sheet selector would close.
+  That is Layer 1/2 territory, with its own routes. (A selector-shaped gap takes §9.1a.)
 - Chrome text (the footer and nav options). These are PLAIN by design today, and **P-2**
   asks whether titles, headings and chrome text stay PLAIN.
-- A loss invisible under condition 4.
+- A loss invisible in every channel of condition 4.
 
 ### 9.5 Where it is most likely to fire (a prediction, not a gate)
 
@@ -1518,6 +1556,128 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
 
 ## 13 — Review trail
 
-*(Filled by the review passes that ran on this draft: /plan-eng-review, then the
-contract-boundary adversarial passes, run in series. Each pass is recorded with what it
-changed.)*
+Every pass below ran on this document, in series. Each records what it found, what changed, and
+who ruled. Superseded text is described here rather than kept inline. The one recommendation
+that was withdrawn is named.
+
+### 13.1 Measurement (before drafting)
+
+Read-only, on wp-env (WordPress 7.0) and from the code:
+
+- probes 00-09: the core allowlist, a 32-input × 4-sink matrix, an authoring-path write rendered
+  in Chromium, `safecss_filter_attr` twice, the shortcodes, the detector self-test, the
+  `WP_HTML_Processor` breakout, and a `url(`/`!important` census;
+- a static map of every content sink;
+- five public brand-site pages.
+
+The probe page was deleted afterwards. The findings that could be read as security chains went
+to a private brief. The public text of this document states only the hardening rules.
+
+A server reboot interrupted the first run of pass 1 (below). No evidence file was cut off. The
+environment was restarted, and one earlier probe re-run byte-identically before any new
+measurement was trusted.
+
+### 13.2 /plan-eng-review
+
+Seven findings, all applied:
+
+- verify-after-sanitize with `WP_HTML_Processor` (§2.1);
+- the preview-isolation cost to the editor's refresh (§8.3);
+- the leading-pseudo-class meaning (§6.2);
+- a template-emitted container marker for the presence probe (§5.4);
+- T-7 wording;
+- the performance costs of re-parsing and `:has()` (T-17).
+
+The outside voice (Codex) was unavailable (model not supported by the installed CLI), and that
+is recorded as missing coverage, not as a clean pass.
+
+### 13.3 Contract-boundary pass 1: admissions vs gates
+
+Findings: 3 P1, 7 P2, 13 P3. The P1s were contract-core and were handed back; the orchestrator
+ruled all three as proposed (Q-A1 = A).
+
+- **A stray end tag in content closed the band.** This became E10.
+- **The SVG and style gates were placed after kses,** which had already removed what they were
+  meant to gate. The pipeline was rewritten in the order it can run: styles lifted before kses,
+  kses run with the PP-owned table, remove-only gates after it.
+- **A root-leading entry with a sibling combinator selected the next band** (the
+  `:hover + section` case). A new rule 7 refuses it.
+
+The P2s and P3s were fixed in the same batch:
+
+- the subject-only scoping claim, with the top layer disclosed;
+- the §6.3 carve-out for §6.4;
+- the island carve-out and host allowlists;
+- the Δ1 attribute list and its `url(#fragment)` gate;
+- the `@scope` claim withdrawn;
+- tighter selector grammar;
+- the precedence rule;
+- the E6 id correction;
+- fragment-id collisions disclosed.
+
+Citation and measured-fact corrections were committed separately. The glyph question was routed
+to M-7, not settled.
+
+### 13.4 Contract-boundary pass 2: exclusions
+
+Every exclusion was checked for a true reason, a test shape that cannot pass vacuously, and an
+enforcement step that can actually see it. The mechanism defects were handed back and ruled as
+proposed (Q-A2 = A).
+
+- **E10 is defined by containment, not by a list of tags.** The prop is parsed inside a
+  per-sink template wrapper, and a sentinel marks the next band. `create_full_parser` is used
+  because `create_fragment` accepts only `<body>` context in WordPress 7.0.
+- **Step 4 does more:**
+  - it owns E2 for the URL attributes kses does not check;
+  - it enforces E6 in full;
+  - it matches style markers one-to-one.
+- **SVG `title` and `desc` are text-only.** This closes a forged-marker channel through
+  markup that the step-2 parser reads as text.
+- **Smaller additions:**
+  - `data-wp-*` joins E1, and `form=` joins E9;
+  - `noopener` covers every new-context target;
+  - text-bearing CSS strings are refused in the Layer-3 channels. The Layer-2 half is #1168,
+    filed separately in hardening language, because a change to shipped Layer 2 does not ride a
+    docs PR.
+- **The preview's current lack of isolation is recorded as measured,** and the
+  `event.source` rule is added.
+- **The posture observations** became owner questions P-9 to P-16. P-15 is flagged for real
+  harm to Persian and Indic text and emoji.
+- **The detector's classifier** was brought in line with §4.
+
+**Process disclosure.** The pass-2 specialist copied a probe script into the repository root
+and deleted it seconds later without running it there. The tree was verified clean afterwards,
+and nothing reached a commit. Later specialist prompts carry an explicit
+"scratch only, never the repository tree, even transiently" line.
+
+### 13.5 Contract-boundary pass 3: freedom posture
+
+This pass was judged against the owner's standing freedom guarantee. It found places where
+freedom was gated by demand and closed lists that re-created a ceiling.
+
+- **Owner questions.** The posture findings became P-17 to P-26, with M-7 extended and M-15 to
+  M-18 added. None was fixed silently.
+- **A withdrawn recommendation.** This document's own P-2 recommendation first read *"if the
+  owner has used accent runs in card lines"*. That is a demand condition. It was withdrawn and
+  rewritten, and P-2 now also covers titles, headings and chrome text.
+- **Wording fixes:**
+  - the STATUS line no longer says "purely additive"; it lists where the contract is narrower
+    than today;
+  - context and argument are separated in Δ3 and P-3;
+  - §9.4, §11 and P-2 agree;
+  - Δ5's input types are enumerated;
+  - the byte bounds derive from the performance budget.
+- **Trigger semantics (contract-core), handed back and ruled as proposed (Q-A3 = A):**
+  - The reference for carried-over content is the author's **stored intent**, rendered only in
+    an isolated, script-free sandbox. It had been the live page, which is already sanitized by
+    the same core code and so could never show a loss.
+  - The observation channels now include 768 px, DPR 2, and hover and focus.
+  - Selector-shaped gaps get a route (§9.1a), ruled per case and always recorded.
+  - A loss matching a §4 row that an open P-question bears on is **CANDIDATE-PENDING**, not
+    EXCLUDED. The detector gained the class and a self-test case (probe-07c).
+
+### 13.6 What this trail does not claim
+
+- **None of the 26 owner-posture questions is answered.** None blocks T4. CANDIDATE-PENDING and
+  the trigger were built so that evidence on an open question is recorded instead of decided.
+- **Nothing here is implemented or tested.** §10 is a plan.
