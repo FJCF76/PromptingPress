@@ -1326,11 +1326,14 @@ final class UdcEngineTest extends TestCase
      * theoretical: it was already the copy that needed its own separate patch for
      * the <style> emission.
      */
-    public function testAllThreeBandLoopsPromoteTheBandIdentity(): void
+    public function testEveryBandLoopPromotesTheBandIdentity(): void
     {
+        // THE LOOPS MOVED AT #1181 (D1): composition.php, front-page.php and the posts page
+        // (home.php) share ONE band loop, pp_render_composition_bands() in lib/wp.php. So
+        // the identity claim is made of the two loops that exist, and the templates are
+        // pinned to REACH the shared one below.
         $loops = [
-            'templates/composition.php',
-            'templates/front-page.php',
+            'lib/wp.php',    // pp_render_composition_bands(): every request route
             'lib/admin.php', // the editor preview renderer
         ];
         // THE `__pp_style` HALF WENT AT #1101, AND IT WENT VACUOUS BEFORE IT WENT.
@@ -1365,6 +1368,19 @@ final class UdcEngineTest extends TestCase
                 . 'would ship CSS that matches nothing. (Counted as an ASSIGNMENT from the '
                 . 'call, so a comment naming the function cannot satisfy this.)'
             );
+        }
+
+        // Every composed route reaches the shared loop through a real CALL (a statement,
+        // not a mention: a comment naming the helper cannot satisfy this, the same rule as
+        // above). A template that grew its own loop again would fail here.
+        foreach (['templates/composition.php', 'templates/front-page.php', 'templates/home.php'] as $template) {
+            $reaches = 0;
+            foreach (explode("\n", (string) file_get_contents(dirname(__DIR__) . '/' . $template)) as $line) {
+                if (preg_match('/^\s*pp_render_composition_bands\(.+\);\s*\z/', $line)) {
+                    $reaches++;
+                }
+            }
+            $this->assertSame(1, $reaches, "{$template} must render its composition through pp_render_composition_bands(), once");
         }
     }
 
