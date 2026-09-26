@@ -280,6 +280,15 @@
             // not necessarily the prop's schema `default` (hero.layout advertises
             // `left` first but defaults to `centered`). So the fallback shown here is
             // "the first advertised value", not "what the renderer would have done".
+            // For an optional enum with no default the first option is "(not set)"
+            // (below), so there a stale value selects ABSENT and the key is dropped.
+            //
+            // An optional choice with no default can be ABSENT (#1181): its first option is
+            // empty and means "not set", and the serializer omits the key when it is chosen.
+            // Without it the browser selected values[0] and the sync wrote that value back.
+            if (field.absentOption) {
+                h += '<option value=""' + (field.value === '' || field.value === null ? ' selected' : '') + '>(not set)</option>';
+            }
             field.values.forEach(function (v) {
                 var sel = v === field.value ? ' selected' : '';
                 h += '<option value="' + esc(v) + '"' + sel + '>' + esc(v) + '</option>';

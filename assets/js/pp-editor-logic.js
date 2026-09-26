@@ -287,6 +287,15 @@ function buildAccordionData(jsonString, componentRegistry) {
                 };
                 if (spec.type === 'enum' && spec.values) {
                     field.values = spec.values;
+                    // AN OPTIONAL CHOICE WITH NO DEFAULT HAS A THIRD STATE: ABSENT (#1181).
+                    // `grid.items_source` is the first shipped one — absent means an authored
+                    // grid, its only value "posts" means the posts-page listing. A <select>
+                    // built from `values` alone cannot show absence, so the browser picked
+                    // values[0] and the sync wrote it back onto every grid on the first edit.
+                    // The flag gives the control an empty option that MEANS absent, and the
+                    // serializer omits the key for it. Enums that declare a default, or are
+                    // required, are untouched: they have no absent state to show.
+                    field.absentOption = !spec.required && spec.default === undefined;
                 }
                 if (spec.type === 'array' && spec.items) {
                     field.items = spec.items;
@@ -357,6 +366,8 @@ function serializeAccordionData(components) {
         var props = {};
         comp.fields.forEach(function (field) {
             if (!field.userTouched) return;
+            // The empty option of an optional, default-less choice means ABSENT (#1181).
+            if (field.absentOption && field.value === '') return;
             props[field.name] = field.value;
         });
         var entry = { component: comp.name, props: props };

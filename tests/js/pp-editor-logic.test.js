@@ -1888,3 +1888,43 @@ describe('#805 against the real shipped schemas', () => {
         expect(paths).toEqual(['[0].props.items[0].bullets']);
     });
 });
+
+// ─── #1181 ship audit: which enums get the ABSENT option ────────────────────
+//
+// absentOption = optional AND no default. The form-sync suite pins the optional/default
+// and optional/no-default arms through the real editor; these pin the REQUIRED arm and
+// the serializer's omission at the logic layer.
+describe('absentOption (#1181)', () => {
+    const REG = [{
+        name: 'box',
+        schema: { props: {
+            source:  { type: 'enum', values: ['posts'], required: false },
+            kind:    { type: 'enum', values: ['a', 'b'], required: true },
+            tone:    { type: 'enum', values: ['x', 'y'], required: false, default: 'x' },
+            heading: { type: 'string', required: false },
+        } },
+    }];
+    const field = (data, name) => data.components[0].fields.find((f) => f.name === name);
+
+    test('only an optional enum with no default carries it', () => {
+        const data = buildAccordionData(JSON.stringify([{ component: 'box', props: { kind: 'a' } }]), REG);
+        expect(field(data, 'source').absentOption).toBe(true);
+        expect(field(data, 'kind').absentOption).toBe(false);
+        expect(field(data, 'tone').absentOption).toBe(false);
+        expect(field(data, 'heading').absentOption).toBeUndefined();
+    });
+
+    test('the empty choice is omitted, but an empty string elsewhere is kept', () => {
+        const data = buildAccordionData(JSON.stringify([{ component: 'box', props: { kind: 'a', source: 'posts', heading: '' } }]), REG);
+        field(data, 'source').value = '';
+        const out = JSON.parse(serializeAccordionData(data.components))[0].props;
+        expect('source' in out).toBe(false);
+        expect(out.heading).toBe('');
+        expect(out.kind).toBe('a');
+    });
+
+    test('a stored value on the absent-option field round-trips', () => {
+        const data = buildAccordionData(JSON.stringify([{ component: 'box', props: { kind: 'b', source: 'posts' } }]), REG);
+        expect(JSON.parse(serializeAccordionData(data.components))[0].props.source).toBe('posts');
+    });
+});
