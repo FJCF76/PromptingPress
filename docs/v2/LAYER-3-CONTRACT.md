@@ -20,13 +20,18 @@
 > ## STATUS — READ THIS FIRST (2026-09-26)
 >
 > **Draft for ratification. Nothing here is implemented, and Sprint 3 builds none of it.**
-> Implementation is post-2.0.0 and purely additive. The one exception is §9: if the
+>
+> Implementation is post-2.0.0. It is **additive in admission, and narrower than today in named
+> places**: Δ3 refuses `url()`, `!important` and custom properties that a content `style`
+> attribute passes today; E3 refuses the same-install PDF `<object>` (P-11); E10 refuses stray
+> closers; and "unsupported markup" is refused (P-16). And where kses silently drops one
+> attribute today, §2.2 refuses the write instead (P-18). The one exception to post-2.0.0 is §9: if the
 > brand-site reconstruction (Sprint 3 T4) authors content that the current sanitizer
 > refuses, that specific construct re-enters this sprint as a ruled fix, built to the
 > clause of this contract that covers it.
 >
-> **Open decisions are in §12.** They come in two kinds. Owner-posture questions (P-1 to P-16)
-> decide how broad content freedom is. Mechanics questions (M-1 to M-14) decide how the
+> **Open decisions are in §12.** They come in two kinds. Owner-posture questions (P-1 to P-26)
+> decide how broad content freedom is. Mechanics questions (M-1 to M-18) decide how the
 > gates work. Where the text below depends on an open decision it says so and names it.
 >
 > **Two rules decide how to read this document.**
@@ -577,7 +582,7 @@ name is refused, never passed through.
   strings (`"Inter", sans-serif`; `"a b" "c d"`), which removes the entity-split mangling. Refuses `url()`,
   `!important` and custom properties, where the content channel is broader than the styling
   channel today.
-- **None of the three refusals appears in the owner's measured content**: `url(` and `!important` occur in 0 of the public pages' `style` attributes (probe-09), and custom properties occur only in engine-emitted v1 slot styles, never inside a content container (probe-05). The
+- **Context, not the argument for the refusal:** none of the three refusals appears in the owner's measured content: `url(` and `!important` occur in 0 of the public pages' `style` attributes (probe-09), and custom properties occur only in engine-emitted v1 slot styles, never inside a content container (probe-05). The
   refusals exist for the styling channel's reasons: ruling A2, LAYER-2 §6.14, and §6.0.
 - **Reason:** one CSS value gate across the program. §5.2 states the interaction.
 
@@ -593,8 +598,10 @@ name is refused, never passed through.
 **Δ5 — forms, if P-5 admits them.**
 
 - `form` (`action`, `method` ∈ `get|post`, `name`, `autocomplete`, `novalidate`).
-- `input` (`type` in a closed set that **excludes** `file`, and every `type` a submit
-  button can reach, gated as below).
+- `input` with `type` one of `text`, `email`, `tel`, `url`, `number`, `search`, `password`,
+  `date`, `time`, `datetime-local`, `month`, `week`, `color`, `range`, `checkbox`, `radio`,
+  `hidden`, `submit`, `reset`, `button`. `file` is excluded in this draft (P-24 asks whether
+  that stays).
 - `select`, `option`, `optgroup`, `label`, `fieldset`, `legend`, `output`.
 - The base's `textarea` and `button`.
 - **Gate:** `action` passes E2. `formaction`, `formtarget`, `formmethod` and `formenctype` are
@@ -890,7 +897,7 @@ so an authored `faq-open` would silently override the theme's own animation
 declarations, such as `anchor-name` and `view-transition-name`, do not override theme
 definitions; they are admitted and the author owns collisions.) Test shape: an authored
 `@keyframes` is refused at write; T-10's at-rule matrix. A band-namespaced keyframe
-mechanism is future work, named in §11.
+mechanism is future work, named in §11 (P-26 asks whether it is a guaranteed destination).
 
 ### 6.6 Parsing without a dependency (**M-6**)
 
@@ -1158,8 +1165,8 @@ a silent path.
 - Normalisation (§2.2).
 - A **styling** gap that no content construct would close. That is Layer 1/2 territory, with
   its own routes.
-- Chrome text (the footer and nav options). These are PLAIN by design, and **P-2** asks
-  whether that stays.
+- Chrome text (the footer and nav options). These are PLAIN by design today, and **P-2**
+  asks whether titles, headings and chrome text stay PLAIN.
 - A loss invisible under condition 4.
 
 ### 9.5 Where it is most likely to fire (a prediction, not a gate)
@@ -1207,6 +1214,7 @@ The rules every pin follows:
 | T-14 | §2.6 / M-2 | a stored band with a now-refused construct does not block an edit to another band |
 | T-15 | §5.1 rank | a content `style` beats a role value on its own element (computed style); `content_inline_style` states the count and properties |
 | T-16 | AI surface derived | the exclusion list in the prompt is built from the predicate's own tables (I43), as LAYER-2 §7′ requires for `_css` |
+| T-18 | open set (no silent narrowing) | an unlisted but valid construct in each open rule passes: an unlisted CSS property through Δ3 emits verbatim; if P-18 is ruled spec-derived, an unlisted static SVG attribute passes. T-2 alone proves only listed rows and cannot catch a narrowing. |
 | T-17 | performance | the predicate on a maximal RICH prop (the M-8 bound) and a maximal custom band stays within a stated budget per render. The render path is the hottest in the theme, so the cost is measured and not assumed. Two costs are named in advance: the §2.1 re-parse roughly doubles the per-prop work, and `:has()` in a scoped rule is the one selector whose **browser** cost grows with the band's size. If the budget fails, the first lever is a render cache keyed on the content bytes' hash plus the predicate's table version, so an unchanged prop is sanitized once. |
 
 ---
@@ -1228,7 +1236,7 @@ The rules every pin follows:
 **Out of scope, named so that nobody reads this contract as covering it:**
 
 - script of any kind, including engine-provided behaviours;
-- author-defined `@keyframes` (§6.5);
+- author-defined `@keyframes` (§6.5); band-namespaced keyframes are the named future work;
 - engine-built third-party embeds (**P-6**);
 - an accordion-editor UI for islands (BUILD-SPEC §7: post-2.0.0);
 - changes to chrome text contracts;
@@ -1271,21 +1279,28 @@ the named exclusions of §4, never gated on demand? That reading supersedes the 
   re-creates on content the ceiling Layer 2 was ruled to prevent on styling.
 
 **P-2. Breadth per prop class.** Do INLINE props (`cta.body`, `grid.items[].text`,
-`testimonials.items[].quote`) and PLAIN props keep their narrow contracts?
+`testimonials.items[].quote`) and PLAIN props (every title, heading, eyebrow, label, and the
+chrome text options) keep their narrow contracts? Answered on what each prop means and on the
+coherence cost, not on whether a given site has used richer markup there. A narrow INLINE
+pushes content out of grid, cta and testimonials just as a custom-band-only sheet would
+(P-3); PLAIN titles make `<br>`, `<sup>®</sup>` and a second accent word inexpressible.
 
 - A: keep all three contracts as they are. The ceiling is lifted by RICH, 3B and 3C.
 - B: widen INLINE to admit `span` with `class`/`style`, for accent runs.
 - C: collapse INLINE into RICH.
-- *Recommendation:* **A**, with B as the one widening worth taking if the owner has used
-  accent runs in card lines.
+- *Recommendation:* **B for INLINE** (`span` with `class`/`style`, plus `sup`, `sub`,
+  `small`, `mark`, `code`), and admit the same inline set in PLAIN **titles and headings**,
+  where it is ordinary typography. Keep labels, button text and URLs PLAIN, where markup has
+  no meaning. Revised in review: this recommendation first read "if the owner has used accent
+  runs", which is a demand condition and was withdrawn (pass 3, A5).
 
 **P-3. Scoped-sheet reach.** Is `udc._scoped` accepted on **every** band, or only on the
 custom band?
 
-- *Recommendation:* **every band.** The measured escape pressure is selector-shaped and sits
-  in ordinary bands (§1.6). A custom-band-only sheet would push content **out** of structured
-  components just to get a selector, which is the design doc's own objection to its
-  Approach B.
+- *Recommendation:* **every band.** A custom-band-only sheet would push content **out** of
+  structured components just to get a selector, which is the design doc's own objection to
+  its Approach B. (Context: the measured escape pressure is selector-shaped and sits in
+  ordinary bands, §1.6.)
 
 **P-4. External media in content.** Where may `<img>`, `<video>`, `<audio>` and `<source>`
 load from?
@@ -1342,7 +1357,7 @@ state the boundary and disclose?
 
 - *Recommendation:* **admit a named list of app schemes** (`sip`, `whatsapp`, `geo`, `maps`,
   `signal`, `facetime`), never a pattern, because some OS protocol handlers are themselves
-  attack surfaces (the `ms-msdt:`/`search-ms:` class). **Admit `data:image/png|jpeg|gif|webp`
+  attack surfaces (the `ms-msdt:`/`search-ms:` class). **Admit `data:image/png|jpeg|gif|webp|avif`
   in `img src` only,** under `pp_esc_image_src()`'s existing size cap. Never `data:image/svg`.
 
 **P-11. The same-install PDF `<object>`.** Core renders it today (§1.3). E3 would refuse it,
@@ -1385,7 +1400,96 @@ not support, for example `<b><p>x</b>y</p>`. Browsers render it, and authors pas
 
 - *Recommendation:* **keep the refusal, named "unsupported markup", with a message that says
   which element to close first.** Admitting what the verifier cannot parse means admitting
-  what nobody checked. The cost is real, and it belongs to the owner.
+  what nobody checked. The cost is real, and it belongs to the owner. Stated precisely
+  (probe, WP 7.0 `create_full_parser`): `<b><p>x</b>y</p>`, `<p><i>a<b>b</i>c</b></p>`,
+  `<p><em>a</p><p>b</em></p>` and foster-parented table text bail; `<p>a<p>b`, implied `<li>`
+  closes, `<a><div>` and SVG/MathML do not. This is the only refusal whose boundary is set by
+  a third-party parser version, so the bail set gets a T-1-style drift pin: a WordPress upgrade
+  that changes it fails a test and is read, never absorbed.
+
+**Added by the contract-boundary review (pass 3, freedom posture).** Each is a place where a
+closed list, an inherited exclusion or a missing destination narrows content freedom without
+an executes/fetches/escapes/forges reason. They are the owner's calls.
+
+**P-17. The base is WordPress's editorial list, not the web platform's.** Core `post` omits
+`tabindex`, `translate`, `inert`, microdata (`itemscope`, `itemprop`, `itemtype`), most of
+ARIA 1.2 (`aria-pressed`, `aria-level`, `aria-invalid`, …), and the elements `bdi` and
+`datalist`. Today kses drops them silently; under §2.2 the whole prop is refused.
+
+- *Recommendation:* **the base is the full HTML and ARIA 1.2 global set and every static
+  element, minus §4,** with `autofocus`, `contenteditable`, `nonce` and `is` argued one by one.
+  When core widens its list, the default is **admit unless §4**, not rule-per-item.
+
+**P-18. Closed lists meet refuse-never-coerce.** Every Δ list is printed as the admission
+boundary. So one omitted attribute in a real export (Figma's `color-interpolation-filters`,
+`textLength`, `metadata`, the lighting filter primitives, editor namespace declarations)
+refuses the whole prop, where kses drops only that attribute today.
+
+- *Recommendation:* **each Δ list is spec-derived** ("every static element and presentation
+  attribute of SVG 2, minus §4 and the value gates"), and the printed list documents the rule
+  rather than bounding it. Editor namespace attributes (`xmlns:inkscape` and the like) are
+  admitted as inert. T-18 adds an open-set pin: an unlisted valid construct passes.
+
+**P-19. Background images below the band root.** The scoped sheet and content `style` refuse
+every `url()`, and A2's attachment-id path exists only on `_band`. A custom band cannot give an
+inner element a background image, not even from its own media library.
+
+- *Recommendation:* **admit an A2-style attachment-id background in scoped rules,** with the
+  engine building the same-install URL exactly as `_band.background.image` does. External
+  hosts stay refused (§6.7).
+
+**P-20. Custom properties in content `style`.** Δ3 refuses every `--x`. The `_tokens`-bypass
+reason covers the engine's own names, not an author's.
+
+- *Recommendation:* **refuse only `--pp-*` and the engine's minted token names;** admit other
+  custom properties in content `style` and in scoped rules.
+
+**P-21. At-rules in the scoped sheet.** All are refused. The I36 argument covers width
+breakpoints only. It does not cover `prefers-reduced-motion`, which is an accessibility
+obligation once `animation` and `transition` are admitted, nor `prefers-color-scheme`,
+`hover`/`pointer`, `print`, `@supports` or `@container`.
+
+- *Recommendation:* **admit non-width media features, `@supports` and `@container`** in scoped
+  rules. Width breakpoints stay engine-owned.
+
+**P-22. Pseudo-class and pseudo-element lists.** Rules 4 and 5 are closed lists. They omit, with
+no reason given, `:any-link`, the form-validation states (`:required`, `:valid`, `:invalid`,
+`:user-invalid`, `:in-range`, …), `:read-only`, `:indeterminate`, `:default`, `:playing`,
+`:paused`, `::cue`, `::target-text` and `::details-content`.
+
+- *Recommendation:* **every pseudo-class and pseudo-element in a pinned Selectors list, minus
+  named exclusions.** Unknown names stay refused (I19).
+
+**P-23. Custom and unknown elements (E8).** A styled custom element paints through its class,
+`style` and the scoped sheet, so E8's "inert" reason is only half true, and the plugin-defined
+case is the same boundary P-9 recommends disclosing rather than refusing.
+
+- *Recommendation:* **admit hyphenated custom element names** (the valid custom-element
+  grammar), disclose them with the plugin boundary, and keep refusing names that shadow HTML,
+  SVG or MathML elements.
+
+**P-24. Forms: file inputs and `method="dialog"`.** Δ5 excludes `type=file` without a §4
+reason, and omits `method="dialog"`, which closes an admitted `dialog` with no script.
+
+- *Recommendation:* **admit `method="dialog"`.** On `type=file`, admit it with `enctype`
+  gated to the three standard values, under the same E2-gated `action`: an upload to a
+  reviewed destination executes nothing in the page.
+
+**P-25. What a human can edit in a custom band.** Plain islands exclude `a` and `button` hosts,
+so a link or button label cannot be edited without a structural write. There are no attribute
+islands (`href`, `src`, `alt`) and no repeatable islands, and the cap is 64.
+
+- *Recommendation:* **admit `a`, `button`, `time`, `code`, `abbr`, `sub` and `sup` as plain
+  hosts now; name attribute islands and repeatable islands as guaranteed destinations** of
+  this contract (P-26).
+
+**P-26. Scheduling must have a destination.** "Scheduling is not gating" (§0.1) holds only if
+post-2.0.0 has a binding. Nothing commits the §3 admissions, engine-built embeds (P-6),
+band-namespaced keyframes, or attribute/repeatable islands to a release.
+
+- *Recommendation:* **ratification commits every §3 admission to a named release (2.1.0), and
+  names each §11 item as a guaranteed destination with its owning contract,** whether or not §9
+  fires.
 
 ### Mechanics and security questions (the orchestrator rules)
 
@@ -1397,14 +1501,18 @@ not support, for example `<b><p>x</b>y</p>`. Browsers render it, and authors pas
 | M-4 | Base allowlist ownership | a PP-owned table derived from core `post` on the pinned WP version, minus §4, plus Δ1/Δ2(/Δ5), without `style` and with the internal `data-pp-style-slot`; it is the `allowed_html` passed to `wp_kses` (§2.1 step 3); drift pin (T-1) |
 | M-5 | Scoped-sheet emission form | attribute-prefix emission (§6.2), which is universally supported. `@scope` is NOT a byte-identical swap (§6.2); any move to it is its own reviewed change |
 | M-6 | CSS parsing | in-house bounded tokenizer; no parser dependency (§6.6) |
-| M-7 | `content` in scoped rules | only `""`, `none`, `normal`, `counter()`, `counters()` with a separator of at most 8 bytes of ASCII punctuation/space (§6.4). **Open sub-question, routed not ruled:** admit a small named set of typographic glyphs (e.g. the curly quotes the retired testimonials quote mark used) as one-character strings, and define "text" beyond ASCII. Recommendation: admit an explicit list of punctuation code points (quotes, dashes, bullets, arrows) and refuse every letter or digit in any script (Unicode `L*`/`N*`) |
-| M-8 | Byte bounds | 64 KiB per RICH/INLINE prop; 128 KiB for `custom.markup`; 16 KiB per island; 64 islands; 128 scoped rules per band. Measured against the owner's largest stored band before ratifying the numbers. |
+| M-7 | `content` in scoped rules | only `""`, `none`, `normal`, `counter()`, `counters()` with a separator of at most 8 bytes of ASCII punctuation/space (§6.4). **Open sub-question, routed not ruled:** admit a small named set of typographic glyphs (e.g. the curly quotes the retired testimonials quote mark used) as one-character strings, and define "text" beyond ASCII. Recommendation: admit an explicit list of punctuation code points (quotes, dashes, bullets, arrows) and refuse every letter or digit in any script (Unicode `L*`/`N*`). **Pass 3 adds:** admit `open-quote`, `close-quote`, `no-open-quote`, `no-close-quote` (they carry no author text; the browser supplies locale glyphs, which restores the retired testimonials quote mark with no text channel), and the `counter(<ident>, <counter-style>)` second argument; and apply whatever glyph set M-7 admits **uniformly** to every text-bearing CSS string Δ3 refuses (`list-style-type: "✓"`, `text-overflow: "…"`, `quotes`), so custom bullet glyphs are not a separate ceiling |
+| M-8 | Byte bounds | 64 KiB per RICH/INLINE prop; 128 KiB for `custom.markup`; 16 KiB per island; 64 islands; 128 scoped rules per band. Derived from T-17's performance budget; the owner's largest stored band is a floor check (M-18). |
 | M-9 | Finding codes and shapes | `content_construct_excluded` (refusal), `content_stripped_at_render`, `content_inline_style`, `content_external_resource` (if P-4 = A), `content_plugin_output`, `custom_band_unverified`, `custom_island_empty`, `custom_island_unknown`, `custom_island_host`, `content_duplicate_id`. All facts-only. |
 | M-10 | `rel="noopener"` on `target="_blank"` | add it, disclosed as normalisation (Δ4) |
 | M-11 | Presence probe vs borrowed role classes | scope the probe to template-rendered elements (exclude content-container descendants) rather than disclose ambiguity |
 | M-12 | The custom component's name | `custom` |
 | M-13 | T4's access to stored prod content for §9.2 | a read-only export authorized by the orchestrator; T4 never writes prod |
 | M-14 | Close §1.4's engine-namespace forging early, before 2.0.0 (strip `data-pp-*` and reserved ids at the five RICH sinks) | the orchestrator's scheduling call; it is independent of the rest of Layer 3 and small |
+| M-15 | Δ1's per-attribute byte cap (4 096) | drop it; M-8's per-prop bound carries the DoS argument, and real path data exceeds 4 KiB |
+| M-16 | A mitigation for the §6.7 lazy-image channel that keeps P-4 option A | refuse attribute-selector conditions in scoped rules whose compound reads inside an embed band's plugin output, and pin the network-log assertion (T-10) |
+| M-17 | Non-ASCII in selectors | admit UTF-8 letters inside quoted attribute values and class/id names, so content authored in non-Latin scripts is selectable; the byte gate stays an allowlist (Unicode `L*`/`N*` plus the current set) |
+| M-18 | M-8 bounds derivation | the numbers derive from T-17's performance budget; the owner's largest stored band is a floor check, not the source |
 
 ---
 
