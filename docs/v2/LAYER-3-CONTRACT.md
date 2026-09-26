@@ -30,8 +30,8 @@
 > refuses, that specific construct re-enters this sprint as a ruled fix, built to the
 > clause of this contract that covers it.
 >
-> **Open decisions are in §12.** They come in two kinds. Owner-posture questions (P-1 to P-26)
-> decide how broad content freedom is. Mechanics questions (M-1 to M-21) decide how the
+> **Open decisions are in §12.** They come in two kinds. Owner-posture questions (P-1 to P-27)
+> decide how broad content freedom is. Mechanics questions (M-1 to M-23) decide how the
 > gates work. Where the text below depends on an open decision it says so and names it.
 >
 > **Two rules decide how to read this document.**
@@ -296,7 +296,11 @@ pp_content_sanitize(string $bytes, Sink $sink, CompositionContext $ctx): array{h
 `Sink` names the contract **and** the step-5 wrapper chain (`.section__content`, the
 `table > tbody > tr > td` chain, an island's host, the band root), because "rich" alone does
 not say where the prop will be parsed. `CompositionContext` carries what the cross-band rules
-need (the page's anchor set, for E6). Any cache (T-17) keys on the bytes' hash **plus** the sink
+need (the page's anchor set, for E6). **It is passed explicitly through every render call,
+including the measurement paths**: the editor preview loop, the post-apply validator
+(`lib/post-apply-validate.php:103`) and the presence probe (`lib/udc.php:7080`) render one
+component at a time today, with no composition, so without the context their E6 findings would
+be measured on a different render from the one visitors get. Any cache (T-17) keys on the bytes' hash **plus** the sink
 identity, a hash of the anchor set, the predicate's table version and the WordPress version
 (which sets the parser's bail set), so a result verified in
 one context is never served in another; or it caches only the per-prop steps 1-4.
@@ -315,8 +319,10 @@ one context is never served in another; or it caches only the per-prop steps 1-4
   2. **Lift styles (pre-kses, pure).** A `WP_HTML_Tag_Processor` pass reads every element's
      `style` attribute. `get_attribute()` returns it entity-decoded, which is what removes the
      §1.3 entity-split mangling. The pass runs Δ3 on the decoded value, records any `Loss`,
-     and replaces the attribute with an internal marker `data-pp-style-slot="<n>"`, keeping
-     the admitted value in a side table. The same pass removes a refused `script`/`style`
+     and replaces the attribute with an internal marker `data-pp-s-<nonce>="<n>"`, keeping
+     the admitted value in a side table. **`<nonce>` is random per call** (16 hex bytes), so an
+     author cannot know the marker's name. **Any author attribute that already has the marker
+     form** (`data-pp-s-*`), or any `data-pp-style-slot`, is a `Loss` in this step. The same pass removes a refused `script`/`style`
      element **with its body** (E4), which kses alone would leave behind as visible text.
      **This pass cannot see everything:** `WP_HTML_Tag_Processor` reads the contents of
      raw-text and RCDATA elements (`title`, `textarea`, `xmp`, `noembed`, …) as text, while kses
@@ -325,7 +331,7 @@ one context is never served in another; or it caches only the per-prop steps 1-4
      and step 5 checks what the browser will build.
   3. **kses with the PP-owned table.** `wp_kses($bytes, <M-4 table>)`. The table is the base
      (§3.1) plus the Δ1/Δ2 (and, if P-5 admits them, Δ5) elements and attributes, minus every
-     §4 exclusion. It does **not** list `style`; it lists `data-pp-style-slot` on every
+     §4 exclusion. It does **not** list `style`; it lists this call's marker attribute on every
      element. kses therefore never sees a style value, and core's style filter never runs on
      PP content. **kses tables are keyed by tag name, with no namespace,** so step 3 cannot
      express "HTML `title` refused, SVG `title` admitted" or "Δ1 elements only inside
@@ -340,13 +346,18 @@ one context is never served in another; or it caches only the per-prop steps 1-4
        `profile`, `src`, `usemap`, `xmlns`). Step 4 owns `srcset` (every candidate, split by the
        HTML spec's algorithm) and `xlink:href`, and any URL attribute a later delta adds;
      - **E6 in full:** kses's `data-*` wildcard admits `data-pp-*`, so the namespace rule is
-       enforced here, not only in step 2; plus the reserved ids;
+       enforced here, not only in step 2; plus the reserved ids. **Order:** step 4 first
+       restores this call's own markers (only the exact `data-pp-s-<nonce>` name issued by step
+       2), then applies E6 to whatever `data-pp-*` remains; the island attributes are the only
+       other carve-out;
      - Δ4's `rel` addition.
 
-     It then restores each `data-pp-style-slot` to a `style` attribute carrying the admitted
+     It then restores each of this call's markers to a `style` attribute carrying the admitted
      value from step 2 (`set_attribute()` re-encodes it). **Markers are matched one-to-one
      against step 2's side table:** a marker whose index step 2 did not issue, or one that
-     appears twice, is a `Loss`. That closes the channel where a forged marker reaches this
+     appears twice, is a `Loss`. The random name also closes the **forged-index splice**: if
+     kses removes the element that received index *n*, an author-written marker with index *n*
+     cannot pass, because the author could not write this call's name. T-9 pins that scenario. That closes the channel where a forged marker reaches this
      step inside markup step 2 read as text. **This pass may only remove and report; it never
      re-admits a construct kses removed.**
   5. **Verify** (next bullet).
@@ -380,7 +391,8 @@ one context is never served in another; or it caches only the per-prop steps 1-4
     sentinel is a sibling of the band, intact, with its text; and no formatting element the
     prop opened is still on the stack of active formatting elements when the container closes;
   - the §4 exclusions on the token stream the browser would build, including the namespace
-    checks step 3 cannot make.
+    checks step 3 cannot make, E11's clobbering names, and E12's rule that every id-reference
+    attribute resolves to an id inside the same band.
 
   **A composed custom band (markup with its islands rendered in) is verified once more, as a
   whole, the same way.** When `WP_HTML_Processor` bails (`get_last_error()` non-null), that is
@@ -453,7 +465,15 @@ In the §2.1 order that means:
   proved is a string. They cannot unhook `pre_kses`, because they never enter kses. A failure
   in either is refused as a `Loss` by returning, never by throwing through step 3;
 - the measurement mirror at `lib/udc.php:7084-7090` (re-hook after a caught render) stays, and
-  gains a pin that the filter is still hooked after a hostile render of every §4 row.
+  gains a pin that the filter is still hooked after a hostile render of every §4 row;
+- **every existing catch that can enclose a component render re-adds `pre_kses` in its
+  `finally`,** because once templates call the predicate, those catches enclose step 3. Named
+  today: the editor preview render (`lib/admin.php:5773-5797`), the post-apply validator
+  (`lib/post-apply-validate.php:101-106`, which catches one component's throw and **carries on
+  to the next**, the request-long hole this section describes), and the measurement mirror
+  (`lib/udc.php:7080`). Each site gets its own pin (a hostile render through that site, then
+  the filter asserted hooked). A static scan of the `wp_kses()` call line alone cannot see
+  them.
 
 ### 2.5 Convergence, from rendered truth
 
@@ -472,10 +492,18 @@ additions.
 **Ruled (Q-A4): the write gate refuses a content `Loss` only in bands the write changes.** A
 stored band's losses surface as the §2.3 finding and never block. The mechanism:
 
-- **Bands are matched** between the stored and the incoming composition **by band id**.
-- **"Changed"** means the band's content props differ **structurally after §2.2
-  normalisation**, not byte for byte. A model that re-emits a stored band normalised has not
-  changed it.
+- **"Unchanged" is decided by content, not by id.** An incoming band is unchanged when its
+  content props structurally equal the content props of **some** stored band, whatever either
+  band's id. Matching by id alone would reopen #1007: a full-composition write mints a fresh
+  random id for every id-less entry (`lib/wp.php:6559-6566`), and id-less aged bands are the
+  likeliest to carry now-refused content, so they would never match and would block every
+  write. A band id match is a fast path, never a requirement.
+- **The comparison is on RAW parses, never on sanitized output.** Both sides are parsed
+  (elements, attribute names, decoded attribute values, CSS declarations) from the bytes as
+  written, and only §2.2's normalisations are ignored. Comparing sanitized output would let an
+  excluded construct be rewritten and still pass as unchanged: `onclick="a"` changed to
+  `onclick="b"` sanitizes to the same output on both sides. That exact case is T-14's pin.
+  A model that re-emits a stored band normalised has not changed it.
 - **Four callers pass the changed set**, because each validates a whole array today and does
   not know which bands changed: `update_composition` (the AI's main path), `create_page`,
   `pp_save_composition` (the editor and JSON save) and `pp_preview_composition`.
@@ -661,9 +689,11 @@ The predicate still runs over INLINE and PLAIN at write:
 
 - **INLINE:** a `Loss` of a non-inline element is refused, where today it is silently
   stripped.
-- **PLAIN:** markup in a plain prop is refused with a message saying the prop is plain text,
-  where today it renders as literal `<b>` text (probe-02). This closes I35 on the two
-  narrower contracts too.
+- **PLAIN: never a `Loss`.** A PLAIN prop is escaped and never parsed, so a literal `<` in a
+  title (`The <details> element`) is neither executed nor lost: it renders as the author typed
+  it. An earlier draft refused markup in a plain prop; that was **reversed** (ruled Q-A5, see
+  §13.5b), because refusing it corrupts legitimate text to defend against nothing. Whether some
+  PLAIN props should accept inline markup is P-2.
 
 ---
 
@@ -684,6 +714,8 @@ finding.
 | **E6** | **The engine-owned namespace:** any attribute named `data-pp-*`, with **one carve-out**: `data-pp-island` and `data-pp-island-kind` are admitted **only** in `custom.markup` (§7.2), and refused everywhere else, including inside island content; any `id` of the form the engine mints (`^pp-[0-9a-f]{8}\z`, the band-id and anchor mint, `lib/wp.php:6567`; `^it-[0-9a-f]{8}\z`, the item id); the page-reserved ids `main` and `pp-nav-menu`; and any `id` equal to a band anchor (`props.id`) in the same composition. Band ids themselves are emitted only as `data-pp-band` (so the `data-pp-*` rule covers them); the id reservation protects the **anchors**. When a write adds a `props.id` that equals an `id` already inside another band's stored content, **the write that adds the anchor is the one refused**, naming the band that holds the collision (the #1007 rule of §2.6 applied: the refusal lands on the band being changed). `add_component` validates only the new item today (`lib/actions.php:5266`), so it must run the cross-band E6 checks against the stored page with the new item merged in, as `pp_validate_composition_band` does for cross-item rules; T-6 carries an `add_component` row. | forging the engine's identity (§1.4, measured). The content-side twin of the promote step's props rule (§5.3). | one row per marker in §1.4's table, asserting the forged scope does **not** paint (computed style from the rendered page, not the stored map) |
 | **E7** | **Style-attribute exclusions** (Δ3): LAYER-2 §6.0's set; any value the security gates refuse, including `url()` of every kind (A2); and `!important`. | the same reasons LAYER-2 gives, with one addition: **the no-external-resource rule is load-bearing for 3B's attribute selectors** (§6.7). | the LAYER-2 §6.0 matrix, re-run through a `style` attribute; the `image-set()` bare-string case that LAYER-2 §6.0 records as once missed |
 | **E8** | **Custom elements and unknown elements** (any tag not in §3.1 + §3.2). | without script a custom element is an inert span that validates green and paints nothing special: the I19 shape. And where a page script **does** define it (a plugin's `customElements.define`), it becomes a script-bearing element the theme never reviewed. Listed so that freedom-first does not read as "anything with angle brackets". | an unknown-tag matrix refused, with a message naming the element |
+| **E11** | **DOM clobbering:** an `id` or `name` whose value equals an **own property of `window` or `document` per the living standard** (for example `getElementById`, `querySelector`, `location`, `cookie`, `forms`, `body`). | the browser exposes named elements as properties of `document` and `window`, so `<form name="querySelector">` shadows `document.querySelector` and breaks the theme's `assets/js/main.js` and every plugin script on the page; measured, `<a name="getElementById">` passes `wp_kses_post` today. That is authored bytes steering script, which §0.3 rules out. | the property list is **read from a browser probe** (enumerate the own properties of `window` and `document` in the pinned Chromium) and stored as a snapshot the test compares against a fresh probe, never a hand-written array (the drift lesson of T-1); each probed name as `id` and as `name` refused |
+| **E12** | **References that leave the band:** an id-reference attribute whose target is not an id inside the same band: `popovertarget`, `for` (on `label`/`output`), `usemap`/`map name`, `aria-controls`, `aria-describedby`, `aria-labelledby`, `aria-details`, `headers`, `list`, and `details name` (a name group joins every `details` on the page). Checked in step 5 against the band's own ids. | the same reason E9 refuses `form=`: a control in one band would act on another band or on the theme (measured passing kses today: `popovertarget="pp-nav-menu"`, `label for="pp-ai-input"`, `details name`, `usemap`). | each attribute with an in-band target admitted and an out-of-band target refused, in Chromium: the out-of-band target's state is unchanged after the control is activated |
 | **E9** | **Submission and navigation redirectors:** `formaction`, `formtarget`, `formmethod`, `formenctype`, `ping`, `http-equiv`, and the `form` attribute (`form="<id>"`, which enrolls a control in any form on the page: theme, plugin or comments). | they move where a click or submit goes, or where a request is sent, outside the reviewed `action`/`href`. | each refused on every element |
 | **E10** | **Markup that escapes its container**, defined by **containment** (§2.1 step 5), not by a list of tags: the prop fails E10 when, parsed inside its real template wrapper, any node it produced lands outside the sink container, the next band's sentinel is not intact, or a formatting element it opened is still active when the container closes. Known shapes: a stray `</div>`/`</section>`/`</p>`; `</td>`, `</tr>`, `</table>` in a cell; an unclosed `<textarea>` (swallows the next band); an unclosed `<a>`/`<b>` (rebuilt inside the next band); a start tag that closes the host (`<td>` in a cell, `<li>` in an `li` host, `<a>` in an `a` host). | in the page the browser uses the stray closer to close the **template's** container, and in a table cell the table itself, so everything after it renders outside the band: outside `data-pp-band` scoping, the scoped sheet and every finding. A fragment parse ignores the closer, which is why the predicate must parse in context. Measured: `wp_kses_post('a</div></section><p>outside</p>')` passes the closers verbatim, and none of the five RICH sinks balances tags. Refused, never balanced: rendering a re-balanced tree would make the stored bytes stop being what renders (I36), and I34 is reject-never-coerce. | the known-shape matrix above, per sink wrapper (RICH, `<td>`, each island host kind); the assertion is **the next band's sentinel is intact, outside this band, with its own text and no inherited formatting**, read from the rendered page in Chromium. A "band contains every content node" check alone passes vacuously for a swallowed or re-wrapped next band. |
 
@@ -1147,6 +1179,15 @@ part of the precondition, not optional polish. **The message check is on the sen
 the origin:** an opaque frame reports its origin as `"null"`, which any sandboxed plugin frame
 can also send, so the editor accepts a message only when `event.source ===
 frame.contentWindow`. T-12 pins it with a second sandboxed frame posting the same message.
+**The sender check is necessary but not sufficient.** Script running inside the preview frame
+(the plugin output of §7.5, under `allow-scripts`) **is** `frame.contentWindow`. So every
+message from the frame is untrusted data, validated against a strict schema: the refresh
+channel carries a scroll position (a finite number) and nothing else, and no message can name
+an action, a URL, a selector or markup. Anything else is dropped. T-12 pins a message sent
+**from inside** the frame with extra fields and with an action verb, each ignored. **The
+stronger alternative is recorded, and the implementation may choose it:** drop `allow-scripts`
+from the preview entirely (plugin behaviour then does not run in the preview, which is disclosed
+in the editor).
 
 ---
 
@@ -1167,7 +1208,8 @@ refuses"* so that it is an **observation**, not a judgement.
    - an element, attribute, decoded attribute value or style declaration present in `S`'s
      parsed structure is absent from `R`'s;
    - the visible text changes (for example, a `<script>` body leaking as text);
-   - a PLAIN sink renders markup as literal text.
+   - a PLAIN sink renders as literal text something the author meant as markup (not a §2.2
+     loss, because PLAIN is escaped by design; recorded so P-2 sees it).
 3. **Not by design.** The lost construct is **not** in §4's hard-exclusion set. A lost `onclick`
    is the future contract working as designed, and never fires. **Exception:** a loss matching
    a §4 row that **any open §12 P-question bears on** is classed
@@ -1190,7 +1232,12 @@ refuses"* so that it is an **observation**, not a judgement.
 **Hard constraint on the intent render.** Unsanitized authored bytes **never** touch a live
 page context. The intent render happens only in an isolated, script-free document: a
 headless-browser page loaded from a local file or `about:blank` with JavaScript disabled, no
-network access, and no WordPress session or cookie. It is never the dev or prod site, never the
+live network access, and no WordPress session or cookie. **Both renders (intent and sanitized)
+run in the same harness under the same network policy, fed by a local replay of the assets**
+(images, `srcset` candidates at DPR 2, web fonts) captured once from their sources. Without the
+replay, external images never load in the intent render, so either every string shows a
+spurious difference or image losses are invisible, and Δ2 (a predicted firing) could never
+fire. It is never the dev or prod site, never the
 editor preview, and never a page any other user can load. The bytes are evidence of intent,
 not content.
 
@@ -1222,7 +1269,10 @@ this route receives them. When T4's reference shows such an effect:
    sink path, table cells included (probe-07c carries a cell fixture). For prod content, that needs whatever
    read-only export the orchestrator authorizes (**M-13**). T4 also records every new content
    string it authors.
-2. **Run the detector** over every content string. The reference implementation is
+2. **T4's instrument requirements:** the detector below, **and** the intent-render harness of
+   §9.1 with its local asset replay (same harness and network policy for both renders). An
+   instrument without the replay cannot observe image losses.
+3. **Run the detector** over every content string. The reference implementation is
    `t4-content-loss-detector.php` in the T3 evidence set (self-test: probe-07c, which carries
    one fixture per class and is re-run whenever §4 or the §12 P-list changes). It is a
    read-only `wp eval-file` script, not theme code. It reports each loss as one of:
@@ -1230,9 +1280,9 @@ this route receives them. When T4's reference shows such an effect:
    - **CANDIDATE-PENDING** — it matches a §4 row an open P-question bears on. It is recorded
      with that P-number, and it **re-fires as a CANDIDATE if the question is ruled "admit"**;
    - **CANDIDATE** — anything else.
-3. **For each CANDIDATE, judge condition 4** across the channels of §9.1, sanitized render vs
+4. **For each CANDIDATE, judge condition 4** across the channels of §9.1, sanitized render vs
    intent render (the intent render under the hard constraint above).
-4. **Fire.** A CANDIDATE that meets condition 4 **fires the trigger.** T4 stops that construct's
+5. **Fire.** A CANDIDATE that meets condition 4 **fires the trigger.** T4 stops that construct's
    work and hands back a **re-entry record**:
    - sink, band and prop;
    - `S`, `R` and the lost construct;
@@ -1306,18 +1356,18 @@ The rules every pin follows:
 |---|---|---|
 | T-1 | §3.1 base ownership | the PP-owned table equals **derive(core `post` on the pinned WordPress version) − §4 + Δ**, and a stored snapshot of core `post` equals live core `post` (the clause that fails on drift; never the table compared to itself). A divergence fails loudly |
 | T-2 | §2.5 convergence | for every §3 admission row: write accepted, stored verbatim, and the rendered DOM contains the construct (normalised). Plus Δ4: `target="_blank"` and a named target each get `noopener` on the rendered DOM; `_self` does not. |
-| T-3 | §2.2 write refusal | each §4 row refused with `content_construct_excluded`, naming the construct and the clause; nothing stored. **Each §4 row is asserted by that row's own §4 test-shape column,** not by a generic absence check. Also: §3.3's INLINE non-inline element (`<div>` in `cta.body`) and PLAIN markup (`<b>` in a title) refused at write. |
+| T-3 | §2.2 write refusal | each §4 row refused with `content_construct_excluded`, naming the construct and the clause; nothing stored. **Each §4 row is asserted by that row's own §4 test-shape column,** not by a generic absence check. Also: §3.3's INLINE non-inline element (`<div>` in `cta.body`) and PLAIN markup (`<b>` in a title) refused at write. Plus E11 and E12 (see their §4 test-shape columns), and a PLAIN title containing a literal `<` (`The <details> element`) accepted at write and rendered escaped, never refused. |
 | T-4 | §2.3 render strip + finding | raw-meta and restore paths: the construct is absent from the rendered DOM, and `content_stripped_at_render` carries the facts. "Absent from the rendered DOM" is never the whole assertion: E10 asserts the next band's sentinel (a stray closer is never a DOM node), and E4 asserts that no byte of a refused `script`/`style` body appears in the band's text. The finding is asserted on all three surfaces: `wp pp check page`, the post-write envelope, and the chat report. Plus a stored parser bail and a stored stray closer: the prop renders empty, the band renders, and the finding names the clause and the prop. |
 | T-5 | E1 / E2 matrices | §4's name and obfuscation matrices, including `xlink:href` and every `srcset` candidate; `data-wp-*`; protocol-relative `//host` URLs asserted to follow P-4's host rule; rewrite-to-relative pinned absent |
 | T-6 | E6 forging | one row per §1.4 marker: the forged scope does not paint (computed style); the promote step and E6 agree. Every forged-marker row is paired with a **positive control**: the genuine engine-emitted marker paints a distinct computed value with the same fixture styles. Extended to the rest of E6: minted `it-` ids, the reserved ids `main` and `pp-nav-menu`, `data-pp-island*` refused outside `custom.markup` and admitted inside it, and a `props.id` collision refused on the write that adds the anchor. |
 | T-7 | Δ3 style gate | LAYER-2's §6.0 matrix through a `style` attribute; §1.3's first-row properties admitted; the entity-split case round-trips; every property the owner's 85 measured `style` attributes use is admitted (a fixture built from probe-05's property census). Plus the Δ3 rules outside LAYER-2's matrix: the text-bearing string properties (`quotes`, `list-style-type`, `text-overflow`, …) refused with a string value and admitted with a keyword; a CSS escape and an apostrophe inside a double-quoted value refused as written. |
 | T-8 | Δ1 / E5 SVG | the static subset renders; fragment-only references; each active element refused; `use` with an external `href` refused. Plus: an SVG `title` with an element child refused; `url(` hidden behind a CSS escape refused; `xml:base` refused; `viewbox` emitted as `viewBox`; one `id` in two bands raises `content_duplicate_id`. |
-| T-9 | mutation-XSS idempotence | `sanitize(browser_parse(serialize(sanitize(x)))) == sanitize(x)`, and the browser DOM contains no E-row construct, over a corpus of known parse-differential shapes (namespace confusion, `noscript`/`template`/`style` inside foreign content, comment and CDATA edge cases, stray end tags per sink context, table-cell context, each island host kind, the composed custom band, and a `WP_HTML_Processor` bail pinned as fail-closed). Run in Chromium. Each corpus entry names its **expected survivor** (the admitted text or element around the hostile shape), asserted present in the browser DOM, so a sanitizer that over-strips or returns empty cannot pass. Plus the #730 inheritance: `pre_kses` is still hooked after a hostile render of every §4 row, and a static scan finds no `try`/`catch` around the `wp_kses()` call; and the style-slot markers: a forged index, a duplicated marker, and one hidden in SVG `title` text are each a `Loss`. |
+| T-9 | mutation-XSS idempotence | `sanitize(browser_parse(serialize(sanitize(x)))) == sanitize(x)`, and the browser DOM contains no E-row construct, over a corpus of known parse-differential shapes (namespace confusion, `noscript`/`template`/`style` inside foreign content, comment and CDATA edge cases, stray end tags per sink context, table-cell context, each island host kind, the composed custom band, and a `WP_HTML_Processor` bail pinned as fail-closed). Run in Chromium. Each corpus entry names its **expected survivor** (the admitted text or element around the hostile shape), asserted present in the browser DOM, so a sanitizer that over-strips or returns empty cannot pass. Plus the #730 inheritance: `pre_kses` is still hooked after a hostile render of every §4 row, and a static scan finds no `try`/`catch` around the `wp_kses()` call; and the style-slot markers: a forged index, a duplicated marker, and one hidden in SVG `title` text are each a `Loss`. Plus the **forged-index splice**: kses removes the element that received marker index *n*, and an author-written marker with index *n* (under any name the author could guess) does not carry that style anywhere. |
 | T-10 | §6.2 selector gate | **the probe `:hover + section` verbatim** (refused at write; and, with the **gate bypassed but the emitter unchanged**, a Playwright hover actually activates the condition and the next band's computed style is asserted unchanged, next to a positive control where the same declaration on an in-band subject **does** change under the same hover), plus `:not(.x) ~ *`, `:first-child ~ [data-pp-band]` and `a, + .x`; the byte matrix; each pseudo-class allowed and refused; leading `+`/`~` refused; emitted-form pins proving every subject is inside the band (a sibling band's computed style is unchanged). Each condition is **activated** in the fixture: the band is placed as a first child for `:first-child ~ …`, and the §6.7 network-log assertion runs with an external `<img loading="lazy">` present and every condition state entered. Plus the limit and edge matrix (256 bytes, 16 entries, depth 3, `:has()` inside `:has()`, the `html`/`head`/`body` type refusal, one pseudo-element and last, the nth-argument grammar); the at-rule matrix (`@keyframes`, `@import`, `@media` each refused); state sub-map keys refused in a `_scoped` rule's `css`; an equal-specificity tie won by the scoped rule; two same-specificity rules in swapped order flipping the computed value. |
 | T-11 | §6.4 `content` | `""` and the two counter forms paint a pseudo-element box, and `none`/`normal` suppress it (both pinned); `attr()` and text strings are refused |
-| T-12 | §8 sinks | prompt-regression cases (ai-ready harness): content carrying `\p{Cf}` and instruction-shaped text reaches the model framed and neutralized. A preview isolation pin: the preview document's origin is opaque. Plus the **spoofed sender**: a message from a second sandboxed frame is ignored (`event.source` check), not only the opaque-origin check; a chat pin that a content value carrying `<img onerror>` renders as text in `changes[].from/to`; the neutralized set follows the P-15 ruling, and the preserved code points are listed and asserted to survive. |
+| T-12 | §8 sinks | prompt-regression cases (ai-ready harness): content carrying `\p{Cf}` and instruction-shaped text reaches the model framed and neutralized. A preview isolation pin: the preview document's origin is opaque. Plus the **spoofed sender**: a message from a second sandboxed frame is ignored (`event.source` check), not only the opaque-origin check; a chat pin that a content value carrying `<img onerror>` renders as text in `changes[].from/to`; the neutralized set follows the P-15 ruling, and the preserved code points are listed and asserted to survive. Plus a message sent **from inside** the preview frame with an extra field and with an action verb, each ignored by the strict schema; and one pin per enclosing catch site of §2.4 (`lib/admin.php:5773-5797`, `lib/post-apply-validate.php:101-106`, `lib/udc.php:7080`) asserting `pre_kses` is hooked after a hostile render through that site. |
 | T-13 | §7 islands | name gate; empty-island and unknown-island rules; a patch to `islands.<name>` diffs as one field; CAS and undo per island write. Plus: the host matrix per kind (`custom_island_host`, `a` refused as an inline host, void/RCDATA/SVG hosts refused, cells the only table-structure hosts); a non-empty island element refused; a duplicate island name refused; a 65th island refused; presence pins for `custom_band_unverified` and for `content_plugin_output` naming the shortcode tags; a docs pin that the AI surface no longer says shortcode output is stripped. **Sibling preservation** (the planted-proof shape of the items[] edit work: plant a sibling, write one island, assert the sibling survives byte-identical), and `null` removing exactly one island. |
-| T-14 | §2.6 / M-2 | a stored band with a now-refused construct does not block an edit to another band, through `update_component`, `update_composition`, `create_page` and the JSON save; a re-emitted but structurally identical band is not "changed"; the preview renders the strip and never refuses on the stored loss |
+| T-14 | §2.6 / M-2 | a stored band with a now-refused construct does not block an edit to another band, through `update_component`, `update_composition`, `create_page` and the JSON save; a re-emitted but structurally identical band is not "changed"; the preview renders the strip and never refuses on the stored loss Plus: an id-less aged band re-sent under a fresh random id is **unchanged** (matched by content); and `onclick="a"` rewritten to `onclick="b"` is **changed** (raw-parse comparison), so the write is refused. |
 | T-15 | §5.1 rank | a content `style` beats a role value on its own element (computed style); `content_inline_style` states the count and properties. Plus: `content_inline_style` names a `popover` element; a fixture group claiming a new property does not make stored content using it invalid (§5.2); a borrowed `.section__content` class inside content does not register role presence (§5.4/M-11). |
 | T-16 | AI surface derived | the exclusion list in the prompt is built from the predicate's own tables (I43), as LAYER-2 §7′ requires for `_css` |
 | T-17 | performance | the predicate on a maximal RICH prop (the M-8 bound) and a maximal custom band stays within a stated budget per render. The render path is the hottest in the theme, so the cost is measured and not assumed. Two costs are named in advance: the §2.1 re-parse roughly doubles the per-prop work, and `:has()` in a scoped rule is the one selector whose **browser** cost grows with the band's size. If the budget fails, the first lever is a render cache keyed on the content bytes' hash plus the predicate's table version, so an unchanged prop is sanitized once. |
@@ -1417,6 +1467,12 @@ load from?
 - `url()` in style attributes stays refused under every option (E7, §6.7).
 - *Recommendation:* **A**. Hotlinked media is ordinary web content, and B or C would break
   content that renders today. The disclosure keeps it visible.
+- **Note for the ruling (/review adversarial pass):** under A, a scoped rule's **interaction**
+  state (`:hover`, `:focus`, `:checked`, `:target`) can toggle `display` on an external
+  `loading="lazy"` image, which reports that a visitor interacted to a third-party host. Layer 2's
+  existing `:hover` state maps already open the same channel. So choosing A accepts a
+  visitor-interaction signal to hosts the author picked; M-16 covers only attribute conditions
+  that read plugin output.
 
 **P-5. Forms.** Does content admit `form` and its controls (Δ5), with `action` gated by E2 and
 no `formaction` family?
@@ -1600,6 +1656,24 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
   names each §11 item as a guaranteed destination with its owning contract,** whether or not §9
   fires.
 
+**Added by the /review adversarial pass. Present early: it is a fact the owner must rule on
+with full framing.**
+
+**P-27. ⚠ Content that renders today goes blank after an upgrade, including a WordPress core
+upgrade with no theme release.** §2.3 renders a stored prop that fails containment or makes the
+parser bail as empty, with a finding. Ordinary pasted content lands there (`<p><a href="#">x</p>`,
+`<p><b>Note</p><p>rest</p>`, P-16). Only T4's pages are ever checked (§9). And because the bail
+set is WordPress's, a site that upgrades core on its own schedule can lose paragraphs with no
+PromptingPress release involved; P-16's drift pin runs only in this repo's test suite.
+
+- *Recommendation:* **before 2.0.0 ships any part of 3A, require (1) a read-only census tool
+  that runs the predicate over every stored composition on a site and lists every prop that
+  would render empty, with its clause, and (2) a release note and an admin notice that point
+  site owners at it; and (3) run the same census after every WordPress core upgrade (a
+  `upgrader_process_complete` hook that re-runs it and raises the admin notice when the empty
+  set grows).** The alternative, rendering a failing prop through the pre-Layer-3 sanitizer with
+  a finding instead of empty, trades the E10 guarantee for continuity and is the owner's call.
+
 ### Mechanics and security questions (the orchestrator rules)
 
 | # | question | recommendation |
@@ -1607,12 +1681,12 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
 | M-1 | Where the predicate runs, and how it verifies itself | write (refuse) **and** render (re-sanitize + `content_stripped_at_render`), one function (§2); its last step parses the output with `WP_HTML_Processor::create_full_parser()` inside the per-sink template wrapper, checks containment (E10) with a next-band sentinel, and re-checks §4 on that token stream; a parser bail is a `Loss` named "unsupported markup" (§2.1) |
 | M-2 | Which stored bands a write validates for content (#1007 class) | **RULED (Q-A4):** refuse losses only in bands the write changes; bands matched by id; "changed" = structural inequality after §2.2 normalisation; four callers pass the changed set; the preview strips and never refuses (§2.6) |
 | M-3 | Style-attribute value gate | LAYER-2 security gates, **untyped**. Refuse an uppercase property (I34), naming the lowercase form. |
-| M-4 | Base allowlist ownership | a PP-owned table derived from core `post` on the pinned WP version, minus §4, plus Δ1/Δ2(/Δ5), without `style` and with the internal `data-pp-style-slot`; it is the `allowed_html` passed to `wp_kses` (§2.1 step 3); drift pin (T-1) |
+| M-4 | Base allowlist ownership | a PP-owned table derived from core `post` on the pinned WP version, minus §4, plus Δ1/Δ2(/Δ5), without `style` and with the per-call random style marker (§2.1 step 2); it is the `allowed_html` passed to `wp_kses` (§2.1 step 3); drift pin (T-1) |
 | M-5 | Scoped-sheet emission form | attribute-prefix emission (§6.2), which is universally supported. `@scope` is NOT a byte-identical swap (§6.2); any move to it is its own reviewed change |
 | M-6 | CSS parsing | in-house bounded tokenizer; no parser dependency (§6.6) |
-| M-7 | `content` in scoped rules | only `""`, `none`, `normal`, `counter()`, `counters()` with a separator of at most 8 bytes of ASCII punctuation/space (§6.4). **Open sub-question, routed not ruled:** admit a small named set of typographic glyphs (e.g. the curly quotes the retired testimonials quote mark used) as one-character strings, and define "text" beyond ASCII. Recommendation: admit an explicit list of punctuation code points (quotes, dashes, bullets, arrows) and refuse every letter or digit in any script (Unicode `L*`/`N*`). **Pass 3 adds:** admit `open-quote`, `close-quote`, `no-open-quote`, `no-close-quote` (they carry no author text; the browser supplies locale glyphs, which restores the retired testimonials quote mark with no text channel), and the `counter(<ident>, <counter-style>)` second argument; and apply whatever glyph set M-7 admits **uniformly** to every text-bearing CSS string Δ3 refuses (`list-style-type: "✓"`, `text-overflow: "…"`, `quotes`), so custom bullet glyphs are not a separate ceiling |
+| M-7 | `content` in scoped rules | only `""`, `none`, `normal`, `counter()`, `counters()` with a separator of at most 8 bytes of ASCII punctuation/space (§6.4). **Open sub-question, routed not ruled:** admit a small named set of typographic glyphs (e.g. the curly quotes the retired testimonials quote mark used) as one-character strings, and define "text" beyond ASCII. Recommendation: admit an explicit list of punctuation code points (quotes, dashes, bullets, arrows) and refuse every letter or digit in any script (Unicode `L*`/`N*`). **Pass 3 adds:** admit `open-quote`, `close-quote`, `no-open-quote`, `no-close-quote` (they carry no author text; the browser supplies locale glyphs, which restores the retired testimonials quote mark with no text channel), **but not** the `counter(<ident>, <counter-style>)` second argument (withdrawn in the /review adversarial pass: `counter(x, lower-alpha)` with an authored `counter-reset: x 8` spells "h", which reopens the text channel §6.4 closes; only decimal counters stay, and they are disclosed because even decimal output puts numbers on the page outside the content checks); and apply whatever glyph set M-7 admits **uniformly** to every text-bearing CSS string Δ3 refuses (`list-style-type: "✓"`, `text-overflow: "…"`, `quotes`), so custom bullet glyphs are not a separate ceiling |
 | M-8 | Byte bounds | 64 KiB per RICH/INLINE prop; 128 KiB for `custom.markup`; 16 KiB per island; 64 islands; 128 scoped rules per band. How the numbers are derived is M-18. |
-| M-9 | Finding codes and shapes | `content_construct_excluded` (refusal), `content_stripped_at_render`, `content_inline_style`, `content_external_resource` (if P-4 = A), `content_plugin_output`, `custom_band_unverified`, `custom_island_empty`, `custom_island_unknown`, `custom_island_host`, `content_duplicate_id`. Refusals without their own code are `content_construct_excluded` with the clause named: a non-empty island element (§7.2), a duplicate island name, a 65th island, PLAIN markup and INLINE non-inline elements (§3.3), and M-3's uppercase property. The E6 anchor-collision refusal is a **props** write, so it uses the existing `invalid_prop_value` envelope, naming the band whose content holds the id. All facts-only. |
+| M-9 | Finding codes and shapes | `content_construct_excluded` (refusal), `content_stripped_at_render`, `content_inline_style`, `content_external_resource` (if P-4 = A), `content_plugin_output`, `custom_band_unverified`, `custom_island_empty`, `custom_island_unknown`, `custom_island_host`, `content_duplicate_id`. Refusals without their own code are `content_construct_excluded` with the clause named: a non-empty island element (§7.2), a duplicate island name, a 65th island, INLINE non-inline elements (§3.3), E11 and E12, and M-3's uppercase property. (PLAIN props never refuse: §3.3.) The E6 anchor-collision refusal is a **props** write, so it uses the existing `invalid_prop_value` envelope, naming the band whose content holds the id. All facts-only. |
 | M-10 | `rel="noopener"` on `target="_blank"` | add it, disclosed as normalisation (Δ4) |
 | M-11 | Presence probe vs borrowed role classes | scope the probe to template-rendered elements (exclude content-container descendants) rather than disclose ambiguity |
 | M-12 | The custom component's name | `custom` |
@@ -1625,6 +1699,8 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
 | M-19 | *(advisory from /review, simplification)* One `WP_HTML_Processor::create_full_parser()` walk instead of steps 2-4 | step 5 already fails closed when that parser bails, so every accepted prop is one it can walk; on WP 7.0 it exposes `get_namespace()`, `get_attribute()` (decoded), `remove_attribute()` and `serialize_token()`. One walk inside the per-sink wrapper could enforce the M-4 table, the namespace checks, Δ3, E2, E6, Δ4 and E10, and emit the admitted tokens. kses and its `pre_kses` hazard (§2.4), the style-slot markers and the step-2 raw-text blind spot would then all disappear, with every §4 row and T-row kept. **Recommendation: prototype it (rule 14.3) at implementation time and adopt it if T-9 and T-17 pass;** the §2.1 pipeline stays the contract until then. It supersedes the Q-A1 mechanism only by ruling. |
 | M-20 | *(advisory)* Comma lists in a `_scoped` rule's `selector` | each entry is already emitted as its own rule, so `"a, b"` equals two rules: a second spelling of one thing (the I36 shape §6.3 cites). **Recommendation: refuse a top-level comma** (commas inside `:is()`/`:where()`/`:not()`/`:has()` stay); the 16-entry cap and the split go away |
 | M-21 | *(advisory)* One refusal-code convention | report `custom_island_unknown` and `custom_island_host` as `content_construct_excluded` naming the §7.2 clause, and keep dedicated codes for findings only. **Recommendation: adopt** |
+| M-22 | *(from /review adversarial, INVESTIGATE)* Checking shortcode output at write time runs plugin code | §7.5 item 5 runs E6 over post-`do_shortcode` output. At write time that executes plugin code (with possible side effects) during validation, and its output varies by user, attachments and time, so what a write accepts may not be what renders. **Recommendation:** run item 5's checks at **render** time only (disclosed, never refusing a write), and at write time parse core shortcodes' attributes with `shortcode_parse_atts()` without executing them; plugin shortcodes are the P-8 boundary |
+| M-23 | *(from /review adversarial, INVESTIGATE)* Two residual reaches of borrowed markup | (1) the theme's own script binds to the first `.nav__toggle` / `.site-header` on the page (`assets/js/main.js:24`, `:111`), so on a page without a nav a borrowed class in content becomes that element; (2) an invisible full-viewport link (`<a style="position:fixed;inset:0;opacity:0">`) passes, and `content_inline_style`'s count does not show it. **Recommendation:** scope the theme script's selectors to the chrome root (`[data-pp-chrome] .nav__toggle`); add a `content_inline_style` detail row when a content element is fixed-position, full-viewport and near-transparent, as a disclosure, not a refusal |
 
 ---
 
@@ -1776,8 +1852,71 @@ adversarial pass follows. Codex was unavailable, recorded as missing coverage.
   - the island deep-merge;
   - proportionate re-entry.
 
+### 13.5b /review adversarial pass (the final fix cycle)
+
+The last reviewer found 16 items: 11 FIXABLE and 5 INVESTIGATE. It ran read-only probes on
+wp-env. The orchestrator ruled the batch (Q-A5 = A) and declared it **the final fix cycle**. Any
+later finding becomes a known issue in §12, not another cycle.
+
+**Fixed:**
+
+- **Band matching (#1007).** "Unchanged" is decided by content, not by id. The comparison is
+  on raw parses; the `onclick` rewrite is the pin.
+- **The #730 enclosing-catch sites.** Every existing catch that can enclose a render re-adds
+  `pre_kses` in `finally`, with one pin per site.
+- **The preview message schema.** Messages from the frame are validated against a strict
+  schema. Dropping `allow-scripts` is recorded as the stronger option the implementation may
+  choose.
+- **E11, DOM clobbering.** Its property list is read from a browser probe, never a hand-written
+  array.
+- **E12, references that leave the band.**
+- **The per-call random style marker.** It also closes the forged-index splice, which T-9 pins.
+- **The composition context** passed through the measurement paths.
+- **The intent-render asset replay,** also written into T4's instrument requirements.
+- **M-7's counter-style argument, withdrawn.**
+- **Three wording items.**
+
+**Routed, not fixed:**
+
+- P-27: blanking after an upgrade or a core upgrade. Flagged for early presentation.
+- M-22: running plugin code at write time.
+- M-23: the theme script's class binding, and the invisible overlay.
+- A note on P-4: interaction-triggered lazy fetches.
+
+**A reversed ruling, recorded with its reasoning.** An earlier batch refused markup in a PLAIN
+prop, as part of closing I35's no-silent-loss rule on the narrow contracts. This pass showed that
+the refusal corrupts legitimate text: a title reading `The <details> element` is valid today.
+The orchestrator confirmed the reversal: a PLAIN prop is escaped and never parsed, so a literal
+`<` is neither executed nor lost. I35's no-silent-loss rule is about bytes that vanish or change
+meaning, and escaping preserves both. Refusing it defended against nothing. §3.3 now says a
+PLAIN prop never produces a `Loss`.
+
+### 13.5c How the review converged
+
+Five review rounds found contract-core defects:
+
+1. contract-boundary pass 1 (admissions vs gates);
+2. contract-boundary pass 2 (exclusions);
+3. contract-boundary pass 3 (freedom posture);
+4. the /review red team;
+5. the /review adversarial pass.
+
+**Each round was smaller than the last, and every finding completed an already-ruled mechanism
+rather than changing direction.** None of them moved the frame (§0.1), the hard exclusions'
+reasons, or the owner-posture questions. They tightened how a stated guarantee is actually kept,
+for example:
+
+- where a gate can run;
+- what "escapes its container" means;
+- how a band is matched;
+- what the preview trusts.
+
+That is the signal the draft is ratifiable as a draft: what remains open is the §12 list, which
+the owner's answers will reshape, and more review of the text before those answers would review
+text that is about to change.
+
 ### 13.6 What this trail does not claim
 
-- **None of the 26 owner-posture questions is answered.** None blocks T4. CANDIDATE-PENDING and
+- **None of the 27 owner-posture questions is answered.** None blocks T4. CANDIDATE-PENDING and
   the trigger were built so that evidence on an open question is recorded instead of decided.
 - **Nothing here is implemented or tested.** §10 is a plan.
