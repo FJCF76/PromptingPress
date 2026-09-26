@@ -465,7 +465,7 @@ name is refused, never passed through.
   - on `use`: `^#[A-Za-z][A-Za-z0-9_-]{0,63}\z`, a same-document fragment only;
   - on `a`: the E2 URL gate.
 - **Reason:** icons and diagrams are ordinary web content. The static subset executes
-  nothing. Everything that can execute or fetch in SVG is named in §4 (E1, E2, E3, E7).
+  nothing. Everything that can execute or fetch in SVG is named in §4 (E1, E2, E5), and markup that escapes its container in E10.
 - **Parse note:** browsers repair SVG attribute case in foreign content, so `viewbox` becomes
   `viewBox`. The predicate compares attribute names case-insensitively and emits the
   canonical case.
@@ -609,7 +609,8 @@ them; the M-4 table is the base **minus** §4. E4's `title` is the HTML `title` 
 - **The rung is new, and it is disclosed.** The finding `content_inline_style` reports, per
   band, how many declarations content carries and which properties they set. It is a fact
   about what paints, in the shape LAYER-2's `udc_css_unchecked_property` set. It is not a
-  per-declaration warning. **M-9** fixes the exact shape.
+  per-declaration warning. It also names any `popover` element the content carries, the
+  top-layer admission of §4. **M-9** fixes the exact shape.
 
 ### 5.2 One CSS value gate across the program: "claiming" does not reach content
 
