@@ -4,9 +4,39 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127)
+## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167)
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+
+## The rules for richer page content are written down for ratification, and nothing changes yet (#1167)
+
+**Nothing on your pages changes.** This is a design document, not code. No component, write
+path or rendered page behaves differently.
+
+`docs/v2/LAYER-3-CONTRACT.md` is the draft contract for "Layer 3": what authored HTML a
+content prop may carry beyond today's sanitizer. It is Layer 2's content-side sibling. Content
+freedom is broad by default, and the few hard exclusions are named, each with its reason and the
+test that will prove it. Examples: event handlers, iframes you write yourself, script URLs, and
+markup that escapes its band. It measures today's content sanitizer first. What it found:
+
+- Content is never checked when it is written. It is sanitized only when the page renders.
+- Nothing tells you what was dropped.
+- The `style` attribute in rich content runs WordPress's own CSS filter, not the theme's. That
+  filter drops `transform` and `rgb()` colours, and it lets external `url()` through.
+- Rich content can carry the engine's own band markers.
+
+The contract proposes one sanitizer that refuses at write time and never drops content silently.
+It also covers:
+
+- band-scoped CSS with selectors, which reach lists and links inside rich text;
+- a custom band whose editable "islands" a person can change without touching its structure;
+- the rule for when this work re-enters the current sprint.
+
+Implementation is after 2.0.0. The contract ends with a decision list: questions about how broad
+content freedom should be go to the owner, and mechanics questions go to the orchestrator.
+
+### Docs
+- New: `docs/v2/LAYER-3-CONTRACT.md`, a ratifiable draft, not implemented.
 
 ## The `--dark` / `--inverted` class vocabulary is retired, and a guard with no subject retires by decision (#1111, #1108)
 
