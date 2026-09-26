@@ -2,24 +2,43 @@
 /**
  * templates/base.php — HTML Shell
  *
- * Call pp_base_template(callable $content) from every page template.
- * The callable receives no arguments; it is responsible for echoing
+ * Call pp_base_template(callable $content, array $components) from every page
+ * template. The callable receives no arguments; it is responsible for echoing
  * the page body (component calls).
+ *
+ * $components NAMES EVERY COMPONENT THE CALLABLE RENDERS BY NAME (#1171). The
+ * v2 role defaults are printed in the head, before the callable runs, so the head
+ * cannot learn them from the render; without the list a template's components
+ * render as bare markup. tests/TemplateBandDefaultsTest.php keeps each list equal
+ * to its file's pp_get_component() calls. A template that renders a stored
+ * composition passes nothing: the composition is read on its own.
+ *
+ * A REPLACEMENT pp_base_template() (the function_exists() guard below still
+ * allows one, though runtime overrides are unsupported, docs/upgrade-safety.md)
+ * must accept $components and call pp_udc_declare_template_components() with it
+ * BEFORE wp_head(). One that does not silently prints no role defaults for any
+ * template-rendered component.
  *
  * Usage:
  *   pp_base_template(function () {
  *       pp_get_component('hero', [...]);
  *       pp_get_component('section', [...]);
- *   });
+ *   }, ['hero', 'section']);
  */
 
 if (!function_exists('pp_base_template')) {
     /**
      * Outputs the full HTML shell and calls $content() in the <main> region.
      *
-     * @param callable $content  A function that outputs the page body.
+     * @param callable $content     A function that outputs the page body.
+     * @param array    $components  The components $content renders by name, for the
+     *                              role-defaults tier printed in the head (#1171).
      */
-    function pp_base_template(callable $content): void {
+    function pp_base_template(callable $content, array $components = []): void {
+        // Recorded BEFORE wp_head(): the defaults tier is built at
+        // `wp_enqueue_scripts`, inside wp_head. Always called, so a template that
+        // declares nothing clears any earlier declaration.
+        pp_udc_declare_template_components($components);
         ?>
 <!DOCTYPE html>
 <html <?php language_attributes(); ?>>

@@ -20,4 +20,4 @@ pp_base_template(function () {
         'layout' => 'text-only',
     ]);
 
-});
+}, ['hero', 'section']);
