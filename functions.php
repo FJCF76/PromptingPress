@@ -186,9 +186,20 @@ add_action('wp_enqueue_scripts', function () {
     // wp_head(), which fires BEFORE the <main> loop paints the bands, so there is
     // no render pass to collect from. It resolves the page exactly the way the
     // templates do — see pp_udc_current_composition().
+    //
+    // THE DEFAULTS TIER ALSO COVERS WHAT A TEMPLATE RENDERS ITSELF (#1171). The
+    // posts page, a single post, archives, search, the 404 and a page on the default
+    // template render no composition (a default-template page may still STORE one,
+    // whose CSS then paints nothing), so the composition alone left their components
+    // with no defaults and they rendered as bare markup. Each of those templates
+    // declares its components through pp_base_template(), which records them before
+    // wp_head(); pp_udc_request_defaults_items() appends them after the composition's.
+    // The AUTHORED tier stays composition-only: a template band has no band id.
+    // Known gap outside this: a "latest posts" FRONT page renders through
+    // front-page.php while this resolver answers [] for it (#1173).
     $pp_udc_composition = pp_udc_current_composition();
 
-    $pp_udc_defaults = pp_udc_page_defaults_css($pp_udc_composition);
+    $pp_udc_defaults = pp_udc_page_defaults_css(pp_udc_request_defaults_items($pp_udc_composition));
     if ($pp_udc_defaults !== '') {
         wp_add_inline_style('pp-base', $pp_udc_defaults);
     }
@@ -204,7 +215,9 @@ add_action('wp_enqueue_scripts', function () {
     // NOT GATED ON THE COMPOSITION, and that is the difference that matters. The
     // band layers above are driven by pp_udc_current_composition(), which returns
     // [] for anything that is not a singular page with a readable composition —
-    // 404, search, archives, a corrupt row, the no-front-page arm. Chrome renders
+    // 404, search, archives, a corrupt row, the no-front-page arm (on the template
+    // routes among those, only what the template DECLARES reaches the defaults tier,
+    // and a corrupt row or the no-front-page arm declares nothing). Chrome renders
     // on ALL of those, so gating its CSS the same way would leave a styled site
     // with a stock-coloured header on exactly the pages a visitor reaches when
     // something has already gone wrong.

@@ -30,4 +30,4 @@ pp_base_template(function () {
 
     pp_comments_template();
 
-});
+}, ['hero', 'section', 'cta']);

@@ -8570,6 +8570,15 @@ function pp_udc_chrome_css(string $name, string $layer): string {
  * nothing — the full 2.45 ms is paid, about 5% of a measured 43-45 ms 404 TTFB. No
  * database queries are added: it is file reads, json_decode and compile.
  *
+ * SINCE #1171 THOSE ROUTES ALSO PRINT THEIR TEMPLATE'S COMPONENT DEFAULTS, so the
+ * registry warm moves into that tier and the head's whole UDC cost there is (PHP 8.3,
+ * median of five fresh processes, test bootstrap): no template 2.86 ms; 404
+ * (hero + cta) 4.12 ms, +4.5 KB; single post (hero + section + cta) 4.39 ms, +7.6 KB;
+ * posts page, archive, search (hero + grid + section) 4.95 ms, +9.5 KB — of which
+ * chrome's own share falls to ~0.8 ms. Each component's defaults depend only on the
+ * theme, so a per-version cache is the available win; it is not taken here for the
+ * same shared-infrastructure reason as #1020.
+ *
  * Nothing here is superlinear (compile is flat at ~0.021 ms/role to 512 roles, and
  * _pp_udc_render_blocks() is ~0.00088 ms/block with no re-scan), so the cost scales
  * with how many roles chrome declares and nothing else. 47% of it is the registry
@@ -8640,6 +8649,92 @@ function pp_udc_current_composition(): array {
         return [];
     }
     return $result['composition'];
+}
+
+// ── Template-rendered components (#1171) ────────────────────────────────────
+//
+// A page a TEMPLATE renders (the posts page, a single post, an archive, search
+// results, the 404, a page on the default template) calls pp_get_component() itself
+// rather than walking a composition. Its sections carry `data-pp-component` like any
+// band, so the defaults tier reaches them the moment it is printed — but the tier was
+// built from pp_udc_current_composition() alone, which answers [] on every one of
+// those routes (bar one pre-existing exception: a default-template page that still
+// carries a stored composition gets that composition's CSS, which page.php never
+// renders), so they rendered as bare markup.
+//
+// The emitter cannot learn what the template renders from the render itself (it runs
+// inside wp_head, before the content callback), so the TEMPLATE declares it:
+// pp_base_template() takes the list as its second argument and records it here before
+// it prints the head. The declaration feeds the DEFAULTS tier only. A template band
+// has no band id, and none is invented, so nothing authored can reach it; composed
+// pages declare nothing and emit exactly what they did.
+
+/**
+ * The one store for the current request's declaration. Null reads, an array writes.
+ *
+ * @param array|null $set The names to record, or null to read.
+ * @return array<int, string>
+ */
+function _pp_udc_template_components_store(?array $set = null): array {
+    static $declared = [];
+    if ($set !== null) {
+        $declared = $set;
+    }
+    return $declared;
+}
+
+/**
+ * Records the components the rendering template draws, for the defaults tier.
+ *
+ * Kept: v2 components that are not chrome, each once, in order. Dropped: chrome (it
+ * has its own tier, pp_udc_chrome_defaults_css(), and printed as a component row it
+ * would be a second copy under the wrong scope — the #1125 shape), unknown names and
+ * anything that is not a string. Every call REPLACES the previous declaration, so a
+ * template that declares nothing leaves nothing behind.
+ *
+ * @param array $names Component names, as the template's pp_get_component() calls spell them.
+ */
+function pp_udc_declare_template_components(array $names): void {
+    $kept = [];
+    foreach ($names as $name) {
+        if (!is_string($name) || isset($kept[$name])) {
+            continue;
+        }
+        if (!pp_udc_is_v2_component($name) || pp_udc_is_chrome($name)) {
+            continue;
+        }
+        $kept[$name] = true;
+    }
+    _pp_udc_template_components_store(array_keys($kept));
+}
+
+/**
+ * The components the rendering template declared, as recorded.
+ *
+ * @return array<int, string>
+ */
+function pp_udc_template_components(): array {
+    return _pp_udc_template_components_store();
+}
+
+/**
+ * The items the request's DEFAULTS tier is built from: the composition's, then one
+ * `['component' => <name>]` row per template-declared component.
+ *
+ * The composition leads so a composed page's order, and therefore its bytes, cannot
+ * move; pp_udc_page_defaults_css() prints each component once, so a component on both
+ * sides costs nothing. The template rows carry no `id` on purpose: the authored tier
+ * is built from the composition alone, and even if one of these rows reached it, an
+ * id-less row emits nothing (pp_udc_band_css()).
+ *
+ * @param array $composition The page's composition (pp_udc_current_composition()).
+ * @return array
+ */
+function pp_udc_request_defaults_items(array $composition): array {
+    foreach (pp_udc_template_components() as $name) {
+        $composition[] = ['component' => $name];
+    }
+    return $composition;
 }
 
 // ── Band identity ───────────────────────────────────────────────────────────

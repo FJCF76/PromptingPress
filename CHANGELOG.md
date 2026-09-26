@@ -4,9 +4,62 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167)
+## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171)
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+
+## Your blog, posts, search results and 404 page are styled again (#1171)
+
+**Pages the theme builds for you now look like the rest of your site.** The blog index, every
+single post, category and tag archives, search results, the "page not found" page and any page
+on the default template used to render as bare, unstyled markup on v2: no hero spacing, no card
+fill or border, headings at browser size. They now paint the same v2 look a band gets on a
+composed page.
+
+Those pages are built by the theme's own templates rather than from a page composition, and the
+v2 styling for a component was only printed for components the page's composition listed. A
+template page lists none, so nothing was printed. Each template now names the components it
+renders, and the page head prints their styling alongside the composition's.
+
+What this does not add: there is still no way to restyle one of these template bands on its own.
+They take the theme's default look for each component, plus your site-wide design tokens and
+header and footer styling. A per-band styling surface for template pages is a recorded follow-up.
+Composed pages are unchanged, byte for byte.
+
+**Measured cost** on those routes: the page head's styling work goes from about 2.9 ms to
+4.1–5.0 ms and adds 4.5–9.5 KB of inline CSS (404: hero + cta; posts page, archives, search:
+hero + grid + section). No database queries are added.
+
+### Fixed
+- The posts page, single posts, archives, search results, the 404 and default-template pages
+  paint their components' v2 role defaults (padding, type scale, card fill, border, bar, gap).
+
+### Changed (theme development)
+- `pp_base_template()` takes a second argument: the list of components the template renders by
+  name, e.g. `pp_base_template(function () { … }, ['hero', 'section'])`. A template that renders a
+  stored composition passes nothing. A component missing from the list renders unstyled. A
+  replacement `pp_base_template()` must record the list with
+  `pp_udc_declare_template_components()` before `wp_head()`.
+
+### Docs
+- `ai-instructions/product-dev-add-page-template.md` and `ai-instructions/add-component.md`
+  (Step 6) show and require the list; `AI_RULES.md` states it; `AI_CONTEXT.md`'s page-template
+  table says what styling template pages get and adds the 404 row.
+
+### Tests
+- `tests/TemplateBandDefaultsTest.php`: the declaration filter, the defaults union, composed
+  pages unchanged, `base.php` recording the list before the head (run in a child process), and a
+  drift pin read from PHP's own tokens. The pin fails when a template's list and its calls
+  disagree, and it fails closed on any render path a list cannot see: a variable, a callable
+  string, a dynamic call, an include, a template part, or a new `pp_get_component()` call site
+  anywhere in the theme.
+- `tests/e2e/template-band-defaults.spec.ts`: eight template routes and branch states (posts
+  page, archive with and without posts, search with and without results, a single post, the 404,
+  a default-template page) at 375 and 1280 match a composed reference page property for property.
+
+### Known issue
+- A front page set to "Your latest posts" still renders the default homepage unstyled, and that
+  render writes a page composition onto the newest post (#1173). It predates this change.
 
 ## The rules for richer page content are written down for ratification, and nothing changes yet (#1167)
 

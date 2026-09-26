@@ -421,7 +421,7 @@ AI_RULES.md                Hard coding invariants
 
 Enforced by `AI_RULES.md` and verified by automated tests:
 
-- Templates call components. Components do not call components.
+- Templates call components. A template that renders components by name calls each by a literal name and lists it in `pp_base_template()`'s second argument, so the page head prints its role defaults; a template that renders a stored composition passes no list. Components do not call components.
 - No WordPress functions in `/templates/` or `/components/`. Only `lib/wp.php` calls WP.
 - No hooks (`add_action`, `add_filter`) in view files. Only in `functions.php`.
 - No raw hex values in `components.css` — CSS variables from `base.css` only.

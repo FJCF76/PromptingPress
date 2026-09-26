@@ -50,4 +50,4 @@ pp_base_template(function () {
         ]);
     }
 
-});
+}, ['hero', 'grid', 'section']);

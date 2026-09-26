@@ -23,4 +23,4 @@ pp_base_template(function () {
         'layout'     => 'inline',
     ]);
 
-});
+}, ['hero', 'cta']);
