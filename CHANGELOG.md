@@ -60,7 +60,7 @@ their original `#FF5C2E`.
 - No stored data changes. Stored v1 slot values stay retired (v2 has no backward
   compatibility), so re-author them as `marker.color` on the role that holds the glyph.
 - A theme version without the `marker` group refuses any write to a band that carries it
-  ("does not permit the UDC group"). Remove the `marker` entries before rolling back.
+  ("UDC group marker, which does not exist"). Remove the `marker` entries before rolling back.
 
 ### Known issues
 - A `marker.color` written on a `disc` list is accepted and paints nothing. The write does
