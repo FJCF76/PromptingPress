@@ -98,6 +98,8 @@ Layer 2 (breakpoint-keyed declaration lists, PP-owned property/function ALLOWLIS
 
 **RULING MARKER (owner, 2026-09-24, Sprint-3 revision session):** #909 IS IN Sprint 3 (paired with #1094 in the T1 trust cluster — the capacity clause is resolved). **Layer 3 is CONTRACT REVIEW ONLY in Sprint 3**; implementation moves post-2.0.0 (purely additive — no compat debt accrues by deferring) unless the brand-site reconstruction hits content the current sanitizer refuses, in which case that specific need re-enters as a ruled fix. Layer 2 shipped in Sprint 2 as the standing freedom guarantee (broad-by-default `_css`; see docs/v2/LAYER-2-CONTRACT.md — the allowlist wording above predates the owner's freedom ruling).
 
+**Pointer (#1167):** Layer 3's contract review is `docs/v2/LAYER-3-CONTRACT.md` — a ratifiable DRAFT; nothing in it is implemented.
+
 ---
 
 <!--
