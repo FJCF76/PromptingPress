@@ -4,9 +4,77 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171)
+## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171, #1028)
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+
+## A separator or list marker can take its own colour again (#1028)
+
+**You can colour a list marker or the dot between trust-strip items without recolouring the
+text beside it.** v1 had four slots for this: the separator between trust-strip items, the
+check/dash/arrow markers in a section body and in a text-panel list, and the check on a grid
+card's bullets. v2 retired all four and gave them nothing in return, so a separator painted
+orange on a cream row, for example, had no v2 expression at all.
+
+Each of those four roles now takes a `marker` style group with one parameter, `color`:
+
+| Role | What it colours |
+|---|---|
+| section `inline-items` | the separator between strip items |
+| section `body` | the drawn list marker `body_marker` selects |
+| section `panel-list` | the drawn list marker `panel_items_marker` selects |
+| grid `card-bullets` | a card's bullet check (the whole band, or a single card) |
+
+```json
+{"inline-items": {"marker": {"color": "#FF5C2E"}}}
+```
+
+It takes every colour form the other groups take: a literal, an `@token` reference, a
+per-width map and a `:hover` state. The value is set on the role's own box and the glyph
+inherits it, so the glyph itself is still never addressed.
+
+What stays the same: the group is authored only. A band that does not set it renders
+exactly as before: the separator follows its row's text colour and the drawn markers take
+the accent. A list left on the default `disc` marker is the browser's own marker and ignores
+`marker.color` (as in v1); switch `body_marker` or `panel_items_marker` to `check`, `dash` or
+`arrow` first. The starter homepage sets its trust-strip separators and grid checks back to
+their original `#FF5C2E`.
+
+### Added
+- `marker` style group (`color`) on section `inline-items`, `body`, `panel-list` and grid
+  `card-bullets` (band and single-card grain).
+- The in-admin assistant is told that a `disc` list ignores `marker.color`, and that it is the
+  MOTION values that are case-sensitive (layout, alignment, border-style and colour keywords are
+  accepted in any case; the old "exactly as everywhere else" was not true).
+
+### Changed
+- The starter homepage's two trust strips and its grid band author their marker colour
+  (`#FF5C2E`), the value they had in v1.
+- Schema descriptions, component READMEs, the section and grid migration how-tos and the AI
+  instructions (`composition.md`, `style-component.md`, `add-component.md`,
+  `website-building.md`) describe the route. The group count they state is now nine. The stats
+  and logos texts that said `opacity` is in "none of the seven UDC groups" (already one short)
+  now say "none of the UDC groups".
+
+### Upgrading and rollback
+- No stored data changes. Stored v1 slot values stay retired (v2 has no backward
+  compatibility), so re-author them as `marker.color` on the role that holds the glyph.
+- A theme version without the `marker` group refuses any write to a band that carries it
+  ("does not permit the UDC group"). Remove the `marker` entries before rolling back.
+
+### Known issues
+- A `marker.color` written on a `disc` list is accepted and paints nothing. The write does
+  not yet say so (#1177).
+
+### Tests
+- `tests/UdcMarkerGroupTest.php`: the registry entry; no role default anywhere, including site
+  chrome; exposure derived both ways from the stylesheet's consumers and the rendered markup;
+  acceptance and refusal on the real write path, including a single card; stored and emitted
+  values at rest, on hover, per width, at item grain and through a token reference; presets
+  that carry the group; the starter seed; the disc caveat in schema, AI instructions and the
+  in-admin prompt.
+- `tests/e2e/marker-colour.spec.ts`: computed glyph colours at 375 and 1280, text ink
+  unchanged, a single card against its neighbour, and both fallbacks on an unauthored band.
 
 ## Your blog, posts, search results and 404 page are styled again (#1171)
 
