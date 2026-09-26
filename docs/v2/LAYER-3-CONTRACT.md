@@ -149,7 +149,8 @@ whatever the owner rules on breadth.
 
 - **124 elements** (probe-00). The core `post` context includes the MathML set, `details`,
   `summary`, `dialog`, `button`, `textarea`, `audio`, `video`, `track`, `object` (its `data`
-  attribute is stripped), `figure` and `table`.
+  attribute survives only for a same-install PDF, via core's `_wp_kses_allow_pdf_objects`),
+  `figure` and `table`.
 - **Not admitted:** `svg` and every SVG element, `picture`, `source`, `iframe`, `form`, `input`,
   `select`, `script`, `style`.
 - **Global attributes on every element:** `class`, `id`, `style`, `data-*`, `role`, `aria-*`
@@ -171,7 +172,7 @@ it is **narrower in properties and broader in values**:
 | construct | content `style` attribute today | Layer 2 `_css` |
 |---|---|---|
 | `transform`, `filter: blur()`, `text-shadow`, `transition`, `animation`, `inset`, `outline`, `clip-path`, `mix-blend-mode`, `isolation`, `place-items`, `text-wrap`, `list-style`, `pointer-events` | **dropped** | admitted |
-| `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklch()`, `color-mix()` colour values | **dropped** (hex and keywords only survive) | admitted (typed) |
+| `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklch()`, `color-mix()` colour values | **dropped** as declaration values (hex and keywords survive; `rgb()`/`rgba()` inside a gradient survive) | admitted (typed) |
 | `grid-template-areas: "a b"`; any quoted string once HTML-encoded (`font-family:&quot;X&quot;`) | **dropped / mangled**: the declaration splits on the entity's `;` and leaves a fragment behind (probe-04) | admitted |
 | `url(https://other.host/…)` | **admitted**, and it paints: Chromium fetched it (probe-02) | refused (ruling A2 + `_pp_forbidden_css_construct`) |
 | `!important` | **admitted** | refused (LAYER-2 §6.14) |
@@ -237,7 +238,7 @@ This is recorded because it shapes 3B, and for no other reason:
   rich text that no role reaches).
 - **The borrowed-button cross-effect:** #1071.
 - **The four capability deletions on `::before`/`::after` among the 223 retired v1 slots:** the
-  pseudo-element dimension of LAYER-2 §0.5f. `components/testimonials/README.md:128` records
+  pseudo-element dimension of LAYER-2 §0.5f. `components/testimonials/README.md:141` records
   one of them.
 
 All of this is **selector** pressure. It is what Layer 2 names at its §6.15 as *"Layer-3 /
@@ -444,7 +445,7 @@ name is refused, never passed through.
   functions and quoted strings, which removes the entity-split mangling. Refuses `url()`,
   `!important` and custom properties, where the content channel is broader than the styling
   channel today.
-- **None of the three refusals appears in the owner's measured content** (probe-05). The
+- **None of the three refusals appears in the owner's measured content**: `url(` and `!important` occur in 0 of the public pages' `style` attributes (probe-09), and custom properties occur only in engine-emitted v1 slot styles, never inside a content container (probe-05). The
   refusals exist for the styling channel's reasons: ruling A2, LAYER-2 §6.14, and §6.0.
 - **Reason:** one CSS value gate across the program. §5.2 states the interaction.
 
@@ -990,7 +991,7 @@ The rules every pin follows:
 | T-8 | Δ1 / E5 SVG | the static subset renders; fragment-only references; each active element refused; `use` with an external `href` refused |
 | T-9 | mutation-XSS idempotence | `sanitize(browser_parse(serialize(sanitize(x)))) == sanitize(x)`, and the browser DOM contains no E-row construct, over a corpus of known parse-differential shapes (namespace confusion, `noscript`/`template`/`style` inside foreign content, comment and CDATA edge cases). Run in Chromium. |
 | T-10 | §6.2 selector gate | the byte matrix; each pseudo-class allowed and refused; leading `+`/`~` refused; emitted-form pins proving every subject is inside the band (a sibling band's computed style is unchanged) |
-| T-11 | §6.4 `content` | the four admitted forms paint a pseudo-element box; `attr()` and text strings are refused |
+| T-11 | §6.4 `content` | the five admitted forms paint a pseudo-element box; `attr()` and text strings are refused |
 | T-12 | §8 sinks | prompt-regression cases (ai-ready harness): content carrying `\p{Cf}` and instruction-shaped text reaches the model framed and neutralized. A preview isolation pin: the preview document's origin is opaque. |
 | T-13 | §7 islands | name gate; empty-island and unknown-island rules; a patch to `islands.<name>` diffs as one field; CAS and undo per island write |
 | T-14 | §2.6 / M-2 | a stored band with a now-refused construct does not block an edit to another band |
@@ -1006,6 +1007,7 @@ The rules every pin follows:
 
 - core `wp_kses()` as the parser and base (§2.4 governs how);
 - `_pp_forbidden_css_construct()` and `_pp_udc_delimiters_balanced()` (Δ3, §6.2);
+- `_pp_svg_content_is_safe()` (`lib/wp.php:3398`), the existing SVG sanitizer for `data:image/svg` sources. Its adversarial-review precedent (`xml:base` rejection, `animateColor`, a `url(` scan after `_pp_css_unescape`) is carried into Δ1/E5, or the difference is argued;
 - LAYER-2's property charset and exclusion set;
 - the `_css` map validator (§6.3);
 - `wp_allowed_protocols()` (E2);
