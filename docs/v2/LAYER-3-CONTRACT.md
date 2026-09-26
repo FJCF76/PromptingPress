@@ -297,7 +297,8 @@ pp_content_sanitize(string $bytes, Sink $sink, CompositionContext $ctx): array{h
 `table > tbody > tr > td` chain, an island's host, the band root), because "rich" alone does
 not say where the prop will be parsed. `CompositionContext` carries what the cross-band rules
 need (the page's anchor set, for E6). Any cache (T-17) keys on the bytes' hash **plus** the sink
-identity, a hash of the anchor set, and the predicate's table version, so a result verified in
+identity, a hash of the anchor set, the predicate's table version and the WordPress version
+(which sets the parser's bail set), so a result verified in
 one context is never served in another; or it caches only the per-prop steps 1-4.
 
 - **One function in `lib/`** owns every content contract (`rich`, `inline`, `plain`, `custom`).
@@ -558,7 +559,8 @@ name is refused, never passed through.
   - **Precedent carried over from `_pp_svg_content_is_safe()`** (`lib/wp.php:3398`): `xml:base`
     is refused, `animateColor` joins E5, and the `url(` scan runs after CSS unescaping.
   - `use` and `a` take `href` (and the legacy `xlink:href`):
-  - on `use`: `^#[A-Za-z][A-Za-z0-9_-]{0,63}\z`, a same-document fragment only;
+  - on `use`: `^#[A-Za-z_][A-Za-z0-9_.-]{0,63}\z`, a same-document fragment only (the same id
+    grammar as the `url(#…)` branch, so one export using both is judged by one rule);
   - on `a`: the E2 URL gate.
 - **Reason:** icons and diagrams are ordinary web content. The static subset executes
   nothing. Everything that can execute or fetch in SVG is named in §4 (E1, E2, E5), and markup that escapes its container in E10.
@@ -1076,7 +1078,7 @@ installed plugins' and core's trust, not the author's bytes**, and the theme doe
 it. The hard exclusions (§4) govern **authored** bytes, and the authored bytes of an embed band
 pass the full predicate.
 
-Four obligations follow. Each is part of this contract:
+Five obligations follow. Each is part of this contract:
 
 1. **The AI surface states the boundary exactly.** Today the model is told that iframes,
    handlers and `javascript:` are "always stripped, whoever authored" the content
@@ -1087,13 +1089,13 @@ Four obligations follow. Each is part of this contract:
 3. **The measurement paths treat shortcode output as opaque.** The presence probe already
    neutralizes shortcodes (`lib/udc.php:7070-7072`). The post-apply validator must do the same,
    or disclose that it did not.
+4. **The preview isolates it** (§8.3).
 5. **Authored shortcode attributes are authored bytes.** A core shortcode writes the author's
    attribute text into its own output (measured: `[caption id="main"]` emits `<figure id="main">`,
    and `id="pp-3f9a1c2e"` emits a minted-anchor-shaped id). So the E6 id checks and
    `content_duplicate_id` run over the **post-`do_shortcode` output** of an embed band, and E2
    runs over URL-valued attribute values of core's registered shortcodes. T-6 carries a
    `[caption id="<anchor>"]` row.
-4. **The preview isolates it** (§8.3).
 
 **P-8** asks the owner whether plugin output should instead pass the predicate. That would
 break any plugin that emits script, which is most interactive ones.
