@@ -7092,6 +7092,16 @@ function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = P
         return null;
     }
     $props = pp_udc_promote_band_identity($item, isset($item['props']) && is_array($item['props']) ? $item['props'] : []);
+    // A POSTS-PAGE LISTING BAND (#1181) is asked with one stand-in card carrying the text
+    // fields every listing card has. Its real cards are the posts index's main query, which a
+    // write or `check page` request does not have: rendered as stored it shows the empty
+    // state, and its card TEXT roles (the only roles this probe is asked about) would read
+    // "not on the page" and silence a finding the posts page will show. The source is
+    // dropped so the probe never walks the main query.
+    if (($props['items_source'] ?? null) === 'posts') {
+        unset($props['items_source']);
+        $props['items'] = [['title' => 'Post', 'text' => 'Excerpt', 'link_url' => '#', 'link_text' => 'Read post']];
+    }
     global $shortcode_tags;
     $saved_shortcodes = $shortcode_tags ?? null;
     $shortcode_tags   = [];
@@ -8645,10 +8655,18 @@ function pp_udc_chrome_authored_css(): string {
  * The emitter runs at `wp_enqueue_scripts`, which fires BEFORE the <main> loop
  * that renders the bands — so it cannot collect from the render pass and has to
  * resolve the composition itself. It resolves it exactly the way the templates
- * do, through the same two functions, because an emitter that disagreed with the
+ * do, through the same functions (the front-page classifier, the posts-page resolver
+ * of #1181, the shared composition reader), because an emitter that disagreed with the
  * template would ship CSS with no matching markup and nothing would notice.
  */
 function pp_udc_current_composition(): array {
+    // THE POSTS PAGE (#1181). The posts index is not singular, so the early return
+    // below used to hand it []. It renders the posts page's stored composition when
+    // there is one, and this reads it through the SAME resolver home.php renders from,
+    // so head and body cannot disagree about the route.
+    if (pp_is_posts_index()) {
+        return pp_posts_page_composition();
+    }
     if (!is_singular()) {
         return [];
     }
@@ -8678,8 +8696,9 @@ function pp_udc_current_composition(): array {
 
 // ── Template-rendered components (#1171) ────────────────────────────────────
 //
-// A page a TEMPLATE renders (the posts page, a single post, an archive, search
-// results, the 404, a page on the default template) calls pp_get_component() itself
+// A page a TEMPLATE renders (the posts page when it renders no composition (#1181), a
+// single post, an archive, search results, the 404, a page on the default template)
+// calls pp_get_component() itself
 // rather than walking a composition. Its sections carry `data-pp-component` like any
 // band, so the defaults tier reaches them the moment it is printed — but the tier was
 // built from pp_udc_current_composition() alone, which answers [] on every one of

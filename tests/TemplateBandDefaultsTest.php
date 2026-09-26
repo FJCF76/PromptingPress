@@ -226,7 +226,7 @@ class TemplateBandDefaultsTest extends TestCase
      * text: a `/*` inside a string literal would otherwise hide calls, the testing
      * specialist's second mutation proof).
      *
-     * @return array{base: bool, literals: list<string>, loops: int, declared: ?list<string>, illegal: list<string>}
+     * @return array{base: bool, literals: list<string>, loops: int, declared: ?list<string>, calls: list<?list<string>>, illegal: list<string>}
      */
     private static function analyse(string $source): array
     {
@@ -243,7 +243,7 @@ class TemplateBandDefaultsTest extends TestCase
         $unquote = static fn(string $s): string => substr($s, 1, -1);
         $name    = static fn(array $t): string => in_array($t[0], [T_STRING, T_NAME_FULLY_QUALIFIED], true)
             ? strtolower(ltrim($t[1], '\\')) : '';
-        $out = ['base' => false, 'literals' => [], 'loops' => 0, 'declared' => null, 'illegal' => []];
+        $out = ['base' => false, 'literals' => [], 'loops' => 0, 'declared' => null, 'calls' => [], 'illegal' => []];
         $n   = count($toks);
         // Variables this file assigns a closure or arrow function: the one dynamic call
         // a template may make (front-page.php's `$notice(...)`). No name-in-a-string rule
@@ -275,6 +275,13 @@ class TemplateBandDefaultsTest extends TestCase
             if ($next === '(' && (($t[0] === T_VARIABLE && !isset($closures[$t[1]]))
                 || ($t[0] === null && in_array($t[1], [')', ']'], true)))) {
                 $out['illegal'][] = 'a dynamic call (a variable, a call result or an element called as a function)';
+            }
+            // THE SHARED BAND LOOP (#1181, D1). composition.php, front-page.php and the posts
+            // page render their composition through pp_render_composition_bands(), whose body
+            // is the recognised loop shape below; a call to it IS a composition loop here.
+            if ($name($t) === 'pp_render_composition_bands' && $next === '(' && ($toks[$i - 1][0] ?? null) !== T_FUNCTION) {
+                $out['loops']++;
+                continue;
             }
             if ($name($t) === 'pp_get_component' && ($toks[$i - 1][0] ?? null) !== T_FUNCTION) {
                 if ($next !== '(') {
@@ -336,6 +343,9 @@ class TemplateBandDefaultsTest extends TestCase
                         $second[] = $toks[$j];
                     }
                 }
+                if ($second === null) {
+                    $out['calls'][] = null;
+                }
                 if ($second !== null) {
                     $list = [];
                     $ok   = ($second[0][1] ?? '') === '[';
@@ -349,6 +359,7 @@ class TemplateBandDefaultsTest extends TestCase
                     }
                     if ($ok) {
                         $out['declared'] = $list;
+                        $out['calls'][]  = $list;
                     } else {
                         $out['illegal'][] = "pp_base_template()'s second argument is not a literal list";
                     }
@@ -466,10 +477,22 @@ class TemplateBandDefaultsTest extends TestCase
         foreach ($callers as $rel => $a) {
             $this->assertSame([], $a['illegal'], "{$rel}: renders through a path the declaration cannot see");
 
-            if ($a['loops'] > 0) {
-                $this->assertSame([], $a['literals'], "{$rel}: a composition template renders only its composition");
+            if ($a['loops'] > 0 && $a['literals'] === []) {
                 $this->assertTrue($a['declared'] === null || $a['declared'] === [], "{$rel}: a composition template declares nothing");
                 continue;
+            }
+            if ($a['loops'] > 0) {
+                // THE POSTS PAGE IS THE ONE TEMPLATE WITH BOTH (#1181): it renders the posts
+                // page's stored composition when there is one, and its hard-coded bands when
+                // there is not. Each branch is its own pp_base_template() call, so each is
+                // held to its own rule: the composition branch declares NOTHING (the emitter
+                // reads the composition itself), the literal branch declares exactly its
+                // literals (checked below with every other declaring template).
+                $this->assertSame('templates/home.php', $rel, "{$rel}: only the posts page may mix a composition branch with literal bands");
+                $this->assertSame(1, $a['loops'], "{$rel}: one composition branch");
+                $this->assertCount(2, $a['calls'], "{$rel}: one pp_base_template() call per branch");
+                $this->assertNull($a['calls'][0], "{$rel}: the composition branch declares nothing");
+                $this->assertNotNull($a['calls'][1], "{$rel}: the literal branch declares its bands");
             }
 
             $this->assertNotNull($a['declared'], "{$rel}: renders components but declares none (the #1171 defect)");

@@ -13,23 +13,8 @@
 require_once get_template_directory() . '/templates/base.php';
 
 pp_base_template(function () {
-    foreach (pp_composition() as $item) {
-        if (!isset($item['component'])) {
-            continue;
-        }
-        $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
-        // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
-        // It lifted a band's stored v1 slot map into the props array so the component
-        // template could render it. MEASURED DEAD before deleting: `__pp_style` has zero
-        // READ sites in the tree — every component render file carries only a comment
-        // where the read used to be — so this wrote a key nothing consumed. Removing it
-        // from all four band loops changed no rendered byte and broke exactly one test,
-        // a SOURCE SCAN asserting the promotion existed.
-        //
-        // An aged band's stored `style` map is not lost by this: it is still in the
-        // composition, still refuses every edit to its band until cleared, and is still
-        // named in the refusal (_pp_validate_style_slot_map, lib/admin.php).
-        $props = pp_udc_promote_band_identity($item, $props);
-        pp_get_component((string) $item['component'], $props);
-    }
+    // The band loop lives in ONE place since #1181 (D1): pp_render_composition_bands(),
+    // shared with front-page.php and home.php (the posts page), so a band renders the
+    // same way on every route.
+    pp_render_composition_bands(pp_composition());
 });

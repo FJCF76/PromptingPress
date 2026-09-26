@@ -138,6 +138,11 @@ wp post list --post_type=page --meta_key=_wp_page_template --meta_value=composit
 # For each ID: wp post meta get <id> _pp_composition
 ```
 
+**The posts page is a composition page too (#1181)**, whatever its template meta: when
+`show_on_front` is `page`, `wp option get page_for_posts` names it, and it renders its stored
+composition at the posts index. An EMPTY composition (`[]`) is valid there and renders the
+theme's default posts page. `wp pp validate site` enumerates it with the others.
+
 ---
 
 ## Known WP-CLI Behavior on This Server

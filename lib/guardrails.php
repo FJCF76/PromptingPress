@@ -526,6 +526,15 @@ function _pp_component_is_empty(string $component, array $props): bool {
             return true;
 
         case 'grid':
+            // A posts-page listing band (#1181) stores `items: []` by contract: its cards
+            // are the post listing, so it is not an empty grid. Whether it is on the right
+            // PAGE is a page-aware question this page-blind smell cannot answer; that has
+            // its own finding (`listing_band_off_posts_page`).
+            if (($props['items_source'] ?? null) === 'posts') {
+                return false;
+            }
+            return empty($props['items'] ?? []);
+
         case 'stats':
             return empty($props['items'] ?? []);
 

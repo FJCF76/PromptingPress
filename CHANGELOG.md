@@ -4,9 +4,88 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171, #1028)
+## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171, #1028, #1181)
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+
+## Your blog page is a composition you can author (#1181)
+
+**The page chosen as the posts page now renders the composition stored on it.** Before, the
+theme always painted a fixed "Blog" hero and a grid of posts there, and nothing you stored on
+that page reached the site. Now you build it like any other page, and the post listing is a
+band you place:
+
+```json
+{"component": "grid", "props": {"title": "Latest", "items_source": "posts", "items": []}}
+```
+
+That grid's cards are the posts of the current page of results: title, a 25-word excerpt, the
+medium featured image, the permalink and "Read post". The page links render inside the band,
+under the list. The cards go through the grid's usual escaping, and the band's roles (`card`,
+`card-title`, `card-text` and the rest) style every card at once. Nothing is stored per card,
+so there is no per-card styling.
+
+What stays the same: with nothing stored on the posts page, `/blog/` renders exactly as
+before, page 2 included. A visitor who may not see the posts page (draft, pending, private, or
+password-protected without the password) also gets that same default page, so the page's
+composition never reaches a visitor who cannot read the page itself.
+
+### Added
+- `grid.items_source: "posts"`, the posts-page listing band. It is accepted only on the posts
+  page and at most once per page, with `items: []`. `update_composition`, `update_component`
+  (for the band being edited only) and `add_component` refuse it on any other page, and
+  `create_page` always does. A non-empty `items` beside it is refused.
+- Two findings for what storage can still drift into: `listing_band_off_posts_page` (a listing
+  band on a page that is no longer the posts page renders empty; the same code the write gate
+  refuses with) and `posts_page_without_listing` (the posts page's composition has no listing
+  band, so it shows no posts). They appear in the write envelope, restore, `operate inspect`,
+  `check page` and `validate site`. `duplicate_listing_band` joins the error findings.
+- The editor offers "(not set)" for an optional choice with no default, so editing any grid
+  never writes `items_source` onto it.
+- The in-admin assistant's page list marks the posts page, and one line tells it the listing
+  band's rules. The prompt budget moves to the measured 92,502 bytes.
+
+### Changed
+- `validate site`, the assistant's page list and the preset reference check now include the
+  posts page whatever its template, since it renders a composition.
+- While the posts page's bands render, the posts page is the current post (a band's shortcodes
+  see the page, not a blog post). Afterwards the post state is the one `/blog/` has always left,
+  and the page is set up only when it is not already current, so plugins watching `the_post`
+  see no extra events per band.
+- `composition.php`, `front-page.php` and the posts page share one band loop. Their output is
+  byte-for-byte unchanged.
+
+### ⚠️ Upgrading
+- **If your posts page already stores a composition**, `/blog/` renders it after the upgrade.
+  If that composition has no listing band, the page shows no posts, and `check page` reports
+  `posts_page_without_listing`. Add a grid band with `"items_source": "posts"` and
+  `"items": []` where the listing belongs, or clear the composition to keep the default page.
+  A posts page that stores nothing (`[]`) is unaffected.
+- A theme version without `items_source` does not know the prop: it refuses any write that
+  judges the listing band (`unknown_prop`), and the posts page falls back to its fixed hero and
+  grid. Remove the listing band before rolling back.
+
+### Known issues
+- The editor's live preview shows the listing band as empty, because the preview has no post
+  listing to draw from (#1183).
+- On a darkened listing band the page links keep the default text colour, and no role reaches
+  them yet (#1182).
+
+### Docs
+- The grid README, `ai-instructions/composition.md`, `website-building.md`, `bootstrap.md` and
+  `validate-site.md` (with finding-catalogue rows for the three new codes), `AI_CONTEXT.md` and
+  the two apply/rollback references describe the posts page and its listing band.
+
+### Tests
+- `tests/PostsPageCompositionTest.php`: the resolver and the head emitter, visibility and
+  password fallback, search exclusion, the listing band through the authored card path, loop
+  state, pagination, every write gate and refusal message, drift findings through restore,
+  operate, inspect and `check page`, the shared band loop, `home.php` rendered whole, the post
+  state before, during and after the bands, and the prompt line.
+- `tests/e2e/posts-page-composition.spec.ts`: an authored `/blog/` at 375, 768 and 1280 with the
+  real listing, page 2, a markup-shaped post title rendered as text, band styling on every card,
+  the refusal on another page, and a logged-out visitor on a public and on a private posts page.
+- Editor tests for the "(not set)" option and its serialization.
 
 ## A separator or list marker can take its own colour again (#1028)
 

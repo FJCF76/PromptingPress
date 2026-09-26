@@ -495,6 +495,22 @@ Unset (omit the key) keeps the auto-by-count default — byte-identical. Values 
 }
 ```
 
+### grid.items_source: "posts" — the posts-page listing (#1181)
+
+The page chosen as the **posts page** (Settings → Reading, "Posts page", with a static front page) renders its own composition when it stores one, instead of the theme's hard-coded hero + grid. Author it with `update_composition` / `update_component` on that page like any other. Its post listing is ONE grid band:
+
+```json
+{"component": "grid", "props": {"title": "Latest", "items_source": "posts", "items": []}}
+```
+
+- The cards are the posts index's own post listing (title, 25-word excerpt, medium featured image, permalink, "Read post"), with the page links rendered inside the band. You do not author them.
+- `items` stays `[]`: a non-empty `items` beside the source is **refused** (`inert_prop`).
+- **Only on the posts page, and at most once per page.** Any other page refuses the band (`listing_band_off_posts_page`); `create_page` always does, since a page that does not exist yet is not the posts page. A second listing band is refused (`duplicate_listing_band`).
+- No per-card `udc`: the cards are not stored. Style every card at once through the band's roles (`card`, `card-title`, `card-text`, …).
+- Findings, not refusals, for drift: `listing_band_off_posts_page` (a listing band left on a page that is no longer the posts page — it renders empty) and `posts_page_without_listing` (the posts page's composition has no listing, so it shows no posts).
+- An empty posts-page composition renders the theme's default posts page, unchanged. So does a posts page the visitor may not see (draft, pending, private or password-protected): its composition is shown only to viewers who may read the page.
+- In the assistant's page list the posts page is marked `posts page`; with none marked the site has no posts page, and no page accepts a listing band.
+
 ### grid.image_treatment — RETIRED (#1101)
 
 **The `image_treatment` prop and the `--grid-item-icon-size` slot are both retired.** Writing either is refused — the prop with `retired_prop` naming its route, the slot with `no_style_slots`.

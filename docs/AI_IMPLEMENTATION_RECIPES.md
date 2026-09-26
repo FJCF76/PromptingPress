@@ -178,7 +178,7 @@ Both functions are deleted. The reader was provably dead by its own guard (it re
 
 **The transferable rule survives: a producer that knows WHY it refused should stamp that on the error, so the reporting layer answers from the rejection in hand rather than re-deriving it from state that may have changed underneath.** `_pp_composition_item_error()` below is the same pattern for band locators, and it is live.
 
-**Adding an ERROR rule instead of a smell.** Build the `WP_Error` with `_pp_composition_item_error($i, $code, $message)` (`lib/admin.php`), never a bare `new WP_Error(...)`. A bare one compiles, passes, and silently reports `index: null`, which breaks the documented contract that only the cross-item `duplicate_component_id` lacks a locator (#622) — and a finding with no band is one the operator cannot act on. A genuinely cross-item rule skips the helper on purpose and names every colliding index in its message instead.
+**Adding an ERROR rule instead of a smell.** Build the `WP_Error` with `_pp_composition_item_error($i, $code, $message)` (`lib/admin.php`), never a bare `new WP_Error(...)`. A bare one compiles, passes, and silently reports `index: null`, which breaks the documented contract that only the cross-item rules (`duplicate_component_id`, and `duplicate_listing_band` since #1181) lack a locator (#622) — and a finding with no band is one the operator cannot act on. A genuinely cross-item rule skips the helper on purpose and names every colliding index in its message instead.
 
 ---
 

@@ -32,7 +32,8 @@
  * raising it means writing down why the prompt needs to be bigger.
  *
  * THE MARGIN IS TIGHT ON PURPOSE, and this is the intended posture rather than an oversight
- * nobody noticed. The margin is a few hundred bytes — about one sentence — and the budget
+ * nobody noticed. The margin is at most about one sentence (zero right after a raise that
+ * moves the ceiling to the measured size), and the budget
  * test prints the live figure it measured rather than repeating a number here that goes stale
  * the moment a roster changes (it already did once: an earlier draft of this paragraph quoted
  * a measurement three commits out of date, in an argument that depended on it). The gate that set this number REDUCED the prompt's dead
@@ -50,10 +51,34 @@
  * `udc_overlay_accent_off_scrim` names two new causes (a replaced width, a partial scrim). Each
  * is one clause; the longer versions were cut to the finding messages and the instruction files
  * before the number moved, and the measured growth was 166 bytes (91999 -> 92165).
+ *
+ * RAISED 92200 → 92502 (#1181, template authoring slice 1; the orchestrator authorized a
+ * measured raise to about 92.5k for this slice). The posts page now renders its stored
+ * composition, and the model can only author it if it is told two facts the catalog's
+ * `items_source?: "posts"` cannot carry: which page renders a composition this way (the page
+ * list marks it, and the line says an unmarked list means there is none), and that the
+ * listing band stores `"items": []` and is accepted only there. One `POSTS PAGE:` line plus
+ * the catalog's own enum segment; the page-list mark costs nothing on the empty site the pin
+ * measures. Measured, not estimated: 92199 -> 92502 (+303 bytes), and the ceiling moves to
+ * exactly that figure.
  */
-const PP_AI_PROMPT_BUDGET = 92200;
+const PP_AI_PROMPT_BUDGET = 92502;
 
 // ── System Prompt Assembly ─────────────────────────────────────────────────
+
+/**
+ * One line of the prompt's page inventory.
+ *
+ * #1181: the posts page is marked, because it is the one page a listing band is
+ * accepted on and the model should not have to guess it from a title or a /blog/ URL.
+ *
+ * @param  array{id: int, title: string, status: string, url: string} $page
+ * @return string
+ */
+function pp_ai_page_inventory_line(array $page): string {
+    $posts_page_mark = pp_is_posts_page_id((int) $page['id']) ? ', posts page' : '';
+    return "- {$page['title']} (ID: {$page['id']}, status: {$page['status']}, URL: {$page['url']}{$posts_page_mark})";
+}
 
 /**
  * Assembles the complete system prompt describing the site, its capabilities,
@@ -81,13 +106,18 @@ function pp_ai_system_prompt(): string {
     if ($pages) {
         $parts[] = '## Pages';
         foreach ($pages as $page) {
-            $parts[] = "- {$page['title']} (ID: {$page['id']}, status: {$page['status']}, URL: {$page['url']})";
+            $parts[] = pp_ai_page_inventory_line($page);
         }
         $parts[] = 'To change a page\'s URL, use the update_page_slug action (post_id + slug) — never guess or construct a URL, and never propose a slug change without confirming the current URL above first.';
     } else {
         $parts[] = '## Pages';
         $parts[] = 'No pages exist yet.';
     }
+    // THE POSTS PAGE AS A COMPOSITION (#1181). Stated once, outside the page list, so it
+    // reaches the model on every site (the list only prints when pages exist, and marks the
+    // posts page when there is one). The catalog line already carries
+    // `items_source?: "posts"`; this is the part the enum cannot say.
+    $parts[] = 'POSTS PAGE: the page marked "posts page" above (set in Settings -> Reading; none marked, none set) renders its own composition when it has one. Its post listing is a grid band with `"items_source": "posts"` and `"items": []`, accepted only there (one per page, no per-card udc).';
     $parts[] = '';
 
     // Navigation state (issue 132) — grounds menu proposals against real

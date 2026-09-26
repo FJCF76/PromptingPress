@@ -50,6 +50,15 @@
       "max": 4,
       "description": "Optional explicit desktop (>=768px) column count, an integer 1-4. Unset (key absent, null, or empty) keeps the default auto-derivation from item count. When set it forces that many equal-width columns at >=768px, spanning the container; the single-column collapse below 768px is unchanged. Out-of-range or non-integer values (0, 5, 2.5, text) are rejected, not clamped. Cards-layout concept; ignored on 'steps', which keeps its fixed process grain. Track geometry is structure, so this stays a prop — the same reason hero kept `split_ratio`. For a per-breakpoint count, the `list` role's `layout.columns` is the UDC route."
     },
+    "items_source": {
+      "type": "enum",
+      "strict": true,
+      "values": [
+        "posts"
+      ],
+      "required": false,
+      "description": "THE POSTS-PAGE LISTING (#1181). Set to \"posts\" and this band's cards are the posts page's own post listing: one card per post of the current page of results (title, a 25-word excerpt, the medium featured image, the permalink, \"Read post\"), rendered through the same escaping as authored cards, with the page links below the list. It is accepted ONLY on the page chosen as the posts page (Settings -> Reading, \"Posts page\", with a static front page); any other page, and create_page, refuse it, because there the page's own query is not a post listing. A listing band stores `items: []` and nothing else in `items` (non-empty items are refused: the listing replaces them), and a page may carry at most one listing band. Its cards are not stored, so they have no item ids and take no per-card `udc`; style them through the band's roles (`card`, `card-title`, `card-text`, …), which reach every card. Leave it absent for an ordinary grid of authored cards."
+    },
     "items": {
       "type": "array",
       "item_type": "object",
@@ -111,6 +120,21 @@
       }
     }
   },
+  "refuse_props_when": [
+    {
+      "_note": "`present` rather than `equals: \"posts\"`: `items_source` is an optional enum with NO default (absent means an authored grid), and an equals/in gate needs a default to decide absence (SchemaValidationTest::testEveryShippedRefusePropsWhenRuleIsWellFormed). Its only value is \"posts\", so present IS equals here (#1181).",
+      "when": [
+        {
+          "prop": "items_source",
+          "present": true
+        }
+      ],
+      "props": [
+        "items"
+      ],
+      "message": "has no effect beside `items_source: \"posts\"`: the listing band's cards are the posts page's own post listing, which replaces authored cards. Send `items: []` with the listing, or remove `items_source` to author the cards yourself."
+    }
+  ],
   "item_roles": {
     "_note": "BUILD-SPEC Addendum B5. Which of this component's roles a SINGLE items[] entry may address through its own `udc` map, and which prop holds the repeater. The engine reads this declaration and holds no list of component names, so any repeater component can declare the same thing. `root` is the role whose element carries the minted `data-pp-item` attribute. The band-level header roles (_band, header, eyebrow, heading, heading-accent, subheading, list, empty) are deliberately absent: they exist once per band, so styling them 'for one card' has no meaning.",
     "prop": "items",

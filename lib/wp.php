@@ -232,6 +232,236 @@ function pp_pagination(): string {
         . '</li></ul></nav>';
 }
 
+// ── The posts page as a composition (#1181, template authoring slice 1) ─────
+//
+// The posts page is an ordinary WordPress page that already stores a composition,
+// but nothing rendered it: templates/home.php painted a hard-coded hero + grid and
+// the emitter read nothing on the posts index. The functions below are the render
+// side of the seam (the write gate and its findings live in lib/actions.php, the
+// listing-band detector in lib/admin.php). ONE resolver answers "which composition does this request render" for the
+// head (pp_udc_current_composition()) and the body (home.php) alike, so the CSS and
+// the markup cannot disagree about the route — the #1173 class, where the emitter
+// and a template resolved the front page two different ways.
+//
+//   request /blog/ ── core sets $wp_query->is_posts_page (show_on_front=page only)
+//        │
+//        ├─ wp_head ─ pp_udc_current_composition() ─┐
+//        └─ home.php ───────────────────────────────┴─ pp_posts_page_composition()
+//                                                         ├─ non-empty ─► its bands
+//                                                         └─ empty/corrupt/not viewable ─► []
+//                                                            (today's bytes)
+
+/**
+ * True on the posts index of a static-front-page site, and nowhere else.
+ *
+ * Reads core's own flag rather than re-deriving it: WordPress sets
+ * `$wp_query->is_posts_page` exactly when the request is the page chosen as
+ * `page_for_posts` AND `show_on_front` is `page`, and makes that page the queried
+ * object (wp-includes/class-wp-query.php). With `show_on_front=posts` (#1173) the
+ * flag is false, so a latest-posts front page is not this route.
+ *
+ * NOT A SEARCH. Core sets the flag from the resolved page whatever else the request
+ * carries, so /blog/?s=term keeps it — but the template loader checks is_search()
+ * before is_home() and renders search.php there. Excluded so the head never emits the
+ * posts page's bands on a page that does not paint them (/review red team). A 404
+ * (paged past the end) needs no check: core's set_404() clears the flag.
+ *
+ * @return bool
+ */
+function pp_is_posts_index(): bool {
+    global $wp_query;
+    return is_object($wp_query) && !empty($wp_query->is_posts_page) && empty($wp_query->is_search);
+}
+
+/**
+ * True when `$post_id` is the site's current posts page (show_on_front=page).
+ *
+ * The WRITE-side twin of pp_is_posts_index(): a write action knows the page it is
+ * writing but runs outside the posts-index request, so it asks the options the flag
+ * is derived from. Used by the listing-band gate, its drift finding (#1181, D2) and the
+ * prompt's page-list mark (pp_ai_page_inventory_line()).
+ *
+ * @param  int $post_id
+ * @return bool
+ */
+function pp_is_posts_page_id(int $post_id): bool {
+    return $post_id > 0
+        && get_option('show_on_front') === 'page'
+        && (int) get_option('page_for_posts') === $post_id;
+}
+
+/**
+ * The page chosen as the posts page (Settings -> Reading), or 0 when there is none.
+ *
+ * @return int
+ */
+function pp_posts_page_id(): int {
+    return get_option('show_on_front') === 'page' ? (int) get_option('page_for_posts') : 0;
+}
+
+/**
+ * The composition the posts index renders, or [] for today's bands.
+ *
+ * [] off the posts index, and [] for an absent, empty or corrupt stored composition.
+ * A corrupt row is left byte-identical and keeps reporting its decode error through
+ * `inspect` and `check page` — a render never heals storage (#506). It reads through
+ * pp_get_composition_result(), never pp_composition(): that one reads get_the_ID(),
+ * which on the posts index is the FIRST POST of the main query, not the page.
+ *
+ * ONLY A PAGE THIS VISITOR MAY SEE (/review security). Core keeps /blog/ serving the
+ * public post listing whatever the posts page's own status, and resets page_for_posts
+ * only when the page is trashed. So a posts page switched to draft, pending or private,
+ * or given a password, would otherwise publish its composition to every visitor —
+ * content the v1 template never printed. Such a page renders today's bands instead,
+ * unless the viewer may read it (an editor sees the draft, as on any page) or has
+ * entered its password. The page's own template meta does not enter into it: core
+ * renders the posts index through home.php whatever template the page carries, and
+ * every writer accepts a composition on it, so what is stored is what renders.
+ *
+ * @return array
+ */
+function pp_posts_page_composition(): array {
+    if (!pp_is_posts_index()) {
+        return [];
+    }
+    $page_id = pp_posts_page_id();
+    if ((!is_post_publicly_viewable($page_id) && !current_user_can('read_post', $page_id))
+        || post_password_required($page_id)) {
+        return [];
+    }
+    $result = pp_get_composition_result($page_id);
+    if (empty($result['ok']) || !is_array($result['composition'] ?? null)) {
+        return [];
+    }
+    return $result['composition'];
+}
+
+/**
+ * The posts-page listing's cards: one per post in the main query (#1181, D4).
+ *
+ * Exactly the fields home.php's fallback has always built (title, 25-word excerpt,
+ * medium thumbnail, permalink, "Read post"), handed to the grid as ordinary items, so
+ * a query-bound card reaches the SAME sinks an authored card does: esc_html for the
+ * title and link text, pp_kses_inline for the excerpt, the responsive-image helper,
+ * esc_url for the link. No new sink (LAYER-3-CONTRACT.md's posture). The fallback
+ * template keeps its own inline copy — the byte-identical contract leaves it
+ * untouched — and a parity test pins the two together.
+ *
+ * [] off the posts index: there the main query is not a post listing. The loop runs
+ * through pp_the_loop() (post data reset in `finally`) and the query is REWOUND
+ * after, so later bands, pagination and any template tag see it untouched.
+ *
+ * @return array<int, array<string, string>>
+ */
+function pp_posts_listing_items(): array {
+    if (!pp_is_posts_index()) {
+        return [];
+    }
+    $query = pp_main_query();
+    $items = [];
+    try {
+        pp_the_loop($query, function () use (&$items) {
+            $items[] = [
+                'title'     => pp_page_title(),
+                'text'      => pp_excerpt(25),
+                'image_url' => pp_thumbnail_url('medium'),
+                'link_url'  => pp_permalink(),
+                'link_text' => 'Read post',
+            ];
+        });
+    } finally {
+        $query->rewind_posts();
+    }
+    return $items;
+}
+
+/**
+ * Renders a composition's bands in order: THE band loop for every request route
+ * (#1181, D1 — composition.php, front-page.php and home.php share it).
+ *
+ * The body composition.php and front-page.php each carried as a copy. One owner means a
+ * band renders the same way on every route; the #1101 promotion removal had to find
+ * and edit every copy, and the posts page would have added one more. The editor
+ * preview (lib/admin.php) and rendered validation (lib/post-apply-validate.php) render
+ * outside a page request and keep their own loops; the udc presence probe renders a
+ * single band.
+ *
+ * THE PAGE A BAND BELONGS TO IS THE CURRENT POST (#1181, /review adversarial). On a
+ * composed page core already makes it so. On the posts index it does not: the current
+ * post is the first post of the listing, and a listing band's loop puts it back there
+ * (wp_reset_postdata after core's end-of-loop rewind) — so a band's post-bound code (an embed's shortcodes, a plugin keyed to
+ * get_the_ID()) would act for an unrelated blog post. `$owner_page_id` names the page.
+ *
+ * It is set up only when it is not ALREADY the current post: before the first band, and
+ * again after a listing band's loop moved the current post. setup_postdata() fires the
+ * `the_post` action, and a per-band set-up would fire it once per band for a page nobody
+ * iterated (a view counter counting the posts page N+1 times).
+ *
+ * AFTERWARDS THE POST STATE IS THE ONE MAIN'S /blog/ LEAVES, without firing the hook
+ * again. Main's listing loop ends in wp_reset_postdata(): the main query's first post is
+ * current and every template global is set up for it — and code after the page body
+ * relies on that (core's get_the_content() trusts `pages` once `the_post` has fired, and
+ * count()s it). So when the main query has a post, the post and the globals
+ * WP_Query::generate_postdata() computes for it are put back (generate_postdata() is
+ * setup_postdata() without the action). With no post (an empty listing: main's reset
+ * does nothing) every global is put back exactly as it was before the bands, or unset
+ * when it did not exist.
+ *
+ * @param array $items          A composition, as stored.
+ * @param int   $owner_page_id  The page the bands belong to when it is not already the
+ *                              current post (the posts page); 0 leaves the post alone.
+ */
+function pp_render_composition_bands(array $items, int $owner_page_id = 0): void {
+    $owner = $owner_page_id > 0 ? get_post($owner_page_id) : null;
+    // The globals setup_postdata() writes (core's WP_Query::setup_postdata()), and `post`.
+    $post_globals = ['post', 'id', 'authordata', 'currentday', 'currentmonth', 'page', 'pages', 'multipage', 'more', 'numpages'];
+    $saved = [];
+    if ($owner !== null) {
+        foreach ($post_globals as $name) {
+            if (array_key_exists($name, $GLOBALS)) {
+                $saved[$name] = $GLOBALS[$name];
+            }
+        }
+    }
+    try {
+        foreach ($items as $item) {
+            if (!isset($item['component'])) {
+                continue;
+            }
+            if ($owner !== null && ($GLOBALS['post'] ?? null) !== $owner) {
+                $GLOBALS['post'] = $owner;
+                setup_postdata($owner);
+            }
+            $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
+            // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
+            // It lifted a band's stored v1 slot map into the props array so the component
+            // template could render it. MEASURED DEAD before deleting: `__pp_style` had zero
+            // READ sites in the tree. An aged band's stored `style` map is not lost by this:
+            // it is still in the composition, still refuses every edit to its band until
+            // cleared, and is still named in the refusal (_pp_validate_style_slot_map).
+            $props = pp_udc_promote_band_identity($item, $props);
+            pp_get_component((string) $item['component'], $props);
+        }
+    } finally {
+        if ($owner !== null) {
+            foreach ($post_globals as $name) {
+                if (array_key_exists($name, $saved)) {
+                    $GLOBALS[$name] = $saved[$name];
+                } else {
+                    unset($GLOBALS[$name]);
+                }
+            }
+            $main = pp_main_query();
+            if (!empty($main->post)) {
+                $GLOBALS['post'] = $main->post;
+                foreach ($main->generate_postdata($main->post) as $name => $value) {
+                    $GLOBALS[$name] = $value;
+                }
+            }
+        }
+    }
+}
+
 /**
  * Returns the raw search query string for the current search request (issue 138).
  *
@@ -1523,7 +1753,8 @@ function pp_assign_menu_location(int $menu_id, string $location): bool {
 }
 
 /**
- * Returns all pages using the Composition template.
+ * Returns all composition pages: pages using the Composition template, plus the
+ * configured posts page whatever its template meta (#1181; see _pp_composition_pages_query()).
  * Each entry: ['id' => int, 'title' => string, 'status' => string, 'url' => string].
  * URL is get_permalink() for all statuses (best available WP link, not guaranteed public for drafts).
  * Uses a static cache unless `$fresh` is passed — safe to call multiple times per
@@ -1606,15 +1837,39 @@ function pp_composition_pages_for_reference_gate(): array {
  * @return array<int, array{id: int, title: string, status: string, url: string}>
  */
 function _pp_composition_pages_query(?array $statuses = null, array $query_overrides = []): array {
+    $statuses = $statuses ?? ['publish', 'draft', 'pending', 'private'];
     $posts = get_posts(array_merge([
         'post_type'      => 'page',
-        'post_status'    => $statuses ?? ['publish', 'draft', 'pending', 'private'],
+        'post_status'    => $statuses,
         'meta_key'       => '_wp_page_template',
         'meta_value'     => 'composition.php',
         'posts_per_page' => -1,
         'orderby'        => 'title',
         'order'          => 'ASC',
     ], $query_overrides));
+
+    // THE POSTS PAGE IS A COMPOSITION PAGE WHATEVER ITS TEMPLATE META (#1181, /review red
+    // team). It renders its stored composition at the posts index (templates/home.php)
+    // and every writer accepts it, but a posts page made outside the theme's Add New flow carries no `composition.php`
+    // meta, so the query above misses it — and validate site, the assistant's page list
+    // and the preset reference gate would not see a composition that is live. Added in
+    // title order (the query's own order is kept for everything else), once, when its
+    // status was asked for. Its template meta does not matter: core renders the posts
+    // index through home.php whatever template the page carries.
+    $posts_page_id = pp_posts_page_id();
+    if ($posts_page_id > 0
+        && !in_array($posts_page_id, array_map(static fn ($p): int => (int) $p->ID, $posts), true)
+        && get_post_type($posts_page_id) === 'page') {
+        $posts_page = get_post($posts_page_id);
+        if ($posts_page !== null
+            && in_array($posts_page->post_status, $statuses, true)) {
+            $at = 0;
+            while ($at < count($posts) && strcasecmp((string) $posts[$at]->post_title, (string) $posts_page->post_title) <= 0) {
+                $at++;
+            }
+            array_splice($posts, $at, 0, [$posts_page]);
+        }
+    }
 
     $out = [];
     foreach ($posts as $post) {

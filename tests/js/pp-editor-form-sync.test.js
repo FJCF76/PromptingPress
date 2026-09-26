@@ -1957,3 +1957,63 @@ describe('a row sub-field keeps its declared type through an unrelated edit (#80
         expect($('#pp-accordion-view .pp-accordion-array-item').length).toBe(1);
     });
 });
+
+// ─── #1181: an optional choice with no default stays ABSENT ─────────────────
+//
+// `grid.items_source` is the first shipped enum that is optional AND declares no
+// default: absent means "an authored grid", and its only value, "posts", turns the
+// band into the posts-page listing. A <select> built from `values` alone has no way
+// to show "absent", so the browser selects values[0], and because the sync reads
+// every resolved control back as touched, the FIRST edit anywhere on the page would
+// write `items_source: "posts"` onto every grid band. An empty option that means
+// absent, plus a serializer that omits it, is the fix; these pin it through the
+// real editor.
+
+const OPTIONAL_CHOICE = [
+    {
+        name: 'card',
+        templateOwned: false,
+        schema: {
+            props: {
+                title:        { type: 'string', required: false, description: 'Heading' },
+                items_source: { type: 'enum', strict: true, values: ['posts'], required: false, description: 'Listing source' },
+                layout:       { type: 'enum', strict: true, values: ['cards', 'steps'], required: false, default: 'cards' },
+                items: { type: 'array', required: true, items: { title: { type: 'string', required: false } } },
+            },
+        },
+    },
+];
+
+describe('an optional choice with no default stays absent', () => {
+    it('renders absent as the empty option, not the first value', async () => {
+        const { $ } = await bootEditor(
+            JSON.stringify([{ component: 'card', props: { title: 'T', items: [] } }]), OPTIONAL_CHOICE);
+        const $sel = scalarControl($, 'items_source');
+        expect($sel.find('option').first().attr('value')).toBe('');
+        expect($sel.val()).toBe('');
+    });
+
+    it('does not write the choice when an unrelated field is edited', async () => {
+        const { $, getBuffer } = await bootEditor(
+            JSON.stringify([{ component: 'card', props: { title: 'T', items: [] } }]), OPTIONAL_CHOICE);
+        const parsed = await editAndSync($, scalarControl($, 'title'), 'T edited', getBuffer);
+        expect(parsed[0].props.title).toBe('T edited');
+        expect(Object.prototype.hasOwnProperty.call(parsed[0].props, 'items_source')).toBe(false);
+    });
+
+    it('keeps a stored value and lets the author clear it', async () => {
+        const { $, getBuffer } = await bootEditor(
+            JSON.stringify([{ component: 'card', props: { title: 'T', items_source: 'posts', items: [] } }]), OPTIONAL_CHOICE);
+        expect(scalarControl($, 'items_source').val()).toBe('posts');
+        const parsed = await editAndSync($, scalarControl($, 'items_source'), '', getBuffer);
+        expect(Object.prototype.hasOwnProperty.call(parsed[0].props, 'items_source')).toBe(false);
+    });
+
+    it('leaves an enum that declares a default exactly as it was', async () => {
+        const { $ } = await bootEditor(
+            JSON.stringify([{ component: 'card', props: { title: 'T', items: [] } }]), OPTIONAL_CHOICE);
+        const $layout = scalarControl($, 'layout');
+        expect($layout.find('option').first().attr('value')).toBe('cards');
+        expect($layout.find('option[value=""]').length).toBe(0);
+    });
+});

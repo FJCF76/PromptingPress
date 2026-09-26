@@ -4303,6 +4303,11 @@ pp_register_action('create_page', [
             if (is_wp_error($valid)) {
                 return $valid;
             }
+            // #1181: a page that does not exist yet is never the posts page.
+            $listing = pp_listing_band_page_refusal($params['composition'], 0);
+            if ($listing !== null) {
+                return $listing;
+            }
         }
         if (isset($params['slug']) && sanitize_title($params['slug']) === '') {
             return new WP_Error('invalid_slug', 'Slug must not be empty after sanitization.');
@@ -5142,7 +5147,12 @@ pp_register_action('update_composition', [
             return $exists;
         }
         $params['composition'] = pp_normalize_composition($params['composition']);
-        return pp_validate_composition($params['composition']);
+        $valid = pp_validate_composition($params['composition']);
+        if (is_wp_error($valid)) {
+            return $valid;
+        }
+        // #1181: a listing band is accepted only on the posts page (D2).
+        return pp_listing_band_page_refusal($params['composition'], (int) $params['post_id']) ?? true;
     },
     'preview' => function (array $params): array {
         $params['composition'] = pp_normalize_composition($params['composition']);
@@ -5267,11 +5277,33 @@ pp_register_action('add_component', [
         if (is_wp_error($valid)) {
             return $valid;
         }
+        // #1181: a listing band is accepted only on the posts page (D2). Unlocated, like
+        // the rule above: the band is not on the page yet.
+        $listing = pp_listing_band_page_refusal([$new_item], (int) $params['post_id'], null, false);
+        if ($listing !== null) {
+            return $listing;
+        }
         if (isset($params['position'])) {
             $composition = pp_get_composition($params['post_id']);
             $max = count($composition);
             if ($params['position'] < 0 || $params['position'] > $max) {
                 return new WP_Error('invalid_position', sprintf('Position %d is out of bounds (0..%d).', $params['position'], $max));
+            }
+        }
+        // #1181: one listing band per page. The item-only validation above cannot see the
+        // band already on the page, so the rule is asked of the page as it would be
+        // stored (same splice as execute). Only for a listing band: this action judges the
+        // item it adds (#1007), so a page's other stale state never blocks an ordinary band.
+        if (pp_composition_listing_band_indices([$new_item]) !== []) {
+            $after = pp_get_composition($params['post_id']);
+            if (isset($params['position'])) {
+                array_splice($after, $params['position'], 0, [$new_item]);
+            } else {
+                $after[] = $new_item;
+            }
+            $duplicate = pp_duplicate_listing_band_error($after);
+            if ($duplicate !== null) {
+                return $duplicate;
             }
         }
         return true;
@@ -5423,11 +5455,13 @@ pp_register_action('remove_component', [
  * it (#622). The restore itself is still never blocked (#233) — the card's header still says
  * the restore succeeded; only the per-finding styling tells errors from advisories.
  *
- * @param  array $items  Decoded composition array, already normalized.
+ * @param  array    $items    Decoded composition array, already normalized.
+ * @param  int|null $post_id  The page the composition belongs to. When given, the page-aware
+ *                            posts-page disclosures run too (#1181); null reports page-blind.
  * @return array[]       Each: ['type' => string, 'severity' => string, 'message' => string,
  *                       'index' => int|null]. Empty when the composition is clean.
  */
-function _pp_composition_findings(array $items): array {
+function _pp_composition_findings(array $items, ?int $post_id = null): array {
     $findings = [];
 
     foreach (pp_validate_composition_errors($items) as $error) {
@@ -5460,13 +5494,35 @@ function _pp_composition_findings(array $items): array {
     // envelope reports what the AUTHOR wrote with the normalization disclosed
     // beside it. Without this join the literal is silently rewritten from the
     // caller's point of view, which is the I35 class the engine claims to close.
-    foreach (pp_udc_composition_findings($items) as $disclosure) {
+    // A LISTING BAND OFF THE POSTS PAGE RENDERS NO CARDS (#1181). The udc presence render
+    // gives a listing band a stand-in card (its real cards are the posts index's query),
+    // which is right on the posts page and wrong anywhere else: there the band shows its
+    // empty state, and a card finding would be advice about nothing. When the page is
+    // known and is not the posts page, the udc engine is shown the band as it renders.
+    $udc_items = $items;
+    if ($post_id !== null && !pp_is_posts_page_id($post_id)) {
+        foreach (pp_composition_listing_band_indices($items) as $key) {
+            unset($udc_items[$key]['props']['items_source']);
+        }
+    }
+    foreach (pp_udc_composition_findings($udc_items) as $disclosure) {
         $findings[] = [
             'type'     => $disclosure['type'],
             'severity' => 'warning',
             'message'  => $disclosure['message'],
             'index'    => $disclosure['index'],
         ];
+    }
+
+    // PAGE-AWARE DISCLOSURES (#1181). Only a caller that knows the page can ask whether
+    // a posts-page listing band is on the posts page, so they run only when one is
+    // passed. Every production caller passes its page (the write envelope, restore,
+    // the operate restore run, `check page` and `validate site`); the page-blind form
+    // exists for direct callers such as unit tests, and reports what it did before.
+    if ($post_id !== null) {
+        foreach (pp_posts_page_findings($items, $post_id) as $disclosure) {
+            $findings[] = $disclosure;
+        }
     }
 
     return $findings;
@@ -5774,7 +5830,7 @@ function _pp_write_findings_for(int $post_id): array {
         ]];
     }
 
-    return _pp_bounded_findings(_pp_composition_findings($composition), $post_id);
+    return _pp_bounded_findings(_pp_composition_findings($composition, $post_id), $post_id);
 }
 
 /**
@@ -6235,7 +6291,7 @@ pp_register_action('restore_composition', [
         // not stored anywhere yet, and that helper reads post meta. Preview reports
         // on the bytes execute WILL write, which is the whole point of a preview.
         $preview['findings'] = _pp_bounded_findings(
-            _pp_composition_findings($target),
+            _pp_composition_findings($target, (int) $params['post_id']),
             $params['post_id']
         );
         return $preview;
@@ -6316,7 +6372,7 @@ pp_register_action('restore_composition', [
             ['path' => 'composition', 'from' => $current, 'to' => $target],
         ]);
         $result['findings'] = _pp_bounded_findings(
-            _pp_composition_findings($target),
+            _pp_composition_findings($target, (int) $params['post_id']),
             $params['post_id']
         );
         return $result;
@@ -6482,7 +6538,14 @@ pp_register_action('update_component', [
         // a declared prop merged verbatim two lines up, so a naive item-only validation
         // would let one call collide two bands' ids and persist the wrong-targetable
         // state #238 closed.
-        return pp_validate_composition_band($test_composition, $params['component_index']);
+        $valid = pp_validate_composition_band($test_composition, $params['component_index']);
+        if (is_wp_error($valid)) {
+            return $valid;
+        }
+        // #1181: a listing band is accepted only on the posts page (D2) — judged on THIS
+        // band only (#1007), so a stale listing band elsewhere never blocks this edit and
+        // removing the source from it is never refused.
+        return pp_listing_band_page_refusal($test_composition, (int) $params['post_id'], (int) $params['component_index']) ?? $valid;
     },
     'preview' => function (array $params): array {
         _pp_resolve_id_param($params, $params['post_id']);
@@ -7263,6 +7326,100 @@ function _pp_menu_item_title(array $item): string {
  */
 function _pp_title_is_blank($title): bool {
     return is_string($title) && trim($title) === '';
+}
+
+/**
+ * The page-aware disclosures of the posts-page listing contract (#1181, D2 and D5).
+ *
+ * What storage can still drift into after the write gate: the posts page moved to
+ * another page, a raw meta write, a restore (which never blocks, #233). Reported, never
+ * repaired. Facts only (the recorded lesson: advice enumerated per source goes stale).
+ *
+ *   listing_band_off_posts_page  a listing band on a page that is not the posts page:
+ *                                it renders the grid's empty state there. The SAME code
+ *                                the write gate refuses with (pp_listing_band_page_refusal),
+ *                                so one state has one name; here it is a warning.
+ *   posts_page_without_listing   the posts page stores a composition with no listing
+ *                                band: /blog/ renders that composition, so it shows no
+ *                                posts. Accepted (staged edits are not blocked),
+ *                                disclosed.
+ *
+ * @param  array $items    A composition.
+ * @param  int   $post_id  The page it belongs to.
+ * @return array[]         Findings: type, severity 'warning', message, index.
+ */
+function pp_posts_page_findings(array $items, int $post_id): array {
+    $listing  = pp_composition_listing_band_indices($items);
+    $findings = [];
+    if (!pp_is_posts_page_id($post_id)) {
+        foreach ($listing as $key) {
+            $findings[] = [
+                'type'     => 'listing_band_off_posts_page',
+                'severity' => 'warning',
+                'message'  => sprintf(
+                    'Component "grid" (%s) sets `items_source: "posts"`, but page %d is not the posts page, so this band renders no cards: its listing exists only on the page chosen as the posts page (Settings -> Reading, with a static front page). Remove `items_source` and author `items`, or move the band to the posts page.',
+                    _pp_band_index_label($key, $items),
+                    $post_id
+                ),
+                'index'    => is_int($key) ? $key : null,
+            ];
+        }
+        return $findings;
+    }
+    if ($items !== [] && $listing === []) {
+        $findings[] = [
+            'type'     => 'posts_page_without_listing',
+            'severity' => 'warning',
+            'message'  => sprintf(
+                'Page %d is the posts page and its composition has no listing band, so the posts index renders this composition with no posts in it. Add a grid band with `items_source: "posts"` and `items: []` where the post listing should appear.',
+                $post_id
+            ),
+            'index'    => null,
+        ];
+    }
+    return $findings;
+}
+
+/**
+ * The page-aware half of the posts-page listing contract (#1181, D2).
+ *
+ * A listing band (a grid with `items_source: "posts"`) renders the posts index's
+ * main query. On any other page that query is the page itself, so the band would be
+ * accepted and render nothing: the render cannot honour it. Refused here, where the
+ * page is known — the page-blind validator cannot see it.
+ *
+ * BAND-SCOPED, per #1007: with `$only_index` set only that band is judged, so an edit
+ * to ANOTHER band on a page that still holds a stale listing band is never refused
+ * (the accepted envelope discloses the stale band instead), and a write that REMOVES
+ * the source from the stale band leaves nothing here to refuse. create_page passes
+ * page id 0: a page that does not exist yet is never the posts page.
+ *
+ * @param  array    $items        The composition as it would be stored.
+ * @param  int      $post_id      The page being written (0 for a page not yet created).
+ * @param  int|null $only_index   The band this write touches, or null for all.
+ * @param  bool     $located      Whether a band locator names a real band on the page.
+ * @return WP_Error|null
+ */
+function pp_listing_band_page_refusal(array $items, int $post_id, ?int $only_index = null, bool $located = true): ?WP_Error {
+    if (pp_is_posts_page_id($post_id)) {
+        return null;
+    }
+    foreach (pp_composition_listing_band_indices($items) as $key) {
+        if ($only_index !== null && $key !== $only_index) {
+            continue;
+        }
+        // Band-scoped, so it names the band (#642) — except for a band not on the page yet.
+        return _pp_composition_item_error(
+            $located ? $key : null,
+            'listing_band_off_posts_page',
+            sprintf(
+                'Component "grid" (%s) sets `items_source: "posts"`, which is accepted only on the posts page: its cards are the posts index\'s own post listing, and on %s that listing does not exist, so the band would render empty. Remove `items_source` and author the cards in `items`, or write this band to the page chosen as the posts page (Settings -> Reading, "Posts page", with a static front page).',
+                $located ? _pp_band_index_label($key, $items) : 'the new band',
+                $post_id > 0 ? sprintf('this page (%d), which is not the posts page', $post_id) : 'a page that does not exist yet'
+            )
+        );
+    }
+    return null;
 }
 
 /**
