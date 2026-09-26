@@ -8,6 +8,89 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
 
+## The `--dark` / `--inverted` class vocabulary is retired, and a guard with no subject retires by decision (#1111, #1108)
+
+**Nothing on your pages changes.** Every shipped component renders byte-identically to before;
+this measured zero. This is a cleanup of code and tests that described a vocabulary no page
+still draws.
+
+**The `--dark` / `--inverted` output-name vocabulary is permanently gone (#1111, owner ruling
+2026-09-24).** v2 expresses a band's tone through the `_band` role in its `udc` map. Measured
+before the change, the vocabulary's liveness was zero:
+- no stylesheet rule selects a `--dark` or `--inverted` class;
+- no shipped schema declares one in `styling.variant_classes`;
+- no component calls the helper that built them.
+
+Retired together:
+- the `pp_theme_class()` helper (`lib/helpers.php`) and its unit test;
+- the test fixture's `theme` prop, its class declarations and the two tests that pinned
+  `muted` → `--dark` on the fixture alone;
+- the `variant_classes` truthfulness test's "theme" derivation rule;
+- the AI-context comments that named the helper as a lockstep partner. The adjacency-hint
+  resolver that still describes a stored `theme` value is the separate defect #1070, and is
+  unchanged here.
+
+**The #705 text-URL `background_image` guard's fixture-hosted pins are retired by decision
+(#1108, owner ruling 2026-09-24).** No shipped component has declared a text-URL band
+background since #1066. The three methods that kept the guard alive on the test fixture are
+deleted, and the fixture's copy of the guard goes with them:
+- the scalar-still-paints pin;
+- the ordinary-URL pin;
+- the `-0.0` string-cast parity pin.
+
+This coverage was given up on purpose, not lost. The escaper itself, `pp_esc_image_src()`,
+stays live and pinned on the v2 `_band` → `background.image` path.
+
+### ⚠️ Breaking
+
+- **`pp_theme_class()` is removed.** Any PHP outside the theme that names it now fatals with an
+  undefined function when it runs. That includes files and code a plugin stores in the
+  database. A call made while a page renders takes down that page, and a call made at load
+  time takes down the whole site, wp-admin included. To find such code before upgrading,
+  search the files and the whole database, then review every hit:
+  `grep -Rni "pp_theme_class" wp-content/ --exclude-dir=<your PromptingPress theme folder>`
+  and `wp db search pp_theme_class --all-tables`.
+
+### Upgrading
+
+- Express a band's tone with the `_band` role's `background.fill` and `typography.color`
+  instead of a `--dark`/`--inverted` class.
+
+### Docs
+
+- `ai-instructions/add-component.md`: the `variant_classes` checklist item no longer teaches
+  the retired section-prefix trap. It names the two derivation idioms that remain, and it now
+  ends on a finished sentence (it had been truncated mid-sentence).
+
+### Tests
+
+- `InvariantTest::testEveryComponentReadOfBackgroundImageIsScalarGuarded` is now
+  `testNoShippedComponentReadsTheRetiredBackgroundImageProp`. It is an absence tripwire, and
+  it gains a floor on what it read: every registered component's template must be among the
+  files scanned. The old form passed over an empty corpus (red-before proof in the PR).
+- The two surviving #705 methods in `ComponentPropsTest` are re-described as what they now
+  are: they pin that a stored retired `background_image` paints nothing on section, cta and
+  stats.
+- Retired: `ThemeClassHelperTest` and six methods: the three #1108 pins, the two
+  fixture-hosted `muted` → `--dark` pins, and `SchemaTruthfulnessTest::testOnlyComponentsWithAnInvertedVariantClaimOne`.
+  The last one tied schema text to an `--inverted` variant class that no schema can declare
+  any more, and its loop has not run since style slots retired.
+- New: `ComponentPropsTest::testATruthyStoredBackgroundImageOnAShippedBandPaintsNothing`.
+  A stored URL, `42` or `true` on section, cta or stats paints nothing. This is the one case
+  a re-introduced read behind the old guard would paint, so it is the pin the two older
+  methods could not be. The InvariantTest tripwire also fails if any component template calls
+  `pp_esc_image_src()` directly, which is #705's crash shape under any prop name.
+- New: `SchemaValidationTest::testTheRetiredToneVocabularyStaysGone` enforces the #1111 ruling.
+  It fails if a shipped schema declares a `--dark`/`--inverted` variant class, if a component
+  template emits one, or if a stylesheet selects one. Comments are ignored, and each surface
+  has a floor so an empty scan cannot pass. It catches written-out class names only; a class
+  built at runtime or matched by a CSS attribute selector is out of its reach.
+- The stored-`theme` negatives in `StoredCompositionAliasRenderTest` now assert that no
+  `--dark` or `--inverted` class of any prefix appears. The old `pp-section--*` spelling
+  could never reappear.
+- The test fixture survives as a filler band for 25 test methods (24 fail without it; a
+  25th goes risky). Re-homing those and deleting it is tracked in #1164.
+
 ## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)
 
 **What you write in `_css` is what paints.** A raw `background` in a role's `_css` is a CSS

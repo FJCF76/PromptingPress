@@ -1,6 +1,6 @@
 {
   "component": "ppfixture",
-  "description": "TEST FIXTURE ONLY - never registered in production. A minimal registry member that exists so engine claims with NO shipped subject still have a real component to name. Its slot map and recipes were deleted at #1101 with the style-slot engine; what remains is the shape a claim needs when the thing it protects is a prop the shipped registry happens not to declare. See tests/fixtures/components/ppfixture/README.md for the hosted claims and the death condition.",
+  "description": "TEST FIXTURE ONLY - never registered in production. A minimal registry member that write-path suites use as a plain filler band. Its slot map and recipes were deleted at #1101 with the style-slot engine, its `theme` prop at #1111 with the `--dark`/`--inverted` vocabulary, and its `background_image` prop at #1108 when the #705 guard it hosted was retired by decision. See tests/fixtures/components/ppfixture/README.md for who still uses it and the death condition.",
   "props": {
     "id": {
       "type": "string",
@@ -11,25 +11,7 @@
     "title": {
       "type": "string",
       "required": false,
-      "description": "A heading, so the fixture renders something when the hosted claims need a band on the page.",
-      "default": ""
-    },
-    "theme": {
-      "type": "enum",
-      "options": [
-        "default",
-        "muted",
-        "inverted"
-      ],
-      "default": "default",
-      "required": false,
-      "description": "A tone prop, so the fixture emits its theme class through pp_theme_class() the way a shipped band does."
-    },
-    "background_image": {
-      "type": "string",
-      "required": false,
-      "description": "THE HOSTED CLAIM (#705). Declares `format: image_url` because the registry invariant requires every canonical image-shaped prop to (ActionsTest::testEveryImageShapedSchemaPropDeclaresImageUrlFormat) - a fixture that broke a registry invariant would fail the very suites it hosts. Kept as a TEXT url rather than an attachment id on purpose: the guard under test is the raw-value check that has to run BEFORE a typed escaper, and a url-shaped string prop is the shape that reaches it.",
-      "format": "image_url",
+      "description": "A heading, so the filler band renders visible content.",
       "default": ""
     },
     "items": {
@@ -40,10 +22,7 @@
   },
   "styling": {
     "root_class": "ppfixture",
-    "variant_classes": [
-      "ppfixture--dark",
-      "ppfixture--inverted"
-    ],
+    "variant_classes": [],
     "tokens": [
       "--pp-band-padding",
       "--color-text",

@@ -231,35 +231,6 @@ class SchemaTruthfulnessTest extends TestCase
     }
 
     /**
-     * The "leave it alone" sentence is shared boilerplate, and shared boilerplate is how a
-     * true sentence becomes a false one: the heading-colour variant reads
-     * "the inverted variant supplies its own light default", which is a claim about a
-     * theme class. `table` declares `variant_classes: []` — it has no theme classes at all —
-     * and got the sentence anyway on the first pass of this issue, shipping a fresh
-     * falsehood inside the gate whose whole premise is that schema text must be true.
-     * Couple the claim to the class list so the paste cannot happen silently again.
-     */
-    public function testOnlyComponentsWithAnInvertedVariantClaimOne(): void
-    {
-        foreach ($this->allSchemas() as $component => $schema) {
-            $variants = $schema['styling']['variant_classes'] ?? [];
-            $hasInverted = (bool) preg_grep('/--inverted$/', $variants);
-            foreach (($schema['styling']['style_slots'] ?? []) as $slot => $def) {
-                if (!str_contains((string) ($def['description'] ?? ''), 'inverted variant supplies')) {
-                    continue;
-                }
-                $this->assertTrue(
-                    $hasInverted,
-                    "{$component} {$slot} claims an inverted variant supplies a light default, but "
-                    . "{$component} declares no *--inverted class in styling.variant_classes. Either "
-                    . 'the claim is boilerplate that does not apply here, or the variant list is wrong.'
-                );
-            }
-        }
-    }
-
-
-    /**
      * The convention itself has to ship where the agent reads it, or the corrected values
      * are a snapshot rather than a rule and the next slot drifts again. All THREE surfaces
      * are pinned together: the runtime prompt an agent actually receives, and the two

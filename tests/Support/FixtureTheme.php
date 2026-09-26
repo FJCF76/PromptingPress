@@ -33,7 +33,9 @@
  * absent. What WOULD reintroduce the risk is caching the root across runs — if that ever
  * happens, the announcement has to come back with it.
  *
- * DELETION: this file dies with `ppfixture` when grid is rebuilt. See
+ * DELETION: this file dies with `ppfixture`, once the filler suites that still use it
+ * are re-homed onto a shipped component (grid's rebuild, the date this line used to
+ * name, came and went at #1101). The condition lives in
  * tests/fixtures/components/ppfixture/README.md.
  */
 

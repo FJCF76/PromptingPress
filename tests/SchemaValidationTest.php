@@ -6634,17 +6634,23 @@ class SchemaValidationTest extends TestCase
      *
      * The expectation is DERIVED FROM THE TEMPLATE, never a second hand-maintained
      * copy of the answer — a pinned literal list would drift again the moment a
-     * template changed. Three derivation rules, matching the three ways a template
+     * template changed. Two derivation rules, matching the two ways a template
      * emits a root modifier:
      *
-     *   1. THEME    a pp_theme_class($theme, 'PREFIX') call contributes exactly
-     *               PREFIX--dark and PREFIX--inverted (the helper's only two
-     *               non-empty outputs; `muted` shares the legacy --dark class).
-     *   2. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
+     *   1. LAYOUT   an interpolated `class="ROOT ROOT--<?php … $layout …`
      *               contributes ROOT--<v> for every declared layout enum value.
-     *   3. LITERAL  any `'ROOT--x'` / `'PREFIX--x'` string in the template
-     *               (the conditional modifiers: --steps, --uniform, --image-icon,
-     *               --stack, --has-bg-image).
+     *   2. LITERAL  any `'ROOT--x'` string in the template (the conditional
+     *               modifiers, e.g. grid's ' grid--steps' and testimonials'
+     *               ' testimonials--stack').
+     *
+     * A THIRD RULE RETIRED AT #1111: "THEME — a pp_theme_class($theme, 'PREFIX') call
+     * contributes PREFIX--dark and PREFIX--inverted". The helper and the whole
+     * `--dark`/`--inverted` output-name vocabulary retired together, so the rule could
+     * never fire (#1110 had already catalogued it as dead). A template that brought the
+     * call back would fatal at render on an undefined function. A hand-written
+     * `ROOT--dark` literal would merely be DERIVED by rule 2 here (and then demanded in
+     * the schema) — refusing the vocabulary outright is
+     * testTheRetiredToneVocabularyStaysGone's job, below.
      *
      * A component with no root modifiers declares [] — and must, so "empty" stays a
      * claim the test checks rather than a gap nobody noticed.
@@ -6655,17 +6661,8 @@ class SchemaValidationTest extends TestCase
             $template = file_get_contents($this->themeRoot . "/components/{$component}/{$component}.php");
             $root     = $schema['styling']['root_class'] ?? $component;
             $expected = [];
-            $prefixes = [$root];
 
-            // 1. Theme classes, from the actual pp_theme_class() prefix.
-            if (preg_match('/pp_theme_class\(\s*\$theme\s*,\s*\'([a-z0-9-]+)\'\s*\)/', $template, $m)) {
-                $prefixes[] = $m[1];
-                foreach (['dark', 'inverted'] as $slug) {
-                    $expected[] = "{$m[1]}--{$slug}";
-                }
-            }
-
-            // 2. Interpolated layout classes, one per declared enum value.
+            // 1. Interpolated layout classes, one per declared enum value.
             $interpolated = '/class="' . preg_quote($root, '/') . '\s+' . preg_quote($root, '/') . '--<\?php/';
             if (preg_match($interpolated, $template)) {
                 foreach (($schema['props']['layout']['values'] ?? []) as $value) {
@@ -6673,16 +6670,14 @@ class SchemaValidationTest extends TestCase
                 }
             }
 
-            // 3. Literal modifier strings anywhere in the template.
-            foreach (array_unique($prefixes) as $prefix) {
-                if (preg_match_all('/\'\s*(' . preg_quote($prefix, '/') . '--[a-z0-9-]+)\'/', $template, $lit)) {
-                    $expected = array_merge($expected, $lit[1]);
-                }
+            // 2. Literal modifier strings anywhere in the template.
+            if (preg_match_all('/\'\s*(' . preg_quote($root, '/') . '--[a-z0-9-]+)\'/', $template, $lit)) {
+                $expected = array_merge($expected, $lit[1]);
             }
 
             $expected = array_values(array_unique($expected));
 
-            // TRIPWIRE. The three rules above recognize today's template idioms. A
+            // TRIPWIRE. The two rules above recognize today's template idioms. A
             // template using a shape they miss (a double-quoted literal, a
             // concatenation) would UNDER-derive, and the test would then go green
             // while forcing the schema to omit a class the component really emits —
@@ -6690,10 +6685,7 @@ class SchemaValidationTest extends TestCase
             // root-prefixed modifier token that appears anywhere in the template
             // must be accounted for. An unrecognized idiom fails loudly here
             // instead of silently shrinking the expectation.
-            foreach (array_unique($prefixes) as $prefix) {
-                if (!preg_match_all('/(' . preg_quote($prefix, '/') . '--[a-z0-9-]+)/', $template, $seen)) {
-                    continue;
-                }
+            if (preg_match_all('/(' . preg_quote($root, '/') . '--[a-z0-9-]+)/', $template, $seen)) {
                 foreach (array_unique($seen[1]) as $token) {
                     $this->assertContains(
                         $token,
@@ -6716,6 +6708,113 @@ class SchemaValidationTest extends TestCase
                 $sortedDeclared,
                 "{$component}.styling.variant_classes must list exactly the root modifiers "
                 . "{$component}.php can emit (derived from the template, not from a pinned list)."
+            );
+        }
+    }
+
+    /**
+     * #1111 RULED THE `--dark` / `--inverted` OUTPUT-NAME VOCABULARY PERMANENTLY GONE (owner,
+     * 2026-09-24): v2 expresses a band's tone through the `_band` role, never a root
+     * modifier. The retirement measured three surfaces empty — no stylesheet rule selects
+     * such a class, no shipped schema declares one, no template emits one — and this pins
+     * all three so a returning tone class fails here instead of shipping quietly. (The
+     * variant-classes truthfulness test above would not catch it: it DERIVES a
+     * hand-written literal into the expected list and then demands the schema declare it.)
+     *
+     * Comments are stripped on every surface, because the retirement history is written
+     * down in comments on purpose and names these classes. A floor on each surface keeps
+     * an empty scan from passing.
+     *
+     * SURFACES: every schema; every PHP file under components/, lib/ and templates/
+     * (recursively) plus the theme-root PHP files;
+     * assets/js/*.js; assets/css/*.css. The PHP scan also refuses the retired
+     * pp_theme_class() by name (a call, a fully-qualified call or a callable string).
+     *
+     * WHAT IT DOES NOT SEE, stated so nobody leans on it for more: a class BUILT at
+     * runtime from pieces (`ROOT--<?php echo $tone ?>`, `'stats--' . 'dark'`) and a CSS
+     * attribute selector (`[class*="--dark"]`), and — in JS only — code hidden by a `/*`
+     * inside a string or regex literal, which the crude comment stripper would swallow up
+     * to the next block-comment close (no current script has one). It pins the written-out spellings,
+     * which is how every retired rule and declaration was written.
+     */
+    public function testTheRetiredToneVocabularyStaysGone(): void
+    {
+        $tone = '/[a-z0-9]--(?:dark|inverted)\b/';
+
+        // 1. Schemas: no declared variant class.
+        $schemas = $this->allSchemas();
+        $this->assertGreaterThanOrEqual(10, count($schemas), 'the schema scan found fewer than ten components');
+        foreach ($schemas as $component => $schema) {
+            $this->assertSame(
+                [],
+                array_values(preg_grep($tone, $schema['styling']['variant_classes'] ?? [])),
+                "{$component} declares a --dark/--inverted variant class; that vocabulary retired at #1111"
+            );
+        }
+
+        // 2. The theme's PHP — every file under components/ (recursively, so a partial
+        //    counts), lib/ (the engine emits markup too) and templates/, plus the theme-root
+        //    files (functions.php, page.php, ...): no tone class in code or
+        //    markup, and no reference to the retired pp_theme_class() helper by name.
+        //    Comments are dropped by the tokenizer; HTML text and string literals are
+        //    kept, which is where a class attribute lives. The helper check matters on
+        //    its own: a call on a branch no test renders would pass every render test
+        //    and fatal on the live page.
+        $php = [];
+        foreach (['components', 'lib', 'templates'] as $dir) {
+            $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->themeRoot . '/' . $dir, \FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                if ($f->getExtension() === 'php') {
+                    $php[] = $f->getPathname();
+                }
+            }
+        }
+        $php = array_merge($php, glob($this->themeRoot . '/*.php') ?: []);
+        $this->assertGreaterThanOrEqual(40, count($php), 'the PHP scan found fewer than 40 files across components/, lib/, templates/ and the theme root');
+        foreach ($php as $file) {
+            $code = '';
+            foreach (token_get_all((string) file_get_contents($file)) as $token) {
+                if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                if (is_array($token)
+                    && in_array($token[0], [T_STRING, T_NAME_FULLY_QUALIFIED, T_CONSTANT_ENCAPSED_STRING], true)
+                    && strtolower(ltrim(trim($token[1], "'\""), '\\')) === 'pp_theme_class') {
+                    $this->fail(substr($file, strlen($this->themeRoot) + 1) . ' names pp_theme_class(), which retired at #1111 — an undefined-function fatal on whatever page reaches it');
+                }
+                $code .= is_array($token) ? $token[1] : $token;
+            }
+            $this->assertDoesNotMatchRegularExpression(
+                $tone,
+                $code,
+                substr($file, strlen($this->themeRoot) + 1) . ' emits a --dark/--inverted class; that vocabulary retired at #1111'
+            );
+        }
+
+        // 2b. Front-end scripts: no tone class added at runtime. Block comments and
+        //     whole-line // comments are stripped; a trailing // comment is still scanned
+        //     (it fails safe).
+        $scripts = glob($this->themeRoot . '/assets/js/*.js') ?: [];
+        $this->assertGreaterThanOrEqual(2, count($scripts), 'the script scan found fewer than two files');
+        foreach ($scripts as $script) {
+            $js = (string) preg_replace(['#/\*.*?\*/#s', '#^\s*//.*$#m'], '', (string) file_get_contents($script));
+            $this->assertDoesNotMatchRegularExpression(
+                $tone,
+                $js,
+                basename($script) . ' names a --dark/--inverted class; that vocabulary retired at #1111'
+            );
+        }
+
+        // 3. Stylesheets: no selector naming one (CSS comments stripped).
+        $sheets = glob($this->themeRoot . '/assets/css/*.css') ?: [];
+        $this->assertGreaterThanOrEqual(2, count($sheets), 'the stylesheet scan found fewer than two files');
+        foreach ($sheets as $sheet) {
+            $css = (string) preg_replace('#/\*.*?\*/#s', '', (string) file_get_contents($sheet));
+            $this->assertGreaterThan(1000, strlen($css), basename($sheet) . ' read as (almost) empty after comment stripping');
+            $this->assertDoesNotMatchRegularExpression(
+                '/\.[a-z0-9-]+--(?:dark|inverted)\b/',
+                $css,
+                basename($sheet) . ' selects a --dark/--inverted class; that vocabulary retired at #1111'
             );
         }
     }

@@ -1082,8 +1082,11 @@ function _pp_bg_annotation_value(string $value): string {
  *      paints among flat backgrounds). A `transparent` or empty override reveals the
  *      inherited background, so it resolves to null like the default.
  *   3. `theme` prop bucket, component-independent so section vs grid compare equal:
- *      `inverted` -> the dark inverted band; `muted` -> the light muted surface
- *      (which paints under the legacy `--dark` class name, #570 DG-4).
+ *      `inverted` -> the dark inverted band; `muted` -> the light muted surface.
+ *      NOTHING PAINTS EITHER ANY MORE: `theme` stopped painting as each component
+ *      retired it (the last at #1101), and the `--dark`/`--inverted` vocabulary with
+ *      its pp_theme_class() helper was retired at #1111, so this bucket describes a
+ *      band the page does not draw — the defect tracked in #1070.
  *   4. Otherwise (default/absent/unknown theme, including a `dark` stored before
  *      #605) -> null (inherited body background).
  *
@@ -1103,15 +1106,16 @@ function _pp_resolve_component_bg(array $item): ?array {
     // component declares that prop now (section #1023, cta #1026, stats #1066), and
     // nothing migrates stored props — so the branch was not unreachable, it was
     // reachable and WRONG. An aged page still storing `background_image` renders no
-    // image at all (a retired prop is unread at render), so the band paints whatever
-    // its `--{name}-bg` slot or `theme` says, and calling it image-backed would have
-    // silenced a hint that is now correct.
+    // image at all (a retired prop is unread at render), so calling it image-backed
+    // would describe paint that is not there. (The slot and `theme` buckets below have
+    // since lost their paint too — style slots and `theme` retired component by
+    // component, the last of both with grid at #1101 — and still describing them is the
+    // defect tracked in #1070.)
     //
     // THE PRECEDENT IS #605, three steps down: a `theme` value stored before the
-    // vocabulary freeze falls through to the default bucket because pp_theme_class()
-    // coerces it to the default band, and the comment there says the two must move in
-    // lockstep. Same rule, same reason. The hero-cover carve-out left the same way at
-    // #986, when the inline style it guarded went.
+    // vocabulary freeze falls through to the default bucket. Same rule, same reason.
+    // The hero-cover carve-out left the same way at #986, when the inline style it
+    // guarded went.
     //
     // WHAT THIS FUNCTION STILL CANNOT SEE, stated rather than implied: a v2 band
     // background lives at `$item['udc']['_band']['background']`, and nothing here
@@ -1119,8 +1123,8 @@ function _pp_resolve_component_bg(array $item): ?array {
     // component carries no `theme` prop and no `--{name}-bg` style slot, so every v2
     // band falls through every step to null — the annotation stays silent about it
     // rather than describing it wrongly. A v2 band with a flat `background.fill` is
-    // therefore under-described, never mis-described. That is now true of NINE of the
-    // TEN composable components; teaching this function to read `udc` is a v2-wide
+    // therefore under-described, never mis-described. That is true of all TEN
+    // composable components since grid's rebuild (#1101); teaching this function to read `udc` is a v2-wide
     // change to what the chat AI is told, tracked as its own issue rather than
     // widened here.
 
@@ -1140,10 +1144,13 @@ function _pp_resolve_component_bg(array $item): ?array {
     if ($theme === 'inverted') {
         return ['id' => 'theme:inverted', 'label' => 'the inverted theme (dark band)'];
     }
-    // The accepted set here mirrors pp_theme_class() in lib/helpers.php — if a theme
-    // value is ever added or removed, update both sites in lockstep. A value outside
-    // the set (including a `dark` stored before #605) falls through to the default
-    // bucket below, exactly as pp_theme_class() coerces it to the default band.
+    // NO LOCKSTEP PARTNER IS LEFT. This bucket used to mirror pp_theme_class(), the
+    // renderer's `theme` -> `--dark`/`--inverted` class helper; that helper and the whole
+    // `--dark`/`--inverted` output-name vocabulary retired at #1111, and no component
+    // declares `theme` any more (the last left at #1101), so nothing renders a stored
+    // value. That this bucket still DESCRIBES one is the defect tracked in #1070 — do
+    // not extend it. A value outside the set (including a `dark` stored before #605)
+    // falls through to the default bucket below.
     if ($theme === 'muted') {
         return ['id' => 'theme:muted', 'label' => 'the muted theme (light surface band)'];
     }

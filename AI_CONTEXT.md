@@ -373,7 +373,7 @@ Colors:     --color-bg, --color-surface, --color-text, --color-muted,
 Derived:    --color-text-secondary, --color-accent-strong, --color-border-accent, --color-surface-accent,
             --color-accent-on-inverted, --color-accent-on-inverted-hover,
             --color-accent-on-overlay, --color-accent-on-overlay-hover
-Roles:      --color-muted-on-overlay  (de-emphasised body ink on a background_image band)
+Roles:      --color-muted-on-overlay  (de-emphasised body ink on a scrimmed `background.image` band)
 Spacing:    --space-xs, --space-sm, --space-md, --space-lg, --space-xl, --space-2xl, --space-3xl
 Typography: --font-body, --font-heading, --font-weight-heading, --line-height-body, --line-height-heading,
             --letter-spacing-heading, --font-mono

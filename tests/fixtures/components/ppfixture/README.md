@@ -20,8 +20,9 @@ when `grid` is rebuilt."** `grid` was rebuilt at #1101 and the slot engine was r
 it, so the first half happened exactly as written — the slot map, the recipes and every
 suite that targeted them are gone from this directory and from the repo.
 
-**The second half did not, and the difference is the point.** Deleting the whole fixture
-would have taken down test methods whose subject is NOT the slot engine and which have no
+**The second half did not, and the difference is the point** — as measured AT #1101; the
+next section records what changed since. Deleting the whole fixture would have taken down
+test methods whose subject is NOT the slot engine and which have no
 shipped component to run against. Measured before the sweep began: stripping the
 fixture's slots broke 157 methods, deleting the fixture outright broke 181, and that
 twenty-four-method delta is the set with no other home. That is the #1038 class — a test
@@ -29,58 +30,46 @@ deleted with its subject that was actually carrying a live claim — and it is t
 risk this sweep was run to avoid. So the fixture survives in a STRIPPED form, and
 the rule it lives under is no longer a date.
 
-## Why it exists NOW
+## Why it exists NOW — and why that reason is weaker than the old one
 
-**To host a claim whose subject the shipped registry happens not to declare.** Not "to
-stand in for a component that has not been rebuilt yet" — there are none left. The
-distinction matters, because the old reason had an expiry date and this one does not: a
-guard can be correct, load-bearing and permanent while every component that ships today
-happens to avoid the shape it guards.
+**The claim it was kept for is gone.** Until PR-3 of #1145 it hosted **#705's raw-value guard
+before a typed escaper**: a prop carrying a URL as TEXT (`background_image`), reaching
+`pp_esc_image_src()`. No shipped component has declared that shape since #1066 — every v2
+band background is an attachment ID on the `_band` role's `background.image`, which the
+engine resolves — so the owner ruled on #1108 (2026-09-24) to **retire the prop-grain guard
+by decision.** The three `ComponentPropsTest` methods that pinned it on this fixture were
+deleted, the fixture's `background_image` prop and guard went with them, and the live
+escaper stays pinned where it is live: `UdcBackgroundImageTest` on the v2 `_band` ->
+`background.image` path. The coverage was given up deliberately, not lost; a component that
+takes a text-URL image prop again trips
+`InvariantTest::testNoShippedComponentReadsTheRetiredBackgroundImageProp`, which says the
+guard and its tests come back with the prop.
 
-The claim it hosts today is **#705's raw-value guard before a typed escaper**. The shape:
-a prop that carries a URL as TEXT, reaching `pp_esc_image_src()`. A non-empty ARRAY is
-truthy in PHP, so a gate written as `if ($background_image)` passes on one and the typed
-call fatals the whole page — and the guard's three gates (the inline declaration, the
-modifier class and the overlay element) have to move together, or the band paints a dark
-scrim over nothing while wearing the light ink the modifier selects.
+Its `theme` prop and the `pp_theme_class()` call went at #1111, when the owner retired the
+whole `--dark` / `--inverted` output-name vocabulary: nothing ships that vocabulary any more,
+so a fixture emitting it would pin a contract no component keeps.
 
-No shipped component declares that shape any more. Every v2 band background is an
-attachment ID on the `_band` role's `background.image`, which the engine resolves; the
-last text-URL band background left `section` at #1023, `cta` at #1026 and `stats` at
-#1066. The guard is still right, the escaper is still shared, and a future component that
-takes a URL-shaped image prop would meet it — so the eight methods of
-`tests/StoredBackgroundImageRenderGuardTest.php` that pin it kept a host instead of being
-deleted with a subject that never died.
-
-Whether they should retire BY DECISION rather than by losing their subject is a separate
-question, filed as its own issue. They survive on this fixture until that is ruled.
+**What is left is FILLER.** Measured at PR-3 of #1145 by deleting this directory in a scratch
+copy of the shipped state: 24 methods fail and a 25th goes risky (zero assertions — which
+`failOnRisky` also fails), and none of them is about this component. They need *a*
+registered, composable band with a required prop and do not care which one —
+`WriteEnvelopeFindingsTest` (10), `CompositionFindingsBoundsTest` (8 failing, plus
+`testOnlyTheTruncationEntryCarriesATotal` going risky),
+`StoredCompositionAliasRenderTest` (2), `FixtureThemeSeamTest` (2, the seam itself) and
+`StyleSlotContractTest` (2, pinning that this schema declares no slots or recipes). So the
+#1101 section's "no shipped component to run against" no longer holds for any of them. That is
+the "third thing" the section below forbids *new* claims from doing; these arrived before the
+rule and have not been re-homed.
 
 ## When it is deleted — a condition, not a date
 
-**`ppfixture` and `tests/Support/FixtureTheme.php` are deleted when the LAST claim hosted
-here either finds a real subject or is retired by decision.**
+**`ppfixture` and `tests/Support/FixtureTheme.php` are deleted when the filler suites above
+are re-homed onto a shipped component** (the seam and slot-contract methods go with the
+fixture). That re-homing is tracked in #1164, filed from #1145's PR-3.
 
-Two ways that happens, and both are good outcomes:
-
-1. **A shipped component grows the shape.** If a component declares a text-URL image prop,
-   the #705 guard has a real subject: move those methods onto it and delete this
-   directory. A claim with a real subject is always worth more than the same claim on a
-   fixture, because the fixture can drift out of agreement with what ships and nothing
-   will notice.
-2. **The claim is retired deliberately.** If the ruling is that a guard with no shipped
-   subject should not be maintained, delete the methods AND this directory in the same
-   change — and say in the commit that the coverage was given up on purpose, so a later
-   reader does not reconstruct it as an accident.
-
-**What must NOT happen is a third thing: a new claim moving in here because it is
-convenient.** This directory is not a general-purpose component; it is a host of last
-resort for a claim that has nowhere else to run. Before adding anything here, check
-whether a shipped component can carry it. If one can, it should.
-
-That rule is the same one the old file stated as "do not keep the fixture just in case" —
-what has changed is only that "just in case" was the wrong test for a fixture that was
-genuinely carrying something. The right test is whether the claim has a real subject
-available, and the answer is written down above for each claim rather than assumed.
+**What must NOT happen is a new claim moving in here because it is convenient.** This
+directory is not a general-purpose component; before adding anything here, check whether a
+shipped component can carry it. Ten can.
 
 ## It does NOT work for Playwright, and that is structural
 
@@ -98,9 +87,8 @@ the e2e treadmill ended with the slot engine rather than needing a fixture theme
 
 ## What it deliberately does NOT do
 
-- **It does not fake the engine.** `ppfixture.php` runs #705's raw-value guard verbatim and
-  emits its theme class through `pp_theme_class()` (#570 DG-4). A fixture that shortcut
-  those would prove nothing about the code under test.
+- **It does not carry retired surfaces.** No `theme` prop and no `--dark`/`--inverted`
+  classes (#1111), no `background_image` prop or #705 guard (#1108), no slot map (#1101).
 - **It does not appear in a production registry read.** A registry read WITHOUT the opt-in
   must not contain `ppfixture`, and that invisibility is pinned in
   `tests/FixtureThemeSeamTest.php` rather than assumed — including against the

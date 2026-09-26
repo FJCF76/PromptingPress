@@ -11,7 +11,8 @@
  * and rendering them through the loop templates/composition.php actually runs, so what
  * is asserted is what a visitor's browser receives. It is the sibling of
  * tests/StoredImageUrlRenderGuardTest.php (#641) and
- * tests/StoredBackgroundImageRenderGuardTest.php (#705).
+ * tests/StoredBackgroundImageRenderGuardTest.php (#705; deleted at #1101, guard retired by
+ * decision at #1108).
  *
  * THE DEFECT, AND IT IS WIDER THAN THE ISSUE FILED. One helper, BOTH of its text
  * parameters typed:

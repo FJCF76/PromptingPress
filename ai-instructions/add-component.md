@@ -801,6 +801,9 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] `styling.variant_classes` lists **exactly** the root-element modifier classes
       the template can emit. It is derived from the template by
       `SchemaValidationTest::testVariantClassesListExactlyWhatTheTemplateCanEmit`,
-      so an empty array is a claim the test checks, not a gap nobody noticed. Watch
-      the `section` trap: its root class is `section` but `pp_theme_class()` is
-      called with the `pp-section` prefix, so its theme classes are `pp-section--*`
+      so an empty array is a claim the test checks, not a gap nobody noticed. The
+      derivation recognizes two idioms: an interpolated `layout` class (one
+      `<root>--<value>` per declared enum value) and a literal `'<root>--x'` string
+      for a conditional modifier. There are no theme classes: the `--dark` /
+      `--inverted` vocabulary and its `pp_theme_class()` helper retired at #1111, so
+      a band's tone is the `_band` role in its `udc` map, never a root modifier.

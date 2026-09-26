@@ -199,8 +199,10 @@ survives on the other half: core injects a STYLE and never a width, so `border-w
 still wins, and `solid` at zero width paints nothing.
 
 The baseline was NOT hoisted out of the layer to restore the old mechanism. Unlayered, it
-would outrank every layered component rule that legitimately draws a border (`.cta--dark`,
-`.grid--dark`, `.logos--dark`, ...) and erase all of them.
+would outrank every layered component rule that legitimately draws a border and erase all
+of them. (When this was written those were the tone variants `.cta--dark`, `.grid--dark`,
+`.logos--dark` and the rest; that vocabulary retired component by component and for good at
+#1111, and a v2 band's border is a role default or an authored `border` group instead.)
 
 `.site-footer` used to head that list and no longer belongs to it: since #994 the footer's
 top border is a `_band` role default, which is the very thing section 1c is about — the

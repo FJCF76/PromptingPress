@@ -1607,8 +1607,9 @@ class AiContextTest extends TestCase
         // #605: `dark` is no longer an accepted `theme` value, so it no longer
         // resolves into the muted bucket. A muted band beside a band still STORING
         // `dark` is not a same-background pair — the stale band renders the default
-        // inherited background. The resolver and pp_theme_class() stay in lockstep:
-        // both treat the removed value as unset.
+        // inherited background. The resolver treats the removed value as unset. (Its
+        // old lockstep partner, pp_theme_class(), retired at #1111; that the resolver
+        // still describes `muted`/`inverted` at all is #1070.)
         $system = $this->pageContextFor(702, [
             ['component' => 'grid', 'props' => ['title' => 'A', 'theme' => 'muted']],
             ['component' => 'section', 'props' => ['title' => 'B', 'theme' => 'dark']],
