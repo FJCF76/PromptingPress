@@ -360,6 +360,28 @@ class DiagnosticReachTest extends TestCase
 
     // ── 4. `wp pp check page` surfaces error-severity findings (#622 gap 1) ────
 
+    /**
+     * #1181: `wp pp check page` is where a stale posts-page listing band is disclosed (the
+     * posts page moved after the band was written, or a raw write put it elsewhere). The
+     * command passes the page it reads, so the page-aware findings run.
+     */
+    public function testCheckPageReportsAListingBandOffThePostsPage(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['show_on_front']  = 'page';
+        $GLOBALS['_pp_test_store']['options']['page_for_posts'] = 999;
+        $this->seedPage(310, [['component' => 'grid', 'props' => ['title' => 'L', 'items_source' => 'posts', 'items' => []]]]);
+
+        try {
+            (new PP_Check_Command())->page([], ['post_id' => 310]);
+        } catch (WpCliHaltException $e) {
+            // a page with findings may end non-zero; the report is what is pinned
+        }
+
+        $joined = implode("\n", array_merge(WP_CLI::$warnings, WP_CLI::$lines));
+        $this->assertStringContainsString('listing_band_off_posts_page', $joined);
+        $this->assertStringNotContainsString('empty_section', $joined, 'a listing band is not an empty grid');
+    }
+
     public function testCheckPageReportsCompositionErrorsInsteadOfReportingClean(): void
     {
         $this->seedPage(301, $this->staleComposition());
@@ -1393,9 +1415,13 @@ class DiagnosticReachTest extends TestCase
         // target by name, while the top-level band id scopes that band's emitted CSS block.
         // One message explaining itself in terms of the other's namespace would misdirect
         // every operator who read it.
+        //
+        // FIVE SINCE #1181: the duplicate-LISTING-band key list (`duplicate_listing_band`,
+        // at most one posts-page listing per composition) is a third cross-item key list,
+        // mapped over its keys through the same renderer as the other two.
         $band_label_calls = substr_count($source, '_pp_item_index_label($index, $items)')
             + substr_count($source, '_pp_item_index_label($key, $items)');
-        $this->assertSame(4, $band_label_calls, 'four band-level renderings, each exactly one renderer call');
+        $this->assertSame(5, $band_label_calls, 'five band-level renderings, each exactly one renderer call');
 
         $this->assertSame(
             substr_count($source, 'item %s'),

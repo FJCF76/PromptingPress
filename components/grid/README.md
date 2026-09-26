@@ -17,7 +17,8 @@ It is also the first component to carry **item-grain** styling: a single card ma
 | `subheading`   | string | No       | `''`       | Supporting line below the title |
 | `layout`       | enum   | No       | `'cards'`  | `cards` or `steps`. STRUCTURE, not styling: `steps` renders a numbered badge on each card and no card images |
 | `columns`      | number | No       | —          | Explicit desktop (≥768px) column count, an integer 1–4. Unset keeps the auto-derivation from item count. Ignored on `steps` |
-| `items`        | array  | Yes      | —          | The cards |
+| `items_source` | enum   | No       | —          | `posts` makes this band the **posts-page listing** (#1181): its cards are the posts page's own post listing, with the page links below. Accepted only on the page chosen as the posts page; see **The posts-page listing** below. Absent means an ordinary grid of authored cards |
+| `items`        | array  | Yes      | —          | The cards. A listing band stores `[]` |
 
 Each entry in `items`:
 
@@ -154,6 +155,23 @@ The `COMPONENT: grid` block in `assets/css/components.css` is structure only, an
 `.grid--steps .grid__item:not(:last-child)::after` is positioned at `left: 100%` — outside the card's padding box — while `.grid__item` declares `overflow: hidden`. The card clips it, at every viewport, so the rule has never put a pixel on the page. That was recorded at #601 and its reopening is #670; the v2 rebuild changes neither fact, because `overflow: hidden` is exactly as load-bearing for the banner-image crop as it was before.
 
 It is ported rather than deleted for the same reason the record exists: deleting it would turn a known-dead rule with an issue number into a silently absent one, and #670 is where the decision to revive or remove it belongs. **Do not read its arithmetic as a promise** — the offset happens to be correct now (the card body's 2rem padding plus half a 44px badge is exactly the `calc(var(--space-lg) + 1.375rem)` the rule carries, which it only approximated under v1's outer padding), and that is a fact about the numbers, not about anything a reader will see.
+
+## The posts-page listing (`items_source: "posts"`, #1181)
+
+The page chosen as the posts page (Settings → Reading, "Posts page", with a static front page) renders its own stored composition when it has one, instead of the theme's hard-coded hero and grid. Its post listing is a grid band with `items_source: "posts"`:
+
+```json
+{"component": "grid", "props": {"title": "Latest", "items_source": "posts", "items": []}}
+```
+
+- **Its cards are the posts index's main query**: one per post on the current page of results, built from the same fields the theme's own posts page has always shown (title, a 25-word excerpt, the medium featured image, the permalink, "Read post"). They go through exactly the same escaping as authored cards; nothing new reaches the page.
+- **The page links render inside the band**, after the list, wherever you place it.
+- **`items` stays `[]`.** A non-empty `items` beside the source is refused: the listing replaces authored cards.
+- **Only on the posts page, and once.** Every writer that knows the page (`update_composition`, `update_component`, `add_component`) refuses a listing band on any other page, and `create_page` refuses it outright. A second listing band on one page is refused too. If the posts page later moves, the band left behind renders its empty state and `wp pp check page` reports `listing_band_off_posts_page`; removing the source is never refused.
+- **A posts page with no listing band** is accepted and reported as `posts_page_without_listing`, because the posts index would then show no posts.
+- **No per-card styling.** The cards are not stored, so they have no item ids and take no item-grain `udc`. Style them through the band's roles (`card`, `card-title`, `card-text`, …), which reach every card.
+
+With nothing stored on the posts page, it renders exactly as before. The same holds for a visitor who may not see the posts page (draft, pending, private or password-protected): its composition is its own content, shown only to viewers who may read the page.
 
 ## Cards layout
 

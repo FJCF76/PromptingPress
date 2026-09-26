@@ -111,6 +111,27 @@ $subheading    = $props['subheading']    ?? '';
 //     exactly this reason, so that gap is visible rather than assumed covered.
 $raw_items = $props['items'] ?? [];
 $items     = is_array($raw_items) ? $raw_items : [];
+// ── #1181: the posts-page listing ───────────────────────────────────────────
+//
+// `items_source: "posts"` makes this band's cards the posts index's own main query.
+// They are built by pp_posts_listing_items() as ordinary card arrays and go through
+// the SAME loop below as authored cards, so they reach the same sinks (esc_html,
+// pp_kses_inline, the responsive-image helper, esc_url): no new content sink
+// (LAYER-3-CONTRACT.md). Off the posts index that function returns [] without
+// touching the main query, so the band renders its empty state — the write path
+// refuses the band there and `check page` discloses a stale one (#1181, D2). Any
+// stored `items` beside the source is ignored here because the write path refuses it.
+//
+// THE LISTING'S PAGE LINKS belong to the listing, so they render inside this band after
+// its list, wherever the author placed the band: core-generated markup (paginate_links,
+// wrapped by pp_pagination()), exactly what home.php has always printed — not author
+// content. Only a listing with cards has pages. The call sits on the list's own `endif`
+// line below, so a grid that is not a listing gains no byte of output (whitespace
+// included: a separate PHP block there would have added a line to every grid).
+$is_listing = (($props['items_source'] ?? null) === 'posts');
+if ($is_listing) {
+    $items = pp_posts_listing_items();
+}
 $layout  = $props['layout']  ?? 'cards';
 
 $allowed_layouts = ['cards', 'steps'];
@@ -429,7 +450,7 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
                   // default outright — layer rank beats specificity, and the role would
                   // have been declared and dead on the one element it names. ?>
             <p class="grid__empty">Nothing here yet.</p>
-        <?php endif; ?>
+        <?php endif; if ($is_listing && !empty($items)) { echo pp_pagination(); } ?>
 
     </div>
 </section>

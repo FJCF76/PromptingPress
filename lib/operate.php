@@ -341,6 +341,13 @@ function pp_inspect_site(?int $post_id = null): array {
             $composition_decode_error = $result['error'];
         } elseif (!empty($result['composition'])) {
             $smells = pp_validate_composition_smells($result['composition']);
+            // #1181: the page-aware posts-page facts, so an agent reading the page before a
+            // mutation learns what the write envelope would tell it only afterwards (a
+            // posts page with no listing band shows no posts; a listing band off the
+            // posts page renders empty). Same shape as a smell.
+            foreach (pp_posts_page_findings($result['composition'], (int) $post_id) as $finding) {
+                $smells[] = ['type' => $finding['type'], 'message' => $finding['message'], 'index' => $finding['index']];
+            }
         }
     }
 
@@ -2024,7 +2031,7 @@ function pp_operate_restore_run_compositions( string $run_id ): array {
             'changed'  => ( $before !== $after ),
             'findings' => _pp_prepend_write_disclosures(
                 $post_id,
-                _pp_bounded_findings( _pp_composition_findings( $after ), $post_id )
+                _pp_bounded_findings( _pp_composition_findings( $after, (int) $post_id ), $post_id )
             ),
         ];
     }

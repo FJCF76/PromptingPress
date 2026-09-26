@@ -1441,9 +1441,17 @@ class SchemaValidationTest extends TestCase
 
             $accepted = [];
             foreach ($this->refusalPartitions($schema) as $label => $gate) {
-                $subset = array_diff_key(array_merge($props, $gate), array_flip(
-                    $this->propsRefusedAt($schema, array_merge($props, $gate))
-                ));
+                $refused = $this->propsRefusedAt($schema, array_merge($props, $gate));
+                $subset  = array_diff_key(array_merge($props, $gate), array_flip($refused));
+                // A REQUIRED prop refused at this value stays, in its EMPTY form (#1181, D3):
+                // grid's `items` is required and a listing band (`items_source: "posts"`)
+                // stores `items: []` by contract. The rule gates on `present`, which an empty
+                // value does not meet, so the empty form is the live shape at that value.
+                foreach ($refused as $gone) {
+                    if (!empty($schema['props'][$gone]['required'])) {
+                        $subset[$gone] = ($schema['props'][$gone]['type'] ?? '') === 'array' ? [] : '';
+                    }
+                }
 
                 $result = pp_validate_composition([['component' => $name, 'props' => $subset]]);
                 $this->assertTrue(
@@ -3242,7 +3250,7 @@ class SchemaValidationTest extends TestCase
         'embed'        => ['id', 'title', 'content', 'theme'],
         'faq'          => ['id', 'title', 'title_accent', 'eyebrow', 'theme', 'items'],
         'footer'       => ['location', 'show_logo', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color', 'blurb', 'contact', 'copyright', 'menu_label', 'contact_label', 'secondary_location', 'secondary_label', 'note', 'social'],
-        'grid'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'title_align', 'layout', 'card_emphasis', 'theme', 'columns', 'image_treatment', 'items'],
+        'grid'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'title_align', 'layout', 'card_emphasis', 'theme', 'columns', 'image_treatment', 'items', 'items_source'],
         'hero'         => ['id', 'title', 'title_accent', 'eyebrow', 'subheading', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button_variant', 'button2_variant', 'layout', 'image_url', 'image_alt', 'image_id', 'spacing', 'width', 'split_ratio', 'vertical_align', 'proof'],
         'logos'        => ['id', 'title', 'theme', 'items'],
         'nav'          => ['location', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color'],
@@ -3537,16 +3545,17 @@ class SchemaValidationTest extends TestCase
     ];
 
     /**
-     * The append-only floor for the prop surface (#598). 127 props across 12 components
-     * (126 as of v1.13.15, plus section's `body_items_align` from #1023). NEVER DECREASE
+     * The append-only floor for the prop surface (#598). 128 props across 12 components
+     * (126 as of v1.13.15, plus section's `body_items_align` from #1023 and grid's
+     * `items_source` from #1181). NEVER DECREASE
      * THIS. Adding props raises what the baseline holds,
      * which is fine (the check is >=); retiring one moves it into the notes register, so
      * the accounted total still never drops.
      */
-    private const PROP_BASELINE_FLOOR = 127;
+    private const PROP_BASELINE_FLOOR = 128;
 
     /** Content fingerprint of PINNED_PROP_BASELINE. See baselineFingerprint(). */
-    private const PROP_BASELINE_FINGERPRINT = '272569fd80556f10';
+    private const PROP_BASELINE_FINGERPRINT = '7f2e8692a175c967';
 
     /**
      * Pure drift detector: any baseline prop that no longer exists in the live schema
@@ -6166,7 +6175,10 @@ class SchemaValidationTest extends TestCase
         // program was aiming at — structure stays a prop, tone becomes a role.
         // Every retirement is recorded in
         // SCHEMA_RENAME_MIGRATION_NOTES / SLOT_RENAME_MIGRATION_NOTES.
-        $this->assertSame(10, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
+        // 10 -> 11 at #1181: grid's `items_source` (one value, "posts"), which is not a tone
+        // but a CONTENT SOURCE — it selects where the band's cards come from — so it stays a
+        // prop by the same rule. It is strict, so this sweep reaches it like the rest.
+        $this->assertSame(11, $checked, 'the shipped `values` inventory changed — re-confirm the sweep reaches it');
     }
 
 

@@ -4816,7 +4816,65 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
         );
     }
 
+    // AT MOST ONE POSTS-PAGE LISTING PER COMPOSITION (#1181). Every listing band renders
+    // the SAME main query, so a second one would print the same page of posts twice —
+    // accepted bytes the render cannot honour as two listings. Cross-item for the same
+    // reason as the id collisions above: it is a property of the page, so it refuses a
+    // write to any band. Carries no `index`; the message names the bands.
+    $duplicate_listing = ($sink['budget'] !== null && $errors !== []) ? null : pp_duplicate_listing_band_error($items);
+    if ($duplicate_listing !== null) {
+        $errors[] = $duplicate_listing;
+    }
+
     return $errors;
+}
+
+/**
+ * The one-listing-band rule (#1181) as an error, or null when the composition holds at
+ * most one listing band. Shared by the whole-composition validator above and by
+ * add_component, which validates only the item it adds and so asks this of the
+ * composition it would store.
+ *
+ * @param  array $items  A composition.
+ * @return WP_Error|null
+ */
+function pp_duplicate_listing_band_error(array $items): ?WP_Error {
+    $listing = pp_composition_listing_band_indices($items);
+    if (count($listing) < 2) {
+        return null;
+    }
+    return new WP_Error(
+        'duplicate_listing_band',
+        sprintf(
+            'A page may carry only one listing band (a grid with `items_source: "posts"`), but items %s all set it. Every listing band renders the same posts, so the page would show them twice. Keep one listing band and remove `items_source` from the others (then author their `items`), or remove those bands.',
+            implode(', ', array_map(
+                static fn ($key) => _pp_item_index_label($key, $items),
+                $listing
+            ))
+        )
+    );
+}
+
+/**
+ * The composition keys of every posts-page listing band (#1181): a `grid` whose
+ * `items_source` is `"posts"`. One detector for the cross-item rule above, the
+ * page-aware write gate and the page-aware findings, so the three can never disagree
+ * about what a listing band is.
+ *
+ * @param  array $items  A composition.
+ * @return list<int|string>
+ */
+function pp_composition_listing_band_indices(array $items): array {
+    $found = [];
+    foreach ($items as $key => $item) {
+        if (is_array($item)
+            && ($item['component'] ?? null) === 'grid'
+            && is_array($item['props'] ?? null)
+            && ($item['props']['items_source'] ?? null) === 'posts') {
+            $found[] = $key;
+        }
+    }
+    return $found;
 }
 
 /**

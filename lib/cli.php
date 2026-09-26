@@ -1907,14 +1907,16 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * errors-then-advisories, so bounding could never empty the `errors` bucket that
  * _pp_cli_page_fails_site_validation() gates on.
  *
- * @param  array $composition  Decoded composition array.
+ * @param  array    $composition  Decoded composition array.
+ * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
+ *                                findings (#1181); null reports page-blind.
  * @return array{errors: array[], smells: array[], styling: array[]}
  */
-function _pp_cli_page_diagnostics(array $composition): array {
+function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
     $errors = [];
     $smells = [];
 
-    foreach (_pp_composition_findings($composition) as $finding) {
+    foreach (_pp_composition_findings($composition, $post_id) as $finding) {
         if (($finding['severity'] ?? '') === 'error') {
             $errors[] = $finding;
         } else {
@@ -2116,7 +2118,7 @@ class PP_Check_Command extends WP_CLI_Command {
             return;
         }
 
-        $diagnostics = _pp_cli_page_diagnostics($composition);
+        $diagnostics = _pp_cli_page_diagnostics($composition, (int) $post_id);
         $errors      = $diagnostics['errors'];
         $warnings    = $diagnostics['styling'];
         $smells      = $diagnostics['smells'];
@@ -2283,7 +2285,7 @@ class PP_Validate_Command extends WP_CLI_Command {
                     continue;
                 }
                 $composition = $result['composition'];
-                $diagnostics = _pp_cli_page_diagnostics($composition);
+                $diagnostics = _pp_cli_page_diagnostics($composition, (int) $post_id);
                 $errors      = $diagnostics['errors'];
                 $warnings    = $diagnostics['styling'];
                 $smells      = $diagnostics['smells'];
