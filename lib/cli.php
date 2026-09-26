@@ -1957,9 +1957,10 @@ function _pp_cli_page_fails_site_validation(array $diagnostics): bool {
  * Renders one finding as a CLI list line (#622).
  *
  * Errors and smells share one locator format — `[type] index N: message` — so an
- * operator reads both the same way. `index` is null only for a cross-item error
- * (duplicate_component_id), whose message already names every colliding index; the
- * locator is then omitted rather than faked.
+ * operator reads both the same way. `index` is null only for a finding no single band
+ * owns: a cross-item error (duplicate_component_id, duplicate_listing_band), whose
+ * message already names every band involved, or the page-level posts_page_without_listing
+ * warning (#1181); the locator is then omitted rather than faked.
  *
  * Control and format characters are stripped from the message before it reaches stdout.
  * Composition error messages quote stored prop keys and values verbatim, and the whole
