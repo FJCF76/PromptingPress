@@ -290,8 +290,15 @@ role-taxonomy work"*.
 ### 2.1 One owner
 
 ```
-pp_content_sanitize(string $bytes, string $contract): array{html: string, losses: list<Loss>}
+pp_content_sanitize(string $bytes, Sink $sink, CompositionContext $ctx): array{html: string, losses: list<Loss>}
 ```
+
+`Sink` names the contract **and** the step-5 wrapper chain (`.section__content`, the
+`table > tbody > tr > td` chain, an island's host, the band root), because "rich" alone does
+not say where the prop will be parsed. `CompositionContext` carries what the cross-band rules
+need (the page's anchor set, for E6). Any cache (T-17) keys on the bytes' hash **plus** the sink
+identity, a hash of the anchor set, and the predicate's table version, so a result verified in
+one context is never served in another; or it caches only the per-prop steps 1-4.
 
 - **One function in `lib/`** owns every content contract (`rich`, `inline`, `plain`, `custom`).
   No template calls `wp_kses_post()` or `pp_kses_inline()` directly any more. The templates
@@ -651,7 +658,7 @@ finding.
 | **E3** | **Nested browsing contexts written by the author:** `iframe`, `frame`, `frameset`, `object`, `embed`, `applet`, `portal`, `fencedframe`; and the `srcdoc` attribute anywhere. | third-party execution context, clickjacking, and content no gate can inspect. Owner-named (*"no iframes"*). An **engine-built** embed is a separate question (**P-6**). | each element refused; `srcdoc` refused on every element; `<object data>` pinned refused even with a same-install URL |
 | **E4** | **Script, style and document-level elements:** `script`, `style`, `noscript`, `template`, `base`, `meta`, `link`, `title`, `html`, `head`, `body`, `slot`, and the legacy raw-text elements `xmp`, `noembed`, `noframes`, `plaintext`, `listing`. | executes (`script`); unscoped page-global CSS that bypasses 3B's scoping (`style`); parse differentials that feed mutation-XSS (`noscript`, `template`, and the raw-text elements, whose contents one parser reads as text and another as markup); document state (`base`, `meta` refresh, `link`, the HTML `title`, which sets the page title); an in-body `html`/`body` start tag merges its attributes onto the page's real element; `slot` is inert without shadow DOM, the I19 shape. **CSS belongs in the scoped sheet (3B), which is scoped and gated.** | each refused at write; at render the **content** of a refused `script`/`style` is removed with it, never left as visible text (the §1.3 leak pinned closed) |
 | **E5** | **SVG and MathML active and cross-namespace content:** `animate`, `animateColor`, `animateMotion`, `animateTransform`, `set`, `discard`, MathML `annotation-xml`, `mglyph`, `malignmark`, `maction`, `foreignObject`, `image`, `feImage`, `script`, `style` (inside SVG), and any `href`/`xlink:href` on SVG elements other than Δ1's `use` and `a` rules. | `animate`/`set` can rewrite an attribute such as `href` to a script URL after sanitization. `foreignObject` re-enters the HTML namespace (a mutation-XSS source). `image`/`feImage` fetch. | the classic animation-rewrites-`href` shapes; a `foreignObject` round trip; parse-serialize-reparse idempotence (T-9) |
-| **E6** | **The engine-owned namespace:** any attribute named `data-pp-*`, with **one carve-out**: `data-pp-island` and `data-pp-island-kind` are admitted **only** in `custom.markup` (§7.2), and refused everywhere else, including inside island content; any `id` of the form the engine mints (`^pp-[0-9a-f]{8}\z`, the band-id and anchor mint, `lib/wp.php:6567`; `^it-[0-9a-f]{8}\z`, the item id); the page-reserved ids `main` and `pp-nav-menu`; and any `id` equal to a band anchor (`props.id`) in the same composition. Band ids themselves are emitted only as `data-pp-band` (so the `data-pp-*` rule covers them); the id reservation protects the **anchors**. When a write adds a `props.id` that equals an `id` already inside another band's stored content, **the write that adds the anchor is the one refused**, naming the band that holds the collision (the #1007 rule of §2.6 applied: the refusal lands on the band being changed). | forging the engine's identity (§1.4, measured). The content-side twin of the promote step's props rule (§5.3). | one row per marker in §1.4's table, asserting the forged scope does **not** paint (computed style from the rendered page, not the stored map) |
+| **E6** | **The engine-owned namespace:** any attribute named `data-pp-*`, with **one carve-out**: `data-pp-island` and `data-pp-island-kind` are admitted **only** in `custom.markup` (§7.2), and refused everywhere else, including inside island content; any `id` of the form the engine mints (`^pp-[0-9a-f]{8}\z`, the band-id and anchor mint, `lib/wp.php:6567`; `^it-[0-9a-f]{8}\z`, the item id); the page-reserved ids `main` and `pp-nav-menu`; and any `id` equal to a band anchor (`props.id`) in the same composition. Band ids themselves are emitted only as `data-pp-band` (so the `data-pp-*` rule covers them); the id reservation protects the **anchors**. When a write adds a `props.id` that equals an `id` already inside another band's stored content, **the write that adds the anchor is the one refused**, naming the band that holds the collision (the #1007 rule of §2.6 applied: the refusal lands on the band being changed). `add_component` validates only the new item today (`lib/actions.php:5266`), so it must run the cross-band E6 checks against the stored page with the new item merged in, as `pp_validate_composition_band` does for cross-item rules; T-6 carries an `add_component` row. | forging the engine's identity (§1.4, measured). The content-side twin of the promote step's props rule (§5.3). | one row per marker in §1.4's table, asserting the forged scope does **not** paint (computed style from the rendered page, not the stored map) |
 | **E7** | **Style-attribute exclusions** (Δ3): LAYER-2 §6.0's set; any value the security gates refuse, including `url()` of every kind (A2); and `!important`. | the same reasons LAYER-2 gives, with one addition: **the no-external-resource rule is load-bearing for 3B's attribute selectors** (§6.7). | the LAYER-2 §6.0 matrix, re-run through a `style` attribute; the `image-set()` bare-string case that LAYER-2 §6.0 records as once missed |
 | **E8** | **Custom elements and unknown elements** (any tag not in §3.1 + §3.2). | without script a custom element is an inert span that validates green and paints nothing special: the I19 shape. And where a page script **does** define it (a plugin's `customElements.define`), it becomes a script-bearing element the theme never reviewed. Listed so that freedom-first does not read as "anything with angle brackets". | an unknown-tag matrix refused, with a message naming the element |
 | **E9** | **Submission and navigation redirectors:** `formaction`, `formtarget`, `formmethod`, `formenctype`, `ping`, `http-equiv`, and the `form` attribute (`form="<id>"`, which enrolls a control in any form on the page: theme, plugin or comments). | they move where a click or submit goes, or where a request is sent, outside the reviewed `action`/`href`. | each refused on every element |
@@ -735,7 +742,12 @@ Two consequences are stated rather than prevented:
   the content container and excluding its descendants, or disclose the ambiguity. This is
   **M-11**. The marker is an engine attribute the **template** emits on the container
   (for example `data-pp-content`). E6 already reserves the `data-pp-*` namespace, so content
-  cannot forge it.
+  cannot forge it. **Known limit:** both measurement paths parse with libxml's HTML4
+  `DOMDocument` (`lib/udc.php:7111`, `lib/post-apply-validate.php:143`), whose tree differs from
+  the HTML5 tree step 5 and the browser build (no adoption agency, no foreign-content rules,
+  different foster parenting). The implementation either moves M-11's scoping onto
+  `WP_HTML_Processor` or discloses the divergence; and the post-apply media check extends to
+  `srcset` candidates and `<source>` when Δ2 lands.
 
 ### 5.5 The scoped sheet against roles and `_css`
 
@@ -1046,6 +1058,12 @@ Four obligations follow. Each is part of this contract:
 3. **The measurement paths treat shortcode output as opaque.** The presence probe already
    neutralizes shortcodes (`lib/udc.php:7070-7072`). The post-apply validator must do the same,
    or disclose that it did not.
+5. **Authored shortcode attributes are authored bytes.** A core shortcode writes the author's
+   attribute text into its own output (measured: `[caption id="main"]` emits `<figure id="main">`,
+   and `id="pp-3f9a1c2e"` emits a minted-anchor-shaped id). So the E6 id checks and
+   `content_duplicate_id` run over the **post-`do_shortcode` output** of an embed band, and E2
+   runs over URL-valued attribute values of core's registered shortcodes. T-6 carries a
+   `[caption id="<anchor>"]` row.
 4. **The preview isolates it** (§8.3).
 
 **P-8** asks the owner whether plugin output should instead pass the predicate. That would
@@ -1165,8 +1183,12 @@ this route receives them. When T4's reference shows such an effect:
 ### 9.2 Procedure
 
 1. **Read stored bytes, never rendered ones.** The public page is already post-sanitizer
-   (§1.3), so it cannot show a loss. T4 reads each carried-over band's stored props through the
-   read surfaces (`wp pp operate inspect-composition`). For prod content, that needs whatever
+   (§1.3), so it cannot show a loss. T4 reads each carried-over page's **raw stored composition**
+   (the `_pp_composition` JSON, or the composition-read action's full result), never
+   `wp pp operate inspect-composition`: that surface emits only schema-scalar props and
+   `items[].<field>`, so `table.rows[][]` (a RICH sink), `section.panel_items[]` and grid bullets
+   never appear, and the trigger could not fire for them. The detector enumerates **every** §1.1
+   sink path, table cells included (probe-07c carries a cell fixture). For prod content, that needs whatever
    read-only export the orchestrator authorizes (**M-13**). T4 also records every new content
    string it authors.
 2. **Run the detector** over every content string. The reference implementation is
@@ -1563,7 +1585,7 @@ band-namespaced keyframes, or attribute/repeatable islands to a release.
 | M-15 | Δ1's per-attribute byte cap (4 096) | drop it; M-8's per-prop bound carries the DoS argument, and real path data exceeds 4 KiB |
 | M-16 | A mitigation for the §6.7 lazy-image channel that keeps P-4 option A | refuse attribute-selector conditions in scoped rules whose compound reads inside an embed band's plugin output, and pin the network-log assertion (T-10) |
 | M-17 | Non-ASCII in selectors | admit UTF-8 letters inside quoted attribute values and class/id names, so content authored in non-Latin scripts is selectable; the byte gate stays an allowlist (Unicode `L*`/`N*` plus the current set) |
-| M-18 | M-8 bounds derivation | the numbers derive from T-17's performance budget; the owner's largest stored band is a floor check, not the source |
+| M-18 | M-8 bounds derivation | the numbers derive from T-17's performance budget **and** the repo's existing availability gates: the 1 MiB write-findings gate (`PP_WRITE_FINDINGS_MAX_STORED_BYTES`, `lib/actions.php:5516`; above it an accepted write builds no findings), the 512 KiB presence bound (`PP_UDC_PRESENCE_MARKUP_BAND`, `lib/udc.php:151`), and the history ring (10 full snapshots in one meta row, rewritten under the lock on every write, `lib/wp.php:4956`). A maximal page stays under those gates, or the contract says which disclosures degrade to "not checked: size". A per-composition byte bound and a T-17 history-ring case are added. The owner's largest stored band is a floor check, not the source |
 | M-19 | *(advisory from /review, simplification)* One `WP_HTML_Processor::create_full_parser()` walk instead of steps 2-4 | step 5 already fails closed when that parser bails, so every accepted prop is one it can walk; on WP 7.0 it exposes `get_namespace()`, `get_attribute()` (decoded), `remove_attribute()` and `serialize_token()`. One walk inside the per-sink wrapper could enforce the M-4 table, the namespace checks, Δ3, E2, E6, Δ4 and E10, and emit the admitted tokens. kses and its `pre_kses` hazard (§2.4), the style-slot markers and the step-2 raw-text blind spot would then all disappear, with every §4 row and T-row kept. **Recommendation: prototype it (rule 14.3) at implementation time and adopt it if T-9 and T-17 pass;** the §2.1 pipeline stays the contract until then. It supersedes the Q-A1 mechanism only by ruling. |
 | M-20 | *(advisory)* Comma lists in a `_scoped` rule's `selector` | each entry is already emitted as its own rule, so `"a, b"` equals two rules: a second spelling of one thing (the I36 shape §6.3 cites). **Recommendation: refuse a top-level comma** (commas inside `:is()`/`:where()`/`:not()`/`:has()` stay); the 16-entry cap and the split go away |
 | M-21 | *(advisory)* One refusal-code convention | report `custom_island_unknown` and `custom_island_host` as `content_construct_excluded` naming the §7.2 clause, and keep dedicated codes for findings only. **Recommendation: adopt** |
