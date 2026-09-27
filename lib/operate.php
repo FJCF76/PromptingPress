@@ -2902,6 +2902,35 @@ function pp_component_schema_report(string $component): array|WP_Error {
                 'groups'      => array_values((array) ($definition['groups'] ?? [])),
                 'description' => (string) ($definition['description'] ?? ''),
             ];
+            // THE ROLE'S DEFAULTS (#1192), only when it declares any, so an absent key means "this role ships
+            // none" (13 shipped roles, the band link roles among them) and never an empty map. Defaults drive
+            // rules an operator plans around (a role default outranks a preset; a role that ships its own
+            // `background.fill` keeps it on a darkened band), and an agent with no filesystem access had no
+            // way to see them. Printed AS DECLARED, in the shape an authored `udc` map takes (group ->
+            // parameter -> value, a breakpoint map, or a `:hover`-style state map), because this is the map
+            // pp_udc_compile_band() compiles into the defaults tier, read from the same registry entry. For every
+            // shipped schema the printed map equals what that tier emits (CliSchemaCommandTest pins it against the
+            // compiled CSS); the gate checks SHAPE, not grammar, so a third-party default the engine cannot place
+            // (an unresolvable `@reference`, a value its parameter refuses, a role whose selector the emitter
+            // skips) is still printed. Safe for the raw-unicode sink because the gate above shape-checks every
+            // key and value of it (pp_schema_definition_errors), to the standard recorded for `overlay_defaults`
+            // ("option b"): a value is refused for control and line-breaking characters, while format characters
+            // (`\p{Cf}`) and length rest on theme-root integrity, like the rest of schema.json (#1200 tracks that
+            // posture). Values stay as written, `@token` references
+            // included; a few name engine tokens (`@pp-band-padding`) that only a default may reference.
+            // An EMPTY group or state map (`"typography": {}`, `":hover": {}`) compiles to nothing and would print as a
+            // JSON LIST (`[]`, since json_decode makes `{}` a PHP []), which is not the shape an authored map takes, so
+            // it is left out; a map left with nothing is omitted like an undeclared one.
+            $defaults = [];
+            foreach ((array) ($definition['defaults'] ?? []) as $group => $group_map) {
+                $group_map = array_filter((array) $group_map, static fn ($value): bool => $value !== []);
+                if ($group_map !== []) {
+                    $defaults[$group] = $group_map;
+                }
+            }
+            if ($defaults !== []) {
+                $entry['defaults'] = $defaults;
+            }
             // OBLIGATIONS REACH THE CLI TOO (#1087), and without this the mechanism is only
             // half built. The runtime prompt composes these for the chat AI, which has no
             // way to fetch a schema; an agent with CLI access is told to run this command

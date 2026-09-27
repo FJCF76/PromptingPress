@@ -404,6 +404,261 @@ class CliSchemaCommandTest extends TestCase
         $this->assertArrayNotHasKey('text_content', $byRole['media'], 'a role without it omits the key, never false');
     }
 
+    // ── Role defaults (#1192) ────────────────────────────────────────────────
+
+    /**
+     * EVERY ROLE THAT DECLARES DEFAULTS REPORTS THEM, AS DECLARED (#1192).
+     *
+     * Derived from the registry AND from the raw `schema.json` decode, in both directions: a role
+     * with a non-empty `defaults` map carries exactly that map, and a role with none (or `{}`) omits
+     * the key rather than printing an empty one. The counts are derived too, so a component added
+     * later cannot be skipped and the "some roles ship none" half cannot go vacuous unnoticed.
+     */
+    public function testEveryRoleThatDeclaresDefaultsReportsThemAsDeclared(): void
+    {
+        $withDefaults = 0;
+        $withoutDefaults = 0;
+        $expectedWith = 0;
+        foreach ($this->shippedComponents() as $component) {
+            $diskRoles = $this->shippedSchema($component)['roles'] ?? [];
+            foreach ($diskRoles as $definition) {
+                $expectedWith += (is_array($definition['defaults'] ?? null) && $definition['defaults'] !== []) ? 1 : 0;
+            }
+            $report = \pp_component_schema_report($component);
+            $this->assertIsArray($report, "{$component} reports");
+            if ($diskRoles === []) {
+                continue;
+            }
+            $this->assertSame(array_keys($diskRoles), array_column($report['roles'], 'role'), "{$component}: every role, in order");
+            foreach ($report['roles'] as $entry) {
+                $this->assertArrayNotHasKey('unreportable', $entry, "{$component}.{$entry['role']}: no shipped role fails the gate");
+                $declared = $diskRoles[$entry['role']]['defaults'] ?? [];
+                $this->assertSame(
+                    $declared,
+                    \pp_udc_component_roles($component)[$entry['role']]['defaults'] ?? [],
+                    'premise: the registry hands the report the bytes schema.json declares'
+                );
+                if ($declared === []) {
+                    $this->assertArrayNotHasKey('defaults', $entry, "{$component}.{$entry['role']}: no defaults, no key");
+                    $withoutDefaults++;
+                    continue;
+                }
+                $this->assertSame($declared, $entry['defaults'] ?? null, "{$component}.{$entry['role']}: reported defaults equal the declaration");
+                $withDefaults++;
+            }
+        }
+        $this->assertSame($expectedWith, $withDefaults, 'every declaring role reaches the report');
+        $this->assertGreaterThan(100, $withDefaults, 'discovery is not vacuous');
+        $this->assertGreaterThan(0, $withoutDefaults, 'some shipped roles declare no defaults (the band link roles)');
+
+        // The three the issue names, read off the report exactly as an SSH-only agent would.
+        $hero = array_column(\pp_component_schema_report('hero')['roles'], null, 'role');
+        $this->assertSame('@space-2xl', $hero['_band']['defaults']['spacing']['padding-top']['d'] ?? null);
+        $grid = array_column(\pp_component_schema_report('grid')['roles'], null, 'role');
+        $this->assertSame('@color-accent', $grid['step-number']['defaults']['background']['fill'] ?? null);
+        $this->assertSame('@color-bg', $grid['step-number']['defaults']['typography']['color'] ?? null);
+        $this->assertArrayNotHasKey('defaults', $hero['cta'], 'hero cta ships no defaults, so the key is absent');
+        $nav = array_column(\pp_component_schema_report('nav')['roles'], null, 'role');
+        $this->assertArrayHasKey(':hover', $nav['link']['defaults']['typography'] ?? [], 'chrome defaults carry their state maps');
+    }
+
+    /**
+     * THE REPORTED DEFAULTS ARE WHAT THE ENGINE EMITS (#1192, learning pp-assert-emitted-css-not-schema).
+     *
+     * Asks the engine, not the schema: every reported leaf (role, state, breakpoint, parameter) must
+     * be a declaration of the compiled DEFAULTS tier at the same coordinate, placed from the defaults
+     * source, with the same value (a literal verbatim, a `@name` as that token's var()), and it must
+     * appear in the CSS the page actually prints (pp_udc_component_defaults_css / chrome defaults).
+     * The converse holds too: the defaults tier emits nothing the report does not name, so the
+     * report is neither a subset nor a superset of what renders.
+     */
+    public function testTheReportedDefaultsAreExactlyWhatTheEngineEmits(): void
+    {
+        $groups = \pp_udc_groups();
+        $states = \pp_udc_states();
+        $leaves = 0;
+        foreach ($this->shippedComponents() as $component) {
+            $report = \pp_component_schema_report($component);
+            if (!isset($report['roles'])) {
+                continue;
+            }
+            $emitted = [];
+            foreach (\pp_udc_compile_band(['component' => $component], 'defaults')['blocks'] as $block) {
+                foreach ($block['decls'] as $property => $declaration) {
+                    $emitted[$block['role']][$block['state']][$block['bp']][$property] = $declaration;
+                }
+            }
+            $css = \pp_udc_is_chrome($component)
+                ? \pp_udc_chrome_css($component, 'defaults')
+                : \pp_udc_component_defaults_css($component);
+
+            $reported = [];
+            foreach ($report['roles'] as $entry) {
+                foreach ($entry['defaults'] ?? [] as $group => $groupMap) {
+                    foreach ($groupMap as $key => $value) {
+                        $pairs = isset($states[$key]) ? $value : [$key => $value];
+                        $state = isset($states[$key]) ? $key : '';
+                        foreach ($pairs as $param => $paramValue) {
+                            $property = $groups[$group]['params'][$param]['property'];
+                            foreach (is_array($paramValue) ? $paramValue : ['d' => $paramValue] as $bp => $leaf) {
+                                $where = "{$component}.{$entry['role']} {$group}.{$param} [{$state}/{$bp}]";
+                                $reported[$entry['role']][$state][$bp][$property] = true;
+                                $this->assertArrayHasKey($property, $emitted[$entry['role']][$state][$bp] ?? [], "{$where}: reported but not emitted");
+                                $declaration = $emitted[$entry['role']][$state][$bp][$property];
+                                $this->assertSame('defaults', $declaration['source'], "{$where}: placed by the defaults source");
+                                $reference = \pp_udc_parse_reference((string) $leaf);
+                                if ($reference === null) {
+                                    $this->assertSame((string) $leaf, $declaration['css'], "{$where}: a literal emits verbatim");
+                                } else {
+                                    $this->assertStringContainsString('var(--' . $reference, $declaration['css'], "{$where}: a reference emits its token");
+                                }
+                                if ($bp === 'd' && $state === '') {
+                                    $this->assertStringContainsString($property . ':' . $declaration['css'] . ';', $css, "{$where}: in the printed defaults CSS");
+                                }
+                                $leaves++;
+                            }
+                        }
+                    }
+                }
+            }
+            foreach ($emitted as $role => $byState) {
+                foreach ($byState as $state => $byBp) {
+                    foreach ($byBp as $bp => $properties) {
+                        foreach (array_keys($properties) as $property) {
+                            $this->assertArrayHasKey($property, $reported[$role][$state][$bp] ?? [], "{$component}.{$role} [{$state}/{$bp}] {$property}: emitted but not reported");
+                        }
+                    }
+                }
+            }
+        }
+        $this->assertGreaterThan(500, $leaves, 'discovery is not vacuous (605 leaves at #1192)');
+    }
+
+    /**
+     * THROUGH THE SAME GATE AS THE REST OF THE ENTRY (#1192). A fixture component: a role with
+     * defaults reports them, a role with none or `{}` omits the key, and a role whose defaults the
+     * definition gate rejects is reported unreportable, WITHOUT its defaults, because this sink
+     * prints literal characters and a rejected definition is exactly the unvalidated case.
+     */
+    public function testAFixtureRoleReportsDefaultsOnlyWhenTheGatePassesThem(): void
+    {
+        $role = static fn (array $extra): array => ['selector' => '.w', 'groups' => ['typography', 'spacing'], 'description' => 'd'] + $extra;
+        $this->useFixtureTheme(['widget' => json_encode([
+            'component' => 'widget',
+            'description' => 'fixture',
+            'props' => [],
+            'roles' => [
+                'styled'   => $role(['defaults' => ['typography' => ['color' => '#111111', ':hover' => ['color' => '#222222']], 'spacing' => ['padding-top' => ['d' => '2rem', 'p' => '1rem']]]]),
+                'plain'    => $role([]),
+                'empty'    => $role(['defaults' => new \stdClass()]),
+                'bad-line' => $role(['defaults' => ['typography' => ['color' => "#111\xE2\x80\xA8111"]]]),
+                'bad-grp'  => $role(['defaults' => ['shadow' => ['box' => 'none']]]),
+                'bad-key'  => $role(['defaults' => ['typography' => ["color\xE2\x80\xAE" => '#111111']]]),
+                'hollow'   => $role(['defaults' => ['typography' => new \stdClass(), 'spacing' => [':hover' => new \stdClass()]]]),
+                'partial'  => $role(['defaults' => ['typography' => ['color' => '#111111', ':hover' => new \stdClass()], 'spacing' => new \stdClass()]]),
+            ],
+        ])]);
+        $report = \pp_component_schema_report('widget');
+        $this->assertIsArray($report);
+        $byRole = array_column($report['roles'], null, 'role');
+
+        $this->assertSame(
+            ['typography' => ['color' => '#111111', ':hover' => ['color' => '#222222']], 'spacing' => ['padding-top' => ['d' => '2rem', 'p' => '1rem']]],
+            $byRole['styled']['defaults'] ?? null
+        );
+        $this->assertArrayNotHasKey('unreportable', $byRole['styled']);
+        $this->assertArrayNotHasKey('defaults', $byRole['plain'], 'no defaults declared, no key');
+        $this->assertArrayNotHasKey('defaults', $byRole['empty'], 'an empty map is not reported as one');
+        $this->assertArrayNotHasKey('unreportable', $byRole['empty']);
+        // Empty group and state maps compile to nothing and would print as JSON lists, so they are left out.
+        $this->assertArrayNotHasKey('defaults', $byRole['hollow'], 'a map of empty maps is omitted');
+        $this->assertArrayNotHasKey('unreportable', $byRole['hollow'], 'premise: empty maps pass the gate');
+        $this->assertSame(['typography' => ['color' => '#111111']], $byRole['partial']['defaults'] ?? null);
+        $this->assertStringNotContainsString('[]', json_encode($byRole['partial']['defaults']), 'no list where the contract says map');
+
+        foreach ([
+            'bad-line' => 'parameter `color` must be a single-line string',
+            'bad-grp'  => 'group `shadow` is not one of this role\'s `groups`',
+            'bad-key'  => 'group `typography` has no parameter `(unreportable key)`',
+        ] as $name => $reason) {
+            $this->assertTrue($byRole[$name]['unreportable'] ?? false, "{$name} fails the gate");
+            $this->assertArrayNotHasKey('defaults', $byRole[$name], "{$name}: its defaults never reach the sink");
+            $this->assertStringContainsString($reason, implode(' | ', $byRole[$name]['unreportable_because']));
+        }
+        $encoded = json_encode($report, JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString("\xE2\x80\xA8", $encoded, 'the line separator reached no field of the report');
+        $this->assertStringNotContainsString("\xE2\x80\xAE", $encoded, 'a rejected key is not echoed through the reasons either');
+
+        // ONE GATE: the chat prompt's composers ask the same question, so a role whose defaults fail is left
+        // out there too, and a role whose defaults pass stays in.
+        $roles = \pp_udc_component_roles('widget');
+        $this->assertTrue(\_pp_udc_role_is_composable('widget', 'styled', $roles['styled']));
+        foreach (['bad-line', 'bad-grp', 'bad-key'] as $name) {
+            $this->assertFalse(\_pp_udc_role_is_composable('widget', $name, $roles[$name]), "{$name} is refused by the shared gate");
+        }
+    }
+
+    /** The definition gate's `defaults` shapes (#1192): what the engine compiles passes, the rest is named. */
+    public function testTheDefinitionGateAcceptsEveryShapeTheEngineCompiles(): void
+    {
+        $role = ['selector' => '.r', 'description' => 'd', 'groups' => ['typography', 'spacing']];
+        foreach ([
+            'empty map'           => [],
+            'scalar'              => ['typography' => ['color' => '#fff']],
+            'number'              => ['typography' => ['weight' => 700]],
+            'float'               => ['typography' => ['line-height' => 1.4]],
+            'breakpoint map'      => ['spacing' => ['padding-top' => ['d' => '2rem', 't' => '1rem', 'p' => '1rem']]],
+            'state map'           => ['typography' => [':hover' => ['color' => '#000']]],
+            'state + breakpoints' => ['typography' => [':focus-visible' => ['color' => ['d' => '#000', 'p' => '#111']]]],
+            'empty state'         => ['typography' => [':active' => []]],
+            'empty group'         => ['typography' => []],
+        ] as $case => $defaults) {
+            $this->assertSame([], \pp_schema_definition_errors($role + ['defaults' => $defaults], 'role', 'c role r'), $case);
+        }
+    }
+
+    /**
+     * @dataProvider malformedDefaultsProvider
+     */
+    public function testTheDefinitionGateNamesEveryMalformedDefault(array $defaults, string $message): void
+    {
+        $role = ['selector' => '.r', 'description' => 'd', 'groups' => ['typography', 'spacing', 'nope']];
+        $this->assertContains($message, \pp_schema_definition_errors($role + ['defaults' => $defaults], 'role', 'c role r'));
+    }
+
+    public static function malformedDefaultsProvider(): array
+    {
+        $p = 'c role r: `defaults` group ';
+        $shape = 'must be a single-line string or a number, or a breakpoint map of them.';
+        return [
+            'a list'                  => [[['typography']], 'c role r: `defaults` must be a MAP of groups, not a list.'],
+            'group not permitted'     => [['border' => ['width' => '1px']], $p . '`border` is not one of this role\'s `groups`.'],
+            'group scalar'            => [['typography' => 'bold'], $p . '`typography` must be a MAP of parameters.'],
+            'group a list'            => [['typography' => ['#fff']], $p . '`typography` must be a MAP of parameters.'],
+            'unknown group'           => [['nope' => ['x' => 'y']], $p . '`nope` is not a UDC group.'],
+            'unknown parameter'       => [['typography' => ['colour' => '#fff']], $p . '`typography` has no parameter `colour`.'],
+            'unknown state'           => [['typography' => [':visited' => ['color' => '#fff']]], $p . '`typography` has no parameter `:visited`.'],
+            'state not a map'         => [['typography' => [':hover' => '#fff']], $p . '`typography` state `:hover` must be a MAP of parameters.'],
+            'state a list'            => [['typography' => [':hover' => ['#fff']]], $p . '`typography` state `:hover` must be a MAP of parameters.'],
+            'state unknown parameter' => [['typography' => [':hover' => ['colour' => '#fff']]], $p . '`typography` state `:hover` has no parameter `colour`.'],
+            'nested state'            => [['typography' => [':hover' => [':active' => ['color' => '#fff']]]], $p . '`typography` state `:hover` has no parameter `:active`.'],
+            'state bad leaf'          => [['typography' => [':hover' => ['color' => "a\nb"]]], $p . '`typography` state `:hover` parameter `color` ' . $shape],
+            'newline'                 => [['typography' => ['color' => "a\nb"]], $p . '`typography` parameter `color` ' . $shape],
+            'line separator'          => [['typography' => ['color' => "a\xE2\x80\xA8b"]], $p . '`typography` parameter `color` ' . $shape],
+            'boolean'                 => [['typography' => ['weight' => true]], $p . '`typography` parameter `weight` ' . $shape],
+            'empty string'            => [['typography' => ['color' => '']], $p . '`typography` parameter `color` ' . $shape],
+            'infinite'                => [['typography' => ['weight' => INF]], $p . '`typography` parameter `weight` ' . $shape],
+            'empty breakpoint map'    => [['spacing' => ['padding-top' => []]], $p . '`spacing` parameter `padding-top` ' . $shape],
+            'unknown breakpoint'      => [['spacing' => ['padding-top' => ['xl' => '2rem']]], $p . '`spacing` parameter `padding-top` ' . $shape],
+            'nested breakpoint'       => [['spacing' => ['padding-top' => ['d' => ['p' => '1rem']]]], $p . '`spacing` parameter `padding-top` ' . $shape],
+            'odd group name'          => [["typo\xE2\x80\xAEgraphy" => ['color' => '#fff']], $p . '`(unreportable key)` is not one of this role\'s `groups`.'],
+            'odd state name'          => [['typography' => [":hover\xE2\x80\xAE" => ['color' => '#fff']]], $p . '`typography` has no parameter `(unreportable key)`.'],
+            'odd state parameter'     => [['typography' => [':hover' => ["color\n" => '#fff']]], $p . '`typography` state `:hover` has no parameter `(unreportable key)`.'],
+            'over-long plain key'     => [['typography' => [str_repeat('a', 65) => '#fff']], $p . '`typography` has no parameter `(unreportable key)`.'],
+            'longest plain key named' => [['typography' => [str_repeat('a', 64) => '#fff']], $p . '`typography` has no parameter `' . str_repeat('a', 64) . '`.'],
+        ];
+    }
+
     // ── applies_when: one vocabulary, all-or-nothing ─────────────────────────
 
     public function testAppliesWhenRenderedUsesTheRuntimeCatalogVocabulary(): void
@@ -1121,6 +1376,19 @@ class CliSchemaCommandTest extends TestCase
         $decoded = json_decode(WP_CLI::$lines[0], true);
         $this->assertSame(JSON_ERROR_NONE, json_last_error(), 'stdout is valid JSON');
         $this->assertSame(pp_component_schema_report('hero'), $decoded);
+    }
+
+    /** #1192: a component whose defaults carry state maps (nav) survives the real sink, the state map as an object. */
+    public function testNamedCommandRoundTripsRoleDefaultsWithStateMaps(): void
+    {
+        (new PP_Schema_Command())->__invoke(['nav'], []);
+
+        $this->assertCount(1, WP_CLI::$lines);
+        $decoded = json_decode(WP_CLI::$lines[0], true);
+        $this->assertSame(JSON_ERROR_NONE, json_last_error(), 'stdout is valid JSON');
+        $this->assertSame(pp_component_schema_report('nav'), $decoded);
+        $this->assertMatchesRegularExpression('/":hover":\s*\{/', WP_CLI::$lines[0], 'a state map prints as an object, never a list');
+        $this->assertDoesNotMatchRegularExpression('/":hover":\s*\[/', WP_CLI::$lines[0]);
     }
 
     public function testAnEmptyPositionalIsJudgedByTheBuilderNotCollapsedToTheIndex(): void

@@ -180,8 +180,8 @@ page: the first version of the example set `text`, and the rendered `<p>` measur
 `rgb(45, 54, 72)` on `rgb(15, 23, 42)`, about 1.4:1 and unreadable, while every other
 write on the band landed. **The general rule: when a value does not seem to apply, check
 whether the role you targeted merely contains the element, and whether the role that owns
-it ships a default for that parameter.** `wp pp schema <component>` prints both the
-selector and the defaults.
+it ships a default for that parameter.** `wp pp schema <component>` prints both: each
+role's `selector` and its `defaults`.
 
 `@color-bg` as INK on an inverted band is deliberate, not a typo: it is the semantic
 opposite of `@color-bg-inverted`, so the pair stays correct through a retheme.
