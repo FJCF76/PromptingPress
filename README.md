@@ -4,7 +4,7 @@
 
 ### WordPress pages that AI agents can understand — and fast sites that skip the builder bloat.
 
-**A lightweight composition layer for WordPress. Pages are typed components + structured JSON. Design lives in tokens. The frontend ships ~97 KB of CSS and 3.6 KB of vanilla JS — no framework, no bundler, no builder runtime. AI can inspect, edit, and maintain pages through predictable interfaces instead of reverse-engineering theme clutter.**
+**A lightweight composition layer for WordPress. Pages are typed components + structured JSON. Design lives in tokens. The frontend ships about 235 KB of CSS (≈72 KB gzipped) and 10 KB of vanilla JS (≈4 KB gzipped) — no framework, no bundler, no builder runtime. AI can inspect, edit, and maintain pages through predictable interfaces instead of reverse-engineering theme clutter.**
 
 ---
 
@@ -55,7 +55,7 @@ PromptingPress goes the other direction:
 | 🧠 **AI readability** | AI reads the codebase and guesses what's editable | AI reads `AI_CONTEXT.md` + component schemas and knows exactly what's editable and how |
 | 🧩 **Page structure** | Layout scattered across blocks, builders, shortcodes, and theme options | Page layout is one JSON array in post meta — inspectable, diffable, version-controllable |
 | 🛡️ **Edit safety** | Changes via file edits, block editor, or plugin-specific APIs | Every change goes through one typed action layer — validate, preview, execute, rollback |
-| 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~97 KB CSS + 3.6 KB vanilla JS. No framework. No bundler. No builder runtime. |
+| 🪶 **Frontend weight** | Builder runtime, serialized markup, framework dependencies | ~235 KB CSS (≈72 KB gzipped) + 10 KB vanilla JS. No framework. No bundler. No builder runtime. |
 | 🎨 **Design control** | Colors and spacing set through visual overrides or inline CSS | Design tokens in one CSS file; site overrides in the database, survive theme updates |
 | 📄 **Component contracts** | Ad hoc theme files, no contracts on what a component accepts | Every component has `schema.json` with typed props, required fields, and validation |
 
@@ -154,7 +154,7 @@ flowchart TD
     subgraph Render["⚡ Output"]
         Templates["Templates\npp_* wrappers only"]
         Components["Component partials\nisolated PHP · CSS variables only"]
-        Frontend["WordPress frontend\n~97 KB CSS · 3.6 KB JS · zero frameworks"]
+        Frontend["WordPress frontend\n~235 KB CSS · 10 KB JS · zero frameworks"]
     end
 
     CLI --> Action
@@ -233,7 +233,10 @@ Components are plain PHP partials that render semantic HTML with CSS custom prop
 | `base.css` | 28 KB | Design tokens — CSS custom properties |
 | `components.css` | 181 KB | All 12 component styles, CSS variables only |
 | `utilities.css` | 3 KB | Layout helpers |
+| generated per page | 12–26 KB | Your token overrides, the header and footer defaults, and the CSS for the components and styling on that page, printed inline in `<head>` — it grows with what the page uses and what you author |
 | `main.js` | 10 KB | Hamburger nav toggle (disclosure panel + close-icon swap), dropdown-submenu disclosure BEHAVIOUR (the button itself is server-rendered), and sticky-header height measurement — one IIFE, zero dependencies |
+
+Measured on the reconstructed promptingpress.com (2.0.0, 2026-09-27): about 235 KB of CSS per page (≈72 KB gzipped). Sizes are file bytes in KiB; what a visitor actually downloads depends on whether your server compresses CSS.
 
 No build step. No transpilation. No bundler. What you write is what ships.
 
@@ -494,7 +497,7 @@ does not go stale between releases.
 - WP-CLI interface for all operations
 - Thousands of automated tests across PHP, JS, and E2E, enforced by CI on every push and release
 - Theme integrity enforcement — a build manifest of file hashes detects local drift; a daily check keeps the warning current, and a theme update is blocked before it can overwrite or delete modified files (override with the `pp_allow_unsafe_theme_update` filter). See [docs/upgrade-safety.md](docs/upgrade-safety.md)
-- ~97 KB frontend CSS, 3.6 KB JS — no framework, no bundler
+- ~235 KB frontend CSS (≈72 KB gzipped), 10 KB JS — no framework, no bundler
 
 See [open issues](https://github.com/FJCF76/PromptingPress/issues) for planned work.
 
