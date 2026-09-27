@@ -158,10 +158,11 @@ function pp_template_owned_component_message(string $name): string {
  * ENFORCEMENT REACH, and this paragraph was made stale by #1087 — it used to say nothing
  * called this validator on a live request, which was true until the obligation composers
  * began delegating to it. It now runs on the CHAT PATH: `_pp_udc_role_is_composable()` calls
- * it once per role per model-facing composer, measured at 153 invocations per
- * pp_ai_system_prompt() build. The unit cost is 0.0006ms, so today that is ~0.1ms of a
- * ~1.0ms build — but the MULTIPLIER is what matters to the next person here: any bounded-
- * string or regex check added to this function is priced 153x per chat turn. The closed set
+ * it once per role per model-facing composer, measured at 286 invocations per
+ * pp_ai_system_prompt() build (twice per role, 143 roles, at #1192). Since #1192 walks every
+ * role's `defaults` map here, the unit cost is ~0.0047ms, so a build spends ~1.3ms of ~1.8ms
+ * in it (measured) — but the MULTIPLIER is what matters to the next person here: any bounded-
+ * string or regex check added to this function is priced twice per role per chat turn. The closed set
  * is still a repo-CI invariant for the SHIPPED schemas (SchemaValidationTest walks all
  * twelve); what changed is that a hand-edited schema on a live install now meets it too,
  * which is the point of the delegation. That is sufficient today because components are discovered
@@ -323,6 +324,27 @@ const PP_ROLE_NAME_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
  */
 function pp_udc_is_single_line(string $value): bool {
     return !preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value);
+}
+
+/**
+ * Is `$value` the SHAPE of one role-default parameter value? (#1144, shared with #1192)
+ *
+ * The leaf check for both `overlay_defaults` and `defaults` in a role definition, the two maps
+ * `wp pp schema` prints whole through its raw-unicode sink: a non-empty single-line string, an
+ * int, a finite float, or a breakpoint map (keys from pp_udc_breakpoints(), at least one) of those.
+ *
+ * A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a checker
+ * stricter than the compiler would report a role the engine renders as unreportable. A boolean is
+ * not a number here. SHAPE ONLY: each parameter's grammar is not checked.
+ */
+function _pp_role_default_value_shape_ok($value): bool {
+    $leaves   = is_array($value) ? $value : [$value];
+    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
+    foreach ($leaves as $leaf) {
+        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
+            || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
+    }
+    return $shape_ok;
 }
 
 /**
@@ -650,6 +672,7 @@ function pp_applies_when_clause_met($clause, array $props, array $prop_defs, arr
  *                                                    ├─ conditionality_note → bounded string
  *                                                    ├─ values → bounded catalog strings (#630)
  *                                                    ├─ role → pp_slot_roles()       (slots only)
+ *                                                    ├─ defaults / overlay_defaults → shape-checked maps (roles only)
  *                                                    └─ obligations → bounded records  (roles only)
  *
  * The `aliases` leg that hung off the prop surface is GONE (#606). It declared legacy
@@ -835,6 +858,63 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
             && (!is_array($definition['defaults'])
                 || ($definition['defaults'] !== [] && pp_is_list($definition['defaults'])))) {
             $errors[] = "{$label}: `defaults` must be a MAP of groups, not a list.";
+        } elseif (isset($definition['defaults'])) {
+            // THE DEFAULTS ARE PRINTED WHOLE BY `wp pp schema` (#1192), through the raw-unicode sink, so they
+            // get the standard `overlay_defaults` got at #1144: every key a group of this role / a parameter
+            // of that group / a state, every value a single-line string or a number or a breakpoint map of
+            // them. Without it the role gate approved any bytes under `defaults`, and the report would print
+            // them. SHAPE ONLY, like the overlay check: a value of the right shape its parameter's grammar
+            // refuses is not caught here (shipped values are grammar-checked by UdcEngineTest's schema walk).
+            // Mirrors how pp_udc_compile_band() reads the map (lib/udc.php): a state key holds a map of the
+            // group's parameters, whose values may themselves be breakpoint maps; states do not nest.
+            // `_preset` and `_css` are refused here as keys that are not groups, although the engine would compile
+            // them: that is the rule CI's schema walk (UdcEngineTest) already applies to every shipped `defaults`, and a
+            // defaults-named preset is inert by ruling (#1018). A third-party role using either is reported unreportable.
+            // A REJECTED KEY IS NAMED ONLY WHEN IT IS A PLAIN NAME: these messages reach `wp pp schema`'s raw-unicode
+            // sink through `unreportable_because`, so a key carrying any other byte is shown as a placeholder.
+            $name = static fn (string $key): string => preg_match('/^:?[A-Za-z0-9_-]{1,64}\z/', $key) ? $key : '(unreportable key)';
+            $groups = is_array($definition['groups'] ?? null) ? $definition['groups'] : [];
+            foreach ($definition['defaults'] as $group => $group_map) {
+                $group = $name((string) $group);
+                if (!in_array($group, $groups, true)) {
+                    $errors[] = "{$label}: `defaults` group `{$group}` is not one of this role's `groups`.";
+                    continue;
+                }
+                if (!is_array($group_map) || ($group_map !== [] && pp_is_list($group_map))) {
+                    $errors[] = "{$label}: `defaults` group `{$group}` must be a MAP of parameters.";
+                    continue;
+                }
+                $group_params = pp_udc_groups()[$group]['params'] ?? null;
+                if (!is_array($group_params)) {
+                    $errors[] = "{$label}: `defaults` group `{$group}` is not a UDC group.";
+                    continue;
+                }
+                foreach ($group_map as $key => $value) {
+                    $key = $name((string) $key);
+                    if (isset(pp_udc_states()[$key])) {
+                        if (!is_array($value) || ($value !== [] && pp_is_list($value))) {
+                            $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` must be a MAP of parameters.";
+                            continue;
+                        }
+                        foreach ($value as $state_key => $state_value) {
+                            $state_key = $name((string) $state_key);
+                            if (!isset($group_params[$state_key])) {
+                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` has no parameter `{$state_key}`.";
+                            } elseif (!_pp_role_default_value_shape_ok($state_value)) {
+                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` parameter `{$state_key}` must be a single-line string or a number, or a breakpoint map of them.";
+                            }
+                        }
+                        continue;
+                    }
+                    if (!isset($group_params[$key])) {
+                        $errors[] = "{$label}: `defaults` group `{$group}` has no parameter `{$key}`.";
+                        continue;
+                    }
+                    if (!_pp_role_default_value_shape_ok($value)) {
+                        $errors[] = "{$label}: `defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                    }
+                }
+            }
         }
         if (array_key_exists('overlay_defaults', $definition)
             && (!is_array($definition['overlay_defaults'])
@@ -881,19 +961,11 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
                     // under the theme root, so what else they carry rests on theme-root integrity, not on this check
                     // (PR-2 review cycle 2, security; option b).
-                    $leaves   = is_array($value) ? $value : [$value];
-                    $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
-                    foreach ($leaves as $leaf) {
-                        // A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a
-                        // checker stricter than the compiler would report a role the engine renders as unreportable.
-                        // SHAPE ONLY: this checks a leaf's shape (single-line string, finite number, not a boolean),
-                        // not each parameter's grammar. A value of the right shape the parameter refuses is dropped
-                        // when the overlay tier compiles, and that path keeps no ledger, so the drop is silent: check
-                        // overlay values against the group grammar yourself (follow-up filed; final scoped red team).
-                        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
-                            || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
-                    }
-                    if (!$shape_ok) {
+                    // SHAPE ONLY (see _pp_role_default_value_shape_ok()): a value of the right shape the parameter
+                    // refuses is dropped when the overlay tier compiles, and that path keeps no ledger, so the drop
+                    // is silent: check overlay values against the group grammar yourself (follow-up filed; final
+                    // scoped red team).
+                    if (!_pp_role_default_value_shape_ok($value)) {
                         $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
                     }
                 }
