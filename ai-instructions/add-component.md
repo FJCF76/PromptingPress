@@ -349,8 +349,8 @@ precisely so the machine-readable grammar never has to grow to swallow them:
   dimension and a state dimension and no page-context dimension.
 - **Disjunction** — a slot applying on dark bands only, i.e. `theme: inverted` **or**
   `background_image` present. *Historical:* the v2 rebuilds retired both props from
-  every component that had them, and `grid` — the only component with style slots
-  left — never declared `background_image`, so nothing declares this today. The
+  every component that had them, and `grid`, the last component with style slots before
+  #1101, never declared `background_image`, so nothing declares this today. The
   grammar rule stands: if a disjunction returns, it returns as prose.
 - **Interaction state** — a question's open state. *Historical for the same reason:*
   faq became a v2 component at #1046 and has no style slots at all now.

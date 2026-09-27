@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '2.0.0-alpha.2');
+define('PP_VERSION', '2.0.0');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';
@@ -187,13 +187,16 @@ add_action('wp_enqueue_scripts', function () {
     // no render pass to collect from. It resolves the page exactly the way the
     // templates do — see pp_udc_current_composition().
     //
-    // THE DEFAULTS TIER ALSO COVERS WHAT A TEMPLATE RENDERS ITSELF (#1171). The
-    // posts page, a single post, archives, search, the 404 and a page on the default
-    // template render no composition (a default-template page may still STORE one,
-    // whose CSS then paints nothing), so the composition alone left their components
-    // with no defaults and they rendered as bare markup. Each of those templates
-    // declares its components through pp_base_template(), which records them before
-    // wp_head(); pp_udc_request_defaults_items() appends them after the composition's.
+    // THE DEFAULTS TIER ALSO COVERS WHAT A TEMPLATE RENDERS ITSELF (#1171). A single
+    // post, archives, search, the 404 and a page on the default template render no
+    // composition (a default-template page may still STORE one, whose CSS then paints
+    // nothing), so the composition alone left their components with no defaults and they
+    // rendered as bare markup. Each of those templates declares its components through
+    // pp_base_template(), which records them before wp_head();
+    // pp_udc_request_defaults_items() appends them after the composition's. The posts
+    // page is the one template with both branches (#1181): it renders its stored
+    // composition when the visitor may see it (and declares nothing), and otherwise
+    // templates/home.php's fallback declares ['hero', 'grid', 'section'].
     // The AUTHORED tier stays composition-only: a template band has no band id.
     // Known gap outside this: a "latest posts" FRONT page renders through
     // front-page.php while this resolver answers [] for it (#1173).
@@ -214,10 +217,12 @@ add_action('wp_enqueue_scripts', function () {
     //
     // NOT GATED ON THE COMPOSITION, and that is the difference that matters. The
     // band layers above are driven by pp_udc_current_composition(), which returns
-    // [] for anything that is not a singular page with a readable composition —
-    // 404, search, archives, a corrupt row, the no-front-page arm (on the template
-    // routes among those, only what the template DECLARES reaches the defaults tier,
-    // and a corrupt row or the no-front-page arm declares nothing). Chrome renders
+    // [] for anything that is not a singular page (or the posts page, #1181) with a
+    // readable composition — 404, search, archives, a corrupt row, the no-front-page
+    // arm (on the template routes among those, only what the template DECLARES reaches
+    // the defaults tier; the front page's corrupt and no-front-page arms declare
+    // nothing, while a corrupt posts-page row falls back to home.php, which declares
+    // its literal bands). Chrome renders
     // on ALL of those, so gating its CSS the same way would leave a styled site
     // with a stock-coloured header on exactly the pages a visitor reaches when
     // something has already gone wrong.

@@ -39,7 +39,8 @@ components: `section`, `cta`, `stats`, `grid` all behave identically.
 ## Prerequisites
 
 - WP-CLI with the theme's commands available (`wp pp --help` responds).
-- The page id. `wp pp operate inspect --post_id=<id>` lists the bands.
+- The page id. `wp pp operate inspect` lists the composition pages with their ids
+  (`wp post list --post_type=page` lists every page).
 - **A run id**, which every write needs. Get one from `wp pp operate inspect`, copy the
   `run_id`, and keep it in a shell variable — it is valid for two hours:
 
@@ -56,11 +57,12 @@ components: `section`, `cta`, `stats`, `grid` all behave identically.
 wp pp check page --post_id=42
 ```
 
-Every stored key is reported as an `invalid_style_slot` finding, one per band, naming the
-first offending key. To see the whole map rather than the first key, read the band:
+A stored map is reported as one `invalid_style_slot` finding per band, naming its first
+offending key. To see the whole map rather than the first key, read the stored
+composition itself (`wp pp operate inspect` and `inspect-composition` do not print `style`):
 
 ```bash
-wp pp operate inspect --post_id=42
+wp post meta get 42 _pp_composition
 ```
 
 Look for a `style` object on the band. Write down **every key in it.** You need all of them,
@@ -127,15 +129,21 @@ wp pp action execute update_composition --run-id=$RUN --params='{
 }'
 ```
 
-This replaces the entire composition, so include every band on the page, and copy each one's
-props exactly as `inspect` reported them. That is the cost of the route that cannot go wrong.
+This replaces the entire composition, so send every band on the page exactly as
+`wp post meta get 42 _pp_composition` stores it (every key it stores: `component`, `id`, `props` and
+any `udc`), with
+two changes: drop the band's `style` key, and drop any prop the component no longer declares
+(`wp pp schema <component>` lists the props it takes). An undeclared prop is refused one at
+a time (#1124): `retired_prop` (with its v2 route) for a styling prop a rebuild retired,
+`unknown_prop` for any other. Leaving out another band's `udc` erases that band's design.
+That is the cost of the route that cannot go wrong.
 
 ## Verification
 
 The `style` key should be gone entirely, not left as an empty object:
 
 ```bash
-wp pp operate inspect --post_id=42
+wp post meta get 42 _pp_composition
 ```
 
 And the edit that was refused should now go through:

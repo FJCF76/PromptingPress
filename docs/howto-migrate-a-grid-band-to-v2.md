@@ -205,10 +205,11 @@ codes:
 2. **Send every entry you want to keep.** The array is replaced, not merged.
 3. **The `id` is the engine's.** It is minted on write, shaped `it-<hex8>`, only for entries
    that carry a map. Never author one.
-4. **Re-send the ids when you reorder or delete.** Read them back first:
+4. **Re-send the ids when you reorder or delete.** Read them back first, from the stored
+   composition (each entry's `id`):
 
    ```
-   wp pp operate inspect --post_id=42
+   wp post meta get 42 _pp_composition
    ```
 
    Without them the engine carries each design by POSITION, which is right if you did not

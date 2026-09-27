@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 2.0.0-alpha.2
+Stable tag: 2.0.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 2.0.0 =
+* v2, the first stable release of the rebuilt styling model: one design contract (roles, style groups, design-token references, per-width maps and states) styles all ten components, the header and the footer, down to a single grid card, and replaces the whole 1.x styling system. There is no migration from 1.x: stored v1 style maps are ignored and must be cleared, then the design re-authored (see the migration how-tos in docs/)
+* Verified by rebuilding promptingpress.com on it from its stored 1.20.0 values: every recorded value carried over exactly except the hero-proof styling production had always dropped, which now renders as authored, and the pages measure computed-style equal to production at three viewports, with each divergence named in issue #1170
 
 = 1.7.0 =
 * Actions/integrity hardening: snapshot rollback distinguishes absent from explicit-empty site options; the media-URL gate is schema-driven with a fail-closed floor; publish/trash/slug/SEO actions reject auto-draft phantoms (first-save promotion intact) and GC'd editor URLs redirect; the length validator rejects malformed number/paren/comma shapes with documented residuals

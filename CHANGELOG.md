@@ -4,11 +4,100 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 3] — v2 Sprint 3 "trust & authoring reach", building toward 2.0.0 (#1127, #1167, #1171, #1028, #1181)
+## [v2.0.0] — 2026-09-27 — v2 goes stable. Sprint 3 "trust & authoring reach": writes stop undoing each other, the findings say what will not paint, the blog page becomes a composition, every template page is styled, marker colour returns, and the brand site is rebuilt on v2 as the acceptance test (#1127, #1145, #1167, #1170, #1172; #909, #1094, #1088, #1115, #1116, #1117, #1010, #1060, #1125, #1073, #1141, #1142, #1144, #1111, #1108, #1171, #1028, #1181)
 
-The five version files stay at `2.0.0-alpha.2` until the sprint close; each Sprint-3 PR adds its section here.
+**This is the first stable release of v2, and the one the reference site is rebuilt on.** v2
+replaces the whole 1.x styling system with one design contract: every component, the header and the
+footer are styled through named roles, style groups, `@token` references, per-width maps and states,
+down to a single card in a `grid`. The alpha entries below (`2.0.0-alpha.0` to `alpha.2`) record how
+it was built. This entry records Sprint 3, which made the write path trustworthy enough to run a real
+site on, and then proved it: promptingpress.com was rebuilt on v2 from its stored 1.20.0 values. Of
+1,005 recorded values and content props, 995 carried over exactly, and the pages measure computed-style
+equal to production at 375, 768 and 1280, with every divergence named (#1170). The ten that did not are
+the one deliberate difference: hero-proof styling that production's content filter had always dropped
+now renders as authored.
 
-## Your blog page is a composition you can author (#1181)
+### What changes for you
+
+**Edits stop undoing each other.** `wp pp action execute` honours the `expected_version` you send, so
+a styling write built from an older read is refused instead of putting the old title back, and
+`update_component` takes a `udc` param, so one band can be restyled without resending the page.
+
+**The findings say what will not paint.** A light role surface left under the ink you set, accent
+words that lose their scrim, an overlay with no image, a preset value a card's own default overrides:
+each is now named on the write, in `wp pp check page` and in `wp pp validate site`. A raw `_css`
+`background` wins what it resets, and the page, the overlay marker and the findings agree.
+
+**Your blog page is a page you design, and every template page is styled.** The posts page renders
+the composition stored on it, with the post listing as a band you place. The pages the theme builds
+itself (single posts, archives, search, the 404) paint the v2 look instead of bare markup.
+
+**A separator or list marker can take its own colour again**, through the `marker` group.
+
+### ⚠️ What breaks, stated plainly
+
+- **From 1.x there is no upgrade path, only a rebuild.** Nothing rewrites stored v1 data. A 1.x page
+  still renders, but its stored v1 `style` maps are ignored (its bands paint with role defaults) and
+  each such band refuses edits until its map is cleared. See the alpha.2 entry and
+  `docs/howto-clear-a-stored-v1-style-map.md`, then the per-component migration how-tos.
+- `pp_theme_class()` is removed; PHP outside the theme that calls it fatals (#1111).
+- A raw `_css` `background` cancels the group's `background.*` values at its state and width (#1141).
+- A posts page that already stores a composition renders it; one without a listing band shows no
+  posts (#1181).
+- `update_component` no longer requires `props`; a call with none of `props`, `udc` or `style` is
+  refused with `missing_component_update` (#1088).
+- `wp pp validate site` exits non-zero on advisories, and this release adds several, so a page that
+  validated clean on an alpha can now report findings.
+- Token names shaped like the engine's marker mints (`<name>-marker-color[-<state>]-d|t|p`) are now
+  reserved; a stored band token with such a name is refused on its next write (#1179). `wp db search
+  'marker-color-' --all-tables` finds candidates before you upgrade.
+- After rolling back to an alpha, any write that touches a band using `items_source` or the
+  `marker` group is refused (`unknown_prop`, or "UDC group marker, which does not exist"), and the
+  posts page falls back to its fixed layout: remove those first.
+- On a hero, cta, faq or stats band with an image under an overlay, accent words you did not colour
+  now paint the on-overlay accent instead of the bare accent (#1010); set the role's
+  `typography.color` to keep the old ink. Section, grid and testimonials do not re-light (#1139).
+
+### Known issues (rolled up)
+
+Each section below lists the known issues its change filed. The ones a site owner is most likely to
+meet:
+
+- Single posts, archives, search and the 404 take the theme's default v2 look and cannot be restyled
+  per band (#1175). A "Your latest posts" front page renders unstyled (#1173).
+- Rich content is sanitized by WordPress core at render, silently: inline `style` values core's filter
+  does not know (`rgba()` colours, and `transform` on WordPress 7.0) are dropped with no finding. The Layer 3 contract (#1167) is
+  written; its implementation comes after 2.0.0.
+- Layer 2 `_css` does not yet refuse string values of text-bearing properties the way it refuses
+  `content` (#1168).
+- An edit to one band can rewrite engine-owned item ids on other bands (#1119), and a length-changing
+  `items` patch without ids drops surviving card designs (#1118).
+- A stored array where a band's `title` or `image_url` should be a string breaks the in-admin
+  assistant's page summary (#1163; this existed before).
+- The chat's ~92 KB system prompt is re-sent uncached on every turn (#1089).
+- Some AI-instruction and reference text still describes v1 style slots as a working route (#1109);
+  the engine refuses them, so an agent that follows that text gets a refusal, not a wrong write.
+- A band old enough to store a v1 style map may also store props its component no longer declares;
+  `check page` reports only the style map, and each such prop is refused on its own (#1124).
+- `marker.color` on a `disc` list is accepted and paints nothing (#1177); on a darkened listing band the
+  page links keep the default text colour (#1182); the editor preview shows the listing band empty (#1183).
+- Section, grid and testimonials accents do not re-light over a scrim (#1139), and cta's secondary
+  button keeps the bare accent there (#1138).
+
+### For contributors
+
+- `.githooks/commit-msg` rejects AI-attribution trailers in commit messages. Turn it on once per clone
+  with `git config core.hooksPath .githooks` (see `CLAUDE.md`). Neither file ships in the theme zip.
+- `pp_base_template($content, $components)` takes the list of components a template renders by
+  name. A template that omits it renders them unstyled, and a replacement `pp_base_template()` must
+  call `pp_udc_declare_template_components()` before `wp_head()` (#1171).
+- `docs/v2/BUILD-SPEC-sprint0.md` records the 2026-09-24 Sprint-3 ruling in §7: #909 is in Sprint 3,
+  and Layer 3 is contract review only, with implementation after 2.0.0. Since #1167 it also points to
+  `docs/v2/LAYER-3-CONTRACT.md`.
+
+### Itemized changes
+
+### Your blog page is a composition you can author (#1181)
 
 **The page chosen as the posts page now renders the composition stored on it.** Before, the
 theme always painted a fixed "Blog" hero and a grid of posts there, and nothing you stored on
@@ -30,7 +119,7 @@ before, page 2 included. A visitor who may not see the posts page (draft, pendin
 password-protected without the password) also gets that same default page, so the page's
 composition never reaches a visitor who cannot read the page itself.
 
-### Added
+#### Added
 - `grid.items_source: "posts"`, the posts-page listing band. It is accepted only on the posts
   page and at most once per page, with `items: []`. `update_composition`, `update_component`
   (for the band being edited only) and `add_component` refuse it on any other page, and
@@ -43,11 +132,11 @@ composition never reaches a visitor who cannot read the page itself.
 - The editor offers "(not set)" for an optional choice with no default, so editing any grid
   never writes `items_source` onto it.
 - The in-admin assistant's page list marks the posts page, and one line tells it the listing
-  band's rules. The prompt budget moves to the measured 92,502 bytes.
+  band's rules. The prompt budget moves from 92,200 to the measured 92,502 bytes.
 
-### Changed
-- `validate site`, the assistant's page list and the preset reference check now include the
-  posts page whatever its template, since it renders a composition.
+#### Changed
+- `validate site`, `operate inspect`'s page list, the assistant's page list and the preset
+  reference check now include the posts page whatever its template, since it renders a composition.
 - While the posts page's bands render, the posts page is the current post (a band's shortcodes
   see the page, not a blog post). Afterwards the post state is the one `/blog/` has always left,
   and the page is set up only when it is not already current, so plugins watching `the_post`
@@ -55,7 +144,7 @@ composition never reaches a visitor who cannot read the page itself.
 - `composition.php`, `front-page.php` and the posts page share one band loop. Their output is
   byte-for-byte unchanged.
 
-### ⚠️ Upgrading
+#### ⚠️ Upgrading
 - **If your posts page already stores a composition**, `/blog/` renders it after the upgrade.
   If that composition has no listing band, the page shows no posts, and `check page` reports
   `posts_page_without_listing`. Add a grid band with `"items_source": "posts"` and
@@ -65,18 +154,22 @@ composition never reaches a visitor who cannot read the page itself.
   judges the listing band (`unknown_prop`), and the posts page falls back to its fixed hero and
   grid. Remove the listing band before rolling back.
 
-### Known issues
+#### Known issues
 - The editor's live preview shows the listing band as empty, because the preview has no post
   listing to draw from (#1183).
 - On a darkened listing band the page links keep the default text colour, and no role reaches
   them yet (#1182).
+- A static front page made outside the theme's Add New flow (no Composition template) is still
+  invisible to `validate site`, the assistant's page list and the preset reference check, although
+  it renders its composition (#1184; this existed before).
 
-### Docs
+#### Docs
 - The grid README, `ai-instructions/composition.md`, `website-building.md`, `bootstrap.md` and
   `validate-site.md` (with finding-catalogue rows for the three new codes), `AI_CONTEXT.md` and
-  the two apply/rollback references describe the posts page and its listing band.
+  the two apply/rollback references describe the posts page and its listing band;
+  `docs/AI_IMPLEMENTATION_RECIPES.md` names the page-aware findings source.
 
-### Tests
+#### Tests
 - `tests/PostsPageCompositionTest.php`: the resolver and the head emitter, visibility and
   password fallback, search exclusion, the listing band through the authored card path, loop
   state, pagination, every write gate and refusal message, drift findings through restore,
@@ -87,7 +180,7 @@ composition never reaches a visitor who cannot read the page itself.
   the refusal on another page, and a logged-out visitor on a public and on a private posts page.
 - Editor tests for the "(not set)" option and its serialization.
 
-## A separator or list marker can take its own colour again (#1028)
+### A separator or list marker can take its own colour again (#1028)
 
 **You can colour a list marker or the dot between trust-strip items without recolouring the
 text beside it.** v1 had four slots for this: the separator between trust-strip items, the
@@ -119,14 +212,14 @@ the accent. A list left on the default `disc` marker is the browser's own marker
 `arrow` first. The starter homepage sets its trust-strip separators and grid checks back to
 their original `#FF5C2E`.
 
-### Added
+#### Added
 - `marker` style group (`color`) on section `inline-items`, `body`, `panel-list` and grid
   `card-bullets` (band and single-card grain).
 - The in-admin assistant is told that a `disc` list ignores `marker.color`, and that it is the
   MOTION values that are case-sensitive (layout, alignment, border-style and colour keywords are
   accepted in any case; the old "exactly as everywhere else" was not true).
 
-### Changed
+#### Changed
 - The starter homepage's two trust strips and its grid band author their marker colour
   (`#FF5C2E`), the value they had in v1.
 - Schema descriptions, component READMEs, the section and grid migration how-tos and the AI
@@ -135,17 +228,24 @@ their original `#FF5C2E`.
   and logos texts that said `opacity` is in "none of the seven UDC groups" (already one short)
   now say "none of the UDC groups".
 
-### Upgrading and rollback
+#### Upgrading and rollback
 - No stored data changes. Stored v1 slot values stay retired (v2 has no backward
-  compatibility), so re-author them as `marker.color` on the role that holds the glyph.
+  compatibility), so re-author them as `marker.color` on the role that holds the glyph. A band
+  token named like `x-marker-color-d` is now refused (#1179): rename it before upgrading.
 - A theme version without the `marker` group refuses any write to a band that carries it
   ("UDC group marker, which does not exist"). Remove the `marker` entries before rolling back.
 
-### Known issues
+#### Known issues
 - A `marker.color` written on a `disc` list is accepted and paints nothing. The write does
   not yet say so (#1177).
+- A band `_tokens` entry named `list-marker-color` sets the marker colour for the whole band,
+  around `marker.color`. Referenced from `marker.color` it forms a cycle, and the separator falls
+  back to its row's text colour with no finding (#1176).
+- Token names shaped `<name>-marker-color[-<state>]-d|t|p` are now reserved as engine mints. A
+  stored band using one is refused on its next write, check or restore (#1179; none found on the
+  reference installs).
 
-### Tests
+#### Tests
 - `tests/UdcMarkerGroupTest.php`: the registry entry; no role default anywhere, including site
   chrome; exposure derived both ways from the stylesheet's consumers and the rendered markup;
   acceptance and refusal on the real write path, including a single card; stored and emitted
@@ -155,7 +255,7 @@ their original `#FF5C2E`.
 - `tests/e2e/marker-colour.spec.ts`: computed glyph colours at 375 and 1280, text ink
   unchanged, a single card against its neighbour, and both fallbacks on an unauthored band.
 
-## Your blog, posts, search results and 404 page are styled again (#1171)
+### Your blog, posts, search results and 404 page are styled again (#1171)
 
 **Pages the theme builds for you now look like the rest of your site.** The blog index, every
 single post, category and tag archives, search results, the "page not found" page and any page
@@ -168,32 +268,33 @@ v2 styling for a component was only printed for components the page's compositio
 template page lists none, so nothing was printed. Each template now names the components it
 renders, and the page head prints their styling alongside the composition's.
 
-What this does not add: there is still no way to restyle one of these template bands on its own.
-They take the theme's default look for each component, plus your site-wide design tokens and
-header and footer styling. A per-band styling surface for template pages is a recorded follow-up.
-Composed pages are unchanged, byte for byte.
+What this does not add: a single post, an archive, search results, the 404 and a default-template
+page still cannot restyle one of their bands on its own; they take the theme's default look for
+each component, plus your site-wide design tokens and header and footer styling (#1175). The posts
+page can: since #1181 it renders a composition you store on it. Composed pages are unchanged, byte
+for byte.
 
 **Measured cost** on those routes: the page head's styling work goes from about 2.9 ms to
 4.1–5.0 ms and adds 4.5–9.5 KB of inline CSS (404: hero + cta; posts page, archives, search:
 hero + grid + section). No database queries are added.
 
-### Fixed
+#### Fixed
 - The posts page, single posts, archives, search results, the 404 and default-template pages
   paint their components' v2 role defaults (padding, type scale, card fill, border, bar, gap).
 
-### Changed (theme development)
+#### Changed (theme development)
 - `pp_base_template()` takes a second argument: the list of components the template renders by
   name, e.g. `pp_base_template(function () { … }, ['hero', 'section'])`. A template that renders a
   stored composition passes nothing. A component missing from the list renders unstyled. A
   replacement `pp_base_template()` must record the list with
   `pp_udc_declare_template_components()` before `wp_head()`.
 
-### Docs
+#### Docs
 - `ai-instructions/product-dev-add-page-template.md` and `ai-instructions/add-component.md`
   (Step 6) show and require the list; `AI_RULES.md` states it; `AI_CONTEXT.md`'s page-template
   table says what styling template pages get and adds the 404 row.
 
-### Tests
+#### Tests
 - `tests/TemplateBandDefaultsTest.php`: the declaration filter, the defaults union, composed
   pages unchanged, `base.php` recording the list before the head (run in a child process), and a
   drift pin read from PHP's own tokens. The pin fails when a template's list and its calls
@@ -204,11 +305,11 @@ hero + grid + section). No database queries are added.
   page, archive with and without posts, search with and without results, a single post, the 404,
   a default-template page) at 375 and 1280 match a composed reference page property for property.
 
-### Known issue
+#### Known issue
 - A front page set to "Your latest posts" still renders the default homepage unstyled, and that
   render writes a page composition onto the newest post (#1173). It predates this change.
 
-## The rules for richer page content are written down for ratification, and nothing changes yet (#1167)
+### The rules for richer page content are written down for ratification, and nothing changes yet (#1167)
 
 **Nothing on your pages changes.** This is a design document, not code. No component, write
 path or rendered page behaves differently.
@@ -235,10 +336,15 @@ It also covers:
 Implementation is after 2.0.0. The contract ends with a decision list: questions about how broad
 content freedom should be go to the owner, and mechanics questions go to the orchestrator.
 
-### Docs
+#### Docs
 - New: `docs/v2/LAYER-3-CONTRACT.md`, a ratifiable draft, not implemented.
+- `docs/v2/BUILD-SPEC-sprint0.md` points to it.
 
-## The `--dark` / `--inverted` class vocabulary is retired, and a guard with no subject retires by decision (#1111, #1108)
+#### Known issue
+- Layer 2 `_css` does not yet refuse string values of text-bearing properties the way it refuses
+  `content` (#1168).
+
+### The `--dark` / `--inverted` class vocabulary is retired, and a guard with no subject retires by decision (#1111, #1108)
 
 **Nothing on your pages changes.** Every shipped component renders byte-identically to before;
 this measured zero. This is a cleanup of code and tests that described a vocabulary no page
@@ -271,7 +377,7 @@ deleted, and the fixture's copy of the guard goes with them:
 This coverage was given up on purpose, not lost. The escaper itself, `pp_esc_image_src()`,
 stays live and pinned on the v2 `_band` → `background.image` path.
 
-### ⚠️ Breaking
+#### ⚠️ Breaking
 
 - **`pp_theme_class()` is removed.** Any PHP outside the theme that names it now fatals with an
   undefined function when it runs. That includes files and code a plugin stores in the
@@ -281,18 +387,18 @@ stays live and pinned on the v2 `_band` → `background.image` path.
   `grep -Rni "pp_theme_class" wp-content/ --exclude-dir=<your PromptingPress theme folder>`
   and `wp db search pp_theme_class --all-tables`.
 
-### Upgrading
+#### Upgrading
 
 - Express a band's tone with the `_band` role's `background.fill` and `typography.color`
   instead of a `--dark`/`--inverted` class.
 
-### Docs
+#### Docs
 
 - `ai-instructions/add-component.md`: the `variant_classes` checklist item no longer teaches
   the retired section-prefix trap. It names the two derivation idioms that remain, and it now
   ends on a finished sentence (it had been truncated mid-sentence).
 
-### Tests
+#### Tests
 
 - `InvariantTest::testEveryComponentReadOfBackgroundImageIsScalarGuarded` is now
   `testNoShippedComponentReadsTheRetiredBackgroundImageProp`. It is an absence tripwire, and
@@ -321,7 +427,7 @@ stays live and pinned on the v2 `_band` → `background.image` path.
 - The test fixture survives as a filler band for 25 test methods (24 fail without it; a
   25th goes risky). Re-homing those and deleting it is tracked in #1164.
 
-## A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)
+### A raw `_css` background now wins what it resets, and the overlay findings say where the scrim stops (#1141, #1142, #1073, #1144)
 
 **What you write in `_css` is what paints.** A raw `background` in a role's `_css` is a CSS
 shorthand: it resets the image, and every other `background-*` value, at its state and width.
@@ -347,7 +453,7 @@ band's design. The engine now discards both before it decides.
 **`wp pp schema <component>` prints the role keys the findings read (#1144):** `overlay_defaults`,
 `within` and `text_content`, each only where a role declares it.
 
-### ⚠️ Breaking
+#### ⚠️ Breaking
 
 - **A raw `_css` `background` cancels the group's `background.*` values at its state and width,
   image or not.** `background.image`, its `overlay`, `size`, `position` and `repeat` do not paint
@@ -359,7 +465,7 @@ band's design. The engine now discards both before it decides.
   then says so: "… but the stored raw value cannot be emitted, so the … you also set is what paints.
   Fix or remove the raw declaration."
 
-### Changed (findings contract)
+#### Changed (findings contract)
 
 - `udc_overlay_without_image`: a scrim dropped because a raw `background` won its coordinate now
   gives a reason naming the raw background, not "Set background.image". A raw desktop background that
@@ -395,7 +501,7 @@ band's design. The engine now discards both before it decides.
   unmarked as before; so is a failed compile while choosing the `udc_css_overrides_group_value` wording
   (the message then keeps its generic wording).
 
-### Upgrading
+#### Upgrading
 
 - These changes leave the emitted CSS byte-identical for every map with no raw `background` beside a
   group `background.*` value at the same state and width (measured: a full dump of every component's
@@ -412,16 +518,16 @@ band's design. The engine now discards both before it decides.
   at runtime `wp pp schema` prints only the names that are roles. Declare `overlay_defaults` only on a
   component whose template prints the overlay marker.
 
-### Docs
+#### Docs
 
 `AI_CONTEXT.md`, the validate-site, style-component, retheme, add-component, composition and
 operating-loop instructions, the CLI reference (`wp pp schema` rows) and the Layer 2 contract (a dated
 §2′.3 addendum) describe raw-wins, the new causes and the lightness rule, the new drop reasons, the
 stricter schema gate and the new report keys; the runtime prompt carries raw-wins and the two new
 off-scrim causes. The stats and logos templates no
-longer say a forged flag passes.
+longer say a forged flag passes. The prompt budget moves from 92,000 to 92,200 bytes.
 
-### Tests
+#### Tests
 
 `RawBackgroundWinsTest` (29, new) and `raw-background-wins.spec.ts` (2, Chromium, new) cover the
 shorthand winning its coordinate through the write path and in the browser; `OverlayAccentOffScrimTest`,
@@ -431,7 +537,7 @@ shorthand winning its coordinate through the write path and in the browser; `Ove
 `RawBackgroundOverlayCoverageTest` (10, new) pins the remaining new paths. Each fix was shown to fail
 first, and each check added with a fix was shown to fail against a deliberately broken copy.
 
-### Known issues
+#### Known issues
 
 - #1158: a dark gradient sized to part of the band at a width where it replaces the image reads as
   dark, so the overlay-accent finding stays silent there. The follow-up is a redesign: readability
@@ -442,8 +548,10 @@ first, and each check added with a fix was shown to fail against a deliberately 
 - #1159: `udc_css_overrides_group_value` does not name widths.
 - #1155: the post-apply validator renders bands without the forged-flag strip (nothing paints from it).
 - #1152 (item 7): the "scrim set only at some widths" cause is not lightness-gated.
+- #1160: an `overlay_defaults` value that is well-shaped but refused by the parameter grammar is
+  dropped at compile with no report.
 
-## A role's own light surface under your new ink is now named on the write (#1125)
+### A role's own light surface under your new ink is now named on the write (#1125)
 
 **Darken a band, recolour a role, and the write now tells you when that role still sits on its
 own light default fill.** An eyebrow pill, a section `panel`, a hero `surface`, a grid step-number
@@ -469,7 +577,7 @@ accent) it leads with checking the pair, because the pair may already read; on a
 asks for a fill your text colour reads on that also stands apart from the band. It warns that
 headings and links inside the role keep their own colour from the theme stylesheet.
 
-### Changed (findings contract)
+#### Changed (findings contract)
 
 - NEW advisory type `udc_role_ink_over_own_surface` (`severity: warning`), on every channel that
   carries findings: composition writes, `create_page`, `operate patch`, the `pp_site_udc`,
@@ -489,20 +597,20 @@ headings and links inside the role keep their own colour from the theme styleshe
   state, so at rest its text sits on your band"). `udc_item_value_shadowed_by_role_default`
   carries the same note. Match findings on `type`, not message text.
 - NEW optional role-schema key `text_content`: `true` when author text inside the role's own
-  element takes the role's colour (measured in Chromium: 91 of the 131 shipped roles). Any other
+  element takes the role's colour (measured in Chromium: 91 of the 131 shipped roles other than `_band`). Any other
   value is refused at the role-definition gate. `wp pp schema <component>` prints it (since #1144).
 
-### Upgrading
+#### Upgrading
 
 `wp pp validate site` exits non-zero on advisories. A page that validated clean on
 `2.0.0-alpha.2` can now fail it if it has a darkened band with a recoloured eyebrow, panel, hero
 surface, step-number or secondary button left on its default fill. Set that role's
 `background.fill` (the finding says where), or check the pair and leave it.
 
-The emitted CSS is byte-identical to `2.0.0-alpha.2` (measured over every component, nav and
-footer rows included): nothing changes on any page.
+This change leaves the emitted CSS byte-identical to the code before it (measured over every
+component, nav and footer rows included): it adds a finding and changes nothing on any page.
 
-### Docs
+#### Docs
 
 `AI_CONTEXT.md`, the runtime prompt, the style-component, build-landing-page, validate-site and
 add-component instructions, the CLI reference example and the hero README describe the finding,
@@ -510,7 +618,7 @@ its limits and the `text_content` key. The operating loop describes the band-sha
 rest-only, and the section, testimonials, grid and cta READMEs say which roles keep their own
 fill on a dark band.
 
-### Tests
+#### Tests
 
 `RoleInkOverOwnSurfaceTest` (99) and `UdcRolePaintTest` (23) cover the finding through the real
 write path, the accessor against the emitted CSS, the rulings, the render-presence budgets and
@@ -518,7 +626,7 @@ the shipped-role census; `role-own-surface.spec.ts` (5, Chromium) checks the pai
 Each fix was shown to fail first, and each new check was shown to fail against a deliberately
 broken copy.
 
-### Known issues
+#### Known issues
 
 - #1150: in one PHP process that changes a design token between two writes (an AI batch), the
   restated-default check can answer from before the change. It also keeps long values in memory.
@@ -534,7 +642,7 @@ broken copy.
   authored fill under a role's own default ink (#1148). A literal value that equals a role's
   default ink still fires: write the token.
 
-## Your content edit is no longer erased by a styling write, and one band can be restyled on its own (#1094, #1088, #909)
+### Your content edit is no longer erased by a styling write, and one band can be restyled on its own (#1094, #1088, #909)
 
 **A styling edit built from an older read is now refused instead of silently undoing the edit
 that landed in between.** The CLI used to replace the `expected_version` you sent with its own
@@ -558,11 +666,11 @@ conversation. That stored version is exactly what the chat's safety check requir
 will write to a page, so the new conversation could change a page it had never looked at. Those
 late results are now dropped.
 
-### Changed (public action surface)
+#### Changed (public action surface)
 
 - `update_component`: new optional `udc` param. `props` is no longer required. A call carrying
-  none of `props`, `udc` or `style` (or only empty ones) is refused with the new code
-  `missing_component_update`.
+  none of `props`, `udc` or `style` is refused with the new code `missing_component_update`; an
+  empty `udc` or `style` counts as none, while an empty `props` object is accepted as a no-op.
 - `add_component`: new optional `udc` param, stored as sent.
 - `wp pp action execute`: honours a caller-supplied `expected_version`. A value the preflight has
   just shown to be out of date is refused before the write, with the writer's own
@@ -573,7 +681,7 @@ late results are now dropped.
 - The preview and the write record report `udc` changes per role, and `_tokens` changes per
   token, as they will be stored.
 
-### Docs
+#### Docs
 
 The style-component, revise-section, build-landing-page, composition, website-building,
 inspect-fix and retheme instructions, `AI_CONTEXT.md`, the runtime prompt, both action
@@ -581,7 +689,7 @@ descriptions, the CLI reference, the operating-loop safety note, two how-tos and
 contract tutorial (new step 5c) now teach the one-band route and the honoured
 `expected_version`.
 
-### Tests
+#### Tests
 
 `CliCallerExpectedVersionTest` drives the real `wp pp action execute` command.
 `ComponentUdcParamTest` covers the merge, the refusals, the minted-token prune and its roster,
@@ -589,13 +697,13 @@ and the write record. `pp-ai-chat-baseline-after-reset.test.js` covers all three
 producers after New Chat. Each fix was shown to fail before it was written, and each new check
 was shown to fail against a deliberately broken copy.
 
-### Known issue
+#### Known issue
 
 #1128: restyling a card with new responsive values through `props` alone is still refused over
 the engine's own leftover token. It pre-dates this change. Sending the same edit with any band
 `udc` patch goes through.
 
-## Card styling that paints nothing is now reported, and a preset a card still uses can no longer be deleted (#1115, #1116, #1117)
+### Card styling that paints nothing is now reported, and a preset a card still uses can no longer be deleted (#1115, #1116, #1117)
 
 **Deleting a preset that a card still uses is refused.** `delete_preset` checked only band and
 chrome maps, so a preset referenced only from a card was deleted with `ok: true` and the card
@@ -615,12 +723,13 @@ value you already set yourself in the same map is left out.
 `background.overlay` with no usable `background.image` under it was accepted, stored and
 dropped at render with no word. The write now returns a `udc_overlay_without_image` finding
 naming the role, the card, the state and the breakpoint, and the readiness check lists it. The
-reason names the actual cause: a fill (or raw `_css` background) is not an image, an overlay
+reason names the actual cause: a fill is not an image (and since #1141, a raw `_css` background that removed or would reset
+the image is named as such), an overlay
 inside `:hover` never has an image of its own, a card's overlay does not combine with the
 band's image, a band's overlay does not reach cards that set their own image, and an image
 whose attachment was deleted. The render itself is unchanged.
 
-### Changed
+#### Changed
 
 - `delete_preset` also counts card (item-grain) references, and re-checks under the preset
   store's lock with a fresh read of the page list and the chrome row.
@@ -633,19 +742,19 @@ whose attachment was deleted. The render itself is unchanged.
 - Each of these finding types stops at 200 per page. The runtime prompt and the operating-loop
   instructions say so.
 
-### Docs
+#### Docs
 
 `validate-site.md`, `style-component.md`, `build-landing-page.md`, `operating-loop.md`,
 `AI_CONTEXT.md`, the runtime prompt, the `delete_preset` and `save_preset` descriptions, the CLI
 reference and the stats migration how-to describe the new findings and the card references.
 
-### Tests
+#### Tests
 
 `tests/ItemGrainDisclosureTest.php` (64 tests) drives every case through the real action
 surface. Each fix was shown to fail before it was written, and 76 deliberately broken copies of
 the new code were each caught by a test.
 
-### Known issues
+#### Known issues
 
 Filed, not fixed here: an overlay inside `:hover` can never paint (#1130); `delete_preset` holds
 the site-styling lock for a site-wide scan (#1131); a delete can still race a page write
@@ -654,7 +763,7 @@ image misses cards that set their own image without being reported (#1133); a fa
 counts as an empty page (#1134); re-saving a used preset at a different grain breaks its
 references (#1135); a raw `_css` value is not counted as the author's own (#1136).
 
-## Accent words stay readable over a darkened photo, and the write tells you when they might not (#1010, #1060)
+### Accent words stay readable over a darkened photo, and the write tells you when they might not (#1010, #1060)
 
 **Accent inks follow the scrim.** On a band that paints an image under an overlay, the accent
 words of a heading now default to `@color-accent-on-overlay` instead of the bare accent, which
@@ -674,26 +783,26 @@ scrim over an image: a deleted attachment, a band with no usable id, or an overl
 drops no longer marks it, and an image and scrim supplied by a preset do. This also fixes the
 invisible focus ring on a light band whose image was deleted (#1060).
 
-### Changed (schema)
+#### Changed (schema)
 
 Roles take two optional keys: `overlay_defaults` (values that replace the role's defaults on a
 marked band; only a group the role permits is accepted) and `within` (the roles whose elements
 enclose it, which the warning reads). `ai-instructions/add-component.md` documents both.
 
-### Upgrading
+#### Upgrading
 
 `wp pp validate site` fails on any warning, so a page whose accent now sits on a light panel, a
 partial or light scrim may newly be flagged after upgrading. To clear it, set that accent's
 `typography.color` (or give the panel a dark fill). Pages without an image-and-overlay band are
 unaffected.
 
-### Docs
+#### Docs
 
 `AI_CONTEXT.md`, the runtime prompt, `retheme.md`, `style-component.md`, `build-landing-page.md`,
 `validate-site.md`, `add-component.md`, the cta, hero, faq and stats READMEs and the cta and stats
 migration how-tos describe the re-lit accents, their exceptions and the new warning.
 
-### Tests
+#### Tests
 
 `OverlayTierDefaultsTest`, `OverlayAccentOffScrimTest` and `UdcEffectiveBackgroundTest` pin the
 tier, the warning and the marker's accessor against the CSS the page emits; the e2e spec reads
@@ -701,13 +810,12 @@ the re-lit colour in Chromium. Every fix was shown to fail first, and deliberate
 of the code are caught by the tests (57 of 64; the other 7 recorded as equivalent or
 unreachable, with reasons).
 
-### Known issues
+#### Known issues
 
-Filed, not fixed here: a scrim sized to cover only part of the band still marks it and re-lights
-the accent (#1142); section, grid and testimonials never emit the marker (#1139); a text role
-inside a filled role is not checked (#1140); the raw-CSS override message contradicts what
-paints (#1141). The "own surface under a new ink" warning (#1125) is not in this release; it
-lands separately.
+Filed, not fixed here: section, grid and testimonials never emit the marker (#1139); a text role
+inside a filled role is not checked (#1140). A scrim sized to cover only part of the band still
+marks it and re-lights the accent (ruling R4 on #1142); since #1142 `udc_overlay_accent_off_scrim`
+names that scrim when the accent then sits on a light or unreadable background.
 
 ---
 

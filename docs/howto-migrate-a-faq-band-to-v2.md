@@ -225,8 +225,8 @@ Send the whole repair at once instead:
 ```
 
 List every `--faq-*` key the band actually stores — which is the set you need, not the
-full 21. **Read the band back first with `wp pp operate inspect`** and null exactly the keys
-it reports; guessing from a list is both slower and wrong, because a band typically stores a
+full 21. **Read the band back first with `wp post meta get <id> _pp_composition`** and null exactly
+the keys its `style` map holds; guessing from a list is both slower and wrong, because a band typically stores a
 handful. (The 21 retired names are not published in one operator-facing place; the mapping
 table in step 2 above covers the ones you are likely to meet, and the stored map is
 authoritative for your band.)
@@ -240,7 +240,7 @@ own" is true of the prop but not of a band that also stores a slot. Both are rec
 
 ```bash
 wp pp check page --post_id=$PID
-wp pp operate inspect-composition --post_id=$PID --run_id=$RID
+wp pp operate inspect-composition --post_id=$PID
 ```
 
 Then look at the page at 375 and at 1280, and **open an item**. Three things to check that
