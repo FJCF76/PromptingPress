@@ -76,7 +76,7 @@ Rules for editing `assets/css/`:
 - **A v2 component's designable values do not go in `assets/css/` at all.** A component
   that declares `roles` keeps only structure in the stylesheet — layout scaffolding,
   wrapper geometry, accessibility affordances — and every colour, type, size, spacing,
-  border and shadow is a `default` on a role in its `schema.json`. The structural-CSS
+  border and shadow is in a role's `defaults` in its `schema.json`. The structural-CSS
   lint enforces this per component and is fail-closed on a property it does not
   recognise, so a property in neither classification has no legal home until it is
   classified. As of #1101 that covers testimonials, hero, section, cta, faq, table, embed, stats, logos, grid, nav and footer.

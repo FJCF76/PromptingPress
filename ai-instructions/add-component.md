@@ -224,7 +224,14 @@ buys you a role that passes CI and styles nothing.
 - **`defaults`** — the role's own default values, per group. **Measure them, do not
   read them off the stylesheet.** The shipped roles were measured in Chromium at
   375/768/1280 precisely because the stylesheet and the computed value disagree more
-  often than they agree.
+  often than they agree. `wp pp schema <component>` prints them whole as `roles[].defaults`
+  (#1192), so the definition gate checks their SHAPE (#1192): each key a UDC group the
+  role's `groups` permits, each group a MAP whose keys are that group's parameters or a
+  state (`":hover"`, `":focus-visible"`, `":active"`) holding a map of them, and each
+  value a single-line string or a number, or a `d`/`t`/`p` breakpoint map of them. A role
+  that fails is reported `unreportable` and left out of the AI prompt's catalog (its
+  defaults still compile); CI's `SchemaValidationTest` fails on it first. The parameter's
+  grammar is checked by the schema walk in `UdcEngineTest`, not by this gate.
 
   **`defaults` and an authored `udc` map do not accept the same values, and this is the
   trap.** A default may reference the shared band-rhythm props — `@pp-band-padding` is what

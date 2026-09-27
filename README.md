@@ -106,7 +106,7 @@ wp pp action list
 # Create a new page
 wp pp action execute create_page --params='{"title":"About Us"}'
 
-# Read a component's contract: props, style slots, conditions, recipes
+# Read a component's contract: props, roles (with their defaults), design vocabulary
 wp pp schema hero
 
 # Inspect what's editable
