@@ -500,15 +500,15 @@ The entire visual output of the site flows through the design tokens and the app
 model. Editing files directly is unnecessary for a retheme — use `update_design_token` for
 global tokens, `enqueue_font` for fonts, and, for per-band visual overrides, **the band's
 `udc` map** on any of the ten v2 components (one band: `update_component`'s `udc` param, merged
-by role; whole bands: `update_composition` / `create_page`). `style_component` remains only for `grid`, the last component with style
-slots; on anything else it is refused with `no_style_slots`.
+by role; whole bands: `update_composition` / `create_page`). `style_component` is retired:
+no component declares a style slot, so it refuses every component with `no_style_slots`.
 
 One documented exception, so you do not go looking for a token that is not there: the
 shared band rhythm and band-heading scale (`--pp-band-padding`, `--pp-band-heading-size`)
 are theme-internal properties declared outside the token registry, so
 `update_design_token` rejects them as `unknown_token`. They have no site-wide authoring
-surface, and changing one is a band-at-a-time job. **How you do it depends on the tier,
-and the slot answer is now the rare case:**
+surface, and changing one is a band-at-a-time job. **Set it in the band's `udc` map;
+there is no slot answer any more:**
 
 - **The ten v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
   logos, grid) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
@@ -518,10 +518,6 @@ and the slot answer is now the rare case:**
   `@pp-band-heading-size` — the same registry gap that makes `update_design_token` reject
   them makes an authored reference to them `invalid_prop_value`. Those two names are
   reachable only as shipped role defaults.
-- **`grid`** — the one component with style slots left, and the only place the slot
-  answer still applies: `--grid-padding-top` / `--grid-padding-bottom` /
-  `--grid-heading-size` via `style_component`. On any other component that call is
-  refused with `no_style_slots`.
 
 ---
 

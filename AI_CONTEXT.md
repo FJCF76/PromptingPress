@@ -180,7 +180,7 @@ Every visual change maps to one surface. Writing to the wrong surface creates sp
 | Change | Surface | Method |
 |---|---|---|
 | Page layout / content | `_pp_composition` post meta | Actions: `update_composition`, `add_component`, `update_component` |
-| Per-instance visual styling | `_pp_composition` post meta (`style` key) | Action: `style_component` (patch style slots on a single component instance) |
+| Per-band visual styling | `_pp_composition` post meta (the band's `udc` map) | Action: `update_component` (`udc`, merged by role); whole bands via `update_composition` / `create_page` |
 | Site-wide colors, spacing, fonts | `pp_token_overrides` option (defaults in `base.css`) | Apply: `update_design_token`, `reset_design_token`, `reset_all_design_tokens` |
 | Custom font loading | `pp_font_urls` option | Apply: `enqueue_font`, `remove_font`, `reset_fonts` |
 | Component-specific CSS | `assets/css/components.css` | Direct file edit (BEM, tokens only) |

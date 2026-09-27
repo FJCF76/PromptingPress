@@ -32,7 +32,9 @@
  *      components it renders by literal name, and any other pp_get_component() call
  *      shape in such a file FAILS (fail-closed: a variable name would be a component
  *      the declaration cannot see). The composition loop is the one sanctioned
- *      non-literal shape, and a file that uses it declares nothing.
+ *      non-literal shape, and a file that uses it declares nothing. home.php is the one
+ *      file with both branches (#1181): its composition branch declares nothing, and its
+ *      literal fallback declares exactly its literal names.
  */
 
 declare(strict_types=1);
