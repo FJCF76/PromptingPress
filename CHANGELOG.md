@@ -14,9 +14,10 @@ The five version files stay at `2.0.0` until the sprint close; each Sprint-4 PR 
 1.2rem + 1.5vw, 2.25rem)"`, `"margin": "0 clamp(1rem, 2vw, 3rem)"` and `"border.radius":
 "calc(1rem + 2px) 1rem calc(2rem - 1px) 0"` are accepted, stored as written and painted. On 2.0.0 they
 were refused, with "Value takes at most N space-separated values; got M" (N is 4, or 2 for `gap`) or
-with "Value must be a number with a CSS unit …" for a fragment such as `clamp(1rem,`, because the spaces CSS requires inside
-`clamp()` and `calc()` were counted as separators. The same value already worked on
-the per-side longhands (`padding-top`, …), so the only workaround was to write four longhands.
+with "Value must be a number with a CSS unit …" for a fragment such as `clamp(1rem,`, because the
+spaces CSS requires inside `clamp()` and `calc()` were counted as separators. The same value already
+worked on the longhands (`padding-top`, …, or `row-gap` / `column-gap`), so the only workaround was to
+write each side separately.
 
 ### What changes for you
 
