@@ -196,7 +196,7 @@ In WP Admin: Appearance → Menus → create a menu and assign it to the "Primar
 
 Structural styles in `assets/css/components.css` under `/* === COMPONENT: nav === */` —
 layout, wrapper geometry and accessibility affordances only. Everything designable (colour,
-type, size, spacing, border, shadow) is a role `default` in `components/nav/schema.json`
+type, size, spacing, border, shadow) is in a role's `defaults` in `components/nav/schema.json`
 since #994.
 
 At `md` breakpoint (768px): `.nav__toggle { display: none }` and `.nav__menu { display: block }` (always visible, `hidden` attribute overridden by CSS).
