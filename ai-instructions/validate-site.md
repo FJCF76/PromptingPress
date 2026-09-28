@@ -177,7 +177,11 @@ them changes. A run smell (`consecutive_text_sections`, `consecutive_compact_spa
 `consecutive_narrow_width`) judges the arrangement of the page, so its key fingerprints every band on
 the page: adding, removing, editing or reordering any band re-opens it. A value that cannot be
 fingerprinted (a non-finite number, which only a raw write can store) gets no key, so its finding
-keeps failing until you rewrite the value.
+keeps failing until you rewrite the value. A finding that can be acknowledged but has no key says
+why beside it in `check page` (`[no key: ...]`).
+
+Acknowledgements are read only by `wp pp check page` and `wp pp validate site`. A write's `findings`
+report, `operate inspect` and the chat still list an acknowledged advisory as a warning.
 
 - **Stale**: the finding is still there but something it judged changed. `check page` lists the
   acknowledgement as STALE and the finding is back among the smells, failing the gate, until you

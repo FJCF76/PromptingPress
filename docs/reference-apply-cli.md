@@ -50,7 +50,7 @@ Read `omitted_keys` before you read anything else. **A key listed there is UNKNO
 
 ## How every `wp pp` command addresses a page (#685, #726)
 
-One contract, all seven of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
+One contract, all nine of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
 
 **A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Nine commands are page-addressed:
 
@@ -85,7 +85,7 @@ Invalid --post_id "about-us" for `wp pp check page`. Pages are addressed by nume
 
 Before 1.15.13 the second and third cases both answered `--post_id is required.` for a flag that was on the command line, which sent an agent looking for a flag it had already passed.
 
-**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all seven. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
+**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all nine. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
 
 ```
 `wp pp check page` takes no positional page argument (got "234").
