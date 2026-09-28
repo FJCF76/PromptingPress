@@ -58,7 +58,9 @@ const PP_CLI_PAGE_MAP_HINT = 'run `wp pp operate inspect` for the page map (it m
  */
 const PP_CLI_PAGE_ADDRESSED_COMMANDS = [
     'pp apply preflight',
+    'pp check acknowledge',
     'pp check page',
+    'pp check unacknowledge',
     'pp operate composition-history',
     'pp operate inspect-composition',
     'pp operate patch',
@@ -129,7 +131,7 @@ function _pp_cli_addressed_by_other_flag(string $command, array $assoc_args): bo
 /**
  * How every refusal renders the command it is refusing: `` `wp pp check page` ``.
  *
- * One function so the seven commands cannot drift into two spellings of the same
+ * One function so the nine commands cannot drift into two spellings of the same
  * thing across the two predicates — the whole promise of #726 is that a refusal
  * reads the same wherever it comes from.
  */
@@ -230,7 +232,8 @@ function _pp_cli_post_id_shape_hint(string $command): string {
  * only matters to in-process callers — but the gate should not have to rely on
  * that to stay honest.
  *
- * Scope: applied to every command in PP_CLI_PAGE_ADDRESSED_COMMANDS — all SEVEN.
+ * Scope: applied to every command in PP_CLI_PAGE_ADDRESSED_COMMANDS — all NINE (#1194 added the
+ * two acknowledgement commands, which take their key as `--key` for exactly this reason).
  * Exactly ONE `--post_id` consumer stays on the loose `(int)` cast and is NOT in
  * that list: `operate inspect`, whose subject is the SITE (`--post_id` only adds
  * page-specific smells to a site report, so it is an enrichment filter rather
@@ -244,7 +247,7 @@ function _pp_cli_post_id_shape_hint(string $command): string {
  * loose, so any value a loose command canonicalizes is REJECTED outright here
  * rather than silently accepted.
  *
- * Which branch is live: the "required" branch is defense in depth on ALL seven
+ * Which branch is live: the "required" branch is defense in depth on ALL nine
  * commands, reachable only by an in-process caller. On the five with a REQUIRED
  * `--post_id=<id>` synopsis, WP-CLI's own parameter check reports a wholly absent
  * flag first, quoting that OPTIONS description. On the two OPTIONAL ones
@@ -296,7 +299,7 @@ function _pp_cli_post_id_arg_error(array $assoc_args, string $command): ?string 
  *
  * The entry point for the five commands whose synopsis makes `--post_id`
  * REQUIRED, and also the shared gate body: _pp_cli_optional_post_id_arg()
- * delegates here once it has ruled out legitimate absence, so all seven commands
+ * delegates here once it has ruled out legitimate absence, so all nine commands
  * validate a SUPPLIED value through this exact path.
  *
  * @param array  $assoc_args The command's associative arguments.
@@ -1917,8 +1920,20 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * @return array{errors: array[], smells: array[], info: array[], styling: array[]}
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
-    return _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id)) + [
-        'styling' => pp_validate_composition_styling($composition),
+    $buckets = _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id));
+    // ACKNOWLEDGED ADVISORIES STOP GATING (#1194 A2). Only a page-aware call can read a page's
+    // acknowledgements; a page-blind one reports them as absent, so it can only be stricter.
+    $acks = $post_id === null
+        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => []]
+        : pp_partition_acknowledged_advisories($post_id, $composition, $buckets['smells']);
+    return [
+        'errors'       => $buckets['errors'],
+        'smells'       => $acks['smells'],
+        'info'         => $buckets['info'],
+        'styling'      => pp_validate_composition_styling($composition),
+        'acknowledged' => $acks['acknowledged'],
+        'stale'        => $acks['stale'],
+        'orphaned'     => $acks['orphaned'],
     ];
 }
 
@@ -1969,6 +1984,7 @@ function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostic
 
     if (!_pp_cli_page_fails_site_validation($diagnostics)) {
         WP_CLI::line("OK: Page {$post_id} ({$title})");
+        _pp_cli_print_acknowledgements($diagnostics);
         _pp_cli_print_info_findings($diagnostics['info']);
         return true;
     }
@@ -1988,10 +2004,62 @@ function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostic
         WP_CLI::line("  - {$named} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
     }
     foreach ($smells as $s) {
-        WP_CLI::line(_pp_cli_finding_line($s));
+        WP_CLI::line(_pp_cli_smell_line($s));
     }
+    _pp_cli_print_acknowledge_hint($post_id, $smells);
+    _pp_cli_print_acknowledgements($diagnostics);
     _pp_cli_print_info_findings($diagnostics['info']);
     return false;
+}
+
+/**
+ * One advisory line, with its acknowledgement key when it has one (#1194 A2). The key is
+ * engine-built (a type, a band id held to [A-Za-z0-9_-] and a hex digest) and still goes
+ * through the reflection owner.
+ */
+function _pp_cli_smell_line(array $finding): string {
+    $line = _pp_cli_finding_line($finding);
+    if (isset($finding['ack_key']) && is_string($finding['ack_key'])) {
+        $line .= ' [key: ' . _pp_cli_printable($finding['ack_key']) . ']';
+    }
+    return $line;
+}
+
+/** The one-line route to acknowledging a keyed advisory, printed once under the list. */
+function _pp_cli_print_acknowledge_hint(int $post_id, array $smells): void {
+    foreach ($smells as $finding) {
+        if (isset($finding['ack_key'])) {
+            WP_CLI::line('  A [key] marks a judgment call. If you have verified it is intentional: '
+                . 'wp pp check acknowledge --post_id=' . $post_id . ' --key=<key> --note="<why>"');
+            return;
+        }
+    }
+}
+
+/**
+ * A page's acknowledged, stale and orphaned acknowledgements (#1194 A2). Acknowledged ones pass
+ * the gate and are listed with their note; a stale one's finding is back in the smells above
+ * (what was judged changed); an orphaned one is inert and can be removed.
+ */
+function _pp_cli_print_acknowledgements(array $diagnostics): void {
+    $acked = $diagnostics['acknowledged'] ?? [];
+    if ($acked !== []) {
+        WP_CLI::line('  ' . count($acked) . ' acknowledged as intentional (not failing):');
+        foreach ($acked as $finding) {
+            WP_CLI::line('  ' . _pp_cli_finding_line($finding) . ' [acknowledged '
+                . _pp_cli_printable((string) ($finding['ack_at'] ?? '')) . ': '
+                . _pp_cli_printable((string) ($finding['ack_note'] ?? '')) . ']');
+        }
+    }
+    foreach ($diagnostics['stale'] ?? [] as $row) {
+        WP_CLI::line('  - STALE acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
+            . ': what it judged has changed (this band, a design token, a preset or the theme version), '
+            . 'so its finding is listed above again. Review it, and acknowledge the new key if it is still intentional.');
+    }
+    foreach ($diagnostics['orphaned'] ?? [] as $row) {
+        WP_CLI::line('  - orphaned acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
+            . ': its finding is gone, so it does nothing. Remove it with wp pp check unacknowledge --key=<key>.');
+    }
 }
 
 /**
@@ -2037,6 +2105,17 @@ function _pp_cli_page_fails_site_validation(array $diagnostics): bool {
     return $diagnostics['errors'] !== []
         || $diagnostics['styling'] !== []
         || $diagnostics['smells'] !== [];
+}
+
+/**
+ * The `--key` of an acknowledgement command, or an error naming where keys come from (#1194).
+ */
+function _pp_cli_require_ack_key_arg(array $assoc_args, string $command): string {
+    $key = $assoc_args['key'] ?? null;
+    if (!is_string($key) || $key === '') {
+        WP_CLI::error('`wp ' . $command . '` needs --key=<key>: the key `wp pp check page --post_id=<id>` prints beside the finding.');
+    }
+    return (string) $key;
 }
 
 /**
@@ -2217,6 +2296,7 @@ class PP_Check_Command extends WP_CLI_Command {
         // that is genuinely check-page-only.
         if (!_pp_cli_page_fails_site_validation($diagnostics) && empty($generated)) {
             WP_CLI::success('Page ' . $post_id . ': valid under current write rules, all components have explicit stable IDs, no ambiguous targeting, no composition smells.');
+            _pp_cli_print_acknowledgements($diagnostics);
             _pp_cli_print_info_findings($diagnostics['info']);
             return;
         }
@@ -2269,11 +2349,80 @@ class PP_Check_Command extends WP_CLI_Command {
         if (!empty($smells)) {
             WP_CLI::warning(count($smells) . ' composition smell(s):');
             foreach ($smells as $s) {
-                WP_CLI::line(_pp_cli_finding_line($s));
+                WP_CLI::line(_pp_cli_smell_line($s));
             }
+            _pp_cli_print_acknowledge_hint((int) $post_id, $smells);
         }
 
+        _pp_cli_print_acknowledgements($diagnostics);
         _pp_cli_print_info_findings($diagnostics['info']);
+    }
+
+    /**
+     * Records a composition advisory you have verified as intentional, so it stops failing `wp pp validate site`.
+     *
+     * Only judgment-call advisories can be acknowledged (a pair the engine cannot measure, the raw-CSS
+     * escape hatch, the composition smells); a value that does not paint, an error or a note cannot.
+     * The key is the one `wp pp check page` prints beside the finding, and it names that exact state:
+     * a key for anything that has changed since is refused. The acknowledgement dies when the band, a
+     * design token, a preset or the theme version changes (#1194).
+     *
+     * ## OPTIONS
+     *
+     * --post_id=<id>
+     * : WordPress page post ID. Numeric only; slugs and URLs are not resolved.
+     *
+     * --key=<key>
+     * : The key `wp pp check page` prints beside the finding, for example consecutive_text_sections:about:1a2b3c4d5e6f7a8b.
+     *
+     * [--note=<note>]
+     * : Why it is intentional, recorded beside the acknowledgement (for example the measured contrast).
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp check acknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b --note="three short paragraphs, by design"
+     *
+     */
+    public function acknowledge($args, $assoc_args) {
+        $post_id = _pp_cli_require_post_id_arg($assoc_args, 'pp check acknowledge');
+        $key     = _pp_cli_require_ack_key_arg($assoc_args, 'pp check acknowledge');
+        $note    = is_string($assoc_args['note'] ?? null) ? (string) $assoc_args['note'] : '';
+
+        $result = pp_acknowledge_advisory($post_id, $key, $note);
+        if (is_wp_error($result)) {
+            WP_CLI::error(_pp_cli_printable($result->get_error_message()));
+        }
+        WP_CLI::success('Acknowledged ' . _pp_cli_printable($key) . ' on page ' . $post_id
+            . '. It no longer fails `wp pp validate site` while this exact state stands. '
+            . 'Reverse with wp pp check unacknowledge --post_id=' . $post_id . ' --key=<key>.');
+    }
+
+    /**
+     * Removes an advisory acknowledgement (active, stale or orphaned), so the finding gates again if present.
+     *
+     * ## OPTIONS
+     *
+     * --post_id=<id>
+     * : WordPress page post ID. Numeric only; slugs and URLs are not resolved.
+     *
+     * --key=<key>
+     * : The acknowledgement key, as `wp pp check page` lists it.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp check unacknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b
+     *
+     */
+    public function unacknowledge($args, $assoc_args) {
+        $post_id = _pp_cli_require_post_id_arg($assoc_args, 'pp check unacknowledge');
+        $key     = _pp_cli_require_ack_key_arg($assoc_args, 'pp check unacknowledge');
+
+        $result = pp_unacknowledge_advisory($post_id, $key);
+        if (is_wp_error($result)) {
+            WP_CLI::error(_pp_cli_printable($result->get_error_message()));
+        }
+        WP_CLI::success('Removed acknowledgement ' . _pp_cli_printable($key) . ' from page ' . $post_id
+            . '. If its finding is still present it fails `wp pp validate site` again.');
     }
 
     /**

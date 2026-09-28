@@ -1483,6 +1483,8 @@ class CliGateTest extends TestCase
         $map = [
             'pp apply preflight'             => [PP_Apply_Command::class, 'preflight'],
             'pp check page'                  => [PP_Check_Command::class, 'page'],
+            'pp check acknowledge'           => [PP_Check_Command::class, 'acknowledge'],
+            'pp check unacknowledge'         => [PP_Check_Command::class, 'unacknowledge'],
             'pp validate page'               => [PP_Validate_Command::class, 'page'],
             'pp operate inspect-composition' => [PP_Operate_Command::class, 'inspect_composition'],
             'pp operate patch'               => [PP_Operate_Command::class, 'patch'],

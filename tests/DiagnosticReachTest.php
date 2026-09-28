@@ -536,6 +536,114 @@ class DiagnosticReachTest extends TestCase
         $this->assertContains('  - cta at indices 1, 3 (no authored IDs — ambiguous targeting; add explicit `id` props)', WP_CLI::$lines);
     }
 
+    /** A steps grid on a dark band whose badge ink raises the acknowledgeable own-surface finding. */
+    private function inkPage(): int
+    {
+        $id = pp_create_page('Steps');
+        $this->assertTrue(pp_update_composition($id, [[
+            'component' => 'grid',
+            'udc'       => [
+                '_band'       => ['background' => ['fill' => '@color-bg-inverted']],
+                'step-number' => ['typography' => ['color' => '@color-bg-inverted']],
+            ],
+            'props'     => ['id' => 'steps', 'layout' => 'steps', 'title' => 'G', 'items' => [['number' => '1', 'title' => 'T']]],
+        ]]));
+        return $id;
+    }
+
+    private function inkKeyOf(int $id): string
+    {
+        foreach (_pp_cli_page_diagnostics(pp_get_composition($id), $id)['smells'] as $f) {
+            if (isset($f['ack_key'])) {
+                return $f['ack_key'];
+            }
+        }
+        $this->fail('the fixture must raise a keyed advisory');
+    }
+
+    /** #1194 A2: check page prints the key beside a judgment call, and the route to acknowledge it. */
+    public function testCheckPagePrintsTheAcknowledgementKeyAndRoute(): void
+    {
+        $id  = $this->inkPage();
+        $key = $this->inkKeyOf($id);
+
+        (new PP_Check_Command())->page([], ['post_id' => $id]);
+
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('[udc_role_ink_over_own_surface] index 0: ', $joined);
+        $this->assertStringContainsString('[key: ' . $key . ']', $joined);
+        $this->assertStringContainsString('wp pp check acknowledge --post_id=' . $id . ' --key=<key>', $joined);
+    }
+
+    public function testTheAcknowledgeCommandTurnsTheCheckIntoASuccess(): void
+    {
+        $id  = $this->inkPage();
+        $key = $this->inkKeyOf($id);
+
+        (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => $key, 'note' => 'measured 9.1:1']);
+        $this->assertStringContainsString('Acknowledged ' . $key, WP_CLI::$successes[0]);
+
+        WP_CLI::$lines = []; WP_CLI::$successes = []; WP_CLI::$warnings = [];
+        (new PP_Check_Command())->page([], ['post_id' => $id]);
+        $this->assertStringContainsString('valid under current write rules', WP_CLI::$successes[0]);
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('1 acknowledged as intentional (not failing):', $joined);
+        $this->assertStringContainsString(': measured 9.1:1]', $joined);
+    }
+
+    public function testTheAcknowledgeCommandRefusesAMissingOrUnknownKey(): void
+    {
+        $id = $this->inkPage();
+        try {
+            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id]);
+            $this->fail('a missing --key must be refused');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('needs --key=<key>', $e->getMessage());
+        }
+        try {
+            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => 'udc_role_ink_over_own_surface:steps:0000000000000000']);
+            $this->fail('an unknown key must be refused');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('wp pp check page --post_id=' . $id, $e->getMessage());
+        }
+        $this->assertSame([], pp_acknowledged_advisories($id), 'nothing was written');
+    }
+
+    public function testTheUnacknowledgeCommandReversesIt(): void
+    {
+        $id  = $this->inkPage();
+        $key = $this->inkKeyOf($id);
+        (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => $key]);
+
+        (new PP_Check_Command())->unacknowledge([], ['post_id' => (string) $id, 'key' => $key]);
+        $this->assertStringContainsString('Removed acknowledgement ' . $key, WP_CLI::$successes[1]);
+        $this->assertTrue(_pp_cli_page_fails_site_validation(_pp_cli_page_diagnostics(pp_get_composition($id), $id)));
+    }
+
+    public function testValidateSitePrintsAcknowledgedStaleAndOrphanedRows(): void
+    {
+        $finding = ['type' => 'udc_role_ink_over_own_surface', 'severity' => 'warning', 'message' => 'pair', 'index' => 0,
+                    'ack_key' => 'udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaa'];
+        $this->assertTrue(_pp_cli_report_site_page(3, 'Home', [
+            'errors' => [], 'styling' => [], 'smells' => [], 'info' => [],
+            'acknowledged' => [$finding + ['ack_at' => '2026-09-28T00:00:00+00:00', 'ack_note' => 'ok']],
+            'stale' => [], 'orphaned' => [['ack_key' => 'empty_section:about:bbbbbbbbbbbbbbbb', 'ack_note' => '', 'ack_at' => '']],
+        ]));
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('1 acknowledged as intentional (not failing):', $joined);
+        $this->assertStringContainsString('orphaned acknowledgement empty_section:about:bbbbbbbbbbbbbbbb', $joined);
+
+        WP_CLI::$lines = [];
+        $this->assertFalse(_pp_cli_report_site_page(3, 'Home', [
+            'errors' => [], 'styling' => [], 'smells' => [$finding], 'info' => [],
+            'acknowledged' => [], 'stale' => [['ack_key' => 'udc_role_ink_over_own_surface:steps:cccccccccccccccc', 'ack_note' => '', 'ack_at' => '']],
+            'orphaned' => [],
+        ]));
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('[key: udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaa]', $joined);
+        $this->assertStringContainsString('STALE acknowledgement udc_role_ink_over_own_surface:steps:cccccccccccccccc', $joined);
+    }
+
     /**
      * The severity split FAILS CLOSED: only exactly 'info' leaves the gate. An unknown,
      * miscased, empty or missing severity is a smell and fails the page (review cycle 1: a
@@ -871,7 +979,7 @@ class DiagnosticReachTest extends TestCase
     public function testAnEmptyCompositionHasNoFindings(): void
     {
         $this->assertSame(
-            ['errors' => [], 'smells' => [], 'info' => [], 'styling' => []],
+            ['errors' => [], 'smells' => [], 'info' => [], 'styling' => [], 'acknowledged' => [], 'stale' => [], 'orphaned' => []],
             _pp_cli_page_diagnostics([])
         );
     }
