@@ -283,7 +283,6 @@ final class AdvisoryAcknowledgementTest extends TestCase
     {
         $this->assertSame([
             'udc_role_ink_over_own_surface',
-            'udc_overlay_accent_off_scrim',
             'udc_css_unchecked_property',
             'empty_section',
             'hero_left_no_image',
@@ -349,7 +348,7 @@ final class AdvisoryAcknowledgementTest extends TestCase
         }
         $this->assertNotNull($finding, 'premise: the raw-written band raises the finding');
         $this->assertNull(pp_advisory_finding_key($id, pp_get_composition($id), $finding));
-        $this->assertStringContainsString('update_composition', pp_advisory_unkeyable_reason(pp_get_composition($id), $finding));
+        $this->assertStringContainsString('update_composition', pp_advisory_unkeyable_reason($id, pp_get_composition($id), $finding));
     }
 
     public function testUnacknowledgeReversesAndRefusesAnUnknownKey(): void
@@ -484,7 +483,7 @@ final class AdvisoryAcknowledgementTest extends TestCase
         }
         $this->assertNotNull($finding, 'premise: the band raises an acknowledgeable finding');
         $this->assertNull(pp_advisory_finding_key($id, $composition, $finding), 'no key: nothing stable to bind to');
-        $this->assertStringContainsString('fingerprint', (string) pp_advisory_unkeyable_reason($composition, $finding, $id));
+        $this->assertStringContainsString('cannot be encoded exactly', (string) pp_advisory_unkeyable_reason($id, $composition, $finding));
 
         $d = $this->diagnostics($id);
         $this->assertContains('empty_section', array_column($d['smells'], 'type'), 'it keeps gating');
@@ -802,99 +801,115 @@ final class AdvisoryAcknowledgementTest extends TestCase
 
     // ── Cycle-2 ruling (Q1-Q4) ─────────────────────────────────────────────────────
 
-    /** A cta band whose light scrim over attachment 9001 raises udc_overlay_accent_off_scrim. */
-    private function scrimPage(array $extraProps = []): int
+    // ── Cycle-3 ruling B: the scrim judgment is not acknowledgeable in 2.0.1 (#1211) ──
+
+    public function testTheScrimJudgmentIsNotAcknowledgeable(): void
     {
+        // Four review cycles found four ways the photo behind a scrim escaped a hand-enumerated
+        // fingerprint (attachment alias, token reference, file contents, CSS url()). Until the key
+        // reads the same compiled truth the finding reads (#1211), the finding keeps gating.
         $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
         $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
-        $this->photo = tempnam(sys_get_temp_dir(), 'pp-ack-photo');
-        file_put_contents($this->photo, 'photo A');
-        $GLOBALS['_pp_test_store']['attached_file'][9001] = $this->photo;
-        return $this->page([[
+        // A real, readable file behind the id, so nothing but the descope keeps the key away.
+        $photo = tempnam(sys_get_temp_dir(), 'pp-ack-photo');
+        file_put_contents($photo, 'photo A');
+        $GLOBALS['_pp_test_store']['attached_file'][9001] = $photo;
+        $id = $this->page([[
             'component' => 'cta',
             'udc'       => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.8)']]],
-            'props'     => ['id' => 'offer', 'title' => 'C', 'title_accent' => 'A', 'button_text' => 'Go', 'button_url' => '/x'] + $extraProps,
+            'props'     => ['id' => 'offer', 'title' => 'C', 'title_accent' => 'A', 'button_text' => 'Go', 'button_url' => '/x'],
         ]]);
-    }
 
-    private ?string $photo = null;
-
-    private function scrimFinding(int $id): array
-    {
+        $scrim = null;
         foreach ($this->diagnostics($id)['smells'] as $finding) {
             if ($finding['type'] === 'udc_overlay_accent_off_scrim') {
-                return $finding;
+                $scrim = $finding;
             }
         }
-        $this->fail('the fixture must raise udc_overlay_accent_off_scrim');
+        $this->assertNotNull($scrim, 'premise: the scrim judgment is raised');
+        $this->assertArrayNotHasKey('ack_key', $scrim);
+        $this->assertTrue(_pp_cli_page_fails_site_validation($this->diagnostics($id)), 'it keeps gating');
+        @unlink($photo);
     }
 
-    public function testEditingThePhotoBehindAnAttachmentIdReopensTheScrimJudgment(): void
+    public function testARowWrittenStraightIntoMetaWithoutANoteIsNotAnAcknowledgement(): void
     {
+        // The key is deterministic and printed by check page, so a raw meta write can plant it.
+        // The command refuses an empty note; the gate must too, or the refusal is decoration.
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '2026-09-28T00:00:00+00:00', 'note' => '  ']]);
+
+        $d = $this->diagnostics($id);
+        $this->assertSame([], $d['acknowledged'], 'a row with no reason acknowledges nothing');
+        $this->assertTrue(_pp_cli_page_fails_site_validation($d));
+        $this->assertSame([$key], array_column($d['unnoted'], 'ack_key'), 'and it is reported, so it can be removed');
+        $this->assertTrue(pp_unacknowledge_advisory($id, $key), 'the cleanup route removes it');
+    }
+
+    public function testAFailedLockedTokenReadRefuses(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public string $last_error = '';
+            public function get_var(string $query)
+            {
+                $this->last_error = '';
+                if (str_contains($query, "option_name = 'pp_token_overrides'")) {
+                    $this->last_error = 'Lock wait timeout exceeded';
+                    return null;
+                }
+                return parent::get_var($query);
+            }
+        };
         try {
-            $id  = $this->scrimPage();
-            $key = $this->scrimFinding($id)['ack_key'] ?? null;
-            $this->assertIsString($key, 'premise: a resolvable attachment keys');
-            $this->assertTrue(pp_acknowledge_advisory($id, $key, 'measured over photo A'));
-
-            // WordPress's Edit Image writes a new file behind the same id.
-            $edited = $this->photo . '-e1727000000';
-            file_put_contents($edited, 'photo B, cropped');
-            $GLOBALS['_pp_test_store']['attached_file'][9001] = $edited;
-
-            $d = $this->diagnostics($id);
-            $this->assertSame([$key], array_column($d['stale'], 'ack_key'), 'the pixels judged are gone');
-            $this->assertTrue(_pp_cli_page_fails_site_validation($d));
-            @unlink($edited);
+            $result = pp_acknowledge_advisory($id, $key, 'n');
+            $this->assertInstanceOf(WP_Error::class, $result);
+            $this->assertSame('acknowledgements_unreadable', $result->get_error_code());
         } finally {
-            @unlink((string) $this->photo);
+            unset($GLOBALS['wpdb']);
+        }
+        $this->assertSame([], pp_acknowledged_advisories($id), 'nothing was written');
+    }
+
+    public function testTheAdditionalCssIsReadUncachedInsideTheLock(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+
+        // Another process edited the Additional CSS; this process still holds the old copy.
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public string $posts = 'wp_posts';
+            public function get_var(string $query)
+            {
+                if (str_contains($query, "post_type = 'custom_css'")) {
+                    return '[data-pp-band] { color: #fff; }';
+                }
+                return parent::get_var($query);
+            }
+        };
+        try {
+            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'),
+                'the key is checked against the Additional CSS stored now');
+        } finally {
+            unset($GLOBALS['wpdb']);
         }
     }
 
-    public function testRewritingThePhotoInPlaceReopensIt(): void
+    public function testTheNoKeyReasonNamesTheRealCause(): void
     {
-        try {
-            $id  = $this->scrimPage();
-            $key = $this->scrimFinding($id)['ack_key'];
-            pp_acknowledge_advisory($id, $key, 'n');
-            file_put_contents((string) $this->photo, 'a different, longer photo');
-            clearstatcache();
-
-            $this->assertNotSame($key, $this->scrimFinding($id)['ack_key'] ?? null);
-        } finally {
-            @unlink((string) $this->photo);
+        $id = $this->page([$this->ownerBand()]);
+        update_option('pp_token_overrides', ['color-accent' => INF]);
+        $reason = null;
+        foreach ($this->diagnostics($id)['smells'] as $finding) {
+            if ($finding['type'] === 'udc_role_ink_over_own_surface') {
+                $reason = $finding['ack_unkeyable'] ?? null;
+            }
         }
-    }
-
-    public function testAnAttachmentWithNoFileMintsNoScrimKey(): void
-    {
-        try {
-            $id = $this->scrimPage();
-            $GLOBALS['_pp_test_store']['attached_file'][9001] = false;
-            $this->assertArrayNotHasKey('ack_key', $this->scrimFinding($id), 'unresolvable pixels bind nothing');
-        } finally {
-            @unlink((string) $this->photo);
-        }
-    }
-
-    public function testARemoteImageMintsNoScrimKey(): void
-    {
-        try {
-            $id = $this->scrimPage(['image_url' => 'https://cdn.example.com/hero.jpg']);
-            $this->assertArrayNotHasKey('ack_key', $this->scrimFinding($id), 'a remote image\'s pixels cannot be fingerprinted');
-        } finally {
-            @unlink((string) $this->photo);
-        }
-    }
-
-    public function testAWordUnderAnImageKeyIsNotAnImage(): void
-    {
-        try {
-            $id = $this->scrimPage(['image_alt' => 'A team at work']);
-            $this->assertArrayHasKey('ack_key', $this->scrimFinding($id), 'alt text names no image, so it does not block the key');
-        } finally {
-            @unlink((string) $this->photo);
-        }
+        $this->assertIsString($reason);
+        $this->assertStringContainsString('site', $reason, 'the cause is the site context, not this band');
+        $this->assertStringNotContainsString('this band holds', $reason);
     }
 
     public function testAdditionalCssIsPartOfTheSiteContext(): void

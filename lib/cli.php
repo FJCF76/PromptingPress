@@ -1917,17 +1917,18 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * @param  array    $composition  Decoded composition array.
  * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
  *                                findings (#1181); null reports page-blind.
- * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[]}
+ * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[]}
  *         With a $post_id, `smells` excludes the page's acknowledged advisories (moved to
  *         `acknowledged`), and `stale` / `orphaned` list acknowledgements that no longer match
- *         (#1194 A2). Page-blind, the three acknowledgement buckets are empty.
+ *         (#1194 A2); `unnoted` lists stored rows without a note, which acknowledge nothing.
+ *         Page-blind, the four acknowledgement buckets are empty.
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
     $buckets = _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id));
     // ACKNOWLEDGED ADVISORIES STOP GATING (#1194 A2). Only a page-aware call can read a page's
     // acknowledgements; a page-blind one reports them as absent, so it can only be stricter.
     $acks = $post_id === null
-        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => []]
+        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => []]
         : pp_partition_acknowledged_advisories($post_id, $composition, $buckets['smells']);
     return [
         'errors'       => $buckets['errors'],
@@ -1937,6 +1938,7 @@ function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): arr
         'acknowledged' => $acks['acknowledged'],
         'stale'        => $acks['stale'],
         'orphaned'     => $acks['orphaned'],
+        'unnoted'      => $acks['unnoted'],
     ];
 }
 
@@ -2059,14 +2061,20 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
     }
     foreach ($diagnostics['stale'] ?? [] as $row) {
         WP_CLI::line('  - STALE acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
-            . ': what it judged has changed (its band, or the whole page for a run smell; a design token, a preset '
-            . 'or the theme version), so its finding, or another of its type there, is listed above again. Review it, '
-            . 'and acknowledge the new key if it is still intentional.');
+            . ': what it judged has changed (its band, or the whole page for a run smell; a design token, a preset, '
+            . 'the Additional CSS, the posts-page setting or the theme version), so its finding, or another of its type '
+            . 'there, is listed above again. Review it, and acknowledge the new key if it is still intentional.');
     }
     foreach ($diagnostics['orphaned'] ?? [] as $row) {
         WP_CLI::line('  - orphaned acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
             . ': its finding is gone, so it does nothing. Remove it with wp pp check unacknowledge --post_id='
             . $post_id . ' --key=' . _pp_cli_printable((string) $row['ack_key']));
+    }
+    foreach ($diagnostics['unnoted'] ?? [] as $row) {
+        WP_CLI::line('  - ignored acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
+            . ': it carries no note, so it acknowledges nothing (it was written around `wp pp check acknowledge`, '
+            . 'which requires one). Remove it with wp pp check unacknowledge --post_id=' . $post_id . ' --key='
+            . _pp_cli_printable((string) $row['ack_key']));
     }
 }
 
@@ -2373,7 +2381,7 @@ class PP_Check_Command extends WP_CLI_Command {
      * escape hatch, the composition smells); a value that does not paint, an error or a note cannot.
      * The key is the one `wp pp check page` prints beside the finding, and it names that exact state:
      * a key for anything that has changed since is refused. The acknowledgement dies when the band, a
-     * design token, a preset or the theme version changes (#1194).
+     * design token, a preset, the Additional CSS, the posts-page setting or the theme version changes (#1194).
      *
      * ## OPTIONS
      *

@@ -1744,6 +1744,13 @@ if (!function_exists('get_template_directory_uri')) {
     }
 }
 
+if (!function_exists('get_stylesheet')) {
+    // The active theme's stylesheet slug, which names its Additional CSS post (#1194 A2).
+    function get_stylesheet(): string {
+        return 'promptingpress';
+    }
+}
+
 if (!function_exists('get_attached_file')) {
     function get_attached_file(int $attachment_id) {
         // Tests can point an attachment at a real file (#1194 A2: the acknowledgement key

@@ -3442,7 +3442,8 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
 //   GRAIN  One finding, as reported: page + band id + type + the finding's own message,
 //          which names the role, card, state and width.
 //   DEATH  The key embeds a fingerprint of the finding, the stored bytes of what it judged,
-//          the site token values and site presets, and PP_VERSION. What it judged is the
+//          whether the page is the posts page, and the site context (token values, presets,
+//          a hash of the Additional CSS, PP_VERSION). What it judged is the
 //          finding's band, except for the three run smells (pp_page_scoped_advisory_types()),
 //          which judge an ARRANGEMENT of bands and so fingerprint the whole page: they are
 //          reported on the band that completes the run, and keying them on that band alone
@@ -3457,7 +3458,12 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
 //   STORE  Post meta on the page, written only by `wp pp check acknowledge/unacknowledge`.
 //          Acknowledging refuses a key that is not a currently present finding, so an
 //          operator can only acknowledge the exact state `check page` just showed. That proves
-//          currency, not inspection; `--note` records the intent.
+//          currency, not inspection; the required `--note` records the intent, and a stored
+//          row without one (written around the command) acknowledges nothing.
+//   LIMITS The theme version is the boundary for code: a development build between releases,
+//          a child theme's stylesheet or a plugin's late CSS can change what paints without
+//          changing any key. A raw `_css` property can reach past its band, which is keyed
+//          alone. Both are disclosed, not fingerprinted.
 
 /** The post meta key holding a page's acknowledged advisories. */
 const PP_ADVISORY_ACK_META = '_pp_acknowledged_advisories';
@@ -3469,15 +3475,18 @@ const PP_ADVISORY_ACK_META = '_pp_acknowledged_advisories';
  * and the composition smells. Deliberately absent: every "value does not paint" finding
  * (`udc_*_shadowed_*`, `udc_overlay_without_image`, `udc_css_overrides_group_value`,
  * `udc_unused_band_token`), `udc_findings_capped`, errors, and the informational
- * `udc_token_minted` (which never gates in the first place). Widening this list is a gate
- * decision with its own ruling (pinned by AdvisoryAcknowledgementTest).
+ * `udc_token_minted` (which never gates in the first place). Also absent for 2.0.1:
+ * `udc_overlay_accent_off_scrim` (cycle-3 ruling B). Its judgment includes the photo behind the
+ * scrim, and four review cycles found four ways that photo escaped a hand-enumerated
+ * fingerprint; it returns only when the key reads the same compiled band the finding reads
+ * (#1211). Widening this list is a gate decision with its own ruling (pinned by
+ * AdvisoryAcknowledgementTest).
  *
  * @return string[]
  */
 function pp_acknowledgeable_finding_types(): array {
     return [
         'udc_role_ink_over_own_surface',
-        'udc_overlay_accent_off_scrim',
         'udc_css_unchecked_property',
         'empty_section',
         'hero_left_no_image',
@@ -3503,8 +3512,9 @@ function pp_page_scoped_advisory_types(): array {
 
 /**
  * The site-wide part of what an acknowledgement judged: the design-token values, the site
- * presets and the theme version (#1194, ruling D4). A change to any of them can change what a
- * band paints, so it is folded into every page's fingerprints.
+ * presets, the Additional CSS and the theme version (#1194, ruling D4, cycle-2 ruling Q2). A
+ * change to any of them can change what a band paints, so it is folded into every page's
+ * fingerprints.
  *
  * @param  string|null $version  The theme version to fingerprint; null reads PP_VERSION. A seam
  *                               so a test can prove an upgrade re-opens acknowledgements.
@@ -3515,10 +3525,11 @@ function pp_page_scoped_advisory_types(): array {
  *                               fixed. A constant stand-in digest would instead let a fresh
  *                               acknowledgement survive every later edit that stays unencodable.
  */
-function pp_advisory_ack_context(?string $version = null, ?array $tokens = null, ?array $presets = null): string {
+function pp_advisory_ack_context(?string $version = null, ?array $tokens = null, ?array $presets = null, ?string $css = null): string {
     $version = $version ?? (defined('PP_VERSION') ? (string) PP_VERSION : '');
     $tokens  = $tokens ?? pp_get_token_overrides();
     $presets = $presets ?? (function_exists('pp_udc_custom_presets') ? pp_udc_custom_presets() : []);
+    $css     = $css ?? (function_exists('wp_get_custom_css') ? (string) wp_get_custom_css() : '');
     // TOKEN ORDER IS NOT MEANING: the token map is flat custom-property => value, so a map
     // re-saved in another order renders the same and is canonicalised. PRESET ORDER IS NOT
     // canonicalised: within a preset a later placement can overwrite an earlier one
@@ -3528,7 +3539,7 @@ function pp_advisory_ack_context(?string $version = null, ?array $tokens = null,
         'presets' => $presets,
         // Additional CSS (the Customizer) prints after the theme and can restyle any band, so
         // it changes what paints (cycle-2 ruling Q2). Hashed: only whether it changed matters.
-        'css'     => hash('sha256', function_exists('wp_get_custom_css') ? (string) wp_get_custom_css() : ''),
+        'css'     => hash('sha256', $css),
         'version' => $version,
     ]);
     return $json === null ? '' : hash('sha256', $json);
@@ -3536,18 +3547,41 @@ function pp_advisory_ack_context(?string $version = null, ?array $tokens = null,
 
 /**
  * The same context, read from the DATABASE inside the composition lock (#113/#200 house rule):
- * the token and preset rows are read uncached, so a key is checked against the site state
- * stored now. Null when either read failed, which refuses the acknowledgement.
+ * the token, preset and Additional CSS rows are read uncached, so a key is checked against the
+ * site state stored now. Null when any read failed, which refuses the acknowledgement.
  */
 function _pp_advisory_ack_context_locked(): ?string {
     $wpdb   = pp_composition_db_handle();
     $tokens = _pp_read_token_overrides_locked_strict($wpdb);
     $site   = function_exists('_pp_read_site_udc_locked') ? _pp_read_site_udc_locked($wpdb) : [];
-    if ($tokens === null || $site === null) {
+    $css    = _pp_read_custom_css_locked($wpdb);
+    if ($tokens === null || $site === null || $css === null) {
         return null;
     }
     $presets = isset($site['presets']) && is_array($site['presets']) ? $site['presets'] : [];
-    return pp_advisory_ack_context(null, $tokens, $presets);
+    return pp_advisory_ack_context(null, $tokens, $presets, $css);
+}
+
+/**
+ * The Additional CSS as stored, read uncached: the active theme's `custom_css` post, found the
+ * way wp_get_custom_css_post() finds it (post_name = the stylesheet). '' when there is none; null
+ * when the read failed (#212). With no database handle (unit context) it is the cached read.
+ */
+function _pp_read_custom_css_locked($wpdb): ?string {
+    if (!is_object($wpdb) || !method_exists($wpdb, 'get_var') || !isset($wpdb->posts)
+        || !function_exists('get_stylesheet')) {
+        return function_exists('wp_get_custom_css') ? (string) wp_get_custom_css() : '';
+    }
+    $raw = $wpdb->get_var($wpdb->prepare(
+        "SELECT post_content FROM {$wpdb->posts} WHERE post_type = %s AND post_name = %s AND post_status = %s ORDER BY ID DESC LIMIT 1",
+        'custom_css',
+        sanitize_title(get_stylesheet()),
+        'publish'
+    ));
+    if (!empty($wpdb->last_error)) {
+        return null;
+    }
+    return $raw === null ? '' : (string) $raw;
 }
 
 /**
@@ -3609,21 +3643,39 @@ const PP_ADVISORY_KEY_HEX = 32;
  * @param  array       $composition  That page's stored composition.
  * @param  array       $finding      One finding from _pp_composition_findings().
  * @param  string|null $context      pp_advisory_ack_context(); null computes it.
+ * @param  string|null $page_digest  pp_advisory_page_digest() of $composition; null computes it
+ *                                   when a page-scoped type needs it.
  * @return string|null
  */
 function pp_advisory_finding_key(int $post_id, array $composition, array $finding, ?string $context = null, ?string $page_digest = null): ?string {
+    return _pp_advisory_key_or_reason($post_id, $composition, $finding, $context, $page_digest)['key'];
+}
+
+/**
+ * The key, or why there is none (#1194 A2): one computation behind both, so the reason printed
+ * beside a keyless finding is the cause that actually stopped the key.
+ *
+ * @return array{key: ?string, reason: ?string}
+ */
+function _pp_advisory_key_or_reason(int $post_id, array $composition, array $finding, ?string $context = null, ?string $page_digest = null): array {
     $type = $finding['type'] ?? null;
     if (!is_string($type) || !in_array($type, pp_acknowledgeable_finding_types(), true)
         || ($finding['severity'] ?? null) !== 'warning') {
-        return null;
+        return ['key' => null, 'reason' => sprintf('`%s` cannot be acknowledged: only judgment-call advisories can, and a '
+            . 'value that does not paint, an error or an informational note is never intentional.', is_string($type) ? $type : '')];
     }
     $band = _pp_advisory_band($composition, $finding);
     if ($band === null) {
-        return null;
+        return ['key' => null, 'reason' => 'this band has no id, so an acknowledgement would have nothing stable to belong '
+            . 'to. Write the page through `update_composition` (or any composition action), which mints an id for every '
+            . 'band, then acknowledge again.'];
     }
+    $raw_only = ' (a non-finite number or invalid UTF-8, which only a raw write can store)';
     $context = $context ?? pp_advisory_ack_context();
     if ($context === '') {
-        return null;
+        return ['key' => null, 'reason' => 'the site state cannot be fingerprinted: a design token, a preset or the '
+            . 'Additional CSS holds a value that cannot be encoded exactly' . $raw_only . '. Nothing on the site can be '
+            . 'acknowledged until that value is rewritten.'];
     }
     $page_scoped = in_array($type, pp_page_scoped_advisory_types(), true);
     if ($page_scoped) {
@@ -3631,20 +3683,11 @@ function pp_advisory_finding_key(int $post_id, array $composition, array $findin
         // re-encoded for every run finding.
         $page_digest = $page_digest ?? pp_advisory_page_digest($composition);
         if ($page_digest === '') {
-            return null;
-        }
-    }
-    $pixels = null;
-    if ($type === 'udc_overlay_accent_off_scrim') {
-        // The operator judged the accent against the PHOTO, so the photo is part of what was
-        // judged (cycle-2 ruling Q1): the file behind every attachment id the band reaches.
-        $pixels = _pp_advisory_pixels($band['band']);
-        if ($pixels === null) {
-            return null;
+            return ['key' => null, 'reason' => 'this judgment covers the whole page, and a band on it holds a value that '
+                . 'cannot be encoded exactly' . $raw_only . '. Rewrite that value, then acknowledge again.'];
         }
     }
     $json = _pp_advisory_json([
-        'pixels'     => $pixels,
         'post'       => $post_id,
         'band'       => $band['id'],
         'type'       => $type,
@@ -3657,86 +3700,10 @@ function pp_advisory_finding_key(int $post_id, array $composition, array $findin
         'context'    => $context,
     ]);
     if ($json === null) {
-        return null;
+        return ['key' => null, 'reason' => 'this band holds a value that cannot be encoded exactly' . $raw_only
+            . ', so an acknowledgement would be bound to nothing. Rewrite that value, then acknowledge again.'];
     }
-    return $type . ':' . $band['id'] . ':' . substr(hash('sha256', $json), 0, PP_ADVISORY_KEY_HEX);
-}
-
-/**
- * The files behind the images a band reaches, for the scrim judgment (#1194 A2, cycle-2 ruling
- * Q1), or null when any of them cannot be fingerprinted.
- *
- * An attachment id is an alias: WordPress's own Edit Image (crop, rotate, flip) puts a new file
- * behind the same id, so the id alone would let an acknowledgement measured over one photo pass
- * over another. Each id reached (an `image` value in the band, or in a custom preset it names)
- * contributes its attached file path, size and modification time; an id whose file cannot be
- * read fails closed. A remote or `url()` image cannot be fingerprinted at all, so any image
- * value that is not an attachment id, and any `url(` anywhere, fails closed too.
- *
- * @return array<int, array{path: string, size: int, mtime: int}>|null
- */
-function _pp_advisory_pixels(array $band): ?array {
-    $presets = function_exists('pp_udc_custom_presets') ? pp_udc_custom_presets() : [];
-    $ids     = [];
-    $seen    = [];
-    $queue   = [$band];
-    while ($queue !== []) {
-        $node = array_pop($queue);
-        foreach ($node as $key => $value) {
-            if (is_array($value)) {
-                $queue[] = $value;
-                if (is_string($key) && stripos($key, 'image') !== false) {
-                    // A breakpoint map of images ({"d": 12, "p": 13}): every leaf is an image.
-                    array_walk_recursive($value, static function ($leaf) use (&$ids) {
-                        $ids[] = $leaf;
-                    });
-                }
-                continue;
-            }
-            if (is_string($value) && stripos($value, 'url(') !== false) {
-                return null;
-            }
-            if ($key === PP_UDC_PRESET_KEY && is_string($value) && !isset($seen[$value])) {
-                $seen[$value] = true;
-                if (isset($presets[$value]) && is_array($presets[$value])) {
-                    $queue[] = $presets[$value];
-                }
-                continue;
-            }
-            if (is_string($key) && stripos($key, 'image') !== false && $value !== null && $value !== '' && $value !== false) {
-                $ids[] = $value;
-            }
-        }
-    }
-    $pixels = [];
-    foreach ($ids as $id) {
-        if (is_bool($id) || !is_scalar($id)) {
-            return null;
-        }
-        $raw = trim((string) $id);
-        if (!preg_match('/^[0-9]+\z/', $raw)) {
-            // Not an attachment id. A URL or a file path is an image whose pixels cannot be
-            // read: fail closed. Any other word under an image key (an alt text, `cover`,
-            // `center`) names no image and is ignored.
-            if (str_contains($raw, '/') || preg_match('/\.(?:jpe?g|png|gif|webp|avif|svg|bmp|tiff?)\z/i', $raw)) {
-                return null;
-            }
-            continue;
-        }
-        $path = get_attached_file((int) $id);
-        if (!is_string($path) || $path === '' || !is_file($path)) {
-            return null;
-        }
-        clearstatcache(true, $path);
-        $size  = filesize($path);
-        $mtime = filemtime($path);
-        if ($size === false || $mtime === false) {
-            return null;
-        }
-        $pixels[(int) $id] = ['path' => $path, 'size' => $size, 'mtime' => $mtime];
-    }
-    ksort($pixels);
-    return $pixels;
+    return ['key' => $type . ':' . $band['id'] . ':' . substr(hash('sha256', $json), 0, PP_ADVISORY_KEY_HEX), 'reason' => null];
 }
 
 /** Digest of a whole composition for the page-scoped types, or '' when it cannot be encoded. */
@@ -3745,27 +3712,9 @@ function pp_advisory_page_digest(array $composition): string {
     return $json === null ? '' : hash('sha256', $json);
 }
 
-/**
- * Why a finding cannot be acknowledged, for the refusal message; null when it can (#1194 A2).
- * Pass the page id to have the fingerprint itself checked too.
- */
-function pp_advisory_unkeyable_reason(array $composition, array $finding, ?int $post_id = null): ?string {
-    $type = (string) ($finding['type'] ?? '');
-    if (!in_array($type, pp_acknowledgeable_finding_types(), true)) {
-        return sprintf('`%s` cannot be acknowledged: only judgment-call advisories can, and a value that '
-            . 'does not paint, an error or an informational note is never intentional.', $type);
-    }
-    if (_pp_advisory_band($composition, $finding) === null) {
-        return 'this band has no id, so an acknowledgement would have nothing stable to belong to. '
-            . 'Write the page through `update_composition` (or any composition action), which mints '
-            . 'an id for every band, then acknowledge again.';
-    }
-    if ($post_id !== null && pp_advisory_finding_key($post_id, $composition, $finding) === null) {
-        return 'what this finding judged cannot be fingerprinted (a non-finite number, which only a raw '
-            . 'write can store, in the page, a design token or a preset), so an acknowledgement would be '
-            . 'bound to nothing. It stays a finding: rewrite the value, then acknowledge again.';
-    }
-    return null;
+/** Why a finding cannot be acknowledged; null when it can (#1194 A2). */
+function pp_advisory_unkeyable_reason(int $post_id, array $composition, array $finding): ?string {
+    return _pp_advisory_key_or_reason($post_id, $composition, $finding)['reason'];
 }
 
 /**
@@ -3774,6 +3723,16 @@ function pp_advisory_unkeyable_reason(array $composition, array $finding, ?int $
  */
 function pp_acknowledged_advisories(int $post_id): array {
     return _pp_normalize_acknowledged_advisories(get_post_meta($post_id, PP_ADVISORY_ACK_META, true));
+}
+
+/**
+ * Whether a stored row counts as an acknowledgement (cycle-3 ruling B): only with a note. The
+ * command refuses an empty note, but the key is deterministic and printed by `check page`, so a
+ * raw meta write could plant a row without one. Read-time enforcement makes such a row
+ * acknowledge nothing; it is reported as `unnoted` so it can be removed.
+ */
+function _pp_advisory_row_is_noted(array $entry): bool {
+    return trim((string) ($entry['note'] ?? '')) !== '';
 }
 
 /**
@@ -3845,17 +3804,26 @@ function _pp_advisory_key_head(string $key): string {
  *
  * Every acknowledgeable finding gains `ack_key`. A finding whose key is stored moves to
  * `acknowledged` (with `ack_note` and `ack_at`) and stops gating. A stored key that matches no
- * present finding is STALE when an unacknowledged finding of the same type on the same band is
- * present (what was judged changed, and that finding gates again) and ORPHANED otherwise (the
- * finding is gone; inert).
+ * present finding is STALE when a finding it could have judged is present and gating: the same
+ * type on the same band (on the page, for a run smell), or a keyless finding of that type there.
+ * It is ORPHANED otherwise (the finding is gone; inert). A stored row with no note acknowledges
+ * nothing and is listed as `unnoted`.
  *
  * @param  int     $post_id      The page.
  * @param  array   $composition  Its stored composition.
  * @param  array[] $smells       The warning findings.
- * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[]}
+ * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[]}
  */
 function pp_partition_acknowledged_advisories(int $post_id, array $composition, array $smells): array {
-    $stored  = pp_acknowledged_advisories($post_id);
+    $unnoted = [];
+    $stored  = [];
+    foreach (pp_acknowledged_advisories($post_id) as $key => $entry) {
+        if (_pp_advisory_row_is_noted($entry)) {
+            $stored[$key] = $entry;
+        } else {
+            $unnoted[] = ['ack_key' => $key, 'ack_note' => '', 'ack_at' => $entry['acknowledged_at']];
+        }
+    }
     $context = pp_advisory_ack_context();
     $digest  = pp_advisory_page_digest($composition);
     $active  = [];
@@ -3863,14 +3831,20 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
     $matched = [];
     $open    = [];
     foreach ($smells as $finding) {
-        $key = is_array($finding) ? pp_advisory_finding_key($post_id, $composition, $finding, $context, $digest) : null;
+        $result = is_array($finding)
+            ? _pp_advisory_key_or_reason($post_id, $composition, $finding, $context, $digest)
+            : ['key' => null, 'reason' => null];
+        $key = $result['key'];
         if ($key !== null) {
             $finding['ack_key'] = $key;
         } elseif (is_array($finding) && in_array($finding['type'] ?? null, pp_acknowledgeable_finding_types(), true)) {
-            // Present but keyless: say why, and let any acknowledgement of this type read STALE
-            // (its finding is here and gating) rather than ORPHANED ("remove it").
-            $finding['ack_unkeyable'] = (string) pp_advisory_unkeyable_reason($composition, $finding, $post_id);
-            $open[(string) $finding['type']] = true;
+            // Present but keyless: say why, and let an acknowledgement it could have judged read
+            // STALE (its finding is here and gating) rather than ORPHANED ("remove it").
+            $finding['ack_unkeyable'] = (string) $result['reason'];
+            $band  = _pp_advisory_band($composition, $finding);
+            $ftype = (string) $finding['type'];
+            $open[$band === null || in_array($ftype, pp_page_scoped_advisory_types(), true)
+                ? $ftype : $ftype . ':' . $band['id']] = true;
         }
         if ($key !== null && isset($stored[$key])) {
             $finding['ack_note'] = $stored[$key]['note'];
@@ -3898,7 +3872,7 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
             $orphaned[] = $row;
         }
     }
-    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned];
+    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned, 'unnoted' => $unnoted];
 }
 
 /**
@@ -3908,7 +3882,7 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
  *
  * @return true|WP_Error
  */
-function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
+function pp_acknowledge_advisory(int $post_id, string $key, string $note) {
     // THE NOTE IS THE INTENT RECORD (cycle-2 ruling Q4): an acknowledgement proves the state was
     // current, not that anyone looked. Without a reason it is a green light nobody can audit.
     if (trim($note) === '') {
@@ -3951,8 +3925,8 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
         }
         return new WP_Error('advisory_not_present', sprintf(
             'No acknowledgeable finding with that key is present on page %d now. The page, a design token, a '
-            . 'preset or the theme version may have changed since you read it: run `wp pp check page --post_id=%d` '
-            . 'and use a key it prints.', $post_id, $post_id));
+            . 'preset, the Additional CSS, the posts-page setting or the theme version may have changed since you '
+            . 'read it: run `wp pp check page --post_id=%d` and use a key it prints.', $post_id, $post_id));
     }, new WP_Error('composition_lock_failed', 'Could not take the page lock; nothing was written. Retry.'));
 }
 
