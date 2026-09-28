@@ -743,6 +743,15 @@ describe('informational findings on the undo card (#1194)', () => {
         expect(card.textContent).not.toMatch(/\d+ issues?/);
     });
 
+    it('a no-undo-point notice beside notes keeps the warning heading', () => {
+        const card = newCard();
+        appendUndoFindings(card, [HISTORY_NOTICE, NOTE]);
+
+        const heading = card.children[0].children[0];
+        expect(heading.className).toBe('pp-ai-step-warning');
+        expect(heading.textContent).toBe('\u26a0 Restored:');
+    });
+
     it('a truncated report with a real issue keeps the warning heading', () => {
         const card = newCard();
         const list = [{ type: 'unknown_prop', severity: 'error', message: 'bad', index: 0 }];
@@ -760,7 +769,7 @@ describe('informational findings on the undo card (#1194)', () => {
         expect(heading.textContent).toContain('1 issue');
     });
 
-    it('calls an overflow of errors and notes "issues"', () => {
+    it('counts an overflow of errors and notes apart', () => {
         const card = newCard();
         const many = [];
         for (let i = 0; i < 12; i++) {
@@ -770,10 +779,12 @@ describe('informational findings on the undo card (#1194)', () => {
         }
         appendUndoFindings(card, many);
 
-        expect(card.textContent).toMatch(/more issues/);
+        // One error is inline; the overflow holds 5 errors and 6 notes, counted apart,
+        // so the label agrees with the heading, which never counts a note as an issue.
+        expect(card.textContent).toContain('Show 5 more errors and 6 notes');
     });
 
-    it('calls an overflow of warnings and notes "issues"', () => {
+    it('counts an overflow of warnings and notes apart', () => {
         const card = newCard();
         const many = [];
         for (let i = 0; i < 12; i++) {
@@ -783,7 +794,29 @@ describe('informational findings on the undo card (#1194)', () => {
         }
         appendUndoFindings(card, many);
 
-        expect(card.textContent).toMatch(/more issues/);
+        expect(card.textContent).toContain('Show 5 more warnings and 6 notes');
+    });
+
+    it('still calls a mix of errors and warnings "issues"', () => {
+        const card = newCard();
+        const many = [];
+        for (let i = 0; i < 12; i++) {
+            many.push(i % 2 === 0
+                ? { type: 'unknown_prop', severity: 'error', message: 'bad ' + i, index: 0 }
+                : Object.assign({}, SMELL_FINDING, { index: 0 }));
+        }
+        appendUndoFindings(card, many);
+
+        expect(card.textContent).toContain('Show 11 more issues');
+    });
+
+    it('prefixes a note row with a word, not only a colour', () => {
+        const card = newCard();
+        appendUndoFindings(card, [NOTE]);
+
+        const row = card.querySelector('div.pp-ai-step-info:not(:first-child)') || card.querySelectorAll('.pp-ai-step-info')[1];
+        expect(row.textContent.startsWith('Note: ')).toBe(true);
+        expect(findingClass(SMELL_FINDING)).toBe('pp-ai-step-warning');
     });
 
     it('ignores an impossible total_info rather than hiding the issues', () => {

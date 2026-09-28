@@ -11176,8 +11176,9 @@ function pp_udc_composition_findings(array $items): array {
     ];
     // FIRST, NOT LAST (orchestrator rulings, cycles 2 and 3): every bounded report keeps its
     // head, and a row appended after its arm's 200 entries was always past the 100-entry cut.
-    // Each assembler then puts it ahead of the WHOLE report (pp_order_findings_for_delivery()),
-    // not only ahead of this engine's slice.
+    // The page assembler then puts it ahead of the WHOLE report (pp_order_findings_for_delivery());
+    // the chrome/preset report is this engine's output alone, so this order is what puts it
+    // first there (#1204).
     $capped_rows = [];
     foreach ($gating_budgets as $types => $spent) {
         if ($spent >= PP_UDC_MAX_EMIT_DROPS) {

@@ -2659,7 +2659,7 @@ function ppChatOneShotLink(link, spentLabel, run) {
  * a function rather than a fixed class makes ppChatAppendValidationItems derive the
  * disclosure summary's noun from the hidden items' severities, so an all-withheld overflow
  * now reads "Show N more warnings" and a mixed one "Show N more issues". Those are that
- * helper's own nouns (#622; #1194 added "notes" for informational findings alone), not new vocabulary, and the all-failure case — which is
+ * helper's own nouns (#622; "notes", counted apart from problems, is the one #1194 added), and the all-failure case — which is
  * every pre-#855 report and every old envelope — still reads "errors", byte for byte.
  *
  * That reuse is also a COUPLING, so it is stated rather than left to be discovered: these
@@ -3097,6 +3097,13 @@ function ppChatValidationItemRow(item, className) {
     div.className = className;
     div.textContent = ppChatBoundReflectedText(ppChatFindingLocator(item))
         + ppChatBoundReflectedText(item.message);
+    // A NOTE SAYS SO IN WORDS, not only in colour (#1194, WCAG 1.4.1): the info and
+    // warning tints differ by ~1.03:1 in luminance. A theme literal inserted as its own text
+    // node ahead of the bounded server text, so the element is still written exactly once
+    // and the #793 bound above is unchanged.
+    if (item && item.severity === 'info') {
+        div.insertBefore(document.createTextNode('Note: '), div.firstChild);
+    }
 
     return div;
 }
@@ -3138,11 +3145,10 @@ function ppChatValidationItemRow(item, className) {
  * where it used to draw five rows. The locator on each row (ppChatFindingLocator) and the
  * disclosure are what carry the rest.
  *
- * FIRST-PER-BAND IS ALSO WORST-PER-BAND, and that is inherited rather than coded here,
- * then notes (severity 'info') last (#1194: pp_order_findings_for_delivery()), which alone
- * gives first-per-band the right row. One guard IS coded here as well: a note never takes a
- * band's inline row while that band has a problem, for a payload not built by that
- * assembler (an older envelope).
+ * FIRST-PER-BAND IS ALSO WORST-PER-BAND. Worst-per-band is inherited from the server order
+ * (pp_order_findings_for_delivery(), #1194: the capped row, then errors, then advisories,
+ * then notes), plus one coded guard: a note never takes a band's row from a problem, for a
+ * payload in another order such as an older envelope.
  * _pp_composition_findings() (lib/actions.php) appends every ERROR the error engine found
  * and only then every advisory from the smell engine, so a band that has an error meets
  * this loop at that error first and the error is what takes the inline row. Picking the
@@ -3218,10 +3224,9 @@ function ppChatAppendValidationItems(container, items, className) {
             else if (item && item.severity === 'info') { hasInfo = true; }
             else { hasOther = true; }
         });
-        // A list of notes alone is "notes", never "warnings" (#1194).
-        noun = ((hasError ? 1 : 0) + (hasOther ? 1 : 0) + (hasInfo ? 1 : 0) > 1)
-            ? 'issue'
-            : (hasError ? 'error' : (hasOther ? 'warning' : 'note'));
+        // Notes are counted apart from problems (#1194), so the label agrees with the card
+        // heading, which never counts a note as an issue: "Show 1 more warning and 4 notes".
+        noun = (hasError && hasOther) ? 'issue' : (hasError ? 'error' : (hasOther ? 'warning' : 'note'));
     }
 
     shown.forEach(function (item) {
@@ -3232,7 +3237,12 @@ function ppChatAppendValidationItems(container, items, className) {
         var details = document.createElement('details');
         details.className = 'pp-ai-preview-error-detail';
         var summary = document.createElement('summary');
-        summary.textContent = 'Show ' + overflow.length + ' more ' + noun + (overflow.length === 1 ? '' : 's');
+        var noteCount = perItem ? overflow.filter(function (item) { return item && item.severity === 'info'; }).length : 0;
+        var problemCount = overflow.length - noteCount;
+        summary.textContent = (noteCount > 0 && problemCount > 0)
+            ? 'Show ' + problemCount + ' more ' + noun + (problemCount === 1 ? '' : 's')
+                + ' and ' + noteCount + ' note' + (noteCount === 1 ? '' : 's')
+            : 'Show ' + overflow.length + ' more ' + noun + (overflow.length === 1 ? '' : 's');
         details.appendChild(summary);
 
         overflow.forEach(function (item) {

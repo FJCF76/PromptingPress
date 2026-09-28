@@ -189,6 +189,20 @@ final class InformationalFindingSeverityTest extends TestCase
             'capped row first, then the gating findings in their own order, then the notes in theirs');
     }
 
+    public function testAMalformedEntryIsDeliveredWithTheGatingFindingsNotTheNotes(): void
+    {
+        $ordered = pp_order_findings_for_delivery([
+            ['type' => 'udc_token_minted', 'severity' => 'info', 'message' => 'n', 'index' => 0],
+            'not an array',
+            ['type' => 'empty_section', 'severity' => 'warning', 'message' => 'w', 'index' => 0],
+        ]);
+
+        $this->assertSame(['not an array', 'w', 'n'], array_map(
+            static fn ($f) => is_array($f) ? $f['message'] : $f,
+            $ordered
+        ), 'an unreadable entry is never promoted past a note, and never demoted behind one');
+    }
+
     public function testAPageWithManyErrorsStillDeliversTheCappedRow(): void
     {
         $findings = pp_order_findings_for_delivery(array_merge(
@@ -239,6 +253,35 @@ final class InformationalFindingSeverityTest extends TestCase
      * The info-only budget reaching its cap is NOT a gating truncation: every omitted entry
      * would have been a note, and a note never gates.
      */
+    public function testTheMintNotesHaveTheirOwnBoundOf200(): void
+    {
+        $composition = [];
+        for ($b = 0; $b < 105; $b++) {
+            $composition[] = $this->quotesBand('q' . $b, ['quote' => ['typography' => ['size' => ['d' => '19px', 'p' => '17px']]]]);
+        }
+        $diagnostics = $this->diagnose($composition);
+
+        $this->assertCount(PP_UDC_MAX_EMIT_DROPS, $diagnostics['info'], '210 mints, bounded at the cap');
+        $this->assertNotContains('udc_findings_capped', array_column($diagnostics['smells'], 'type'));
+    }
+
+    public function testTheEngineItselfPutsTheCappedRowFirst(): void
+    {
+        // The chrome/preset envelope does not reorder (#1204), so the engine's own order is
+        // what puts the capped row first there.
+        $tokens = [];
+        for ($t = 0; $t < 205; $t++) {
+            $tokens['orphan-' . $t] = '17px';
+        }
+        $findings = pp_udc_composition_findings([[
+            'component' => 'testimonials', 'id' => 'many',
+            'props'     => ['items' => [['quote' => 'Q', 'author' => 'A', 'role' => 'R', 'company' => 'C']]],
+            'udc'       => ['quote' => ['typography' => ['style' => 'italic']], '_tokens' => $tokens],
+        ]]);
+
+        $this->assertSame('udc_findings_capped', $findings[0]['type']);
+    }
+
     public function testTheMintBudgetReachingItsCapDoesNotGate(): void
     {
         $composition = [];

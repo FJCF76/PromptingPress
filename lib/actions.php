@@ -5648,12 +5648,12 @@ const PP_WRITE_FINDINGS_MAX_STORED_BYTES = 1048576;
  * `index` is null: the truncation belongs to no band, the same honest "no single band
  * owns this" the cross-item rules use (#622).
  *
- * ORDERING CONSEQUENCE, stated because it is a real limit and not a bug: findings arrive
- * errors-then-smells (see _pp_composition_findings), so a composition with more than
- * PP_WRITE_FINDINGS_BUDGET error-severity findings truncates before its advisories —
- * including inert_slot. The ratified budget is a flat per-report cap, not a per-severity
- * quota, and interleaving would change what the CLI diagnostics and restore already
- * render. A page in that state is telling the operator something louder than an advisory.
+ * ORDERING CONSEQUENCE, stated because it is a real limit and not a bug: a page's findings
+ * arrive in pp_order_findings_for_delivery() order (#1194): at most one
+ * `udc_findings_capped` per gating arm, then errors, then advisories, then `severity: info`
+ * notes. So a composition with more than PP_WRITE_FINDINGS_BUDGET error-severity findings
+ * truncates before its advisories, and the notes are always the first thing cut. The
+ * ratified budget is a flat per-report cap, not a per-severity quota. A page in that state is telling the operator something louder than an advisory.
  *
  * The pointer at the complete report names the ACTUAL page when the caller knows it, so
  * the tail is a command an operator can paste rather than one they have to fill in.
@@ -5740,8 +5740,8 @@ function _pp_bounded_findings(
         // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
         //
         // THE PROBLEM THIS CLOSES. Findings arrive errors, then smells, then the
-        // UDC engine's own disclosures (_pp_composition_findings), and this bounds
-        // by slicing the HEAD. So the disclosures are the first thing lost — and one
+        // UDC engine's own disclosures, and since #1194 the informational mint notes
+        // LAST of all (pp_order_findings_for_delivery()); this bounds by slicing the HEAD. So the disclosures are the first thing lost — and one
         // of them, `udc_token_minted`, is not an observation about the composition
         // but the §3.1 no-coercion promise itself: "you wrote 19px; it is stored as
         // a band token". On a page with more than PP_WRITE_FINDINGS_BUDGET errors,

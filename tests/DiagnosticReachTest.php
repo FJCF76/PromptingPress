@@ -520,6 +520,22 @@ class DiagnosticReachTest extends TestCase
         $this->assertLessThan(strpos($joined, '[udc_token_minted]'), strpos($joined, '[udc_unused_band_token]'));
     }
 
+    /** The error and ambiguous-targeting lines the per-page reporter prints on a failing page. */
+    public function testValidateSitePrintsErrorsAndAmbiguousTargetingOnAFailingPage(): void
+    {
+        $diagnostics = [
+            'errors'  => [['type' => 'unknown_prop', 'severity' => 'error', 'message' => 'bad', 'index' => 2]],
+            'styling' => [['component' => 'cta', 'indices' => [1, 3]]],
+            'smells'  => [],
+            'info'    => [],
+        ];
+
+        $this->assertFalse(_pp_cli_report_site_page(9, 'About', $diagnostics));
+        $this->assertSame(['Page 9 (About): 2 issue(s)'], WP_CLI::$warnings);
+        $this->assertContains('  - [unknown_prop] index 2: bad (would be rejected on write)', WP_CLI::$lines);
+        $this->assertContains('  - cta at indices 1, 3 (no authored IDs — ambiguous targeting; add explicit `id` props)', WP_CLI::$lines);
+    }
+
     /**
      * The severity split FAILS CLOSED: only exactly 'info' leaves the gate. An unknown,
      * miscased, empty or missing severity is a smell and fails the page (review cycle 1: a

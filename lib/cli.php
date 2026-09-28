@@ -1907,7 +1907,8 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  *
  * Pinned by CompositionFindingsBoundsTest so the carve-out survives with evidence
  * rather than as prose — including the exit code, which cannot move: findings arrive
- * errors-then-advisories, so bounding could never empty the `errors` bucket that
+ * in pp_order_findings_for_delivery() order (at most one capped row per gating arm, then errors,
+ * then advisories, then notes, #1194), so bounding could never empty the `errors` bucket that
  * _pp_cli_page_fails_site_validation() gates on.
  *
  * @param  array    $composition  Decoded composition array.
