@@ -543,7 +543,7 @@ class AiContextTest extends TestCase
     {
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('`card-link` `margin-top: auto` aligns a row', $prompt);
-        $this->assertStringContainsString('a length top or an auto bottom (`margin` `"auto"`, `"auto X"`) breaks that', $prompt);
+        $this->assertStringContainsString('a length top or any auto bottom (`margin: auto`, `margin-bottom: auto`) breaks that', $prompt);
         $this->assertStringContainsString('For room, raise `card-body` `spacing.gap`', $prompt);
     }
 
