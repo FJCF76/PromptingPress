@@ -92,8 +92,8 @@ never takes a page section's one visible row from a real problem.
 ## Mark a verified judgment call as intentional, so a correct site passes (#1194)
 
 **Some advisories describe a state only you can judge, and you can now say you judged it.** An ink
-set over a role's own default fill (the engine names the pair but cannot measure it), a band accent
-over a scrim, a raw `_css` property the engine does not check, and the composition smells (an empty
+set over a role's own default fill (the engine names the pair but cannot measure it), a raw `_css`
+property the engine does not check, and the composition smells (an empty
 section, a hero with no image) used to fail `wp pp validate site` for good, even after you had
 checked them. Now `wp pp check page` prints a key beside each of them, and
 `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why>"` records it as intentional, so it
@@ -102,25 +102,31 @@ stops failing the gate. The note is required: it is the record of why the state 
 
 An acknowledgement covers exactly the state you saw. It stops counting as soon as that band, a
 design token, a preset, the Additional CSS, the page's posts-page status or the theme version
-changes. For an accent over a scrim it also covers the photo itself, so editing the image in
-WordPress re-opens it. When the change happens, the finding comes back and `check page` marks
+changes. When the change happens, the finding comes back and `check page` marks
 the old acknowledgement STALE, so a changed value can never ride on an old review. A run of text
 sections (or of compact or narrow bands) is a judgment about the whole page, so its acknowledgement
 re-opens when any band on the page is added, removed, edited or moved. A fixed finding
 leaves its acknowledgement ORPHANED, listed for removal and otherwise inert. Findings that say a
 value does not paint, errors, and the list-was-cut row can never be acknowledged: a value that does
-not paint is never intentional. Something the engine cannot fingerprint (a remote image behind a
-scrim, a value only a raw write can store) gets no key and keeps failing until it is fixed.
+not paint is never intentional. Something the engine cannot fingerprint (a value only a raw write
+can store) gets no key and keeps failing until it is fixed, and `check page` says why beside it.
 
 ### Worth knowing
 
 - Acknowledgements show in `wp pp check page` and `wp pp validate site` only. A write's `findings`
   report and the chat still list an acknowledged advisory as a warning.
-- The theme version is the boundary for engine changes: a development build deployed between
-  releases does not re-open acknowledgements.
+- The theme version is the boundary for code: a development build deployed between releases, a
+  child theme's stylesheet or a plugin's late CSS can change what paints without re-opening an
+  acknowledgement.
+- A raw `_css` property can reach past its own band (a negative margin, `position`), but its
+  acknowledgement covers that band only.
+- An accent over a scrim (`udc_overlay_accent_off_scrim`) cannot be acknowledged yet: that judgment
+  includes the photo, which the key cannot yet follow reliably (#1211). It keeps failing the gate.
+- An acknowledgement row written straight into post meta without a note acknowledges nothing;
+  `check page` lists it as ignored, with the command that removes it.
 
-- For integrators: `_pp_cli_page_diagnostics()` gains `acknowledged`, `stale` and `orphaned`
-  buckets, acknowledgeable findings carry `ack_key`, and acknowledgements are stored per page in
+- For integrators: `_pp_cli_page_diagnostics()` gains `acknowledged`, `stale`, `orphaned` and
+  `unnoted` buckets, acknowledgeable findings carry `ack_key`, and acknowledgements are stored per page in
   the `_pp_acknowledged_advisories` post meta.
 
 ## Fluid `clamp()` / `calc()` lengths work in padding, margin, gap, border width and radius (#1191)
