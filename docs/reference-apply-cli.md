@@ -52,11 +52,13 @@ Read `omitted_keys` before you read anything else. **A key listed there is UNKNO
 
 One contract, all seven of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
 
-**A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Seven commands are page-addressed:
+**A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Nine commands are page-addressed:
 
 | Command | `--post_id` |
 |---|---|
 | `wp pp check page` | required |
+| `wp pp check acknowledge` | required (the finding is `--key=<key>`, never a positional) |
+| `wp pp check unacknowledge` | required (`--key=<key>`) |
 | `wp pp validate page` | required |
 | `wp pp operate inspect-composition` | required |
 | `wp pp operate patch` | required |

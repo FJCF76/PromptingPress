@@ -131,7 +131,8 @@ This checks:
      were cut off is not a verified-clean page (#1194).
 
    Like every advisory here these are accepted writes, and every one of them except the
-   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero.
+   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero, unless it
+   is one of the judgment calls you have verified and acknowledged (below).
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares — or, for a key inside an `items[]` entry, names the item and lists the fields that component's entries accept (#643). That holds for the missing-required message at both depths too, so a renamed prop OR a renamed item field is named alongside what is missing, in one message. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
@@ -149,6 +150,44 @@ wp pp validate page --post_id=42   # Rendered-HTML validation for one page (see 
 ```
 
 `wp pp check page` reports the same composition errors but never changes its exit code — it is the per-page inspector. `wp pp validate site` is the gate.
+
+### Acknowledging a judgment call you have verified (#1194)
+
+Some advisories name a state the engine cannot judge for you: an ink set over a role's own default
+fill (it names the pair but cannot measure it), a band accent over a scrim, a raw `_css` property it
+does not check, and the composition smells (an empty section, a hero with no image, a run of text
+sections). When you have checked one and it is intended (you measured the pair at 9:1, the empty
+section is a placeholder the client wants), acknowledge it so it stops failing the gate:
+
+1. `wp pp check page --post_id=<id>` prints `[key: <type>:<band>:<16 hex>]` beside each finding that
+   can be acknowledged.
+2. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why it is intentional>"` records it.
+   `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
+   `validate site` no longer fails on it.
+3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
+
+What cannot be acknowledged: an error, an informational note (it never fails anyway), and every
+finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_without_image`,
+`udc_css_overrides_group_value`, `udc_unused_band_token`) or that the list was cut
+(`udc_findings_capped`). A value that does not paint is never intentional: delete it instead.
+
+An acknowledgement covers exactly the state you saw. The key fingerprints the finding, that band's
+stored content, the site's design tokens and presets, and the theme version, so it dies when any of
+them changes:
+
+- **Stale**: the finding is still there but something it judged changed. `check page` lists the
+  acknowledgement as STALE and the finding is back among the smells, failing the gate, until you
+  review it and acknowledge its new key. A theme upgrade does this to every acknowledgement, on
+  purpose: an upgrade can change what paints.
+- **Orphaned**: the finding is gone (you fixed it). The acknowledgement does nothing; `check page`
+  lists it so you can remove it with `unacknowledge`.
+- Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
+  state.
+
+Acknowledging refuses a key that is not a finding on the page right now, so you can only acknowledge
+the state `check page` just showed you. That proves the state was current, not that anyone looked:
+the `--note` is where you record what you checked. A band written straight into post meta has no id
+and cannot be acknowledged; write the page through `update_composition`, which mints ids.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 
