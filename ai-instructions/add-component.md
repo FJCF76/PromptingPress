@@ -449,7 +449,8 @@ The nested half of that rule is #600, and it closed the last accept-at-write /
 coerce-at-render surface in the grammar. Declaring `strict` on a nested enum used to
 be a silent no-op because the gate walked top-level props only; it is now enforced by
 the same predicate, over the same one-`items[]`-level traversal the required/scalar
-rules already walk. `grid.items[].text_role` is the only nested enum shipped today.
+rules already walk. No shipped schema declares a nested enum today: `grid.items[].text_role`
+was the only one, and it retired at #1101, so the rule is live and prospective.
 Read the reach precisely: ONE `items[]` level, which is every depth the schemas
 declare. An enum nested deeper than that would not be reached, so do not declare one
 without extending the traversal in the same change.
@@ -469,9 +470,9 @@ with the same `null` / `""` sentinels. Since #738 an `array` declaration buys st
 more than that: it also requires a JSON LIST, so a keyed object is rejected too, at both
 depths and through a second shared predicate (`grid.items[].bullets` is the shipped
 nested case). Since #883 an `object` declaration buys the mirror of it: a populated JSON
-LIST is rejected too, through a third shared predicate, at both depths (`grid.items[]
-.style` is the shipped nested case; `section.panel_items[].style` was the other until
-#1023 retired it). PHP decodes
+LIST is rejected too, through a third shared predicate, at both depths (no shipped schema
+declares a nested object field today: `grid.items[].style` was the last, retired at #1101,
+and `section.panel_items[].style` went at #1023). PHP decodes
 both JSON containers to an array, so neither shape rule is free — each is a real
 predicate on top of the container check, and each has its own message. (Before #744 a
 nested container declaration bought nothing at all — `item_type` checks a nested array's
@@ -782,8 +783,8 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
       contract (Step 3); `SchemaValidationTest` rejects anything else — and the fields
       it renders into the AI catalog also satisfy their shape contracts (`values`,
       `conditionality_note`, `applies_when`, `role`)
-- [ ] *(style slots only — `grid` is the sole component that has any, so a new v2
-      component skips this item and the three below it.)*
+- [ ] *(style slots only — no shipped component has any since #1101 retired grid's, so a
+      new v2 component skips this item and the three below it.)*
       Every slot's `default` states the **effective** default — what actually renders
       with the slot unset, in the component's default configuration, at desktop (>=768px,
       the theme's desktop tier). Not the CSS fallback literal, and never a value that
