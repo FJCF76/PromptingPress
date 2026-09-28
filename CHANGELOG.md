@@ -8,6 +8,57 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.0` until the sprint close; each Sprint-4 PR adds its section here.
 
+## The AI instructions no longer tell agents to write grid props that are refused (#1193)
+
+**`AI_RULES.md`, `AI_CONTEXT.md` and `ai-instructions/composition.md` now describe the same grid
+as the schema.** On 2.0.0, the composition guide still listed `title_align`, `card_emphasis`,
+`theme` and `image_treatment` as live grid props, and `text_role` and `style` as card fields. It
+also said grid was the one component still on style slots and the only one with a live `theme`.
+All six were retired at #1101, and writing any of them is refused with `retired_prop`. An agent
+following that table wrote a refused prop.
+
+The anti-slop rule in `AI_RULES.md` allows real logos in a grid at icon scale. It pointed at the
+retired `image_treatment: "icon"` prop. It now points at the route that replaced it: size the grid's
+`card-media` role, `card-media` -> `sizing` -> `{"width": "48px", "height": "48px", "aspect-ratio":
+"auto"}` in the band's `udc` map.
+
+### What changes for you
+
+- `AI_CONTEXT.md` and `composition.md` list the same grid props: `id`, `title`, `title_accent`,
+  `eyebrow`, `subheading`, `layout`, `columns`, `items_source` (the posts-page listing, #1181) and
+  `items`, each with the six retired names and the error they get. Both say a card may carry its
+  own `udc` map, and `AI_CONTEXT.md` no longer lumps it with the engine-minted `id` as a key you
+  never author.
+- `AI_CONTEXT.md` no longer calls `image_treatment` a live prop. It also used to say that centring
+  a card through `card-body` centres the icon too. That is false: the image box sits above
+  `card-body`, not inside it. To centre an icon-sized image, set `card-media` -> `spacing`
+  `margin-left` / `margin-right` to `"auto"`. It also said the `Read more` link follows `card-body`
+  alignment; it follows `card-link` -> `sizing.align-self`.
+- The eyebrow / subheading / `title_align` section of `composition.md` now covers all six
+  header-bearing components: the pill's casing is the `eyebrow` role's `typography.transform`, and
+  the retired `title_align` routes are the ones each schema names (`header` on grid and section,
+  plus the auto side margins on grid only; `heading` on testimonials). The section migration table
+  gives the same `header` route.
+- The retired `text_role` notes now say what the schema measured: three of the four values
+  rendered, and `mono`'s route is `card-text` -> `typography.family`.
+
+### ⚠️ What breaks
+
+Nothing. This is a documentation change. The theme's behaviour and the chat AI's runtime prompt
+(`lib/ai-context.php`, which already listed grid's retired props and their routes) are unchanged.
+
+- For contributors: `StatedReasonsTest` checks that the icon-scale exception in the anti-slop rule
+  names the `` `card-media` -> `sizing` `` route in that rule's own line. Before, it checked the whole
+  file for the retired prop name.
+
+### Known issues
+
+- The documented way to keep an icon-sized card image un-cropped, `card-media` -> `_css` ->
+  `{"object-fit": "contain"}`, has no effect: it lands on the image's wrapper, not the image. The
+  icon box itself works; the image inside it is cropped to fill it (#1209).
+- The grid `header` role's own description in the schema contradicts itself about centring the
+  eyebrow pill; `header` -> `typography.align` is the route that works (#1208).
+
 ## A correct responsive site passes `wp pp validate site` again (#1194)
 
 **Setting a value per breakpoint no longer fails the site gate.** Every responsive value (a
