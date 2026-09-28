@@ -46,16 +46,27 @@ over a scrim, a raw `_css` property the engine does not check, and the compositi
 section, a hero with no image) used to fail `wp pp validate site` for good, even after you had
 checked them. Now `wp pp check page` prints a key beside each of them, and
 `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why>"` records it as intentional, so it
-stops failing the gate. `wp pp check unacknowledge` reverses it.
+stops failing the gate. The note is required: it is the record of why the state is intentional.
+`wp pp check unacknowledge` reverses it.
 
 An acknowledgement covers exactly the state you saw. It stops counting as soon as that band, a
-design token, a preset or the theme version changes: the finding comes back and `check page` marks
+design token, a preset, the Additional CSS, the page's posts-page status or the theme version
+changes. For an accent over a scrim it also covers the photo itself, so editing the image in
+WordPress re-opens it. When the change happens, the finding comes back and `check page` marks
 the old acknowledgement STALE, so a changed value can never ride on an old review. A run of text
 sections (or of compact or narrow bands) is a judgment about the whole page, so its acknowledgement
 re-opens when any band on the page is added, removed, edited or moved. A fixed finding
 leaves its acknowledgement ORPHANED, listed for removal and otherwise inert. Findings that say a
 value does not paint, errors, and the list-was-cut row can never be acknowledged: a value that does
-not paint is never intentional.
+not paint is never intentional. Something the engine cannot fingerprint (a remote image behind a
+scrim, a value only a raw write can store) gets no key and keeps failing until it is fixed.
+
+### Worth knowing
+
+- Acknowledgements show in `wp pp check page` and `wp pp validate site` only. A write's `findings`
+  report and the chat still list an acknowledged advisory as a warning.
+- The theme version is the boundary for engine changes: a development build deployed between
+  releases does not re-open acknowledgements.
 
 - For integrators: `_pp_cli_page_diagnostics()` gains `acknowledged`, `stale` and `orphaned`
   buckets, acknowledgeable findings carry `ack_key`, and acknowledgements are stored per page in

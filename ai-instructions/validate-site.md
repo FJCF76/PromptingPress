@@ -162,6 +162,8 @@ section is a placeholder the client wants), acknowledge it so it stops failing t
 1. `wp pp check page --post_id=<id>` prints `[key: <type>:<band>:<32 hex>]` beside each finding that
    can be acknowledged.
 2. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why it is intentional>"` records it.
+   The note is required: it records why this state is intentional, and it is the only record that
+   anyone checked.
    `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
    `validate site` no longer fails on it.
 3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
@@ -172,8 +174,12 @@ finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_witho
 (`udc_findings_capped`). A value that does not paint is never intentional: delete it instead.
 
 An acknowledgement covers exactly the state you saw. The key fingerprints the finding, that band's
-stored content, the site's design tokens and presets, and the theme version, so it dies when any of
-them changes. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
+stored content, the site's design tokens, presets and Additional CSS (the Customizer), whether the
+page is the posts page, and the theme version, so it dies when any of them changes. For a scrim
+judgment (`udc_overlay_accent_off_scrim`) the photo is part of what you judged: the key also covers
+the file behind each attachment id, so editing the image in WordPress (crop, rotate, flip) re-opens
+it. A remote or `url()` image, or an attachment whose file cannot be read, gets no key for that
+finding. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
 `consecutive_narrow_width`) judges the arrangement of the page, so its key fingerprints every band on
 the page: adding, removing, editing or reordering any band re-opens it. A value that cannot be
 fingerprinted (a non-finite number, which only a raw write can store) gets no key, so its finding
@@ -186,7 +192,9 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
 - **Stale**: the finding is still there but something it judged changed. `check page` lists the
   acknowledgement as STALE and the finding is back among the smells, failing the gate, until you
   review it and acknowledge its new key. A theme upgrade does this to every acknowledgement, on
-  purpose: an upgrade can change what paints.
+  purpose: an upgrade can change what paints. The theme version is the boundary: a development
+  build deployed between releases can change what paints without changing the version, and it does
+  not re-open anything.
 - **Orphaned**: the finding is gone (you fixed it). The acknowledgement does nothing; `check page`
   lists it so you can remove it with `unacknowledge`.
 - Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
