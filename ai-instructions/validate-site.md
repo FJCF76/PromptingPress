@@ -159,7 +159,7 @@ does not check, and the composition smells (an empty section, a hero with no ima
 sections). When you have checked one and it is intended (you measured the pair at 9:1, the empty
 section is a placeholder the client wants), acknowledge it so it stops failing the gate:
 
-1. `wp pp check page --post_id=<id>` prints `[key: <type>:<band>:<16 hex>]` beside each finding that
+1. `wp pp check page --post_id=<id>` prints `[key: <type>:<band>:<32 hex>]` beside each finding that
    can be acknowledged.
 2. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why it is intentional>"` records it.
    `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
@@ -173,7 +173,11 @@ finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_witho
 
 An acknowledgement covers exactly the state you saw. The key fingerprints the finding, that band's
 stored content, the site's design tokens and presets, and the theme version, so it dies when any of
-them changes:
+them changes. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
+`consecutive_narrow_width`) judges the arrangement of the page, so its key fingerprints every band on
+the page: adding, removing, editing or reordering any band re-opens it. A value that cannot be
+fingerprinted (a non-finite number, which only a raw write can store) gets no key, so its finding
+keeps failing until you rewrite the value.
 
 - **Stale**: the finding is still there but something it judged changed. `check page` lists the
   acknowledgement as STALE and the finding is back among the smells, failing the gate, until you

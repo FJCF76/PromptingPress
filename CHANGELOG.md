@@ -50,7 +50,9 @@ stops failing the gate. `wp pp check unacknowledge` reverses it.
 
 An acknowledgement covers exactly the state you saw. It stops counting as soon as that band, a
 design token, a preset or the theme version changes: the finding comes back and `check page` marks
-the old acknowledgement STALE, so a changed value can never ride on an old review. A fixed finding
+the old acknowledgement STALE, so a changed value can never ride on an old review. A run of text
+sections (or of compact or narrow bands) is a judgment about the whole page, so its acknowledgement
+re-opens when any band on the page is added, removed, edited or moved. A fixed finding
 leaves its acknowledgement ORPHANED, listed for removal and otherwise inert. Findings that say a
 value does not paint, errors, and the list-was-cut row can never be acknowledged: a value that does
 not paint is never intentional.
