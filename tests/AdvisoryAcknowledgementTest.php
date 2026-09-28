@@ -5,8 +5,8 @@
  * Acknowledgement exists for VERIFIED-INTENTIONAL states (judgment calls). A value that does
  * not paint is never intentional, so it never acknowledges. One acknowledgement covers one
  * finding as reported, and it dies with the state it judged: its key embeds a fingerprint of
- * the finding, that band's stored bytes, the site tokens and presets and the theme version,
- * so any change to what was judged re-opens it (STALE); a fixed finding leaves it ORPHANED
+ * the finding, that band's stored bytes (the whole page for a run smell), the site tokens, udc
+ * map, Additional CSS and front-page settings and the theme version, so any change to what was judged re-opens it (STALE); a fixed finding leaves it ORPHANED
  * and inert. Acknowledging refuses a key that is not a currently present finding, so an
  * operator can only acknowledge the exact state `check page` just showed.
  *

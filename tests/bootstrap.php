@@ -1753,8 +1753,9 @@ if (!function_exists('get_stylesheet')) {
 
 if (!function_exists('get_attached_file')) {
     function get_attached_file(int $attachment_id) {
-        // Tests can point an attachment at a real file (#1194 A2: the acknowledgement key
-        // fingerprints the pixels behind an id) via ['attached_file'][$id]; false models core's
+        // Tests can point an attachment at a real file via ['attached_file'][$id] (#1194 A2: the
+        // scrim descope pin proves a readable photo still mints no key; #1211 will need it too);
+        // false models core's
         // answer for an attachment with no file.
         if (array_key_exists($attachment_id, $GLOBALS['_pp_test_store']['attached_file'] ?? [])) {
             return $GLOBALS['_pp_test_store']['attached_file'][$attachment_id];

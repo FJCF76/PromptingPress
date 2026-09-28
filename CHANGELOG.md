@@ -97,12 +97,13 @@ property the engine does not check, and the composition smells (an empty
 section, a hero with no image) used to fail `wp pp validate site` for good, even after you had
 checked them. Now `wp pp check page` prints a key beside each of them, and
 `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why>"` records it as intentional, so it
-stops failing the gate. The note is required: it is the record of why the state is intentional.
+stops failing the gate. The note is required (up to 500 bytes): it is the record of why the state
+is intentional.
 `wp pp check unacknowledge` reverses it.
 
 An acknowledgement covers exactly the state you saw. It stops counting as soon as that band, a
-design token, a preset, the Additional CSS, the page's posts-page status or the theme version
-changes. When the change happens, the finding comes back and `check page` marks
+design token, the site's presets or header and footer chrome, the Additional CSS, the front-page
+settings or the theme version changes. When the change happens, the finding comes back and `check page` marks
 the old acknowledgement STALE, so a changed value can never ride on an old review. A run of text
 sections (or of compact or narrow bands) is a judgment about the whole page, so its acknowledgement
 re-opens when any band on the page is added, removed, edited or moved. A fixed finding
@@ -120,6 +121,10 @@ can store) gets no key and keeps failing until it is fixed, and `check page` say
   acknowledgement.
 - A raw `_css` property can reach past its own band (a negative margin, `position`), but its
   acknowledgement covers that band only.
+- An acknowledgement can re-open without its band changing: some findings name a render budget in
+  their message, and that text can change when earlier bands change. Stricter, never looser.
+- An orphaned acknowledgement is inert, but it counts again if the exact acknowledged bytes return
+  (a history restore or an undo). Remove it with `wp pp check unacknowledge` when you no longer want it.
 - An accent over a scrim (`udc_overlay_accent_off_scrim`) cannot be acknowledged yet: that judgment
   includes the photo, which the key cannot yet follow reliably (#1211). It keeps failing the gate.
 - An acknowledgement row written straight into post meta without a note acknowledges nothing;

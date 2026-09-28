@@ -163,7 +163,8 @@ section is a placeholder the client wants), acknowledge it so it stops failing t
    can be acknowledged.
 2. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why it is intentional>"` records it.
    The note is required: it records why this state is intentional, and it is the only record that
-   anyone checked.
+   anyone checked. It is stored up to 500 bytes; a note that is blank once cut and trimmed
+   (whitespace or invisible characters only) is refused.
    `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
    `validate site` no longer fails on it.
 3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
@@ -177,8 +178,11 @@ includes the photo, which the key cannot yet follow reliably (#1211). Fix it by 
 `typography.color` yourself, as the finding says.
 
 An acknowledgement covers exactly the state you saw. The key fingerprints the finding, that band's
-stored content, the site's design tokens, presets and Additional CSS (the Customizer), whether the
-page is the posts page, and the theme version, so it dies when any of them changes. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
+stored content, the site's design tokens, its site udc map (presets and the header and footer
+chrome), the Additional CSS (the Customizer), the front-page settings (which page is the posts page)
+and the theme version, so it dies when any of them changes. The finding's own message is part of
+what it judged, and a message that names a render budget can change when earlier bands change, so an
+acknowledgement can re-open without its band changing: stricter, never looser. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
 `consecutive_narrow_width`) judges the arrangement of the page, so its key fingerprints every band on
 the page: adding, removing, editing or reordering any band re-opens it. A value that cannot be
 fingerprinted (a non-finite number or invalid UTF-8, which only a raw write can store) gets no key, so its finding
@@ -195,8 +199,9 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
   build deployed between releases, a child theme's stylesheet or a plugin's late CSS can change what
   paints without changing any key, and they do not re-open anything. A raw `_css` property can reach
   past its own band (a negative margin, `position`), but its acknowledgement covers that band only.
-- **Orphaned**: the finding is gone (you fixed it). The acknowledgement does nothing; `check page`
-  lists it so you can remove it with `unacknowledge`.
+- **Orphaned**: the finding is gone (you fixed it). The acknowledgement is inert now, but it counts
+  again if these exact bytes return (a history restore, an undo); `check page` lists it so you can
+  remove it with `unacknowledge`.
 - Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
   state.
 
@@ -204,7 +209,8 @@ Acknowledging refuses a key that is not a finding on the page right now, so you 
 the state `check page` just showed you. That proves the state was current, not that anyone looked:
 the required `--note` is where you record what you checked. An acknowledgement row written straight
 into post meta without a note acknowledges nothing; `check page` lists it as ignored, with the
-command that removes it. A band written straight into post meta has no id
+command that removes it. A band with neither a minted `id` nor an authored `props.id` (for example
+one written straight into post meta without them) has no id
 and cannot be acknowledged; write the page through `update_composition`, which mints ids.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
