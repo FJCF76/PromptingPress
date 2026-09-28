@@ -50,13 +50,15 @@ Read `omitted_keys` before you read anything else. **A key listed there is UNKNO
 
 ## How every `wp pp` command addresses a page (#685, #726)
 
-One contract, all seven of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
+One contract, all nine of them, for the same reason as the JSON above: you should not have to learn which third of the CLI you are talking to.
 
-**A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Seven commands are page-addressed:
+**A page is addressed by `--post_id=<id>` and nothing else.** No positional argument, no slug, no URL. Nine commands are page-addressed:
 
 | Command | `--post_id` |
 |---|---|
 | `wp pp check page` | required |
+| `wp pp check acknowledge` | required (the finding is `--key=<key>`, never a positional) |
+| `wp pp check unacknowledge` | required (`--key=<key>`) |
 | `wp pp validate page` | required |
 | `wp pp operate inspect-composition` | required |
 | `wp pp operate patch` | required |
@@ -83,7 +85,7 @@ Invalid --post_id "about-us" for `wp pp check page`. Pages are addressed by nume
 
 Before 1.15.13 the second and third cases both answered `--post_id is required.` for a flag that was on the command line, which sent an agent looking for a flag it had already passed.
 
-**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all seven. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
+**A positional page argument is refused before dispatch, with the corrected command.** WP-CLI's own `Too many positional arguments: 234` never names the flag, so a `before_run_command` hook replaces that refusal on all nine. It replaces the page-addressing refusal specifically, not every positional error these commands can raise:
 
 ```
 `wp pp check page` takes no positional page argument (got "234").
@@ -845,7 +847,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
 | `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
-Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable.
+Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`).
 
 ### `wp pp readiness status` (read-only)
 

@@ -22,7 +22,7 @@ This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
 2. **Composition styling (ambiguous targeting)** — duplicate component types without authored IDs (auto-generated `pp-<hex8>` ids do not count as stable). Duplicate authored IDs (two components sharing the same `id`) are reported under item 5 as an error-severity `duplicate_component_id` finding, plus the matching advisory smell for state that predates the rule.
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
-4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section` and the hero/layout/wall-of-text advisories. **`transparent_fill` and `inert_slot` no longer exist** — both read a declared field off a style slot, and the style-slot engine was retired at #1101, so the pass that produced them is deleted rather than dormant. The accepted-stored-ignored failure `inert_slot` existed for is reported by the UDC engine now, on the surface that has it (`udc_band_value_shadowed_by_role_default` and its siblings). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. The one exception is a finding at `severity: info` (only `udc_token_minted`, #1194): it explains something the engine did for you, asks for nothing, is printed as an informational note, and never fails the gate. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause. Since #687 the accepted write that set the slot carries the same advisory in its own `findings`, so on the CLI you can catch it in that edit instead of in a later sweep. Chat and the dashboard editor do not surface it yet, so if you author there, this command is still where you find out.
+4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section` and the hero/layout/wall-of-text advisories. **`transparent_fill` and `inert_slot` no longer exist** — both read a declared field off a style slot, and the style-slot engine was retired at #1101, so the pass that produced them is deleted rather than dormant. The accepted-stored-ignored failure `inert_slot` existed for is reported by the UDC engine now, on the surface that has it (`udc_band_value_shadowed_by_role_default` and its siblings). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. The one exception is a finding at `severity: info` (only `udc_token_minted`, #1194): it explains something the engine did for you, asks for nothing, is printed as an informational note, and never fails the gate. A judgment-call advisory you have verified and acknowledged stops failing it too; see "Acknowledging a judgment call you have verified" below. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause. Since #687 the accepted write that set the slot carries the same advisory in its own `findings`, so on the CLI you can catch it in that edit instead of in a later sweep. Chat and the dashboard editor do not surface it yet, so if you author there, this command is still where you find out.
 
    **The `udc` advisories are the v2 half of this list, and they are the ones worth
    learning, because a `udc` write that lands and paints nothing is otherwise invisible:**
@@ -131,7 +131,8 @@ This checks:
      were cut off is not a verified-clean page (#1194).
 
    Like every advisory here these are accepted writes, and every one of them except the
-   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero.
+   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero, unless it
+   is one of the judgment calls you have verified and acknowledged (below).
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares — or, for a key inside an `items[]` entry, names the item and lists the fields that component's entries accept (#643). That holds for the missing-required message at both depths too, so a renamed prop OR a renamed item field is named alongside what is missing, in one message. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
@@ -149,6 +150,68 @@ wp pp validate page --post_id=42   # Rendered-HTML validation for one page (see 
 ```
 
 `wp pp check page` reports the same composition errors but never changes its exit code — it is the per-page inspector. `wp pp validate site` is the gate.
+
+### Acknowledging a judgment call you have verified (#1194)
+
+Some advisories name a state the engine cannot judge for you: an ink set over a role's own default
+fill (it names the pair but cannot measure it), a raw `_css` property it does not check, and the
+composition smells (an empty section, a hero with no image, a run of text
+sections). When you have checked one and it is intended (you measured the pair at 9:1, the empty
+section is a placeholder the client wants), acknowledge it so it stops failing the gate:
+
+1. `wp pp check page --post_id=<id>` prints `[key: <type>:<band>:<32 hex>]` beside each finding that
+   can be acknowledged.
+2. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why it is intentional>"` records it.
+   The note is required: it records why this state is intentional, and it is the only record that
+   anyone checked. It is stored up to 500 bytes; a note that is blank once cut and trimmed
+   (whitespace or invisible characters only) is refused.
+   `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
+   `validate site` no longer fails on it.
+3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
+
+What cannot be acknowledged: an error, an informational note (it never fails anyway), and every
+finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_without_image`,
+`udc_css_overrides_group_value`, `udc_unused_band_token`) or that the list was cut
+(`udc_findings_capped`). A value that does not paint is never intentional: delete it instead. An
+accent over a scrim (`udc_overlay_accent_off_scrim`) cannot be acknowledged yet either: that judgment
+includes the photo, which the key cannot yet follow reliably (#1211). Fix it by setting the accent's
+`typography.color` yourself, as the finding says.
+
+An acknowledgement covers exactly the state you saw. The key fingerprints the finding, that band's
+stored content, the site's design tokens, its site udc map (presets and the header and footer
+chrome), the Additional CSS (the Customizer), the front-page settings (which page is the posts page)
+and the theme version, so it dies when any of them changes. The finding's own message is part of
+what it judged, and a message that names a render budget can change when earlier bands change, so an
+acknowledgement can re-open without its band changing: stricter, never looser. A run smell (`consecutive_text_sections`, `consecutive_compact_spacing`,
+`consecutive_narrow_width`) judges the arrangement of the page, so its key fingerprints every band on
+the page: adding, removing, editing or reordering any band re-opens it. A value that cannot be
+fingerprinted (a non-finite number or invalid UTF-8, which only a raw write can store) gets no key, so its finding
+keeps failing until you rewrite the value. A finding that can be acknowledged but has no key says
+why beside it in `check page` (`[no key: ...]`).
+
+Acknowledgements are read only by `wp pp check page` and `wp pp validate site`. A write's `findings`
+report, `operate inspect` and the chat still list an acknowledged advisory as a warning.
+
+- **Stale**: the finding is still there but something it judged changed. `check page` lists the
+  acknowledgement as STALE and the finding is back among the smells, failing the gate, until you
+  review it and acknowledge its new key. A theme upgrade does this to every acknowledgement, on
+  purpose: an upgrade can change what paints. The theme version is the boundary: a development
+  build deployed between releases, a child theme's stylesheet or a plugin's late CSS can change what
+  paints without changing any key, and they do not re-open anything. A raw `_css` property can reach
+  past its own band (a negative margin, `position`), but its acknowledgement covers that band only.
+- **Orphaned**: the finding is gone (you fixed it). The acknowledgement is inert now, but it counts
+  again if these exact bytes return (a history restore, an undo); `check page` lists it so you can
+  remove it with `unacknowledge`.
+- Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
+  state.
+
+Acknowledging refuses a key that is not a finding on the page right now, so you can only acknowledge
+the state `check page` just showed you. That proves the state was current, not that anyone looked:
+the required `--note` is where you record what you checked. An acknowledgement row written straight
+into post meta without a note acknowledges nothing; `check page` lists it as ignored, with the
+command that removes it. A band with neither a minted `id` nor an authored `props.id` (for example
+one written straight into post meta without them) has no id
+and cannot be acknowledged; write the page through `update_composition`, which mints ids.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 

@@ -571,6 +571,14 @@ if (!function_exists('update_post_meta')) {
         // to wp_slash() a wp_json_encode()'d payload loses its backslashes,
         // exactly as in production (#471). Paired with the wp_slash() stub
         // below, a correctly wp_slash()'d write is a net no-op.
+        //
+        // Test-controlled write refusal (#1194 A2), the post-meta twin of
+        // $GLOBALS['_pp_test_unwritable_options']: set
+        // $GLOBALS['_pp_test_unwritable_meta'][$key] = true to get the FALSE return a failed
+        // core write gives, WITHOUT storing the value. Opt-in and test-scoped.
+        if (!empty($GLOBALS['_pp_test_unwritable_meta'][$key])) {
+            return false;
+        }
         $GLOBALS['_pp_test_store']['post_meta'][$post_id][$key] = wp_unslash($value);
         return true;
     }
@@ -1736,8 +1744,22 @@ if (!function_exists('get_template_directory_uri')) {
     }
 }
 
+if (!function_exists('get_stylesheet')) {
+    // The active theme's stylesheet slug, which names its Additional CSS post (#1194 A2).
+    function get_stylesheet(): string {
+        return 'promptingpress';
+    }
+}
+
 if (!function_exists('get_attached_file')) {
-    function get_attached_file(int $attachment_id): string {
+    function get_attached_file(int $attachment_id) {
+        // Tests can point an attachment at a real file via ['attached_file'][$id] (#1194 A2: the
+        // scrim descope pin proves a readable photo still mints no key; #1211 will need it too);
+        // false models core's
+        // answer for an attachment with no file.
+        if (array_key_exists($attachment_id, $GLOBALS['_pp_test_store']['attached_file'] ?? [])) {
+            return $GLOBALS['_pp_test_store']['attached_file'][$attachment_id];
+        }
         return '/var/www/wp-content/uploads/image-' . $attachment_id . '.jpg';
     }
 }

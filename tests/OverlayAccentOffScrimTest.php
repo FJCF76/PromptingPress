@@ -597,10 +597,12 @@ final class OverlayAccentOffScrimTest extends TestCase
         }
         sort($promising);
         $this->assertSame(['AI_CONTEXT.md', 'ai-instructions/add-component.md', 'ai-instructions/build-landing-page.md', 'ai-instructions/style-component.md',
-            'ai-instructions/validate-site.md', 'lib/ai-context.php', 'lib/udc.php'], $promising);
+            'ai-instructions/validate-site.md', 'lib/ai-context.php', 'lib/operate.php', 'lib/udc.php'], $promising);
         // EVERY mention, not the file: each one must carry the limit within the same passage.
+        // lib/operate.php names the type only in the acknowledgeable-types list (#1194 A2), which is
+        // code, not a promise to an author, so it is exempt like the engine itself.
         $checked = 0;
-        foreach (array_diff($promising, ['lib/udc.php']) as $doc) {
+        foreach (array_diff($promising, ['lib/udc.php', 'lib/operate.php']) as $doc) {
             $text   = (string) file_get_contents($root . '/' . $doc);
             $offset = 0;
             while (($at = strpos($text, 'udc_role_ink_over_own_surface', $offset)) !== false) {
