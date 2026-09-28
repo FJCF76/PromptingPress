@@ -150,7 +150,10 @@ because `box-shadow: 0 50%` is not valid CSS. And `clamp()`/`calc()` are accepte
 
 Negative values are allowed only where the property takes them — letter-spacing and margins yes;
 padding, sizes, radii and gaps no. `padding`, `margin`, `border.width` and `border.radius` take one
-to four space-separated lengths; everything else takes a single value.
+to four space-separated lengths, `gap` takes one or two, and `border.style` takes one to four
+keywords; everything else takes a single value. A `clamp()`/`calc()` counts as ONE value wherever
+it sits in a list — the spaces inside its parentheses do not separate values — so
+`"0 clamp(1.5rem, 1rem + 2vw, 3rem)"` is a two-value padding.
 
 Colours are hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, `transparent` or `currentColor`. Named colours
 are refused.
