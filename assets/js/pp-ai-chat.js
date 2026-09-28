@@ -2153,7 +2153,7 @@ function ppChatUndoFindingsTotal(findings, tail, historyNotice) {
         // `total` are notes, most of which are past the budget and cannot be counted here.
         // An IMPOSSIBLE total_info (more notes than findings) is ignored rather than trusted:
         // the count fails closed toward "more issues", never open toward zero.
-        var totalInfo = (typeof tail.total_info === 'number' && tail.total_info > 0 && tail.total_info <= tail.total)
+        var totalInfo = (Number.isInteger(tail.total_info) && tail.total_info > 0 && tail.total_info <= tail.total)
             ? tail.total_info : 0;
         return { total: tail.total - totalInfo, shown: shown, truncated: true };
     }

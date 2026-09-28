@@ -845,6 +845,7 @@ describe('informational findings on the undo card (#1194)', () => {
         const one = [{ type: 'unknown_prop', severity: 'error', message: 'b', index: 0 }];
         expect(undoFindingsTotal(one.concat([tail])).total).toBe(500);
         expect(undoFindingsTotal(one.concat([Object.assign({}, tail, { total_info: 'many' })])).total).toBe(500);
+        expect(undoFindingsTotal(one.concat([Object.assign({}, tail, { total_info: 4.5 })])).total).toBe(500);
     });
 
     it('names an overflow of notes alone "notes"', () => {
