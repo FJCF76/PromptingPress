@@ -1431,6 +1431,344 @@ test.describe('Safe-surface rendered proof', () => {
     }
   });
 
+  // #1195: a card's content stacks from the TOP of its body. A cards row stretches every
+  // card to the tallest one, so a short card has free height inside `.grid__item-body`.
+  // Before #1195 both `.grid__item-text` and `.grid__item-bullets` took `flex: 1`, so that
+  // free height was split between the two blocks: the paragraph's box grew, and the
+  // checklist of a short pricing card sat far below its one-line description. The only
+  // thing that should collect the free height is the link's `margin-top: auto`, which
+  // keeps the links of a row on one line.
+  //
+  // MEASURED FROM GLYPHS, NOT BOXES. The defect stretches the paragraph's BOX, so the
+  // box-to-box gap between the paragraph and the list reads the same before and after —
+  // a box-only pin passes on the broken stylesheet. The gap that moved is the one a
+  // reader sees: from the last line of text to the first checklist line. The reference
+  // is the card with the LEAST slack in its row (the one that sized the row), so the
+  // test compares the cards with each other rather than against a pixel constant that
+  // would move with the font.
+  test('#1195 card text and checklist stack from the top; the link alone takes the free height @smoke', async ({
+    page,
+  }) => {
+    pageId = createPage('E2E Grid Card Body Stacking');
+    setComposition(pageId, [{ component: 'section', props: { id: 'pp-seed', body: '<p>Seed.</p>' } }]);
+    await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
+    await page.waitForSelector('#pp-ai-messages', { timeout: 10000 });
+    const res = await updateComposition(page, pageId, [
+      {
+        component: 'grid',
+        props: {
+          id: 'pp-grid01',
+          title: 'Pricing',
+          items: [
+            { title: 'Starter', text: 'For one site.', bullets: ['One site', 'Email support', 'Monthly billing'], link_url: '/x', link_text: 'Choose Starter' },
+            {
+              title: 'Pro',
+              text: 'For growing teams that ship several sites and want priority help when something breaks.',
+              bullets: ['Five sites', 'Priority support', 'Shared design tokens', 'Staging environment', 'Annual billing'],
+              link_url: '/x',
+              link_text: 'Choose Pro',
+            },
+            {
+              title: 'Enterprise',
+              text:
+                'For organisations that need a dedicated contact, custom onboarding, security review, single '
+                + 'sign-on, audit logging, an uptime commitment in writing, and invoicing that fits their '
+                + 'procurement process rather than ours.',
+              bullets: ['Unlimited sites', 'Dedicated contact'],
+              link_url: '/x',
+              link_text: 'Talk to sales',
+            },
+          ],
+        },
+      },
+      {
+        // The stressed row: the tall card is text-only, one card has NO link (nothing
+        // may take its free height, so it must stay below the content), one is
+        // bullets-only.
+        component: 'grid',
+        props: {
+          id: 'pp-grid02',
+          title: 'Stress',
+          items: [
+            {
+              title: 'Text only',
+              text:
+                'A card with a long paragraph and a link but no checklist at all, written long enough '
+                + 'to wrap across many lines so that this card sizes the whole row at every width that '
+                + 'shows the three cards side by side, which leaves the other two cards with free height.',
+              link_url: '/x',
+              link_text: 'Read more',
+            },
+            { title: 'No link', text: 'Text and bullets, no link underneath.', bullets: ['Alpha', 'Beta'] },
+            { title: 'Bullets only', bullets: ['First point', 'Second point'], link_url: '/x', link_text: 'Read more' },
+          ],
+        },
+      },
+      {
+        // The authored route the fix opens: on a card with NO link, `card-body` ->
+        // `layout.justify` now places the content, because the text and the checklist
+        // no longer soak up the free height. Its neighbour is the same card unstyled,
+        // which must keep the content at the top (the counter-direction in one scene).
+        component: 'grid',
+        props: {
+          id: 'pp-grid03',
+          title: 'Justified',
+          items: [
+            {
+              title: 'Sizes the row',
+              text:
+                'A long paragraph that wraps across many lines so that this card is the tallest in '
+                + 'the row at every width that shows the three cards side by side, which leaves the '
+                + 'other two cards with free height inside their bodies to place.',
+              link_url: '/x',
+              link_text: 'Read more',
+            },
+            {
+              title: 'Bottom',
+              text: 'Justified to the end.',
+              bullets: ['Alpha', 'Beta'],
+              udc: { 'card-body': { layout: { justify: 'flex-end' } } },
+            },
+            { title: 'Top', text: 'Left at the default.', bullets: ['Alpha', 'Beta'] },
+          ],
+        },
+      },
+      // The link's `margin-top: auto` is now what aligns a row's links, and an authored
+      // `card-link` margin replaces it (role values emit unlayered, above the stylesheet).
+      // The disclosed rule: aligned while the link's top margin is auto and its bottom is not.
+      // Each scene below is one two-card row (short card + tall card) with one authored map.
+      ...([
+        { 'card-link': { spacing: { 'margin-top': 'auto' } } }, // aligned
+        { 'card-link': { spacing: { 'margin-top': '@space-md' } } }, // broken: a length top
+        { 'card-link': { spacing: { margin: 'auto -5px 0' } } }, // aligned: the safe spelling
+        { 'card-link': { spacing: { margin: 'auto -5px' } } }, // broken: an auto bottom
+        { 'card-body': { spacing: { gap: '@space-lg' } } }, // aligned: the documented cure
+        { 'card-link': { spacing: { 'margin-bottom': 'auto' } } }, // broken: the auto-bottom longhand
+        { list: { layout: { align: 'start' } } }, // the row stops stretching its cards
+      ] as const).map((udc, i) => ({
+        component: 'grid',
+        props: {
+          id: `pp-grid0${4 + i}`,
+          title: `Link scene ${i}`,
+          items: [
+            { title: 'Starter', text: 'For one site.', bullets: ['One site', 'Email support'], link_url: '/x', link_text: 'Choose Starter' },
+            {
+              title: 'Pro',
+              text: 'For growing teams that ship several sites and want priority help when something breaks.',
+              bullets: ['Five sites', 'Priority support', 'Shared design tokens', 'Staging environment', 'Annual billing'],
+              link_url: '/x',
+              link_text: 'Choose Pro',
+            },
+          ],
+        },
+        udc,
+      })),
+      {
+        // The steps layout renders its cards through the same body, so it gets the same
+        // top stacking (the badge is the body's first child there).
+        component: 'grid',
+        props: {
+          id: 'pp-steps',
+          title: 'Steps',
+          layout: 'steps',
+          items: [
+            { title: 'Plan', text: 'Short.', bullets: ['One', 'Two'], link_url: '/x', link_text: 'Read more' },
+            {
+              title: 'Build',
+              text: 'A much longer step description that wraps across several lines so this card sizes the row and leaves the others with spare height.',
+              bullets: ['One', 'Two', 'Three', 'Four'],
+              link_url: '/x',
+              link_text: 'Read more',
+            },
+            { title: 'Ship', text: 'Short.', bullets: ['One'], link_url: '/x', link_text: 'Read more' },
+          ],
+        },
+      },
+    ]);
+    expect(res.success, `stacking write: ${JSON.stringify(res)}`).toBe(true);
+
+    type CardGeometry = {
+      textGlyphBottom: number | null; // bottom of the paragraph's last line of glyphs
+      textBoxSlack: number | null; // paragraph box height minus its glyph run height
+      textLineHeight: number | null; // the paragraph's computed line-height in px
+      bulletsBoxSlack: number | null; // checklist box height minus its glyph run height
+      bulletsLineHeight: number | null; // the checklist's computed line-height in px
+      firstBulletTop: number | null;
+      contentBottom: number; // bottom of the last content block's glyphs (bullets, else text)
+      linkTop: number | null;
+      linkBottom: number | null;
+      bodyContentBottom: number; // body border box bottom minus its bottom padding
+      textGrow: string | null;
+      bulletsGrow: string | null;
+      bodyRowGap: string; // the card body's computed row gap (the documented cure sets it)
+      linkMargins: string | null; // the link's computed margin top/right/bottom/left
+    };
+    const geometry = (band: string) =>
+      page.locator(`#${band}`).evaluate((el) =>
+        Array.from(el.querySelectorAll('.grid__item')).map((card) => {
+          const glyphs = (node: Element) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+            return rects.length === 0
+              ? null
+              : { top: Math.min(...rects.map((r) => r.top)), bottom: Math.max(...rects.map((r) => r.bottom)) };
+          };
+          const text = card.querySelector('.grid__item-text');
+          const bullets = card.querySelector('.grid__item-bullets');
+          const firstBullet = card.querySelector('.grid__item-bullet');
+          const link = card.querySelector('.grid__item-link');
+          const body = card.querySelector('.grid__item-body') as HTMLElement;
+          const textGlyphs = text ? glyphs(text) : null;
+          const bulletGlyphs = bullets ? glyphs(bullets) : null;
+          const lastGlyphs = bulletGlyphs ?? textGlyphs;
+          const bodyRect = body.getBoundingClientRect();
+          const bodyCs = getComputedStyle(body);
+          return {
+            textGlyphBottom: textGlyphs ? textGlyphs.bottom : null,
+            textBoxSlack: text && textGlyphs ? text.getBoundingClientRect().height - (textGlyphs.bottom - textGlyphs.top) : null,
+            textLineHeight: text ? parseFloat(getComputedStyle(text).lineHeight) : null,
+            bulletsBoxSlack: bullets && bulletGlyphs ? bullets.getBoundingClientRect().height - (bulletGlyphs.bottom - bulletGlyphs.top) : null,
+            bulletsLineHeight: bullets ? parseFloat(getComputedStyle(bullets).lineHeight) : null,
+            firstBulletTop: firstBullet ? (glyphs(firstBullet)?.top ?? null) : null,
+            contentBottom: lastGlyphs ? lastGlyphs.bottom : bodyRect.top,
+            linkTop: link ? link.getBoundingClientRect().top : null,
+            linkBottom: link ? link.getBoundingClientRect().bottom : null,
+            bodyContentBottom: bodyRect.bottom - parseFloat(bodyCs.paddingBottom) - parseFloat(bodyCs.borderBottomWidth),
+            textGrow: text ? getComputedStyle(text).flexGrow : null,
+            bulletsGrow: bullets ? getComputedStyle(bullets).flexGrow : null,
+            bodyRowGap: bodyCs.rowGap,
+            linkMargins: link
+              ? (() => { const l = getComputedStyle(link); return [l.marginTop, l.marginRight, l.marginBottom, l.marginLeft].join(' '); })()
+              : null,
+          };
+        }),
+      ) as Promise<CardGeometry[]>;
+
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?page_id=${pageId}`);
+      await expect(page.locator('#pp-grid01 .grid__item')).toHaveCount(3, { timeout: 10000 });
+
+      const pricing = await geometry('pp-grid01');
+      const stress = await geometry('pp-grid02');
+      const justified = await geometry('pp-grid03');
+      const linkScenes = await Promise.all([4, 5, 6, 7, 8, 9, 10].map((n) => geometry(`pp-grid0${n}`)));
+      const steps = await geometry('pp-steps');
+
+      // The paragraph box hugs its glyphs: no stretched, empty tail under the text. The
+      // glyph run is the font's content area, so a hugging box still exceeds it by the
+      // half-leading of one line (~7px at the default 1.68 line-height); a stretched one
+      // exceeded it by 92.75px on the broken stylesheet. Less than ONE line-height of
+      // slack means no empty line under the text.
+      // The checklist box likewise: on the broken stylesheet its glyphs sat at the top of
+      // a stretched list box, so a glyph-bottom measurement alone could not see it.
+      for (const c of [...pricing, ...stress, ...justified, ...steps]) {
+        if (c.textBoxSlack !== null) {
+          expect(c.textLineHeight, `line-height is measurable @${width}`).toBeGreaterThan(0);
+          expect(c.textBoxSlack, `paragraph box hugs its text @${width}`).toBeLessThan(c.textLineHeight as number);
+        }
+        if (c.bulletsBoxSlack !== null) {
+          expect(c.bulletsLineHeight, `checklist line-height is measurable @${width}`).toBeGreaterThan(0);
+          expect(c.bulletsBoxSlack, `checklist box hugs its lines @${width}`).toBeLessThan(c.bulletsLineHeight as number);
+        }
+      }
+
+      // Text-to-checklist distance is the SAME on every card, measured glyph to glyph.
+      // The reference is the pricing card with the least room between its content and
+      // its link, i.e. the card that sized the row and so has no free height to misplace.
+      const slack = pricing.map((c) => (c.linkTop as number) - c.contentBottom);
+      const ref = pricing[slack.indexOf(Math.min(...slack))];
+      const refGap = (ref.firstBulletTop as number) - (ref.textGlyphBottom as number);
+      expect(refGap, `reference gap is a real measurement @${width}`).toBeGreaterThan(0);
+      const stressNoLink = stress[1];
+      for (const [label, c] of [['Starter', pricing[0]], ['Pro', pricing[1]], ['Enterprise', pricing[2]], ['No link', stressNoLink]] as const) {
+        const gap = (c.firstBulletTop as number) - (c.textGlyphBottom as number);
+        expect(Math.abs(gap - refGap), `${label}: text-to-checklist ${gap}px vs reference ${refGap}px @${width}`).toBeLessThan(2);
+      }
+
+      // The steps layout stacks the same way: text-to-checklist equal on every step card.
+      const stepGaps = steps.map((c) => (c.firstBulletTop as number) - (c.textGlyphBottom as number));
+      for (const g of stepGaps) {
+        expect(g, `steps: a real text-to-checklist gap @${width}`).toBeGreaterThan(0);
+        expect(Math.abs(g - stepGaps[1]), `steps: text-to-checklist ${g}px vs the tall step ${stepGaps[1]}px @${width}`).toBeLessThan(2);
+      }
+
+      // The link keeps `margin-top: auto`: every link sits at its body's content bottom,
+      // so the links of a row line up.
+      for (const c of [...pricing, stress[0], stress[2]]) {
+        expect(Math.abs((c.linkBottom as number) - c.bodyContentBottom), `link at the body bottom @${width}`).toBeLessThan(1.5);
+      }
+
+      if (width === 1280) {
+        // The row is really equal-height, so the scene really has free height to place:
+        // the short pricing card's free height sits ABOVE its link, not inside its content.
+        expect(slack[0], 'Starter has free height between its checklist and its link @1280').toBeGreaterThan(60);
+        // The links of the row are on ONE line (each at its own body bottom is not enough:
+        // a row that stopped stretching its cards would keep that and lose this).
+        const linkBottoms = pricing.map((c) => c.linkBottom as number);
+        expect(Math.max(...linkBottoms) - Math.min(...linkBottoms), 'the pricing row\'s links line up @1280').toBeLessThan(1.5);
+        // And a card with no link leaves its free height BELOW its content (the checklist
+        // box check above is what proves the free height is not inside the list).
+        expect(
+          stressNoLink.bodyContentBottom - stressNoLink.contentBottom,
+          'the no-link card keeps its free height below the checklist @1280',
+        ).toBeGreaterThan(60);
+        // Bullets-only: the checklist sits right under the title, then the free height,
+        // then the link.
+        expect((stress[2].linkTop as number) - stress[2].contentBottom, 'bullets-only card free height above its link @1280').toBeGreaterThan(60);
+
+        // `card-body` -> `layout.justify: flex-end` on a no-link card moves the content to
+        // the bottom of the body (within the checklist's half-leading) ...
+        expect(
+          justified[1].bodyContentBottom - justified[1].contentBottom,
+          'card-body justify flex-end puts a no-link card\'s content at the body bottom @1280',
+        ).toBeLessThan(justified[1].bulletsLineHeight as number);
+        // ... while the unstyled neighbour keeps it at the top, with the free height below.
+        expect(
+          justified[2].bodyContentBottom - justified[2].contentBottom,
+          'the unstyled neighbour keeps its content at the top @1280',
+        ).toBeGreaterThan(60);
+
+        // The disclosed rule, scene by scene: aligned rows keep every link at its body
+        // bottom; in a broken row the SHORT card's link leaves the bottom (the tall one has
+        // no spare height, so it cannot show the break).
+        // Scene 6 is different in kind: the row stops stretching, so each link still sits at
+        // its OWN body bottom, and what breaks is the line-up ACROSS the row.
+        const aligned = [true, false, true, false, true, false];
+        const unstretched = linkScenes[6].map((c) => c.linkBottom as number);
+        expect(Math.max(...unstretched) - Math.min(...unstretched), 'a row that stops stretching loses the link line-up @1280').toBeGreaterThan(40);
+        // The aligned scenes pass by default too, so each also proves its value LANDED: the
+        // safe shorthand keeps the -5px inline pair and a zero bottom (its top computes to
+        // the used auto margin, a length, so it is not compared), and the cure really
+        // widens the body's gap from @space-sm (8px) to @space-lg (32px).
+        for (const c of linkScenes[2]) {
+          const [, right, bottom, left] = (c.linkMargins as string).split(' ');
+          expect([right, bottom, left], 'the safe shorthand keeps the -5px pair and a zero bottom @1280').toEqual(['-5px', '0px', '-5px']);
+        }
+        expect(linkScenes[0][0].bodyRowGap, 'the unstyled body gap is @space-sm @1280').toBe('8px');
+        expect(linkScenes[4][0].bodyRowGap, 'the documented cure widens the body gap @1280').toBe('32px');
+        linkScenes.slice(0, 6).forEach((row, i) => {
+          const off = row[0].bodyContentBottom - (row[0].linkBottom as number);
+          if (aligned[i]) {
+            for (const c of row) {
+              expect(Math.abs((c.linkBottom as number) - c.bodyContentBottom), `link scene ${i}: link at the body bottom @1280`).toBeLessThan(1.5);
+            }
+          } else {
+            expect(off, `link scene ${i}: the short card's link no longer reaches the bottom @1280`).toBeGreaterThan(40);
+          }
+        });
+      }
+
+      // The declaration half, asserted LAST so the geometry above is what goes red first
+      // on a regression: neither block claims free height.
+      for (const c of [...pricing, ...stress]) {
+        if (c.textGrow !== null) expect(c.textGrow, `text flex-grow @${width}`).toBe('0');
+        if (c.bulletsGrow !== null) expect(c.bulletsGrow, `bullets flex-grow @${width}`).toBe('0');
+      }
+    }
+  });
+
   // #467: heading letter-spacing is tokenized (--letter-spacing-heading, default
   // -0.03em). The static TypographyRoleTest proves the h1-h6 rule routes through the
   // token; only getComputedStyle proves the browser renders it once the cascade applies,

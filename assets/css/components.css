@@ -1656,15 +1656,16 @@
   flex: 1;
 }
 
-.grid__item-text {
-  flex: 1;
-}
-
+/* CARD CONTENT STACKS FROM THE TOP (issue 1195). A cards row stretches every card to the
+   tallest one, so a short card has free height inside the body. By default only the
+   link's `margin-top: auto` below takes it, which keeps the links of a row on one line.
+   The paragraph and the checklist used to carry `flex: 1` as well, which split the free
+   height into them: a short pricing card's checklist sat far below its one-line text.
+   Neither declares a flex size now, so both keep their content height. */
 .grid__item-bullets {
   list-style: none;
   display: flex;
   flex-direction: column;
-  flex: 1;
 }
 
 /* The containing block for the shared check-mark glyph, which is absolutely positioned
