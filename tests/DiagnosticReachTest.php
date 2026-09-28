@@ -601,10 +601,16 @@ class DiagnosticReachTest extends TestCase
             $this->assertStringContainsString('needs --key=<key>', $e->getMessage());
         }
         try {
-            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => 'udc_role_ink_over_own_surface:steps:00000000000000000000000000000000']);
+            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => 'udc_role_ink_over_own_surface:steps:00000000000000000000000000000000', 'note' => 'n']);
             $this->fail('an unknown key must be refused');
         } catch (WpCliExitException $e) {
             $this->assertStringContainsString('wp pp check page --post_id=' . $id, $e->getMessage());
+        }
+        try {
+            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => $this->inkKeyOf($id)]);
+            $this->fail('a missing --note must be refused');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('record why this state is intentional', $e->getMessage());
         }
         $this->assertSame([], pp_acknowledged_advisories($id), 'nothing was written');
     }
@@ -613,7 +619,7 @@ class DiagnosticReachTest extends TestCase
     {
         $id  = $this->inkPage();
         $key = $this->inkKeyOf($id);
-        (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => $key]);
+        (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => $key, 'note' => 'reviewed']);
 
         (new PP_Check_Command())->unacknowledge([], ['post_id' => (string) $id, 'key' => $key]);
         $this->assertStringContainsString('Removed acknowledgement ' . $key, WP_CLI::$successes[1]);

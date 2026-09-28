@@ -800,6 +800,123 @@ final class AdvisoryAcknowledgementTest extends TestCase
             'the reason (and its update_composition route) reaches the operator');
     }
 
+    // ── Cycle-2 ruling (Q1-Q4) ─────────────────────────────────────────────────────
+
+    /** A cta band whose light scrim over attachment 9001 raises udc_overlay_accent_off_scrim. */
+    private function scrimPage(array $extraProps = []): int
+    {
+        $GLOBALS['_pp_test_store']['posts'][9001]               = ['post_type' => 'attachment'];
+        $GLOBALS['_pp_test_store']['attachment_is_image'][9001] = true;
+        $this->photo = tempnam(sys_get_temp_dir(), 'pp-ack-photo');
+        file_put_contents($this->photo, 'photo A');
+        $GLOBALS['_pp_test_store']['attached_file'][9001] = $this->photo;
+        return $this->page([[
+            'component' => 'cta',
+            'udc'       => ['_band' => ['background' => ['image' => 9001, 'overlay' => 'rgba(255,255,255,0.8)']]],
+            'props'     => ['id' => 'offer', 'title' => 'C', 'title_accent' => 'A', 'button_text' => 'Go', 'button_url' => '/x'] + $extraProps,
+        ]]);
+    }
+
+    private ?string $photo = null;
+
+    private function scrimFinding(int $id): array
+    {
+        foreach ($this->diagnostics($id)['smells'] as $finding) {
+            if ($finding['type'] === 'udc_overlay_accent_off_scrim') {
+                return $finding;
+            }
+        }
+        $this->fail('the fixture must raise udc_overlay_accent_off_scrim');
+    }
+
+    public function testEditingThePhotoBehindAnAttachmentIdReopensTheScrimJudgment(): void
+    {
+        try {
+            $id  = $this->scrimPage();
+            $key = $this->scrimFinding($id)['ack_key'] ?? null;
+            $this->assertIsString($key, 'premise: a resolvable attachment keys');
+            $this->assertTrue(pp_acknowledge_advisory($id, $key, 'measured over photo A'));
+
+            // WordPress's Edit Image writes a new file behind the same id.
+            $edited = $this->photo . '-e1727000000';
+            file_put_contents($edited, 'photo B, cropped');
+            $GLOBALS['_pp_test_store']['attached_file'][9001] = $edited;
+
+            $d = $this->diagnostics($id);
+            $this->assertSame([$key], array_column($d['stale'], 'ack_key'), 'the pixels judged are gone');
+            $this->assertTrue(_pp_cli_page_fails_site_validation($d));
+            @unlink($edited);
+        } finally {
+            @unlink((string) $this->photo);
+        }
+    }
+
+    public function testRewritingThePhotoInPlaceReopensIt(): void
+    {
+        try {
+            $id  = $this->scrimPage();
+            $key = $this->scrimFinding($id)['ack_key'];
+            pp_acknowledge_advisory($id, $key, 'n');
+            file_put_contents((string) $this->photo, 'a different, longer photo');
+            clearstatcache();
+
+            $this->assertNotSame($key, $this->scrimFinding($id)['ack_key'] ?? null);
+        } finally {
+            @unlink((string) $this->photo);
+        }
+    }
+
+    public function testAnAttachmentWithNoFileMintsNoScrimKey(): void
+    {
+        try {
+            $id = $this->scrimPage();
+            $GLOBALS['_pp_test_store']['attached_file'][9001] = false;
+            $this->assertArrayNotHasKey('ack_key', $this->scrimFinding($id), 'unresolvable pixels bind nothing');
+        } finally {
+            @unlink((string) $this->photo);
+        }
+    }
+
+    public function testARemoteImageMintsNoScrimKey(): void
+    {
+        try {
+            $id = $this->scrimPage(['image_url' => 'https://cdn.example.com/hero.jpg']);
+            $this->assertArrayNotHasKey('ack_key', $this->scrimFinding($id), 'a remote image\'s pixels cannot be fingerprinted');
+        } finally {
+            @unlink((string) $this->photo);
+        }
+    }
+
+    public function testAWordUnderAnImageKeyIsNotAnImage(): void
+    {
+        try {
+            $id = $this->scrimPage(['image_alt' => 'A team at work']);
+            $this->assertArrayHasKey('ack_key', $this->scrimFinding($id), 'alt text names no image, so it does not block the key');
+        } finally {
+            @unlink((string) $this->photo);
+        }
+    }
+
+    public function testAdditionalCssIsPartOfTheSiteContext(): void
+    {
+        $before = pp_advisory_ack_context();
+        $GLOBALS['_pp_test_store']['custom_css'] = '[data-pp-band] .cta__title-accent { color: #fff; }';
+        $this->assertNotSame($before, pp_advisory_ack_context(), 'Additional CSS changes what paints');
+    }
+
+    public function testANoteIsRequiredAndTheRefusalSaysWhatItIsFor(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        foreach (['', "  \t "] as $note) {
+            $result = pp_acknowledge_advisory($id, $key, $note);
+            $this->assertInstanceOf(WP_Error::class, $result);
+            $this->assertSame('acknowledgement_note_required', $result->get_error_code());
+            $this->assertStringContainsString('record why this state is intentional', $result->get_error_message());
+        }
+        $this->assertSame([], pp_acknowledged_advisories($id), 'nothing was written');
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────
 
     private function inkFinding(int $id): array

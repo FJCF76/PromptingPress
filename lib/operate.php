@@ -3526,6 +3526,9 @@ function pp_advisory_ack_context(?string $version = null, ?array $tokens = null,
     $json = _pp_advisory_json([
         'tokens'  => _pp_advisory_canonical($tokens),
         'presets' => $presets,
+        // Additional CSS (the Customizer) prints after the theme and can restyle any band, so
+        // it changes what paints (cycle-2 ruling Q2). Hashed: only whether it changed matters.
+        'css'     => hash('sha256', function_exists('wp_get_custom_css') ? (string) wp_get_custom_css() : ''),
         'version' => $version,
     ]);
     return $json === null ? '' : hash('sha256', $json);
@@ -3631,7 +3634,17 @@ function pp_advisory_finding_key(int $post_id, array $composition, array $findin
             return null;
         }
     }
+    $pixels = null;
+    if ($type === 'udc_overlay_accent_off_scrim') {
+        // The operator judged the accent against the PHOTO, so the photo is part of what was
+        // judged (cycle-2 ruling Q1): the file behind every attachment id the band reaches.
+        $pixels = _pp_advisory_pixels($band['band']);
+        if ($pixels === null) {
+            return null;
+        }
+    }
     $json = _pp_advisory_json([
+        'pixels'     => $pixels,
         'post'       => $post_id,
         'band'       => $band['id'],
         'type'       => $type,
@@ -3647,6 +3660,83 @@ function pp_advisory_finding_key(int $post_id, array $composition, array $findin
         return null;
     }
     return $type . ':' . $band['id'] . ':' . substr(hash('sha256', $json), 0, PP_ADVISORY_KEY_HEX);
+}
+
+/**
+ * The files behind the images a band reaches, for the scrim judgment (#1194 A2, cycle-2 ruling
+ * Q1), or null when any of them cannot be fingerprinted.
+ *
+ * An attachment id is an alias: WordPress's own Edit Image (crop, rotate, flip) puts a new file
+ * behind the same id, so the id alone would let an acknowledgement measured over one photo pass
+ * over another. Each id reached (an `image` value in the band, or in a custom preset it names)
+ * contributes its attached file path, size and modification time; an id whose file cannot be
+ * read fails closed. A remote or `url()` image cannot be fingerprinted at all, so any image
+ * value that is not an attachment id, and any `url(` anywhere, fails closed too.
+ *
+ * @return array<int, array{path: string, size: int, mtime: int}>|null
+ */
+function _pp_advisory_pixels(array $band): ?array {
+    $presets = function_exists('pp_udc_custom_presets') ? pp_udc_custom_presets() : [];
+    $ids     = [];
+    $seen    = [];
+    $queue   = [$band];
+    while ($queue !== []) {
+        $node = array_pop($queue);
+        foreach ($node as $key => $value) {
+            if (is_array($value)) {
+                $queue[] = $value;
+                if (is_string($key) && stripos($key, 'image') !== false) {
+                    // A breakpoint map of images ({"d": 12, "p": 13}): every leaf is an image.
+                    array_walk_recursive($value, static function ($leaf) use (&$ids) {
+                        $ids[] = $leaf;
+                    });
+                }
+                continue;
+            }
+            if (is_string($value) && stripos($value, 'url(') !== false) {
+                return null;
+            }
+            if ($key === PP_UDC_PRESET_KEY && is_string($value) && !isset($seen[$value])) {
+                $seen[$value] = true;
+                if (isset($presets[$value]) && is_array($presets[$value])) {
+                    $queue[] = $presets[$value];
+                }
+                continue;
+            }
+            if (is_string($key) && stripos($key, 'image') !== false && $value !== null && $value !== '' && $value !== false) {
+                $ids[] = $value;
+            }
+        }
+    }
+    $pixels = [];
+    foreach ($ids as $id) {
+        if (is_bool($id) || !is_scalar($id)) {
+            return null;
+        }
+        $raw = trim((string) $id);
+        if (!preg_match('/^[0-9]+\z/', $raw)) {
+            // Not an attachment id. A URL or a file path is an image whose pixels cannot be
+            // read: fail closed. Any other word under an image key (an alt text, `cover`,
+            // `center`) names no image and is ignored.
+            if (str_contains($raw, '/') || preg_match('/\.(?:jpe?g|png|gif|webp|avif|svg|bmp|tiff?)\z/i', $raw)) {
+                return null;
+            }
+            continue;
+        }
+        $path = get_attached_file((int) $id);
+        if (!is_string($path) || $path === '' || !is_file($path)) {
+            return null;
+        }
+        clearstatcache(true, $path);
+        $size  = filesize($path);
+        $mtime = filemtime($path);
+        if ($size === false || $mtime === false) {
+            return null;
+        }
+        $pixels[(int) $id] = ['path' => $path, 'size' => $size, 'mtime' => $mtime];
+    }
+    ksort($pixels);
+    return $pixels;
 }
 
 /** Digest of a whole composition for the page-scoped types, or '' when it cannot be encoded. */
@@ -3819,6 +3909,13 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
  * @return true|WP_Error
  */
 function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
+    // THE NOTE IS THE INTENT RECORD (cycle-2 ruling Q4): an acknowledgement proves the state was
+    // current, not that anyone looked. Without a reason it is a green light nobody can audit.
+    if (trim($note) === '') {
+        return new WP_Error('acknowledgement_note_required',
+            'A note is required: record why this state is intentional (what you measured or checked, and '
+            . 'why it is meant to be this way), so the acknowledgement can be audited later. Pass it with --note="...".');
+    }
     return _pp_with_composition_lock($post_id, static function () use ($post_id, $key, $note) {
         // Authoritative reads inside the lock (#113/#200): the key is checked against what is
         // stored now, not against a copy cached before the lock.

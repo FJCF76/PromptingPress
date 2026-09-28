@@ -2383,8 +2383,9 @@ class PP_Check_Command extends WP_CLI_Command {
      * --key=<key>
      * : The key `wp pp check page` prints beside the finding, for example consecutive_text_sections:about:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.
      *
-     * [--note=<note>]
-     * : Why it is intentional, recorded beside the acknowledgement (for example the measured contrast).
+     * --note=<note>
+     * : Required. Record why this state is intentional (for example the measured contrast), so the
+     * acknowledgement can be audited.
      *
      * ## EXAMPLES
      *

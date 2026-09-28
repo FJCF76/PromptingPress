@@ -1745,7 +1745,13 @@ if (!function_exists('get_template_directory_uri')) {
 }
 
 if (!function_exists('get_attached_file')) {
-    function get_attached_file(int $attachment_id): string {
+    function get_attached_file(int $attachment_id) {
+        // Tests can point an attachment at a real file (#1194 A2: the acknowledgement key
+        // fingerprints the pixels behind an id) via ['attached_file'][$id]; false models core's
+        // answer for an attachment with no file.
+        if (array_key_exists($attachment_id, $GLOBALS['_pp_test_store']['attached_file'] ?? [])) {
+            return $GLOBALS['_pp_test_store']['attached_file'][$attachment_id];
+        }
         return '/var/www/wp-content/uploads/image-' . $attachment_id . '.jpg';
     }
 }
