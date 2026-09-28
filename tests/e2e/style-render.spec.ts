@@ -1543,6 +1543,8 @@ test.describe('Safe-surface rendered proof', () => {
         { 'card-link': { spacing: { margin: 'auto -5px 0' } } }, // aligned: the safe spelling
         { 'card-link': { spacing: { margin: 'auto -5px' } } }, // broken: an auto bottom
         { 'card-body': { spacing: { gap: '@space-lg' } } }, // aligned: the documented cure
+        { 'card-link': { spacing: { 'margin-bottom': 'auto' } } }, // broken: the auto-bottom longhand
+        { list: { layout: { align: 'start' } } }, // the row stops stretching its cards
       ] as const).map((udc, i) => ({
         component: 'grid',
         props: {
@@ -1561,6 +1563,27 @@ test.describe('Safe-surface rendered proof', () => {
         },
         udc,
       })),
+      {
+        // The steps layout renders its cards through the same body, so it gets the same
+        // top stacking (the badge is the body's first child there).
+        component: 'grid',
+        props: {
+          id: 'pp-steps',
+          title: 'Steps',
+          layout: 'steps',
+          items: [
+            { title: 'Plan', text: 'Short.', bullets: ['One', 'Two'], link_url: '/x', link_text: 'Read more' },
+            {
+              title: 'Build',
+              text: 'A much longer step description that wraps across several lines so this card sizes the row and leaves the others with spare height.',
+              bullets: ['One', 'Two', 'Three', 'Four'],
+              link_url: '/x',
+              link_text: 'Read more',
+            },
+            { title: 'Ship', text: 'Short.', bullets: ['One'], link_url: '/x', link_text: 'Read more' },
+          ],
+        },
+      },
     ]);
     expect(res.success, `stacking write: ${JSON.stringify(res)}`).toBe(true);
 
@@ -1630,7 +1653,8 @@ test.describe('Safe-surface rendered proof', () => {
       const pricing = await geometry('pp-grid01');
       const stress = await geometry('pp-grid02');
       const justified = await geometry('pp-grid03');
-      const linkScenes = await Promise.all([4, 5, 6, 7, 8].map((n) => geometry(`pp-grid0${n}`)));
+      const linkScenes = await Promise.all([4, 5, 6, 7, 8, 9, 10].map((n) => geometry(`pp-grid0${n}`)));
+      const steps = await geometry('pp-steps');
 
       // The paragraph box hugs its glyphs: no stretched, empty tail under the text. The
       // glyph run is the font's content area, so a hugging box still exceeds it by the
@@ -1639,7 +1663,7 @@ test.describe('Safe-surface rendered proof', () => {
       // slack means no empty line under the text.
       // The checklist box likewise: on the broken stylesheet its glyphs sat at the top of
       // a stretched list box, so a glyph-bottom measurement alone could not see it.
-      for (const c of [...pricing, ...stress, ...justified]) {
+      for (const c of [...pricing, ...stress, ...justified, ...steps]) {
         if (c.textBoxSlack !== null) {
           expect(c.textLineHeight, `line-height is measurable @${width}`).toBeGreaterThan(0);
           expect(c.textBoxSlack, `paragraph box hugs its text @${width}`).toBeLessThan(c.textLineHeight as number);
@@ -1661,6 +1685,13 @@ test.describe('Safe-surface rendered proof', () => {
       for (const [label, c] of [['Starter', pricing[0]], ['Pro', pricing[1]], ['Enterprise', pricing[2]], ['No link', stressNoLink]] as const) {
         const gap = (c.firstBulletTop as number) - (c.textGlyphBottom as number);
         expect(Math.abs(gap - refGap), `${label}: text-to-checklist ${gap}px vs reference ${refGap}px @${width}`).toBeLessThan(2);
+      }
+
+      // The steps layout stacks the same way: text-to-checklist equal on every step card.
+      const stepGaps = steps.map((c) => (c.firstBulletTop as number) - (c.textGlyphBottom as number));
+      for (const g of stepGaps) {
+        expect(g, `steps: a real text-to-checklist gap @${width}`).toBeGreaterThan(0);
+        expect(Math.abs(g - stepGaps[1]), `steps: text-to-checklist ${g}px vs the tall step ${stepGaps[1]}px @${width}`).toBeLessThan(2);
       }
 
       // The link keeps `margin-top: auto`: every link sits at its body's content bottom,
@@ -1702,7 +1733,11 @@ test.describe('Safe-surface rendered proof', () => {
         // The disclosed rule, scene by scene: aligned rows keep every link at its body
         // bottom; in a broken row the SHORT card's link leaves the bottom (the tall one has
         // no spare height, so it cannot show the break).
-        const aligned = [true, false, true, false, true];
+        // Scene 6 is different in kind: the row stops stretching, so each link still sits at
+        // its OWN body bottom, and what breaks is the line-up ACROSS the row.
+        const aligned = [true, false, true, false, true, false];
+        const unstretched = linkScenes[6].map((c) => c.linkBottom as number);
+        expect(Math.max(...unstretched) - Math.min(...unstretched), 'a row that stops stretching loses the link line-up @1280').toBeGreaterThan(40);
         // The aligned scenes pass by default too, so each also proves its value LANDED: the
         // safe shorthand keeps the -5px inline pair and a zero bottom (its top computes to
         // the used auto margin, a length, so it is not compared), and the cure really
@@ -1713,7 +1748,7 @@ test.describe('Safe-surface rendered proof', () => {
         }
         expect(linkScenes[0][0].bodyRowGap, 'the unstyled body gap is @space-sm @1280').toBe('8px');
         expect(linkScenes[4][0].bodyRowGap, 'the documented cure widens the body gap @1280').toBe('32px');
-        linkScenes.forEach((row, i) => {
+        linkScenes.slice(0, 6).forEach((row, i) => {
           const off = row[0].bodyContentBottom - (row[0].linkBottom as number);
           if (aligned[i]) {
             for (const c of row) {
