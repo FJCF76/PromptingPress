@@ -38,6 +38,27 @@ never takes a page section's one visible row from a real problem.
   entry carries `total_info` (how many of its `total` are informational), and there is a new
   finding type, `udc_findings_capped`.
 
+## Mark a verified judgment call as intentional, so a correct site passes (#1194)
+
+**Some advisories describe a state only you can judge, and you can now say you judged it.** An ink
+set over a role's own default fill (the engine names the pair but cannot measure it), a band accent
+over a scrim, a raw `_css` property the engine does not check, and the composition smells (an empty
+section, a hero with no image) used to fail `wp pp validate site` for good, even after you had
+checked them. Now `wp pp check page` prints a key beside each of them, and
+`wp pp check acknowledge --post_id=<id> --key=<key> --note="<why>"` records it as intentional, so it
+stops failing the gate. `wp pp check unacknowledge` reverses it.
+
+An acknowledgement covers exactly the state you saw. It stops counting as soon as that band, a
+design token, a preset or the theme version changes: the finding comes back and `check page` marks
+the old acknowledgement STALE, so a changed value can never ride on an old review. A fixed finding
+leaves its acknowledgement ORPHANED, listed for removal and otherwise inert. Findings that say a
+value does not paint, errors, and the list-was-cut row can never be acknowledged: a value that does
+not paint is never intentional.
+
+- For integrators: `_pp_cli_page_diagnostics()` gains `acknowledged`, `stale` and `orphaned`
+  buckets, acknowledgeable findings carry `ack_key`, and acknowledgements are stored per page in
+  the `_pp_acknowledged_advisories` post meta.
+
 ## `wp pp schema` now shows each role's defaults (#1192)
 
 **You can read what every part of a component looks like before you style it, without opening the
