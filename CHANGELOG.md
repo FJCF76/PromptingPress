@@ -49,6 +49,43 @@ Nothing. Every value that was accepted before is still accepted, and still paint
 - No length value has a size limit, so a very long value is stored and checked again on every page
   view (#1199).
 
+## `wp pp schema` now shows each role's defaults (#1192)
+
+**You can read what every part of a component looks like before you style it, without opening the
+theme's files.** `wp pp schema <component>` now prints each role's `defaults`: the values that part
+renders with when you write nothing, per screen width and per state (hover, keyboard focus, pressed).
+The instructions already said the report printed them; now it does.
+
+Defaults decide things you have to plan around: a role's own default beats a preset you apply to it,
+and a part that ships its own background keeps it when you darken the band. Before, an agent working
+over SSH or in the chat found those out only from the findings after a write. Now it can see them in
+the report first, in the same shape you write a `udc` map in, with `@token` references as written.
+
+### Fixed
+
+- `wp pp schema <component>` reports `roles[].defaults` for every role that has defaults (a role with
+  none leaves the key out). For every shipped component, what it prints is exactly what the page
+  renders with nothing authored, and a test checks it against the CSS the engine emits.
+- A role whose `defaults` are malformed (a key that is not one of its groups or parameters, a value
+  spanning several lines) is now reported as `unreportable` with the reason, instead of passing the
+  schema check. The report prints literal characters, so it only prints defaults that passed that
+  check, and a rejected key with unusual characters is named as `(unreportable key)`. No shipped
+  component is affected.
+
+### Docs
+
+- The style instructions' "Reading `defaults` in a report" section describes the map the report
+  actually prints. The old section described a single desktop `default` value from the 1.x styling
+  system.
+- The CLI reference, `AI_CONTEXT.md`, the operating loop, the composition and add-component guides
+  and the `wp pp schema` help text all list `defaults` among the role fields.
+
+### Tests
+
+- The report is checked against the declared defaults and against the engine's emitted defaults, in
+  both directions. The shape check has a case for every shape it accepts and every shape it rejects,
+  and a docs guard checks that the documentation names every role field the report emits.
+
 ---
 
 ## [v2.0.0] — 2026-09-27 — v2 goes stable. Sprint 3 "trust & authoring reach": writes stop undoing each other, the findings say what will not paint, the blog page becomes a composition, every template page is styled, marker colour returns, and the brand site is rebuilt on v2 as the acceptance test (#1127, #1145, #1167, #1170, #1172; #909, #1094, #1088, #1115, #1116, #1117, #1010, #1060, #1125, #1073, #1141, #1142, #1144, #1111, #1108, #1171, #1028, #1181)

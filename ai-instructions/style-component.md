@@ -28,8 +28,9 @@ wp pp schema faq
 ```
 
 The report gives you, per role: its `role` name, the `selector` it emits at, the `groups` it
-permits, a `description` explaining what the part is and how it behaves, and `obligations` when the
-role has any. When the role declares them it also gives `overlay_defaults` (the ink the role
+permits and a `description` explaining what the part is and how it behaves; and, when the role has
+any, its `defaults` (what it renders with nothing authored, per breakpoint and state; see "Reading
+`defaults` in a report" below) and its `obligations`. When the role declares them it also gives `overlay_defaults` (the ink the role
 re-lights to on a band that paints a scrim over an image), `within` (the roles that enclose it,
 limited to this component's roles) and `text_content: true` (its own element renders text, so the
 own-surface finding can name it). The report also carries `udc_groups` (the whole vocabulary, derived from the engine) and
@@ -216,14 +217,41 @@ States do not nest. They emit in the order hover, focus-visible, active.
 Do not restate the theme's keyboard focus ring — every focusable element already has one. Use
 `:focus-visible` to add to it, never to replace it.
 
-### Reading `default` in a report
+### Reading `defaults` in a report
 
-A `default` states the **effective** default: what actually renders with the value unset, in the
-component's default configuration, at desktop. It is not a CSS fallback literal and not a guess.
-Where the real default varies by variant or breakpoint, the `default` names the desktop value and
-the `description` enumerates the alternatives — so read the description before assuming one number
-holds everywhere. Setting a value **replaces every branch at once**, at every layout and viewport,
-so a value chosen from the desktop number alone can be wrong at 375px.
+`wp pp schema <component>` prints each role's shipped design as `roles[].defaults`, and leaves the
+key out for a role that ships none (the band link roles, for example). It is a map in **the same
+shape you author**: group, then parameter, then a value, a breakpoint map (`d`, `t`, `p`) or a
+state map (`":hover"` and the other two). It is printed as the schema declares it, and it is the **effective** default, what the
+component renders with nothing authored: for every shipped component, every value in it is emitted and
+the defaults tier emits nothing it does not list (a test checks this against the compiled CSS). The
+accent re-light on an image band is separate, reported as `roles[].overlay_defaults`.
+
+```json
+"defaults": {
+  "spacing": { "padding-top": { "d": "@space-2xl", "t": "@space-xl", "p": "@space-xl" } },
+  "background": { "fill": "@color-bg" }
+}
+```
+
+(hero's `_band`, with its `padding-bottom` left out here). Four things to read off it before you write:
+
+- **Values stay as references.** `@space-2xl` means that site token, so a retheme moves the default
+  with it. A few defaults name engine tokens (`@pp-band-padding`, `@pp-band-heading-size`) that only a
+  default may use: copying one into your own map is refused (see `validate-site.md`).
+- **A breakpoint map is per width.** A single value you write **replaces every branch at once**, at
+  every width, unless you send a breakpoint map too, so a value chosen from the `d` number alone can
+  be wrong at 375px.
+- **A default is what outranks a preset and what survives a darkened band.** A role default beats a
+  `_preset` on the same parameter, and a role whose defaults include `background.fill` keeps that
+  surface when you darken the band. This map is where you see both before you write.
+- **A `_band` default is the weakest statement on the band.** The band element's own defaults sit
+  below the theme's shared band-rhythm rules, so the top padding of a band that follows another
+  (any component except `hero`) comes from those rules, not from the `padding-top` the report shows. Defaults on the parts inside
+  the band do not have this limit. Your own `_band` value outranks both.
+
+Props carry their own `default` (the prop value used when you leave it unset); that is a different
+field on the `props[]` entries.
 
 ### Presets
 
