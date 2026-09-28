@@ -5407,6 +5407,7 @@ pp_register_action('remove_component', [
 // ── Action: restore_composition ─────────────────────────────────────────────
 // Scope: page | Semantics: rewrite the composition to a prior history entry (#133)
 
+
 /**
  * Reports what CURRENT validation rules say about a composition, without blocking it (#233).
  *
@@ -5441,6 +5442,8 @@ pp_register_action('remove_component', [
  *
  *   pp_validate_composition_errors()  -> severity 'error'    (collect-all; would block a write)
  *   pp_validate_composition_smells()  -> severity 'warning'  (advisory; never blocks a write)
+ *   pp_udc_composition_findings()     -> severity 'warning', or 'info' for the types
+ *                                        pp_informational_finding_types() names (#1194)
  *
  * `index` is the composition offset for BOTH kinds of finding (#622). Smells always carried
  * one; errors used to be hardcoded to null, which left the operator of a page with two `cta`
@@ -5449,7 +5452,8 @@ pp_register_action('remove_component', [
  * (duplicate_component_id), which belongs to no single band and names every colliding index
  * in its message — an honest "no single band owns this", not a fabricated 0.
  *
- * `severity` separates "a write-time rule rejects this" from "advisory". It is payload, and
+ * `severity` separates "a write-time rule rejects this" from "advisory", and since #1194 both
+ * from "informational" (asks for nothing, never fails `wp pp validate site`). It is payload, and
  * every consumer renders it: the read-only CLI diagnostics (`wp pp check page`,
  * `wp pp validate site`) split on it, and the chat's undo card picks the per-item class from
  * it (#622). The restore itself is still never blocked (#233) — the card's header still says
@@ -5508,7 +5512,10 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
     foreach (pp_udc_composition_findings($udc_items) as $disclosure) {
         $findings[] = [
             'type'     => $disclosure['type'],
-            'severity' => 'warning',
+            // INFORMATIONAL DISCLOSURES DO NOT GATE (#1194, ruling D1 = A). See
+            // pp_informational_finding_types(): the one owner of which types say
+            // "nothing to fix" and therefore never fail `wp pp validate site`.
+            'severity' => pp_finding_severity((string) $disclosure['type']),
             'message'  => $disclosure['message'],
             'index'    => $disclosure['index'],
         ];
@@ -5525,7 +5532,11 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
         }
     }
 
-    return $findings;
+    // DELIVERED IN SEVERITY ORDER (#1194): the capped row, then every other gating finding,
+    // then the notes, each in its own order, so no bounded consumer of a PAGE report can see
+    // notes crowd out a warning. See pp_order_findings_for_delivery(); the chrome/preset
+    // envelope's half is #1204.
+    return pp_order_findings_for_delivery($findings);
 }
 
 /**
@@ -5773,9 +5784,29 @@ function _pp_bounded_findings(
         // omitted". Deliberately not added to findings_skipped: nothing was counted there,
         // and a zero would read as a clean bill of health.
         'total'    => $total,
+        // HOW MANY OF `total` ARE INFORMATIONAL (#1194). A consumer that renders "N issues"
+        // must not count a note that asks for nothing (pp_informational_finding_types()),
+        // and on a truncated report it cannot count them itself: most are past the budget.
+        // Additive, present only on a truncation entry, like `total`.
+        'total_info' => _pp_count_info_findings($findings),
     ];
 
     return $bounded;
+}
+
+/**
+ * Counts the `severity: info` entries of a findings list (#1194). Untyped and non-throwing
+ * for the same reason as _pp_count_omitted_finding_types(): it describes a possibly corrupt
+ * report.
+ */
+function _pp_count_info_findings(array $findings): int {
+    $count = 0;
+    foreach ($findings as $entry) {
+        if (is_array($entry) && ($entry['severity'] ?? null) === 'info') {
+            $count++;
+        }
+    }
+    return $count;
 }
 
 /**

@@ -433,6 +433,115 @@ class DiagnosticReachTest extends TestCase
     }
 
     /**
+     * #1194 A1: a page whose only finding is the INFORMATIONAL mint disclosure reports
+     * clean, and still prints the disclosure, under a header saying it never fails the
+     * gate. Written through the authoring surface so the mint is the engine's own.
+     */
+    public function testCheckPageReportsAMintOnlyPageCleanAndStillPrintsTheNote(): void
+    {
+        $id = pp_create_page('Responsive');
+        $this->assertTrue(pp_update_composition($id, [[
+            'component' => 'testimonials',
+            'props'     => ['id' => 'quotes', 'items' => [['quote' => 'Q', 'author' => 'A', 'role' => 'R', 'company' => 'C']]],
+            'udc'       => ['quote' => ['typography' => ['size' => ['d' => '19px', 'p' => '17px']]]],
+        ]]));
+
+        (new PP_Check_Command())->page([], ['post_id' => $id]);
+
+        $this->assertCount(1, WP_CLI::$successes, 'an informational note is not a problem');
+        $this->assertSame([], WP_CLI::$warnings);
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('informational note(s), which never fail `wp pp validate site`', $joined);
+        $this->assertStringContainsString('[udc_token_minted] index 0', $joined, 'the disclosure is still delivered');
+    }
+
+    /**
+     * The counter-direction: a real warning beside the mint keeps the page failing, and the
+     * note is printed after the smells rather than folded into them.
+     */
+    public function testCheckPageKeepsARealWarningBesideTheNote(): void
+    {
+        $id = pp_create_page('Responsive with orphan');
+        $this->assertTrue(pp_update_composition($id, [[
+            'component' => 'testimonials',
+            'props'     => ['id' => 'quotes', 'items' => [['quote' => 'Q', 'author' => 'A', 'role' => 'R', 'company' => 'C']]],
+            'udc'       => [
+                'quote'   => ['typography' => ['size' => ['d' => '19px', 'p' => '17px']]],
+                '_tokens' => ['orphan' => '17px'],
+            ],
+        ]]));
+
+        (new PP_Check_Command())->page([], ['post_id' => $id]);
+
+        $this->assertSame([], WP_CLI::$successes);
+        $this->assertStringContainsString('composition smell(s)', implode("\n", WP_CLI::$warnings));
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('[udc_unused_band_token] index 0', $joined);
+        $this->assertStringContainsString('[udc_token_minted] index 0', $joined);
+        $this->assertLessThan(
+            strpos($joined, 'informational note(s)'),
+            strpos($joined, '[udc_unused_band_token]'),
+            'smells first, then the notes'
+        );
+    }
+
+    /**
+     * #1194 A1: `wp pp validate site` prints the informational notes on BOTH of its paths.
+     * Driven through _pp_cli_report_site_page(), the command loop's per-page body, because
+     * the command reads a process-lifetime memo of the page list and ends in halt().
+     */
+    public function testValidateSitePrintsTheNotesOnAPassingPage(): void
+    {
+        $diagnostics = [
+            'errors' => [], 'smells' => [], 'styling' => [],
+            'info'   => [['type' => 'udc_token_minted', 'severity' => 'info', 'message' => 'you wrote "19px"', 'index' => 0]],
+        ];
+
+        $this->assertTrue(_pp_cli_report_site_page(7, 'Home', $diagnostics), 'a notes-only page passes');
+        $this->assertSame('OK: Page 7 (Home)', WP_CLI::$lines[0]);
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('informational note(s), which never fail `wp pp validate site`', $joined);
+        $this->assertStringContainsString('[udc_token_minted] index 0', $joined);
+        $this->assertSame([], WP_CLI::$warnings);
+    }
+
+    public function testValidateSitePrintsTheNotesAfterTheSmellsOnAFailingPage(): void
+    {
+        $diagnostics = [
+            'errors'  => [],
+            'styling' => [],
+            'smells'  => [['type' => 'udc_unused_band_token', 'severity' => 'warning', 'message' => 'orphan', 'index' => 0]],
+            'info'    => [['type' => 'udc_token_minted', 'severity' => 'info', 'message' => 'you wrote "19px"', 'index' => 0]],
+        ];
+
+        $this->assertFalse(_pp_cli_report_site_page(7, 'Home', $diagnostics));
+        $this->assertSame(['Page 7 (Home): 1 issue(s)'], WP_CLI::$warnings, 'a note is not counted as an issue');
+        $joined = implode("\n", WP_CLI::$lines);
+        $this->assertLessThan(strpos($joined, '[udc_token_minted]'), strpos($joined, '[udc_unused_band_token]'));
+    }
+
+    /**
+     * The severity split FAILS CLOSED: only exactly 'info' leaves the gate. An unknown,
+     * miscased, empty or missing severity is a smell and fails the page (review cycle 1: a
+     * planted `!== 'warning'` arm left the whole suite green).
+     */
+    public function testAnUnknownSeverityStaysGating(): void
+    {
+        foreach (['INFO', 'notice', '', null] as $severity) {
+            $finding = ['type' => 'x', 'message' => 'm', 'index' => 0];
+            if ($severity !== null) {
+                $finding['severity'] = $severity;
+            }
+            $buckets = _pp_cli_diagnostics_buckets([$finding]);
+            $this->assertSame([], $buckets['info'], var_export($severity, true) . ' must not be informational');
+            $this->assertCount(1, $buckets['smells']);
+            $this->assertTrue(_pp_cli_page_fails_site_validation($buckets + ['styling' => []]));
+        }
+        $info = _pp_cli_diagnostics_buckets([['type' => 'x', 'severity' => 'info', 'message' => 'm', 'index' => 0]]);
+        $this->assertCount(1, $info['info'], 'the counter-direction: exactly info is informational');
+    }
+
+    /**
      * `check page` is the per-page inspector, not the gate: it reports and returns.
      * Only `wp pp validate site` exits non-zero (#622).
      */
@@ -599,7 +708,7 @@ class DiagnosticReachTest extends TestCase
     {
         $composition = $this->staleComposition();
         $diagnostics = _pp_cli_page_diagnostics($composition);
-        $merged      = array_merge($diagnostics['errors'], $diagnostics['smells']);
+        $merged      = array_merge($diagnostics['errors'], $diagnostics['smells'], $diagnostics['info']);
 
         $this->assertEquals(_pp_composition_findings($composition), $merged);
     }
@@ -746,7 +855,7 @@ class DiagnosticReachTest extends TestCase
     public function testAnEmptyCompositionHasNoFindings(): void
     {
         $this->assertSame(
-            ['errors' => [], 'smells' => [], 'styling' => []],
+            ['errors' => [], 'smells' => [], 'info' => [], 'styling' => []],
             _pp_cli_page_diagnostics([])
         );
     }
