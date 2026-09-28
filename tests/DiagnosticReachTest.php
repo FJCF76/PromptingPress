@@ -601,7 +601,7 @@ class DiagnosticReachTest extends TestCase
             $this->assertStringContainsString('needs --key=<key>', $e->getMessage());
         }
         try {
-            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => 'udc_role_ink_over_own_surface:steps:0000000000000000']);
+            (new PP_Check_Command())->acknowledge([], ['post_id' => (string) $id, 'key' => 'udc_role_ink_over_own_surface:steps:00000000000000000000000000000000']);
             $this->fail('an unknown key must be refused');
         } catch (WpCliExitException $e) {
             $this->assertStringContainsString('wp pp check page --post_id=' . $id, $e->getMessage());
@@ -623,25 +623,25 @@ class DiagnosticReachTest extends TestCase
     public function testValidateSitePrintsAcknowledgedStaleAndOrphanedRows(): void
     {
         $finding = ['type' => 'udc_role_ink_over_own_surface', 'severity' => 'warning', 'message' => 'pair', 'index' => 0,
-                    'ack_key' => 'udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaa'];
+                    'ack_key' => 'udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'];
         $this->assertTrue(_pp_cli_report_site_page(3, 'Home', [
             'errors' => [], 'styling' => [], 'smells' => [], 'info' => [],
             'acknowledged' => [$finding + ['ack_at' => '2026-09-28T00:00:00+00:00', 'ack_note' => 'ok']],
-            'stale' => [], 'orphaned' => [['ack_key' => 'empty_section:about:bbbbbbbbbbbbbbbb', 'ack_note' => '', 'ack_at' => '']],
+            'stale' => [], 'orphaned' => [['ack_key' => 'empty_section:about:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'ack_note' => '', 'ack_at' => '']],
         ]));
         $joined = implode("\n", WP_CLI::$lines);
         $this->assertStringContainsString('1 acknowledged as intentional (not failing):', $joined);
-        $this->assertStringContainsString('orphaned acknowledgement empty_section:about:bbbbbbbbbbbbbbbb', $joined);
+        $this->assertStringContainsString('orphaned acknowledgement empty_section:about:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', $joined);
 
         WP_CLI::$lines = [];
         $this->assertFalse(_pp_cli_report_site_page(3, 'Home', [
             'errors' => [], 'styling' => [], 'smells' => [$finding], 'info' => [],
-            'acknowledged' => [], 'stale' => [['ack_key' => 'udc_role_ink_over_own_surface:steps:cccccccccccccccc', 'ack_note' => '', 'ack_at' => '']],
+            'acknowledged' => [], 'stale' => [['ack_key' => 'udc_role_ink_over_own_surface:steps:cccccccccccccccccccccccccccccccc', 'ack_note' => '', 'ack_at' => '']],
             'orphaned' => [],
         ]));
         $joined = implode("\n", WP_CLI::$lines);
-        $this->assertStringContainsString('[key: udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaa]', $joined);
-        $this->assertStringContainsString('STALE acknowledgement udc_role_ink_over_own_surface:steps:cccccccccccccccc', $joined);
+        $this->assertStringContainsString('[key: udc_role_ink_over_own_surface:steps:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]', $joined);
+        $this->assertStringContainsString('STALE acknowledgement udc_role_ink_over_own_surface:steps:cccccccccccccccccccccccccccccccc', $joined);
     }
 
     /**

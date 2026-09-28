@@ -2373,14 +2373,14 @@ class PP_Check_Command extends WP_CLI_Command {
      * : WordPress page post ID. Numeric only; slugs and URLs are not resolved.
      *
      * --key=<key>
-     * : The key `wp pp check page` prints beside the finding, for example consecutive_text_sections:about:1a2b3c4d5e6f7a8b.
+     * : The key `wp pp check page` prints beside the finding, for example consecutive_text_sections:about:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.
      *
      * [--note=<note>]
      * : Why it is intentional, recorded beside the acknowledgement (for example the measured contrast).
      *
      * ## EXAMPLES
      *
-     *     wp pp check acknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b --note="three short paragraphs, by design"
+     *     wp pp check acknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d --note="three short paragraphs, by design"
      *
      */
     public function acknowledge($args, $assoc_args) {
@@ -2410,7 +2410,7 @@ class PP_Check_Command extends WP_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp pp check unacknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b
+     *     wp pp check unacknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
      *
      */
     public function unacknowledge($args, $assoc_args) {

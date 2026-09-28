@@ -3441,8 +3441,14 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
 //          never intentional (the fix is deleting it), and neither are errors.
 //   GRAIN  One finding, as reported: page + band id + type + the finding's own message,
 //          which names the role, card, state and width.
-//   DEATH  The key embeds a fingerprint of the finding, that band's stored bytes, the site
-//          token values and site presets, and PP_VERSION. Any change to what was judged
+//   DEATH  The key embeds a fingerprint of the finding, the stored bytes of what it judged,
+//          the site token values and site presets, and PP_VERSION. What it judged is the
+//          finding's band, except for the three run smells (pp_page_scoped_advisory_types()),
+//          which judge an ARRANGEMENT of bands and so fingerprint the whole page: they are
+//          reported on the band that completes the run, and keying them on that band alone
+//          let an acknowledged run be rewritten or grown underneath it (cycle-1 ruling A). A
+//          value that cannot be fingerprinted (a non-finite number from a raw write) yields NO
+//          key, so its finding keeps gating. Any change to what was judged
 //          yields a different key, so the old acknowledgement no longer matches: STALE while
 //          the finding is still present (it gates again), ORPHANED once the finding is gone
 //          (inert, reported for cleanup). A theme upgrade re-opens every acknowledgement,
@@ -3483,23 +3489,42 @@ function pp_acknowledgeable_finding_types(): array {
 }
 
 /**
+ * The acknowledgeable types that judge the page's arrangement rather than one band (#1194 A2,
+ * cycle-1 ruling A). Each is reported on the band that completes a run of three or more, so
+ * its fingerprint covers every band on the page, in order: growing, shrinking, replacing or
+ * reordering the page re-opens it. Stricter than the run itself, deliberately: a re-opened
+ * judgment costs one re-acknowledge, a surviving stale one costs the gate its meaning.
+ *
+ * @return string[]
+ */
+function pp_page_scoped_advisory_types(): array {
+    return ['consecutive_compact_spacing', 'consecutive_narrow_width', 'consecutive_text_sections'];
+}
+
+/**
  * The site-wide part of what an acknowledgement judged: the design-token values, the site
  * presets and the theme version (#1194, ruling D4). A change to any of them can change what a
  * band paints, so it is folded into every page's fingerprints.
  *
  * @param  string|null $version  The theme version to fingerprint; null reads PP_VERSION. A seam
  *                               so a test can prove an upgrade re-opens acknowledgements.
- * @return string                A hex digest.
+ * @return string                A hex digest, or '' when the site state cannot be encoded
+ *                               (a non-finite token value from a raw write). '' binds nothing:
+ *                               pp_advisory_finding_key() mints no key against it, so every
+ *                               acknowledgeable finding on the site keeps gating until it is
+ *                               fixed. A constant stand-in digest would instead let a fresh
+ *                               acknowledgement survive every later edit that stays unencodable.
  */
 function pp_advisory_ack_context(?string $version = null): string {
     $version = $version ?? (defined('PP_VERSION') ? (string) PP_VERSION : '');
     // KEY ORDER IS NOT MEANING: a token or preset map re-saved in another order renders the
     // same, so it is canonicalised before hashing and must not re-open every acknowledgement.
-    return hash('sha256', (string) wp_json_encode(_pp_advisory_canonical([
+    $json = wp_json_encode(_pp_advisory_canonical([
         'tokens'  => pp_get_token_overrides(),
         'presets' => function_exists('pp_udc_custom_presets') ? pp_udc_custom_presets() : [],
         'version' => $version,
-    ])));
+    ]));
+    return is_string($json) ? hash('sha256', $json) : '';
 }
 
 /** Recursively sorts string-keyed maps (lists keep their order), for a stable fingerprint. */
@@ -3534,9 +3559,13 @@ function _pp_advisory_band(array $composition, array $finding): ?array {
     return ['id' => $id, 'band' => $band];
 }
 
+/** Hex digits of fingerprint a key carries: 128 bits, beyond an offline birthday search. */
+const PP_ADVISORY_KEY_HEX = 32;
+
 /**
  * The acknowledgement key of one finding on one page, or null when it cannot be acknowledged
- * (#1194 A2). Shape: `<type>:<band id>:<16 hex>`.
+ * (#1194 A2). Shape: `<type>:<band id>:<32 hex>`. Null also when what it judged cannot be
+ * encoded, or the site context could not be (see pp_advisory_ack_context): fail closed.
  *
  * @param  int         $post_id      The page.
  * @param  array       $composition  That page's stored composition.
@@ -3554,21 +3583,31 @@ function pp_advisory_finding_key(int $post_id, array $composition, array $findin
     if ($band === null) {
         return null;
     }
-    $digest = hash('sha256', (string) wp_json_encode([
+    $context = $context ?? pp_advisory_ack_context();
+    if ($context === '') {
+        return null;
+    }
+    $page_scoped = in_array($type, pp_page_scoped_advisory_types(), true);
+    $json = wp_json_encode([
         'post'    => $post_id,
         'band'    => $band['id'],
         'type'    => $type,
         'message' => (string) ($finding['message'] ?? ''),
-        'bytes'   => $band['band'],
-        'context' => $context ?? pp_advisory_ack_context(),
-    ]));
-    return $type . ':' . $band['id'] . ':' . substr($digest, 0, 16);
+        'scope'   => $page_scoped ? 'page' : 'band',
+        'bytes'   => $page_scoped ? $composition : $band['band'],
+        'context' => $context,
+    ]);
+    if (!is_string($json)) {
+        return null;
+    }
+    return $type . ':' . $band['id'] . ':' . substr(hash('sha256', $json), 0, PP_ADVISORY_KEY_HEX);
 }
 
 /**
  * Why a finding cannot be acknowledged, for the refusal message; null when it can (#1194 A2).
+ * Pass the page id to have the fingerprint itself checked too.
  */
-function pp_advisory_unkeyable_reason(array $composition, array $finding): ?string {
+function pp_advisory_unkeyable_reason(array $composition, array $finding, ?int $post_id = null): ?string {
     $type = (string) ($finding['type'] ?? '');
     if (!in_array($type, pp_acknowledgeable_finding_types(), true)) {
         return sprintf('`%s` cannot be acknowledged: only judgment-call advisories can, and a value that '
@@ -3579,6 +3618,11 @@ function pp_advisory_unkeyable_reason(array $composition, array $finding): ?stri
             . 'Write the page through `update_composition` (or any composition action), which mints '
             . 'an id for every band, then acknowledge again.';
     }
+    if ($post_id !== null && pp_advisory_finding_key($post_id, $composition, $finding) === null) {
+        return 'what this finding judged cannot be fingerprinted (a non-finite number, which only a raw '
+            . 'write can store, in the page, a design token or a preset), so an acknowledgement would be '
+            . 'bound to nothing. It stays a finding: rewrite the value, then acknowledge again.';
+    }
     return null;
 }
 
@@ -3587,7 +3631,34 @@ function pp_advisory_unkeyable_reason(array $composition, array $finding): ?stri
  * Read-only. A corrupt row reads as none, so it can only make the gate stricter.
  */
 function pp_acknowledged_advisories(int $post_id): array {
-    $stored = get_post_meta($post_id, PP_ADVISORY_ACK_META, true);
+    return _pp_normalize_acknowledged_advisories(get_post_meta($post_id, PP_ADVISORY_ACK_META, true));
+}
+
+/**
+ * The same, read from the DATABASE inside the composition lock (#113/#200 house rule): a
+ * cached copy warmed before the lock may predate another process's acknowledgement, and the
+ * read-modify-write after it would then erase that one. Null when the read FAILED (#212): an
+ * unreadable store is not an empty one, and writing over it would drop every acknowledgement
+ * on the page. With no database handle (unit context) it is the cached read.
+ */
+function _pp_read_acknowledged_advisories_locked(int $post_id): ?array {
+    $wpdb = pp_composition_db_handle();
+    if ($wpdb === null) {
+        return pp_acknowledged_advisories($post_id);
+    }
+    $raw = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 1",
+        $post_id,
+        PP_ADVISORY_ACK_META
+    ));
+    if (!empty($wpdb->last_error)) {
+        return null;
+    }
+    return _pp_normalize_acknowledged_advisories($raw === null ? '' : maybe_unserialize($raw));
+}
+
+/** Keeps the well-formed rows of a stored acknowledgement map; anything else reads as none. */
+function _pp_normalize_acknowledged_advisories($stored): array {
     if (!is_array($stored)) {
         return [];
     }
@@ -3672,7 +3743,9 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
  */
 function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
     return _pp_with_composition_lock($post_id, static function () use ($post_id, $key, $note) {
-        $result = pp_get_composition_result($post_id);
+        // Authoritative reads inside the lock (#113/#200): the key is checked against what is
+        // stored now, not against a copy cached before the lock.
+        $result = pp_get_composition_result_authoritative($post_id);
         if (!$result['ok']) {
             return new WP_Error('composition_unreadable', sprintf(
                 'Page %d has no readable composition, so there is nothing to acknowledge.', $post_id));
@@ -3681,7 +3754,12 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
         $context     = pp_advisory_ack_context();
         foreach (_pp_composition_findings($composition, $post_id) as $finding) {
             if (is_array($finding) && pp_advisory_finding_key($post_id, $composition, $finding, $context) === $key) {
-                $stored       = pp_acknowledged_advisories($post_id);
+                $stored = _pp_read_acknowledged_advisories_locked($post_id);
+                if ($stored === null) {
+                    return new WP_Error('acknowledgements_unreadable', sprintf(
+                        'The stored acknowledgements of page %d could not be read, so nothing was written '
+                        . '(writing now could erase them). Retry.', $post_id));
+                }
                 $stored[$key] = [
                     'acknowledged_at' => gmdate('c'),
                     'note'            => mb_strcut($note, 0, PP_ADVISORY_ACK_NOTE_MAX, 'UTF-8'),
@@ -3704,7 +3782,11 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
  */
 function pp_unacknowledge_advisory(int $post_id, string $key) {
     return _pp_with_composition_lock($post_id, static function () use ($post_id, $key) {
-        $stored = pp_acknowledged_advisories($post_id);
+        $stored = _pp_read_acknowledged_advisories_locked($post_id);
+        if ($stored === null) {
+            return new WP_Error('acknowledgements_unreadable', sprintf(
+                'The stored acknowledgements of page %d could not be read, so nothing was changed. Retry.', $post_id));
+        }
         if (!isset($stored[$key])) {
             return new WP_Error('advisory_not_acknowledged', sprintf(
                 'Page %d has no acknowledgement with that key; nothing to reverse.', $post_id));

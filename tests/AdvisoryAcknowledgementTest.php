@@ -386,6 +386,207 @@ final class AdvisoryAcknowledgementTest extends TestCase
         $this->assertSame([], $d['orphaned']);
     }
 
+    // ── Run smells judge the page, not the band that completes the run (cycle-1 ruling A) ──
+
+    /** A text-only section: three in a row raise `consecutive_text_sections` on the third. */
+    private function textBand(string $id, string $body = '<p>Text.</p>'): array
+    {
+        return ['component' => 'section', 'props' => ['id' => $id, 'title' => ucfirst($id), 'body' => $body]];
+    }
+
+    private function runKey(int $id): string
+    {
+        foreach ($this->diagnostics($id)['smells'] as $finding) {
+            if ($finding['type'] === 'consecutive_text_sections') {
+                $this->assertArrayHasKey('ack_key', $finding, 'a run smell is acknowledgeable');
+                return $finding['ack_key'];
+            }
+        }
+        $this->fail('the fixture must raise consecutive_text_sections');
+    }
+
+    /** Acknowledge the run [a,b,c], rewrite the page, and return the diagnostics after. */
+    private function ackRunThenRewrite(callable $edit): array
+    {
+        $id  = $this->page([$this->textBand('a'), $this->textBand('b'), $this->textBand('c')]);
+        $key = $this->runKey($id);
+        $this->assertTrue(pp_acknowledge_advisory($id, $key, 'a deliberate essay page'));
+        $this->assertFalse(_pp_cli_page_fails_site_validation($this->diagnostics($id)), 'premise: acknowledged');
+
+        $this->rewrite($id, $edit(pp_get_composition($id)));
+        $d = $this->diagnostics($id);
+        $this->assertContains('consecutive_text_sections', array_column($d['smells'], 'type'), 'the run is judged again');
+        $this->assertSame([$key], array_column($d['stale'], 'ack_key'), 'the old acknowledgement is stale');
+        $this->assertTrue(_pp_cli_page_fails_site_validation($d), 'and it never passes the gate');
+        return $d;
+    }
+
+    public function testGrowingAnAcknowledgedRunReopensIt(): void
+    {
+        // The reproduced gaming vector: [a,b,c] acknowledged, then [a',b',c,d,e] kept passing.
+        $this->ackRunThenRewrite(function (array $c): array {
+            $c[0]['props']['body'] = '<p>Rewritten.</p>';
+            $c[1]['props']['body'] = '<p>Rewritten too.</p>';
+            $c[] = $this->textBand('d');
+            $c[] = $this->textBand('e');
+            return $c;
+        });
+    }
+
+    public function testReplacingAnEarlierBandOfAnAcknowledgedRunReopensIt(): void
+    {
+        $this->ackRunThenRewrite(function (array $c): array {
+            $c[0] = $this->textBand('z', '<p>A different first band.</p>');
+            return $c;
+        });
+    }
+
+    public function testReorderingAnAcknowledgedRunReopensIt(): void
+    {
+        $this->ackRunThenRewrite(function (array $c): array {
+            [$c[0], $c[1]] = [$c[1], $c[0]];
+            return $c;
+        });
+    }
+
+    public function testASingleBandFindingStillIgnoresEditsToOtherBands(): void
+    {
+        // The page scope is for the three run types only; the other six stay band-scoped
+        // (testEditingAnotherBandLeavesTheAcknowledgementStanding is the positive pin).
+        $id = $this->page([$this->ownerBand(), $this->textBand('about')]);
+        $key = $this->inkKey($id);
+        pp_acknowledge_advisory($id, $key, 'reviewed');
+        $changed = pp_get_composition($id);
+        [$changed[0], $changed[1]] = [$changed[1], $changed[0]];
+        $this->rewrite($id, $changed);
+
+        $this->assertSame([$key], array_column($this->diagnostics($id)['acknowledged'], 'ack_key'));
+    }
+
+    // ── Fingerprinting fails closed (cycle-1 ruling A) ─────────────────────────────
+
+    public function testAFindingWhoseBandCannotBeFingerprintedHasNoKeyAndKeepsGating(): void
+    {
+        // A raw meta write is the only way a non-finite number reaches a stored band: JSON
+        // `1e999` decodes to INF, which wp_json_encode() cannot encode. The fingerprint must
+        // not collapse to the hash of an empty string (a key bound to nothing).
+        $id = pp_create_page('Raw');
+        update_post_meta($id, '_pp_composition',
+            '[{"component":"section","id":"pp-inf00001","props":{"id":"empty","columns":1e999}}]');
+        $composition = pp_get_composition($id);
+        $this->assertTrue(is_infinite($composition[0]['props']['columns']), 'premise: INF is stored');
+
+        $finding = null;
+        foreach (_pp_composition_findings($composition, $id) as $f) {
+            if ($f['type'] === 'empty_section') {
+                $finding = $f;
+            }
+        }
+        $this->assertNotNull($finding, 'premise: the band raises an acknowledgeable finding');
+        $this->assertNull(pp_advisory_finding_key($id, $composition, $finding), 'no key: nothing stable to bind to');
+        $this->assertStringContainsString('fingerprint', (string) pp_advisory_unkeyable_reason($composition, $finding, $id));
+
+        $d = $this->diagnostics($id);
+        $this->assertContains('empty_section', array_column($d['smells'], 'type'), 'it keeps gating');
+        $this->assertTrue(_pp_cli_page_fails_site_validation($d));
+    }
+
+    public function testAnUnencodableSiteContextMatchesNoStoredKey(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $this->assertTrue(pp_acknowledge_advisory($id, $key, 'reviewed'));
+
+        update_option('pp_token_overrides', ['color-accent' => INF]);
+
+        $d = $this->diagnostics($id);
+        foreach ($d['smells'] as $finding) {
+            // A constant stand-in digest would let a fresh acknowledgement survive every later
+            // token edit that stays unencodable: the context must bind nothing, so no key.
+            $this->assertArrayNotHasKey('ack_key', $finding, 'no key can be minted against an unencodable context');
+        }
+        $this->assertSame([], $d['acknowledged'], 'an unencodable context never matches');
+        $this->assertTrue(_pp_cli_page_fails_site_validation($d), 'so the finding gates');
+        $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'again'),
+            'and nothing can be acknowledged against it');
+    }
+
+    public function testTheKeyCarries128BitsOfFingerprint(): void
+    {
+        $id = $this->page([$this->ownerBand()]);
+        $this->assertMatchesRegularExpression('/^udc_role_ink_over_own_surface:[A-Za-z0-9_-]{1,64}:[0-9a-f]{32}\z/', $this->inkKey($id));
+    }
+
+    // ── The lock reads the database, not the object cache (#113/#200) ─────────────
+
+    public function testAcknowledgingReadsTheStoredAcknowledgementsUncached(): void
+    {
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+        try {
+            $id  = $this->page([$this->ownerBand(), $this->textBand('a'), $this->textBand('b'), $this->textBand('c')]);
+            $ink = $this->inkKey($id);
+            $run = $this->runKey($id);
+
+            // Another process acknowledged the run; this process's cache has not seen it.
+            $GLOBALS['_pp_test_store']['wpdb_postmeta'][$id][PP_ADVISORY_ACK_META] =
+                maybe_serialize([$run => ['acknowledged_at' => '2026-09-28T00:00:00+00:00', 'note' => 'theirs']]);
+
+            $this->assertTrue(pp_acknowledge_advisory($id, $ink, 'mine'));
+            $stored = get_post_meta($id, PP_ADVISORY_ACK_META, true);
+            $this->assertArrayHasKey($run, $stored, 'the other process\'s acknowledgement survives (no lost update)');
+            $this->assertArrayHasKey($ink, $stored);
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    public function testAcknowledgingChecksTheKeyAgainstTheStoredCompositionUncached(): void
+    {
+        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+        try {
+            $id  = $this->page([$this->ownerBand()]);
+            $key = $this->inkKey($id);
+
+            // Another process changed the ink; this process's cache still holds the old page.
+            $changed = pp_get_composition($id);
+            $changed[0]['udc']['step-number']['typography']['color'] = '#ffffff';
+            $GLOBALS['_pp_test_store']['wpdb_postmeta'][$id]['_pp_composition'] = wp_json_encode($changed);
+
+            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'),
+                'the key is checked against what is stored now, not a copy cached before the lock');
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    public function testAFailedAuthoritativeReadRefusesRatherThanOverwrite(): void
+    {
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public string $last_error = '';
+            public function get_var(string $query)
+            {
+                $this->last_error = '';
+                if (str_contains($query, PP_ADVISORY_ACK_META)) {
+                    $this->last_error = 'MySQL server has gone away';
+                    return null;
+                }
+                return parent::get_var($query);
+            }
+        };
+        try {
+            $id  = $this->page([$this->ownerBand()]);
+            $key = $this->inkKey($id);
+            update_post_meta($id, PP_ADVISORY_ACK_META, ['kept:x:' . str_repeat('0', 32) => ['acknowledged_at' => '', 'note' => '']]);
+
+            $result = pp_acknowledge_advisory($id, $key, 'n');
+            $this->assertInstanceOf(WP_Error::class, $result, 'an unreadable store is not an empty one');
+            $this->assertSame(['kept:x:' . str_repeat('0', 32)], array_keys(get_post_meta($id, PP_ADVISORY_ACK_META, true)), 'nothing was overwritten');
+            $this->assertInstanceOf(WP_Error::class, pp_unacknowledge_advisory($id, 'kept:x:' . str_repeat('0', 32)));
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────────
 
     private function inkFinding(int $id): array
