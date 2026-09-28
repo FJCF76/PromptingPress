@@ -571,6 +571,14 @@ if (!function_exists('update_post_meta')) {
         // to wp_slash() a wp_json_encode()'d payload loses its backslashes,
         // exactly as in production (#471). Paired with the wp_slash() stub
         // below, a correctly wp_slash()'d write is a net no-op.
+        //
+        // Test-controlled write refusal (#1194 A2), the post-meta twin of
+        // $GLOBALS['_pp_test_unwritable_options']: set
+        // $GLOBALS['_pp_test_unwritable_meta'][$key] = true to get the FALSE return a failed
+        // core write gives, WITHOUT storing the value. Opt-in and test-scoped.
+        if (!empty($GLOBALS['_pp_test_unwritable_meta'][$key])) {
+            return false;
+        }
         $GLOBALS['_pp_test_store']['post_meta'][$post_id][$key] = wp_unslash($value);
         return true;
     }

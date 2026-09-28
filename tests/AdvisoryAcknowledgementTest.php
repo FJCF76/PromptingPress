@@ -521,7 +521,21 @@ final class AdvisoryAcknowledgementTest extends TestCase
 
     public function testAcknowledgingReadsTheStoredAcknowledgementsUncached(): void
     {
-        $GLOBALS['wpdb'] = new PP_Lockable_Wpdb();
+        // The staged row stands for the database as another process left it. The harness freezes
+        // a staged row (writes land in the cache store only), so it is consumed by the one read
+        // it models: the write's own read-back then sees what production would, the new row.
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public function get_var(string $query)
+            {
+                $value = parent::get_var($query);
+                if (str_contains($query, PP_ADVISORY_ACK_META)) {
+                    foreach ($GLOBALS['_pp_test_store']['wpdb_postmeta'] ?? [] as $pid => $row) {
+                        unset($GLOBALS['_pp_test_store']['wpdb_postmeta'][$pid][PP_ADVISORY_ACK_META]);
+                    }
+                }
+                return $value;
+            }
+        };
         try {
             $id  = $this->page([$this->ownerBand(), $this->textBand('a'), $this->textBand('b'), $this->textBand('c')]);
             $ink = $this->inkKey($id);
@@ -585,6 +599,205 @@ final class AdvisoryAcknowledgementTest extends TestCase
         } finally {
             unset($GLOBALS['wpdb']);
         }
+    }
+
+    // ── Cycle-2 review fixes ───────────────────────────────────────────────────────
+
+    public function testTheFingerprintNeverUsesTheLossyEncoder(): void
+    {
+        // Real wp_json_encode() does not fail on invalid UTF-8: it replaces each bad byte
+        // with '?' and returns a string, so "a\xFF" and "a?" fingerprint alike and a raw
+        // write can change the judged bytes under an old acknowledgement. The unit stub
+        // returns false instead, which would hide it, so the rule is pinned at the source:
+        // no call to wp_json_encode() anywhere in the acknowledgement section.
+        $src   = file_get_contents(dirname(__DIR__) . '/lib/operate.php');
+        $start = strpos($src, '// ── Composition-advisory acknowledgement (#1194 A2)');
+        $this->assertNotFalse($start, 'premise: the section marker exists');
+        $tokens = token_get_all('<?php ' . substr($src, $start));
+        $calls  = 0;
+        foreach ($tokens as $i => $t) {
+            if (is_array($t) && $t[0] === T_STRING && strtolower($t[1]) === 'wp_json_encode') {
+                for ($j = $i + 1; isset($tokens[$j]) && is_array($tokens[$j]) && $tokens[$j][0] === T_WHITESPACE; $j++);
+                if (($tokens[$j] ?? null) === '(') {
+                    $calls++;
+                }
+            }
+        }
+        $this->assertSame(0, $calls, 'fingerprints use strict json_encode, which fails on invalid UTF-8');
+    }
+
+    public function testInvalidUtf8InABandMintsNoKey(): void
+    {
+        $band = $this->ownerBand();
+        $band['id'] = 'pp-abcd0001';
+        $band['props']['title'] = "Is it\xff";
+        $id = pp_create_page('Raw');
+        update_post_meta($id, '_pp_composition', [$band]);
+
+        $d = $this->diagnostics($id);
+        $this->assertContains('udc_role_ink_over_own_surface', array_column($d['smells'], 'type'), 'premise: it raises');
+        foreach ($d['smells'] as $finding) {
+            $this->assertArrayNotHasKey('ack_key', $finding, 'bytes that cannot be encoded exactly bind nothing');
+        }
+    }
+
+    public function testARunSmellOnAPageThatCannotBeFingerprintedMintsNoKey(): void
+    {
+        // The run bands encode fine; another band on the page does not. A run smell judges the
+        // whole page, so it must not key on a page digest of nothing.
+        $id = pp_create_page('Raw');
+        update_post_meta($id, '_pp_composition', '[{"component":"section","id":"pp-a0000001","props":{"id":"a","title":"A","body":"<p>A</p>"}},'
+            . '{"component":"section","id":"pp-b0000001","props":{"id":"b","title":"B","body":"<p>B</p>"}},'
+            . '{"component":"section","id":"pp-c0000001","props":{"id":"c","title":"C","body":"<p>C</p>"}},'
+            . '{"component":"stats","id":"pp-d0000001","props":{"id":"d","columns":1e999}}]');
+
+        $run = null;
+        foreach ($this->diagnostics($id)['smells'] as $finding) {
+            if ($finding['type'] === 'consecutive_text_sections') {
+                $run = $finding;
+            }
+        }
+        $this->assertNotNull($run, 'premise: the run is raised');
+        $this->assertArrayNotHasKey('ack_key', $run);
+    }
+
+    public function testANoteKeepsItsBackslashesAcrossLaterWrites(): void
+    {
+        $id  = $this->page([$this->ownerBand(), $this->textBand('a'), $this->textBand('b'), $this->textBand('c')]);
+        $ink = $this->inkKey($id);
+        $this->assertTrue(pp_acknowledge_advisory($id, $ink, 'C:\\x ratio 9\\1'));
+        $this->assertTrue(pp_acknowledge_advisory($id, $this->runKey($id), 'n'), 'a later write rewrites the whole map');
+
+        $this->assertSame('C:\\x ratio 9\\1', pp_acknowledged_advisories($id)[$ink]['note']);
+    }
+
+    public function testAFailedAcknowledgeWriteIsRefusedNotReportedAsDone(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $GLOBALS['_pp_test_unwritable_meta'][PP_ADVISORY_ACK_META] = true;
+        try {
+            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'));
+        } finally {
+            unset($GLOBALS['_pp_test_unwritable_meta']);
+        }
+        $this->assertTrue(_pp_cli_page_fails_site_validation($this->diagnostics($id)), 'nothing was acknowledged');
+    }
+
+    public function testAFailedUnacknowledgeWriteIsRefusedNotReportedAsRemoved(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $this->assertTrue(pp_acknowledge_advisory($id, $key, 'n'));
+        $GLOBALS['_pp_test_unwritable_meta'][PP_ADVISORY_ACK_META] = true;
+        try {
+            $result = pp_unacknowledge_advisory($id, $key);
+        } finally {
+            unset($GLOBALS['_pp_test_unwritable_meta']);
+        }
+        $this->assertInstanceOf(WP_Error::class, $result, 'a removal that did not happen is not reported as done');
+    }
+
+    public function testTheSiteContextIsReadUncachedInsideTheLock(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+
+        // Another process changed the tokens; this process's option cache still holds the old ones.
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public function get_var(string $query)
+            {
+                if (str_contains($query, "option_name = 'pp_token_overrides'")) {
+                    return maybe_serialize(['color-accent' => '#ff00aa']);
+                }
+                return parent::get_var($query);
+            }
+        };
+        try {
+            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'),
+                'the key is checked against the tokens stored now, not a copy cached before the lock');
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    public function testReorderingThePresetMapReopensAcknowledgements(): void
+    {
+        // Preset map order can decide which placement paints (_pp_udc_place: a later placement
+        // overwrites an earlier one), so it is NOT canonicalised: stricter, never looser.
+        foreach (['alpha', 'beta'] as $name) {
+            $saved = pp_execute_action('save_preset', ['name' => $name, 'grain' => 'background', 'udc' => ['fill' => '#101828']]);
+            $this->assertTrue($saved['ok'], 'premise: preset saved');
+        }
+        $before = pp_advisory_ack_context();
+        $raw = json_decode((string) get_option(PP_SITE_UDC_OPTION, ''), true);
+        $this->assertIsArray($raw['_presets'] ?? null, 'premise: presets live under _presets');
+        $raw['_presets'] = array_reverse($raw['_presets'], true);
+        update_option(PP_SITE_UDC_OPTION, wp_json_encode($raw));
+        $this->assertSame(array_reverse(array_keys(pp_udc_custom_presets())), ['alpha', 'beta'], 'premise: reordered');
+
+        $this->assertNotSame($before, pp_advisory_ack_context());
+    }
+
+    public function testBecomingThePostsPageReopensIt(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        update_option('show_on_front', 'page');
+        update_option('page_for_posts', $id);
+
+        $this->assertNotSame($key, $this->inkKey($id), 'the posts page renders a listing band differently');
+    }
+
+    public function testMovingWhereARunCompletesReportsTheAcknowledgementStaleNotOrphaned(): void
+    {
+        $id  = $this->page([$this->textBand('a'), $this->textBand('b'), $this->textBand('c')]);
+        $key = $this->runKey($id);
+        pp_acknowledge_advisory($id, $key, 'n');
+        $changed = pp_get_composition($id);
+        array_unshift($changed, $this->textBand('x'));   // the run now completes on b, not c
+        $this->rewrite($id, $changed);
+
+        $d = $this->diagnostics($id);
+        $this->assertSame([$key], array_column($d['stale'], 'ack_key'), 'the run is still there, so it is stale');
+        $this->assertSame([], $d['orphaned']);
+    }
+
+    public function testAnAcknowledgementWhoseFindingIsPresentButKeylessIsStaleNotOrphaned(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        pp_acknowledge_advisory($id, $key, 'n');
+        update_option('pp_token_overrides', ['color-accent' => INF]);
+
+        $d = $this->diagnostics($id);
+        $this->assertSame([$key], array_column($d['stale'], 'ack_key'), 'the finding is present; "remove it" would be wrong');
+        $this->assertSame([], $d['orphaned']);
+    }
+
+    public function testTheOrphanHintIsARunnableCommand(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        pp_acknowledge_advisory($id, $key, 'n');
+        $fixed = pp_get_composition($id);
+        unset($fixed[0]['udc']['step-number']);
+        $this->rewrite($id, $fixed);
+
+        WP_CLI::$lines = [];
+        (new PP_Check_Command())->page([], ['post_id' => (string) $id]);
+        $this->assertStringContainsString('wp pp check unacknowledge --post_id=' . $id . ' --key=' . $key, implode("\n", WP_CLI::$lines));
+    }
+
+    public function testCheckPageSaysWhyAFindingHasNoKey(): void
+    {
+        $id = pp_create_page('Raw');
+        update_post_meta($id, '_pp_composition', wp_json_encode([['component' => 'section', 'props' => []]]));
+
+        WP_CLI::$lines = [];
+        (new PP_Check_Command())->page([], ['post_id' => (string) $id]);
+        $this->assertStringContainsString('nothing stable to belong to', implode("\n", WP_CLI::$lines),
+            'the reason (and its update_composition route) reaches the operator');
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────────

@@ -248,7 +248,7 @@ function _pp_cli_post_id_shape_hint(string $command): string {
  * rather than silently accepted.
  *
  * Which branch is live: the "required" branch is defense in depth on ALL nine
- * commands, reachable only by an in-process caller. On the five with a REQUIRED
+ * commands, reachable only by an in-process caller. On the seven with a REQUIRED
  * `--post_id=<id>` synopsis, WP-CLI's own parameter check reports a wholly absent
  * flag first, quoting that OPTIONS description. On the two OPTIONAL ones
  * (`apply preflight`, `screenshot capture`) absence is legal, and
@@ -297,7 +297,7 @@ function _pp_cli_post_id_arg_error(array $assoc_args, string $command): ?string 
 /**
  * Applies the `--post_id` addressing gate and returns the resolved post ID.
  *
- * The entry point for the five commands whose synopsis makes `--post_id`
+ * The entry point for the seven commands whose synopsis makes `--post_id`
  * REQUIRED, and also the shared gate body: _pp_cli_optional_post_id_arg()
  * delegates here once it has ruled out legitimate absence, so all nine commands
  * validate a SUPPLIED value through this exact path.
@@ -1917,7 +1917,10 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * @param  array    $composition  Decoded composition array.
  * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
  *                                findings (#1181); null reports page-blind.
- * @return array{errors: array[], smells: array[], info: array[], styling: array[]}
+ * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[]}
+ *         With a $post_id, `smells` excludes the page's acknowledged advisories (moved to
+ *         `acknowledged`), and `stale` / `orphaned` list acknowledgements that no longer match
+ *         (#1194 A2). Page-blind, the three acknowledgement buckets are empty.
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
     $buckets = _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id));
@@ -1984,7 +1987,7 @@ function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostic
 
     if (!_pp_cli_page_fails_site_validation($diagnostics)) {
         WP_CLI::line("OK: Page {$post_id} ({$title})");
-        _pp_cli_print_acknowledgements($diagnostics);
+        _pp_cli_print_acknowledgements($diagnostics, $post_id);
         _pp_cli_print_info_findings($diagnostics['info']);
         return true;
     }
@@ -2007,7 +2010,7 @@ function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostic
         WP_CLI::line(_pp_cli_smell_line($s));
     }
     _pp_cli_print_acknowledge_hint($post_id, $smells);
-    _pp_cli_print_acknowledgements($diagnostics);
+    _pp_cli_print_acknowledgements($diagnostics, $post_id);
     _pp_cli_print_info_findings($diagnostics['info']);
     return false;
 }
@@ -2021,6 +2024,9 @@ function _pp_cli_smell_line(array $finding): string {
     $line = _pp_cli_finding_line($finding);
     if (isset($finding['ack_key']) && is_string($finding['ack_key'])) {
         $line .= ' [key: ' . _pp_cli_printable($finding['ack_key']) . ']';
+    } elseif (isset($finding['ack_unkeyable']) && is_string($finding['ack_unkeyable']) && $finding['ack_unkeyable'] !== '') {
+        // An acknowledgeable type with no key: say why, and the route to one.
+        $line .= ' [no key: ' . _pp_cli_printable($finding['ack_unkeyable']) . ']';
     }
     return $line;
 }
@@ -2041,7 +2047,7 @@ function _pp_cli_print_acknowledge_hint(int $post_id, array $smells): void {
  * the gate and are listed with their note; a stale one's finding is back in the smells above
  * (what was judged changed); an orphaned one is inert and can be removed.
  */
-function _pp_cli_print_acknowledgements(array $diagnostics): void {
+function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void {
     $acked = $diagnostics['acknowledged'] ?? [];
     if ($acked !== []) {
         WP_CLI::line('  ' . count($acked) . ' acknowledged as intentional (not failing):');
@@ -2053,12 +2059,14 @@ function _pp_cli_print_acknowledgements(array $diagnostics): void {
     }
     foreach ($diagnostics['stale'] ?? [] as $row) {
         WP_CLI::line('  - STALE acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
-            . ': what it judged has changed (this band, a design token, a preset or the theme version), '
-            . 'so its finding is listed above again. Review it, and acknowledge the new key if it is still intentional.');
+            . ': what it judged has changed (its band, or the whole page for a run smell; a design token, a preset '
+            . 'or the theme version), so its finding, or another of its type there, is listed above again. Review it, '
+            . 'and acknowledge the new key if it is still intentional.');
     }
     foreach ($diagnostics['orphaned'] ?? [] as $row) {
         WP_CLI::line('  - orphaned acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
-            . ': its finding is gone, so it does nothing. Remove it with wp pp check unacknowledge --key=<key>.');
+            . ': its finding is gone, so it does nothing. Remove it with wp pp check unacknowledge --post_id='
+            . $post_id . ' --key=' . _pp_cli_printable((string) $row['ack_key']));
     }
 }
 
@@ -2296,7 +2304,7 @@ class PP_Check_Command extends WP_CLI_Command {
         // that is genuinely check-page-only.
         if (!_pp_cli_page_fails_site_validation($diagnostics) && empty($generated)) {
             WP_CLI::success('Page ' . $post_id . ': valid under current write rules, all components have explicit stable IDs, no ambiguous targeting, no composition smells.');
-            _pp_cli_print_acknowledgements($diagnostics);
+            _pp_cli_print_acknowledgements($diagnostics, (int) $post_id);
             _pp_cli_print_info_findings($diagnostics['info']);
             return;
         }
@@ -2354,7 +2362,7 @@ class PP_Check_Command extends WP_CLI_Command {
             _pp_cli_print_acknowledge_hint((int) $post_id, $smells);
         }
 
-        _pp_cli_print_acknowledgements($diagnostics);
+        _pp_cli_print_acknowledgements($diagnostics, (int) $post_id);
         _pp_cli_print_info_findings($diagnostics['info']);
     }
 
