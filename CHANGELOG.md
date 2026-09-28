@@ -8,6 +8,77 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.0` until the sprint close; each Sprint-4 PR adds its section here.
 
+## A correct responsive site passes `wp pp validate site` again (#1194)
+
+**Setting a value per breakpoint no longer fails the site gate.** Every responsive value (a
+`{"d": ..., "p": ...}` map) is stored as a band token, and the engine says so with a
+`udc_token_minted` finding: "you wrote 19px; it is stored as the band token --pp-...". That
+finding asks for nothing, yet it failed `wp pp validate site`, so a correct v2 site could never
+exit 0.
+
+It is now an informational note (`severity: info`), on page writes and on header and footer
+writes alike. You still see it everywhere you did: on the write's `findings`, in `wp pp check page`
+and in `wp pp validate site`, where it is printed under "informational note(s), which never fail
+`wp pp validate site`". It is the only informational finding; every other advisory still fails the
+gate until you answer it. (`wp pp validate site` checks pages only; header and footer findings
+reach you on the write that set them, #1204.)
+
+**A page whose warnings were cut off no longer reads as clean.** The per-page limit of 200 on the
+`udc_*` findings that multiply by card or property count now adds one `udc_findings_capped`
+warning whenever a gating kind reaches it, so `wp pp validate site` keeps failing until you have
+fixed enough to see the rest. The informational notes have their own limit, and a page's report
+always lists every error and warning ahead of them, so a long list of notes can never push a
+warning out of a report cut to 100 entries (a header or footer report is not reordered yet, #1204).
+
+In the chat, an undo that brings back only notes says "Restored:" in a neutral style, each note is
+labelled "Note:", notes are never counted as issues ("Show 1 more warning and 4 notes"), and a note
+never takes a page section's one visible row from a real problem.
+
+- For integrators: a findings entry's `severity` can now be `info`, a truncated report's last
+  entry carries `total_info` (how many of its `total` are informational), and there is a new
+  finding type, `udc_findings_capped`.
+
+## Fluid `clamp()` / `calc()` lengths work in padding, margin, gap, border width and radius (#1191)
+
+**A fluid length now works in every length list, at any position.** `"padding": "clamp(1.75rem,
+1.2rem + 1.5vw, 2.25rem)"`, `"margin": "0 clamp(1rem, 2vw, 3rem)"` and `"border.radius":
+"calc(1rem + 2px) 1rem calc(2rem - 1px) 0"` are accepted, stored as written and painted. On 2.0.0 they
+were refused, with "Value takes at most N space-separated values; got M" (N is 4, or 2 for `gap`) or
+with "Value must be a number with a CSS unit …" for a fragment such as `clamp(1rem,`, because the
+spaces CSS requires inside `clamp()` and `calc()` were counted as separators. The same value already
+worked on the longhands (`padding-top`, …, or `row-gap` / `column-gap`), so the only workaround was to
+write each side separately.
+
+### What changes for you
+
+- `spacing.padding`, `spacing.margin`, `spacing.gap`, `border.width` and `border.radius` accept a
+  `clamp()` or `calc()` wherever a length goes in the list, through every write (`create_page`,
+  `update_composition`, `update_component`, the chat's proposals) and through a role's raw `_css`.
+- A literal length is judged the same inside a list as it is alone: whatever length `padding-top`
+  accepts, one position of `padding` accepts, and whatever length `padding-top` refuses, a list
+  position refuses too. A `@token` reference is still the whole value, never one position in a list:
+  `"padding": "@space-lg"` works, `"padding": "0 @space-lg"` is refused, as before.
+- The limits are unchanged. Four values are still the most a list takes (two for `gap`), a `clamp()`
+  counts as one of them, and a parenthesis that does not close is still refused before anything is
+  stored.
+- The AI's instructions now say it plainly: `gap` takes one or two values, `border.style` takes one to
+  four keywords, and a `clamp()`/`calc()` counts as one value.
+
+### ⚠️ What breaks
+
+Nothing. Every value that was accepted before is still accepted, and still paints the same.
+
+### Known issues
+
+- A `clamp()` or `calc()` whose inside is malformed, such as `calc(1px 2px)` or `clamp(1px, 2px)`,
+  is accepted and then dropped by the browser. This was already true on the single-value
+  parameters, and the list parameters now behave the same way (#1198).
+- A `calc()` nested as a function inside a `clamp()`, such as `clamp(calc(1rem + 1px), 2vw, 3rem)`,
+  is refused wherever the engine checks a length (every length parameter, and a `_css` property
+  that has one). Grouping parentheses work: `clamp((1rem + 1px) * 1.5, 2vw, 3rem)`.
+- No length value has a size limit, so a very long value is stored and checked again on every page
+  view (#1199).
+
 ## `wp pp schema` now shows each role's defaults (#1192)
 
 **You can read what every part of a component looks like before you style it, without opening the

@@ -22,7 +22,7 @@ This checks:
 1. **Custom CSS conflicts** — selectors in WordPress Custom CSS that target PP component classes (also surfaced via admin notice on composition edit screens)
 2. **Composition styling (ambiguous targeting)** — duplicate component types without authored IDs (auto-generated `pp-<hex8>` ids do not count as stable). Duplicate authored IDs (two components sharing the same `id`) are reported under item 5 as an error-severity `duplicate_component_id` finding, plus the matching advisory smell for state that predates the rule.
 3. **Composition data integrity** — a page whose stored composition is corrupt (undecodable JSON) or not a valid composition list is flagged as a data-integrity error and fails validation, instead of being silently treated as a blank page (issue 144). `wp pp check page` reports the same corruption distinctly from "no composition".
-4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section` and the hero/layout/wall-of-text advisories. **`transparent_fill` and `inert_slot` no longer exist** — both read a declared field off a style slot, and the style-slot engine was retired at #1101, so the pass that produced them is deleted rather than dormant. The accepted-stored-ignored failure `inert_slot` existed for is reported by the UDC engine now, on the surface that has it (`udc_band_value_shadowed_by_role_default` and its siblings). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause. Since #687 the accepted write that set the slot carries the same advisory in its own `findings`, so on the CLI you can catch it in that edit instead of in a later sweep. Chat and the dashboard editor do not surface it yet, so if you author there, this command is still where you find out.
+4. **Composition smells** — the advisory findings `wp pp check page` reports, including `empty_section` and the hero/layout/wall-of-text advisories. **`transparent_fill` and `inert_slot` no longer exist** — both read a declared field off a style slot, and the style-slot engine was retired at #1101, so the pass that produced them is deleted rather than dormant. The accepted-stored-ignored failure `inert_slot` existed for is reported by the UDC engine now, on the surface that has it (`udc_band_value_shadowed_by_role_default` and its siblings). These are ADVISORIES about the composition, not errors in it: the writes that produced them were accepted and the values are stored as authored. **They still make `wp pp validate site` exit non-zero**, because this command is the "nothing is quietly wrong" gate. The one exception is a finding at `severity: info` (only `udc_token_minted`, #1194): it explains something the engine did for you, asks for nothing, is printed as an informational note, and never fails the gate. Resolve an `inert_slot` by setting the prop the slot needs (`layout`, `eyebrow`, `button2_text`, ...) or by dropping the slot — the message names the slot and every unmet clause. Since #687 the accepted write that set the slot carries the same advisory in its own `findings`, so on the CLI you can catch it in that edit instead of in a later sweep. Chat and the dashboard editor do not surface it yet, so if you author there, this command is still where you find out.
 
    **The `udc` advisories are the v2 half of this list, and they are the ones worth
    learning, because a `udc` write that lands and paints nothing is otherwise invisible:**
@@ -115,14 +115,23 @@ This checks:
      in one place. This is the structured-first principle arriving as a finding.
    - `udc_value_cannot_take_effect` — the value is stored as authored and cannot reach
      the element.
-   - `udc_token_minted` — informational: you wrote a literal and it was stored as a
-     band token (`--pp-<name>`) because you set it per breakpoint. Nothing to fix; it
-     explains a name you will see in the emitted CSS.
+   - `udc_token_minted` — INFORMATIONAL (`severity: info`, #1194): you wrote a literal and
+     it was stored as a band token (`--pp-<name>`) because you set it per breakpoint. Nothing
+     to fix; it explains a name you will see in the emitted CSS. It is the one finding that
+     does NOT fail this command: `validate site` and `check page` still print it, under
+     "informational note(s), which never fail `wp pp validate site`", so a correct responsive
+     site exits 0.
    - `udc_unused_band_token` — the band declares a token nothing references, so it has
      no effect. Reference it or drop it.
+   - `udc_findings_capped` — one of the per-card or per-property `udc_*` kinds reached its
+     limit of 200 on this page (the message names which; the `_css` pair shares one limit),
+     so more of them may exist than are listed. The informational `udc_token_minted` never
+     adds one. It comes first in every report that can be cut to 100 entries (the write, restore and chrome envelopes), so a truncated report still carries it; this command and `check page` are never cut and list it with the other smells. It is a warning and fails this command
+     until you have fixed enough of the listed ones to see the rest: a page whose warnings
+     were cut off is not a verified-clean page (#1194).
 
-   Like every advisory here these are accepted writes, and like every advisory here they
-   still make `wp pp validate site` exit non-zero.
+   Like every advisory here these are accepted writes, and every one of them except the
+   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero.
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares — or, for a key inside an `items[]` entry, names the item and lists the fields that component's entries accept (#643). That holds for the missing-required message at both depths too, so a renamed prop OR a renamed item field is named alongside what is missing, in one message. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.

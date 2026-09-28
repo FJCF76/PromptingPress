@@ -134,12 +134,88 @@
  * rather than merely untidy.
  *
  * ALSO THE FINDINGS CAP. pp_udc_composition_findings() bounds each of its multiplying
- * `udc_*` arms at this value across one composition (the `_css` pair and the token pair
- * share one budget each; overlay, preset-skip, preset-shadow, item-shadow,
- * overlay-accent-off-scrim and role-ink-over-own-surface have their own), and
+ * `udc_*` arms at this value across one composition (the `_css` pair shares one budget;
+ * the mint note, the unused-token lint, overlay, preset-skip, preset-shadow, item-shadow,
+ * overlay-accent-off-scrim and role-ink-over-own-surface have their own, and every gating
+ * arm that reaches it adds a gating `udc_findings_capped`, #1194), and
  * ai-instructions/operating-loop.md tells the model the number. Changing it changes both.
  */
 const PP_UDC_MAX_EMIT_DROPS = 200;
+
+/**
+ * The finding types that are INFORMATIONAL: reported, never gating (#1194).
+ *
+ * A composition finding carries one of three severities. `error` says a normal write of
+ * this composition would be refused; `warning` is an advisory that fails
+ * `wp pp validate site` until it is answered; `info` explains something the engine did on
+ * the author's behalf and asks for nothing. Every consumer still shows an info finding
+ * (the write envelope, `wp pp check page`, `wp pp validate site`, the chat restore card);
+ * only the site gate ignores it.
+ *
+ * Exactly one type is informational, and the list is deliberately closed:
+ *
+ *   udc_token_minted  "you wrote 19px; it is stored as the band token --pp-..." fires once
+ *                     per responsive literal. It is the section 3.1 no-coercion disclosure,
+ *                     so it must be DELIVERED, but it is not a problem, and while it gated,
+ *                     any breakpoint map made a correct site fail the gate (#1194).
+ *
+ * Adding a type here takes a finding out of the gate everywhere, so it is a gate decision
+ * that needs its own ruling (pinned by InformationalFindingSeverityTest).
+ *
+ * @return string[]
+ */
+function pp_informational_finding_types(): array {
+    return ['udc_token_minted'];
+}
+
+/**
+ * THE ONE AUTHORITY FOR A UDC DISCLOSURE'S SEVERITY (#1194). Both assemblers stamp it from
+ * here: _pp_composition_findings() for a page and _pp_udc_site_findings_unguarded() for
+ * chrome and preset envelopes. The chrome one used to hardcode 'warning', so after the
+ * mint became informational a chrome mint and a band mint disagreed.
+ *
+ * @param  string $type  A finding type.
+ * @return string        'info' for the informational types, 'warning' otherwise.
+ */
+function pp_finding_severity(string $type): string {
+    return in_array($type, pp_informational_finding_types(), true) ? 'info' : 'warning';
+}
+
+/**
+ * THE ONE DELIVERY ORDER FOR A FINDINGS REPORT (#1194, orchestrator rulings on A1 review
+ * cycles 2 and 3). Every bounded consumer (the write envelope, restore, the run rollback,
+ * the chrome and preset envelopes, the chat undo card) keeps the HEAD of the list, so the
+ * order decides what a truncated report still says:
+ *
+ *   1. `udc_findings_capped`  "more of these exist than are listed" (gating), first, so a
+ *                             truncated report still carries it;
+ *   2. every other non-info finding, in its own order (errors before advisories, as the
+ *      assemblers emit them);
+ *   3. `severity: info` notes, in their own order, so notes can never crowd a warning out.
+ *
+ * Stable within each group; nothing is dropped or added. The page assembler
+ * (_pp_composition_findings()) calls this; the chrome/preset assembler does not yet, and that
+ * half is recorded on #1204 (orchestrator preset exit B, A1 review cycle 4). The CLI's own
+ * listings (`check page`, `validate site`) are never cut, and print by severity bucket.
+ *
+ * @param  array[] $findings  Assembled findings.
+ * @return array[]            The same findings in delivery order.
+ */
+function pp_order_findings_for_delivery(array $findings): array {
+    $capped = [];
+    $gating = [];
+    $notes  = [];
+    foreach ($findings as $finding) {
+        if (is_array($finding) && ($finding['type'] ?? null) === 'udc_findings_capped') {
+            $capped[] = $finding;
+        } elseif (is_array($finding) && ($finding['severity'] ?? null) === 'info') {
+            $notes[] = $finding;
+        } else {
+            $gating[] = $finding;
+        }
+    }
+    return array_merge($capped, $gating, $notes);
+}
 
 /**
  * The on-the-page check's markup bounds (#1125, /ship security specialist): the most rendered
@@ -519,8 +595,9 @@ const PP_UDC_BACKGROUND_IMAGE_COMPANIONS = [
  *               property allows". A negative padding is inert CSS; a negative
  *               letter-spacing is ordinary typography.
  *   max_values  shorthand arity. Applied ONLY to the four families §3.3 names
- *               (padding, margin, border-width, border-radius) plus gap, because
- *               those genuinely are N-of-one-type. Nothing else gets a generic
+ *               (padding, margin, border-width, border-radius) plus gap, and
+ *               border-style (a list of up to four keywords), because those
+ *               genuinely are N-of-one-type. Nothing else gets a generic
  *               arity check: real CSS shorthands carry per-property ordering,
  *               slash syntax and mixed token types that an arity count models
  *               either too weakly or too strictly.
@@ -3129,7 +3206,39 @@ function pp_udc_validate_value(string $value, array $param) {
 
     $max      = $param['max_values'] ?? 1;
     $keywords = $param['keywords'] ?? [];
-    $tokens   = $max > 1 ? preg_split('/\s+/', trim($value)) : [trim($value)];
+    $tokens   = [trim($value)];
+
+    // A LIST SPLITS ON TOP-LEVEL SPACES ONLY (#1191).
+    //
+    // A clamp()/calc() length carries spaces of its own — CSS requires them around `+`
+    // and `-` inside calc(), and clamp() is written with one after each comma — so a
+    // split on every space counted `clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem)` as five
+    // values and cut `0 clamp(1rem, 2vw, 3rem)` into a `clamp(1rem,` no grammar takes.
+    // The documented length was refused on padding, margin, gap, border.width and
+    // border.radius while the same clamp() passed on every single-value longhand.
+    //
+    // THE SHARED TOP-LEVEL SPLITTER (_pp_css_split_top_level(), lib/apply.php) does the
+    // split: linear, never recursive. Its separator set is space/tab/newline where `\s`
+    // also took CR/FF/VT, but no control character reaches this line — the shared reject
+    // set above refuses 0x00-0x1F — so only U+0020 can separate here.
+    //
+    // LINEAR IS THE WHOLE COST CONTRACT, because emit re-validates every stored value on
+    // every request. The walk is one pass with no recursion and no re-scan, linear like the
+    // reject set and the delimiter gate that already walk the value ahead of it, and it
+    // carries no size cap: each entry of a list is judged exactly as it is alone.
+    // UdcMultiValueLengthTest pins the scaling on two axes (8x the input must take under
+    // 22x the time; linear is ~8x, quadratic ~64x).
+    if ($max > 1) {
+        $tokens = _pp_css_split_top_level($tokens[0]);
+        // Reachable behind the delimiter gate, which skips over quoted strings while this
+        // walk does not: `0 ")("` is balanced to CSS and not to the split. No
+        // length or keyword carries a quote, so refusing it loses nothing — what must not
+        // happen is a GUESSED split of a value the walk could not pair.
+        if ($tokens === null) {
+            return new WP_Error('invalid_udc_value',
+                'Value must be space-separated values whose parentheses pair up within each value.');
+        }
+    }
 
     if (count($tokens) > $max) {
         return new WP_Error('invalid_udc_value', sprintf(
@@ -8506,12 +8615,16 @@ function _pp_udc_site_findings_unguarded(): array {
             // path stamps it for the very same disclosures. Every generic consumer
             // branches on this value (the CLI splits on `=== 'error'`, the chat picks a
             // row class from it), so a chrome row without it renders as neither.
-            // `warning` matches what the composition path gives these four types.
-            'severity' => 'warning',
+            // pp_finding_severity() is the one authority both assemblers read, so a chrome
+            // mint is a note exactly as a band mint is (#1194).
+            'severity' => pp_finding_severity((string) $finding['type']),
             'message'  => $finding['message'],
             'index'    => null,
         ];
     }
+    // NOT REORDERED HERE (#1194, orchestrator preset exit B on A1 review cycle 4): putting
+    // chrome/preset notes last moves to #1204 with the chrome gate. The engine already puts
+    // `udc_findings_capped` first within this list (pp_udc_composition_findings()).
     return $findings;
 }
 
@@ -9556,6 +9669,12 @@ function pp_udc_composition_findings(array $items): array {
     // from a counter whose own comment claimed 200.
     $item_disclosed   = 0;
     $tokens_disclosed = 0;
+    // THE UNUSED-TOKEN LINT HAS ITS OWN BUDGET (#1194 A1, review cycle 1). It used to share
+    // `$tokens_disclosed` with the mint disclosure, and the mint loop runs first; once the
+    // mint became a non-gating note, 200 responsive values spent the whole budget and the
+    // gating `udc_unused_band_token` was never emitted, so `wp pp validate site` passed a
+    // page that should fail. A note must never spend a gating finding's budget.
+    $unused_disclosed = 0;
     // THE SAME BOUND FOR EVERY ARM THAT WALKS ITEM MAPS (#1116, #1117). Each multiplies by
     // the card count, and `items` declares no maximum: measured at 50 bands x 20 cards,
     // 3,000 overlay findings and 1,000 each of the two preset disclosures before these.
@@ -11043,19 +11162,19 @@ function pp_udc_composition_findings(array $items): array {
             ];
         }
         foreach ($tokens as $name => $unused) {
-            // THE SAME BUDGET AS ITS TWIN ABOVE, which walks this identical array. The
-            // first cut capped `udc_token_minted` and left this one uncapped — measured
-            // at 40 bands of unreferenced item-shaped tokens: 24,000 findings, 4.3 MB of
-            // message text and +16 MB peak from one call. One budget across both
-            // disclosures is what "bounded across the composition" has to mean when two
-            // loops read one array.
-            if ($tokens_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+            // BOUNDED LIKE ITS TWIN ABOVE, which walks this identical array. The first
+            // cut capped `udc_token_minted` and left this one uncapped — measured at 40
+            // bands of unreferenced item-shaped tokens: 24,000 findings, 4.3 MB of message
+            // text and +16 MB peak from one call. The two used to share ONE budget; since
+            // #1194 they have one EACH (see `$unused_disclosed`), because the mint is a note
+            // and this one gates, so the total is bounded at twice the cap.
+            if ($unused_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
                 break;
             }
             if (isset($referenced[(string) $name])) {
                 continue;
             }
-            $tokens_disclosed++;
+            $unused_disclosed++;
             $findings[] = [
                 'type'    => 'udc_unused_band_token',
                 'message' => sprintf(
@@ -11070,7 +11189,49 @@ function pp_udc_composition_findings(array $items): array {
 
     }
 
-    return $findings;
+    // A GATING ARM THAT REACHED ITS CAP SAYS SO, AND THE SAYING GATES (#1194, orchestrator
+    // ruling on A1 review cycle 1). Every arm below stops emitting at PP_UDC_MAX_EMIT_DROPS,
+    // so past the cap there may be findings nobody is shown: a page whose warnings were cut
+    // off is not a verified-clean page, and an omitted warning could never be answered. One
+    // `udc_findings_capped` per arm that reached its cap, severity warning (it is not in
+    // pp_informational_finding_types()). "May": reaching the cap exactly also reports it,
+    // because the arms stop at the cap without looking further. The mint budget is absent on
+    // purpose: every entry it could omit is a note, and a note never gates.
+    $gating_budgets = [
+        'udc_preset_groups_skipped'                                          => $skipped_disclosed,
+        'udc_preset_value_shadowed_by_role_default'                          => $shadow_disclosed,
+        'udc_overlay_accent_off_scrim'                                       => $relit_disclosed,
+        'udc_role_ink_over_own_surface'                                      => $ink_disclosed,
+        'udc_overlay_without_image'                                          => $overlay_disclosed,
+        'udc_item_value_shadowed_by_role_default'                            => $item_disclosed,
+        'udc_css_overrides_group_value and udc_css_unchecked_property'       => $css_disclosed,
+        'udc_unused_band_token'                                              => $unused_disclosed,
+    ];
+    // FIRST, NOT LAST (orchestrator rulings, cycles 2 and 3): every bounded report keeps its
+    // head, and a row appended after its arm's 200 entries was always past the 100-entry cut.
+    // The page assembler then puts it ahead of the WHOLE report (pp_order_findings_for_delivery());
+    // the chrome/preset report is this engine's output alone, so this order is what puts it
+    // first there (#1204).
+    $capped_rows = [];
+    foreach ($gating_budgets as $types => $spent) {
+        if ($spent >= PP_UDC_MAX_EMIT_DROPS) {
+            $capped_rows[] = [
+                'type'    => 'udc_findings_capped',
+                'message' => sprintf(
+                    // SUBJECT-NEUTRAL AND ROUTE-FREE (cycle-2 security): this engine also builds
+                    // the chrome and preset envelopes, which have no page and no `check page`
+                    // route, so the row names neither (the findings_skipped precedent).
+                    'This report reached the %d-finding limit for %s, so more of them may exist than are listed. '
+                    . 'Fix the ones listed, then read the report again to see the rest.',
+                    PP_UDC_MAX_EMIT_DROPS,
+                    $types
+                ),
+                'index'   => null,
+            ];
+        }
+    }
+
+    return array_merge($capped_rows, $findings);
 }
 
 /**

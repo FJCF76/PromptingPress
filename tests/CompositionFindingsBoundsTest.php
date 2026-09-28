@@ -780,8 +780,10 @@ final class CompositionFindingsBoundsTest extends TestCase
         for ($i = 0; $i < PP_WRITE_FINDINGS_BUDGET; $i++) {
             $findings[] = ['type' => 'invalid_prop_value', 'severity' => 'error', 'message' => 'x', 'index' => $i];
         }
-        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 0];
-        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'warning', 'message' => 'm', 'index' => 1];
+        // The mint is an informational note since #1194, delivered last, so it is the
+        // first thing a truncation cuts: exactly why the tail counts it by species.
+        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'info', 'message' => 'm', 'index' => 0];
+        $findings[] = ['type' => 'udc_token_minted', 'severity' => 'info', 'message' => 'm', 'index' => 1];
         $findings[] = ['type' => 'udc_unused_band_token', 'severity' => 'warning', 'message' => 'u', 'index' => 2];
 
         $bounded = _pp_bounded_findings($findings, 42);
@@ -793,6 +795,7 @@ final class CompositionFindingsBoundsTest extends TestCase
             $tail['omitted_by_type'],
             'the tail must say which species were dropped, and how many of each'
         );
+        $this->assertSame(2, $tail['total_info'], 'and it agrees with the omitted notes');
     }
 
     /**

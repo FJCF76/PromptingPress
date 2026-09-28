@@ -1907,31 +1907,111 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  *
  * Pinned by CompositionFindingsBoundsTest so the carve-out survives with evidence
  * rather than as prose — including the exit code, which cannot move: findings arrive
- * errors-then-advisories, so bounding could never empty the `errors` bucket that
+ * in pp_order_findings_for_delivery() order (at most one capped row per gating arm, then errors,
+ * then advisories, then notes, #1194), so bounding could never empty the `errors` bucket that
  * _pp_cli_page_fails_site_validation() gates on.
  *
  * @param  array    $composition  Decoded composition array.
  * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
  *                                findings (#1181); null reports page-blind.
- * @return array{errors: array[], smells: array[], styling: array[]}
+ * @return array{errors: array[], smells: array[], info: array[], styling: array[]}
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
+    return _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id)) + [
+        'styling' => pp_validate_composition_styling($composition),
+    ];
+}
+
+/**
+ * Splits composition findings into the three severity buckets (#622, #1194).
+ *
+ * FAILS CLOSED: only a finding whose severity is exactly 'info' leaves the gate. An unknown,
+ * miscased, empty or missing severity is a smell, so a new or malformed finding can never
+ * pass `wp pp validate site` by accident.
+ *
+ * @param  array[] $findings  _pp_composition_findings() output.
+ * @return array{errors: array[], smells: array[], info: array[]}
+ */
+function _pp_cli_diagnostics_buckets(array $findings): array {
     $errors = [];
     $smells = [];
-
-    foreach (_pp_composition_findings($composition, $post_id) as $finding) {
-        if (($finding['severity'] ?? '') === 'error') {
+    $info   = [];
+    foreach ($findings as $finding) {
+        $severity = $finding['severity'] ?? '';
+        if ($severity === 'error') {
             $errors[] = $finding;
+        } elseif ($severity === 'info') {
+            $info[] = $finding;
         } else {
             $smells[] = $finding;
         }
     }
+    return ['errors' => $errors, 'smells' => $smells, 'info' => $info];
+}
 
-    return [
-        'errors'  => $errors,
-        'smells'  => $smells,
-        'styling' => pp_validate_composition_styling($composition),
-    ];
+/**
+ * Prints one page's section of `wp pp validate site` and says whether it passed (#1194).
+ *
+ * Extracted from the command loop so the per-page report is testable: the command itself
+ * reads pp_composition_pages(), which is memoised for the life of the process, and ends in
+ * WP_CLI::halt(). A failing page prints its errors, ambiguous-targeting warnings and smells;
+ * every page, passing or failing, then prints its informational notes, which never fail.
+ *
+ * @param  int    $post_id      The page.
+ * @param  string $title        Its title, already passed through _pp_cli_printable().
+ * @param  array  $diagnostics  _pp_cli_page_diagnostics() for that page.
+ * @return bool                 True when the page passes the gate.
+ */
+function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostics): bool {
+    $errors   = $diagnostics['errors'];
+    $warnings = $diagnostics['styling'];
+    $smells   = $diagnostics['smells'];
+
+    if (!_pp_cli_page_fails_site_validation($diagnostics)) {
+        WP_CLI::line("OK: Page {$post_id} ({$title})");
+        _pp_cli_print_info_findings($diagnostics['info']);
+        return true;
+    }
+
+    $issue_count = count($errors) + count($warnings) + count($smells);
+    WP_CLI::warning("Page {$post_id} ({$title}): {$issue_count} issue(s)");
+    // Error-severity findings first — these say a normal write of this
+    // composition would be REJECTED, which is a different claim from the
+    // advisories below them (#622).
+    foreach ($errors as $e) {
+        WP_CLI::line(_pp_cli_finding_line($e) . ' (would be rejected on write)');
+    }
+    foreach ($warnings as $w) {
+        // Stored component name, sitting between two loops whose lines already
+        // go through _pp_cli_finding_line() (#647). Indices are ints.
+        $named = _pp_cli_printable((string) $w['component']);
+        WP_CLI::line("  - {$named} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
+    }
+    foreach ($smells as $s) {
+        WP_CLI::line(_pp_cli_finding_line($s));
+    }
+    _pp_cli_print_info_findings($diagnostics['info']);
+    return false;
+}
+
+/**
+ * Prints a page's INFORMATIONAL findings (#1194), under a header that says they never fail.
+ *
+ * Shared by `wp pp check page` and `wp pp validate site` so the two commands say the same
+ * thing about the same bucket. An info finding is a disclosure the author is owed (the
+ * mint disclosure is the section 3.1 no-coercion promise), so it is printed on a passing
+ * page too; the header is what keeps it from reading as a problem. Silent when empty.
+ *
+ * @param  array[] $info  The `info` bucket of _pp_cli_page_diagnostics().
+ */
+function _pp_cli_print_info_findings(array $info): void {
+    if ($info === []) {
+        return;
+    }
+    WP_CLI::line('  ' . count($info) . ' informational note(s), which never fail `wp pp validate site`:');
+    foreach ($info as $finding) {
+        WP_CLI::line('  ' . _pp_cli_finding_line($finding));
+    }
 }
 
 /**
@@ -1943,9 +2023,12 @@ function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): arr
  * additionally caches statically for the life of the process, so the per-page decision
  * is the only part of that loop a test can address directly.
  *
- * All three buckets fail the gate. Advisory smells already did — this is the
+ * Three buckets fail the gate. Advisory smells already did — this is the
  * "nothing is quietly wrong" command, not a severity filter — and #622 adds the error
  * bucket, which is the stronger claim: that page's next ordinary edit would be REFUSED.
+ * The fourth bucket, `info` (#1194), never does: an informational finding explains what
+ * the engine did and asks for nothing (pp_informational_finding_types()). Both commands
+ * still print it.
  *
  * @param  array $diagnostics  Result of _pp_cli_page_diagnostics().
  * @return bool                True when this page must fail site validation.
@@ -2134,6 +2217,7 @@ class PP_Check_Command extends WP_CLI_Command {
         // that is genuinely check-page-only.
         if (!_pp_cli_page_fails_site_validation($diagnostics) && empty($generated)) {
             WP_CLI::success('Page ' . $post_id . ': valid under current write rules, all components have explicit stable IDs, no ambiguous targeting, no composition smells.');
+            _pp_cli_print_info_findings($diagnostics['info']);
             return;
         }
 
@@ -2188,6 +2272,8 @@ class PP_Check_Command extends WP_CLI_Command {
                 WP_CLI::line(_pp_cli_finding_line($s));
             }
         }
+
+        _pp_cli_print_info_findings($diagnostics['info']);
     }
 
     /**
@@ -2290,31 +2376,9 @@ class PP_Validate_Command extends WP_CLI_Command {
                 }
                 $composition = $result['composition'];
                 $diagnostics = _pp_cli_page_diagnostics($composition, (int) $post_id);
-                $errors      = $diagnostics['errors'];
-                $warnings    = $diagnostics['styling'];
-                $smells      = $diagnostics['smells'];
 
-                if (_pp_cli_page_fails_site_validation($diagnostics)) {
+                if (!_pp_cli_report_site_page((int) $post_id, $title, $diagnostics)) {
                     $pass = false;
-                    $issue_count = count($errors) + count($warnings) + count($smells);
-                    WP_CLI::warning("Page {$post_id} ({$title}): {$issue_count} issue(s)");
-                    // Error-severity findings first — these say a normal write of this
-                    // composition would be REJECTED, which is a different claim from the
-                    // advisories below them (#622).
-                    foreach ($errors as $e) {
-                        WP_CLI::line(_pp_cli_finding_line($e) . ' (would be rejected on write)');
-                    }
-                    foreach ($warnings as $w) {
-                        // Stored component name, sitting between two loops whose lines already
-                        // go through _pp_cli_finding_line() (#647). Indices are ints.
-                        $named = _pp_cli_printable((string) $w['component']);
-                        WP_CLI::line("  - {$named} at indices " . implode(', ', $w['indices']) . ' (no authored IDs — ambiguous targeting; add explicit `id` props)');
-                    }
-                    foreach ($smells as $s) {
-                        WP_CLI::line(_pp_cli_finding_line($s));
-                    }
-                } else {
-                    WP_CLI::line("OK: Page {$post_id} ({$title})");
                 }
             }
         }

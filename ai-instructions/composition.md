@@ -740,9 +740,9 @@ wp pp action execute create_page --run-id=<uuid> --params='{
 }'
 ```
 
-Then read the envelope. `ok: true` is not the whole result: an empty `findings` array is the
-positive confirmation, and anything in it is the engine telling you a value did not land the way
-you wrote it. `create_page` is all-or-nothing — if the composition write fails, the page it created
+Then read the envelope. `ok: true` is not the whole result: an empty `findings` array, or one holding only
+`severity: info` notes (`udc_token_minted`, #1194), is the positive confirmation; any error or
+warning in it is the engine telling you a value did not land the way you wrote it. `create_page` is all-or-nothing — if the composition write fails, the page it created
 moments earlier is removed rather than left behind empty.
 
 To RESTYLE one band afterwards, use `update_component` with a `udc` param (see `ai-instructions/style-component.md`) — it touches only that band. To rewrite several bands at once, read the composition back, edit it, and send the whole thing:

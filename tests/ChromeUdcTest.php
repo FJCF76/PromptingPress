@@ -629,8 +629,9 @@ class ChromeUdcTest extends TestCase
         $this->assertCount(2, $minted, 'one per minted token, exactly as a band write reports');
 
         foreach ($minted as $finding) {
-            $this->assertSame('warning', $finding['severity'],
-                'every generic consumer branches on severity; a chrome row without it renders as neither');
+            $this->assertSame('info', $finding['severity'],
+                'every generic consumer branches on severity; a chrome row without it renders as neither, '
+                . 'and a mint is informational on chrome exactly as on a band (#1194)');
             $this->assertNull($finding['index'],
                 'a chrome entry has no band offset — claiming index 0 would be a fabricated locator (I26)');
             $this->assertStringContainsString('Component "nav"', $finding['message']);
