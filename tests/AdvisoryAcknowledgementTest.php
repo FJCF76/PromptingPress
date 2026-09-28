@@ -991,6 +991,21 @@ final class AdvisoryAcknowledgementTest extends TestCase
         unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
     }
 
+    public function testEveryFindingOnABandGetsTheKeyItWouldGetAlone(): void
+    {
+        // The per-call band digest memo must never change a key: with two acknowledgeable
+        // findings on one band, each key equals the key computed for that finding alone.
+        $band = $this->ownerBand();
+        $band['udc']['heading'][PP_UDC_CSS_KEY] = ['clip-path' => 'none', 'mix-blend-mode' => 'normal'];
+        $id   = $this->page([$band]);
+
+        $keyed = array_values(array_filter($this->diagnostics($id)['smells'], static fn ($f) => isset($f['ack_key'])));
+        $this->assertGreaterThanOrEqual(2, count($keyed), 'premise: two acknowledgeable findings share the band');
+        foreach ($keyed as $finding) {
+            $this->assertSame(pp_advisory_finding_key($id, pp_get_composition($id), $finding), $finding['ack_key']);
+        }
+    }
+
     public function testCheckPagePrintsTheIgnoredRowWithItsRemoval(): void
     {
         $id  = $this->page([$this->ownerBand()]);
