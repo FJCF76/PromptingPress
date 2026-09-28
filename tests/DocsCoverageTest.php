@@ -1035,4 +1035,59 @@ class DocsCoverageTest extends TestCase
         );
     }
 
+    /**
+     * THE DOCS NAME EVERY KEY A `wp pp schema` ROLE ENTRY CARRIES (#1192).
+     *
+     * The report promised `defaults` in the docs and never emitted them; the opposite drift (a key
+     * emitted that no doc names) is how an SSH-only agent misses a surface. So the key set is DERIVED
+     * from the real report over every registered component, and each key must be named in the two
+     * places that enumerate a role entry: the `wp pp schema` field table in
+     * docs/reference-apply-cli.md (the always-present keys in its `roles` row, every optional key as a
+     * `roles[].<key>` row) and the schema.json row of AI_CONTEXT.md's file table. Scoped to those
+     * extracted spans, never document-wide, so an unrelated mention cannot satisfy it. The
+     * style-component.md section on reading a report must name the `defaults` map it describes.
+     */
+    public function testTheDocsNameEveryKeyTheSchemaReportPutsOnARole(): void
+    {
+        unset($GLOBALS['_pp_test_template_dir']);
+        $GLOBALS['_pp_registered_components_invalidate'] = true;
+
+        $keys = [];
+        foreach (self::allComponents() as $component) {
+            $report = pp_component_schema_report($component);
+            $this->assertIsArray($report, "{$component} reports");
+            foreach ($report['roles'] ?? [] as $entry) {
+                $keys += array_fill_keys(array_keys($entry), true);
+            }
+        }
+        $keys = array_keys($keys);
+        $this->assertContains('defaults', $keys, 'premise: the report emits role defaults (#1192)');
+        $this->assertNotContains('unreportable', $keys, 'premise: no shipped role fails the gate');
+        $always = ['role', 'selector', 'groups', 'description'];
+        $this->assertSame([], array_values(array_diff($always, $keys)), 'premise: the always-present keys');
+
+        $reference = $this->doc('docs/reference-apply-cli.md');
+        $this->assertSame(1, preg_match('/^\| `roles` \|[^\n]*/m', $reference, $rolesRow), 'the reference has a `roles` row');
+        foreach ($always as $key) {
+            $this->assertStringContainsString('`' . $key . '`', $rolesRow[0], "the `roles` row names `{$key}`");
+        }
+        foreach (array_diff($keys, $always) as $key) {
+            $this->assertMatchesRegularExpression(
+                '/^\| `roles\[\]\.' . preg_quote($key, '/') . '` \|/m',
+                $reference,
+                "docs/reference-apply-cli.md has no `roles[].{$key}` row, though the report emits it"
+            );
+        }
+
+        $aiContext = $this->doc('AI_CONTEXT.md');
+        $this->assertSame(1, preg_match('/^\| `components\/\{name\}\/schema\.json` \|[^\n]*/m', $aiContext, $schemaRow), 'AI_CONTEXT has its schema.json row');
+        foreach ($keys as $key) {
+            $this->assertStringContainsString('`' . $key . '`', $schemaRow[0], "AI_CONTEXT.md's schema.json row does not name `{$key}`");
+        }
+
+        $styleComponent = $this->doc('ai-instructions/style-component.md');
+        $this->assertSame(1, preg_match('/^### Reading [^\n]* in a report\n(.*?)(?=^#{1,3} )/ms', $styleComponent, $section), 'style-component.md has its reading-a-report section');
+        $this->assertMatchesRegularExpression('/`(?:roles\[\]\.)?defaults`/', $section[1], 'the section describes the emitted `defaults` map');
+    }
+
 }

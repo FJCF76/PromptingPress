@@ -1225,7 +1225,7 @@ WP_CLI::add_command('pp target', 'PP_Target_Command');
 class PP_Schema_Command extends WP_CLI_Command {
 
     /**
-     * Outputs a component's props, style slots, applies_when conditions and recipes as JSON.
+     * Outputs a component's declared contract as JSON: props, roles (with their defaults) and the design vocabulary.
      *
      * Read-only and run-token-free — the same class as `wp pp operate inspect-composition`.
      * It reads declarations off disk, touches no page, and mints nothing, so it is safe to
@@ -1239,7 +1239,10 @@ class PP_Schema_Command extends WP_CLI_Command {
      * `applies_when_rendered`: the whole condition — `applies_when` clauses and any
      * `conditionality_note`, ANDed — in the same words the runtime AI catalog uses.
      *
-     * Scope: props, style slots and recipes. The remaining `styling` declarations
+     * Scope: props, style slots and recipes on every component, plus, where roles are
+     * declared, `roles` (each role's selector, groups, description, and when declared its
+     * `defaults`, obligations, `overlay_defaults`, `within` and `text_content`),
+     * `item_roles`, `udc_groups` and `udc_raw_css`. The remaining `styling` declarations
      * (`root_class`, `variant_classes`, `tokens`, `udc_roles`) are not
      * emitted; see pp_component_schema_report() in lib/operate.php.
      *
