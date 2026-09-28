@@ -38,6 +38,47 @@ never takes a page section's one visible row from a real problem.
   entry carries `total_info` (how many of its `total` are informational), and there is a new
   finding type, `udc_findings_capped`.
 
+## Fluid `clamp()` / `calc()` lengths work in padding, margin, gap, border width and radius (#1191)
+
+**A fluid length now works in every length list, at any position.** `"padding": "clamp(1.75rem,
+1.2rem + 1.5vw, 2.25rem)"`, `"margin": "0 clamp(1rem, 2vw, 3rem)"` and `"border.radius":
+"calc(1rem + 2px) 1rem calc(2rem - 1px) 0"` are accepted, stored as written and painted. On 2.0.0 they
+were refused, with "Value takes at most N space-separated values; got M" (N is 4, or 2 for `gap`) or
+with "Value must be a number with a CSS unit …" for a fragment such as `clamp(1rem,`, because the
+spaces CSS requires inside `clamp()` and `calc()` were counted as separators. The same value already
+worked on the longhands (`padding-top`, …, or `row-gap` / `column-gap`), so the only workaround was to
+write each side separately.
+
+### What changes for you
+
+- `spacing.padding`, `spacing.margin`, `spacing.gap`, `border.width` and `border.radius` accept a
+  `clamp()` or `calc()` wherever a length goes in the list, through every write (`create_page`,
+  `update_composition`, `update_component`, the chat's proposals) and through a role's raw `_css`.
+- A literal length is judged the same inside a list as it is alone: whatever length `padding-top`
+  accepts, one position of `padding` accepts, and whatever length `padding-top` refuses, a list
+  position refuses too. A `@token` reference is still the whole value, never one position in a list:
+  `"padding": "@space-lg"` works, `"padding": "0 @space-lg"` is refused, as before.
+- The limits are unchanged. Four values are still the most a list takes (two for `gap`), a `clamp()`
+  counts as one of them, and a parenthesis that does not close is still refused before anything is
+  stored.
+- The AI's instructions now say it plainly: `gap` takes one or two values, `border.style` takes one to
+  four keywords, and a `clamp()`/`calc()` counts as one value.
+
+### ⚠️ What breaks
+
+Nothing. Every value that was accepted before is still accepted, and still paints the same.
+
+### Known issues
+
+- A `clamp()` or `calc()` whose inside is malformed, such as `calc(1px 2px)` or `clamp(1px, 2px)`,
+  is accepted and then dropped by the browser. This was already true on the single-value
+  parameters, and the list parameters now behave the same way (#1198).
+- A `calc()` nested as a function inside a `clamp()`, such as `clamp(calc(1rem + 1px), 2vw, 3rem)`,
+  is refused wherever the engine checks a length (every length parameter, and a `_css` property
+  that has one). Grouping parentheses work: `clamp((1rem + 1px) * 1.5, 2vw, 3rem)`.
+- No length value has a size limit, so a very long value is stored and checked again on every page
+  view (#1199).
+
 ## `wp pp schema` now shows each role's defaults (#1192)
 
 **You can read what every part of a component looks like before you style it, without opening the

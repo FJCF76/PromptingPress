@@ -595,8 +595,9 @@ const PP_UDC_BACKGROUND_IMAGE_COMPANIONS = [
  *               property allows". A negative padding is inert CSS; a negative
  *               letter-spacing is ordinary typography.
  *   max_values  shorthand arity. Applied ONLY to the four families §3.3 names
- *               (padding, margin, border-width, border-radius) plus gap, because
- *               those genuinely are N-of-one-type. Nothing else gets a generic
+ *               (padding, margin, border-width, border-radius) plus gap, and
+ *               border-style (a list of up to four keywords), because those
+ *               genuinely are N-of-one-type. Nothing else gets a generic
  *               arity check: real CSS shorthands carry per-property ordering,
  *               slash syntax and mixed token types that an arity count models
  *               either too weakly or too strictly.
@@ -3205,7 +3206,39 @@ function pp_udc_validate_value(string $value, array $param) {
 
     $max      = $param['max_values'] ?? 1;
     $keywords = $param['keywords'] ?? [];
-    $tokens   = $max > 1 ? preg_split('/\s+/', trim($value)) : [trim($value)];
+    $tokens   = [trim($value)];
+
+    // A LIST SPLITS ON TOP-LEVEL SPACES ONLY (#1191).
+    //
+    // A clamp()/calc() length carries spaces of its own — CSS requires them around `+`
+    // and `-` inside calc(), and clamp() is written with one after each comma — so a
+    // split on every space counted `clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem)` as five
+    // values and cut `0 clamp(1rem, 2vw, 3rem)` into a `clamp(1rem,` no grammar takes.
+    // The documented length was refused on padding, margin, gap, border.width and
+    // border.radius while the same clamp() passed on every single-value longhand.
+    //
+    // THE SHARED TOP-LEVEL SPLITTER (_pp_css_split_top_level(), lib/apply.php) does the
+    // split: linear, never recursive. Its separator set is space/tab/newline where `\s`
+    // also took CR/FF/VT, but no control character reaches this line — the shared reject
+    // set above refuses 0x00-0x1F — so only U+0020 can separate here.
+    //
+    // LINEAR IS THE WHOLE COST CONTRACT, because emit re-validates every stored value on
+    // every request. The walk is one pass with no recursion and no re-scan, linear like the
+    // reject set and the delimiter gate that already walk the value ahead of it, and it
+    // carries no size cap: each entry of a list is judged exactly as it is alone.
+    // UdcMultiValueLengthTest pins the scaling on two axes (8x the input must take under
+    // 22x the time; linear is ~8x, quadratic ~64x).
+    if ($max > 1) {
+        $tokens = _pp_css_split_top_level($tokens[0]);
+        // Reachable behind the delimiter gate, which skips over quoted strings while this
+        // walk does not: `0 ")("` is balanced to CSS and not to the split. No
+        // length or keyword carries a quote, so refusing it loses nothing — what must not
+        // happen is a GUESSED split of a value the walk could not pair.
+        if ($tokens === null) {
+            return new WP_Error('invalid_udc_value',
+                'Value must be space-separated values whose parentheses pair up within each value.');
+        }
+    }
 
     if (count($tokens) > $max) {
         return new WP_Error('invalid_udc_value', sprintf(
