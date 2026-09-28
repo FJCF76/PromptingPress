@@ -847,7 +847,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
 | `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
-Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable.
+Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`).
 
 ### `wp pp readiness status` (read-only)
 

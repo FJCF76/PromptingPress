@@ -635,6 +635,8 @@ wp pp schema                                          # every registered compone
 wp pp schema hero                                     # one component's props, roles (with defaults / overlay_defaults / within / text_content when declared), udc_groups (read-only, no run-id)
 wp pp check conflicts                                 # Custom CSS conflict detection
 wp pp check page --post_id=42                         # composition validity + styling + smells (raw composition data, not rendered HTML)
+wp pp check acknowledge --post_id=42 --key=<key> --note="<why>"  # record a verified judgment-call advisory as intentional (#1194; note required, key from check page)
+wp pp check unacknowledge --post_id=42 --key=<key>    # reverse it
 wp pp check surface lib/wp.php                        # surface classification (safe/extension/core)
 wp pp validate site                                   # full site validation battery
 wp pp validate page --post_id=42                      # rendered-HTML validation (issue 77) — same service that gates the AI chat's success message; optional --component-index=N; exits non-zero on failure
