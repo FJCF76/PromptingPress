@@ -2020,18 +2020,23 @@ function ppChatRenderPreviewResult(stepEl, diffArea, step, result) {
  * Maps a restore finding's severity to its display class (#622).
  *
  * `severity: 'error'` means a normal write of the restored composition would be
- * REJECTED by current rules; `severity: 'warning'` is advisory. Anything else (an
- * older payload, a missing key) degrades to the warning class rather than
- * over-escalating.
+ * REJECTED by current rules; `severity: 'warning'` is advisory; `severity: 'info'` is a
+ * note that asks for nothing and takes its own neutral class, `pp-ai-step-info` (#1194).
+ * Anything else (an older payload, a missing key) degrades to the warning class rather
+ * than over-escalating.
  *
  * IT HAS A NEAR-IDENTICAL TWIN WITH THE OPPOSITE DEFAULT, and neither may be folded into
- * the other. ppChatRollbackRowClass() (#855) picks the same two classes from the same
- * field, but its unrecognized case is an unknown rollback KIND — an older envelope, a
+ * the other. ppChatRollbackRowClass() (#855) picks from the same warning/failure pair (it has
+ * no info arm: rollback kinds are never informational) off the same field, but its unrecognized case is an unknown rollback KIND — an older envelope, a
  * newer server — which Ruling T2 says must render as it did before, i.e. the FAILURE
  * class. De-escalating there would draw a real failed revert as a harmless protection.
  * Two functions, two defaults, on purpose.
  */
 function ppChatFindingClass(item) {
+    if (item && item.severity === 'info') {
+        // Informational (#1194): shown, in a neutral class, never as a warning.
+        return 'pp-ai-step-info';
+    }
     return (item && item.severity === 'error') ? 'pp-ai-step-failed' : 'pp-ai-step-warning';
 }
 
@@ -2117,6 +2122,12 @@ function ppChatUndoHistoryNotice(findings) {
  * the heading's sentence says "issues ... under current rules". The truncated branch reads
  * the server's true total, which counts composition findings only, so the notice never has
  * to be subtracted from it — only from `shown`, which is a count of rendered rows.
+ *
+ * INFORMATIONAL NOTES ARE SUBTRACTED TOO (#1194): a `severity: 'info'` finding asks for
+ * nothing, so it is not an issue. From `shown` by counting the delivered notes; from the
+ * truncated `total` by the tail's `total_info`, because most notes of a truncated report
+ * are past the budget. A malformed, missing or impossible (larger than `total`) `total_info`
+ * counts as zero, so a bad tail can only overstate the issues, never hide them.
  */
 function ppChatUndoFindingsTotal(findings, tail, historyNotice) {
     if (tail === undefined) {
@@ -2128,15 +2139,28 @@ function ppChatUndoFindingsTotal(findings, tail, historyNotice) {
 
     var hoisted = (tail !== null ? 1 : 0) + (historyNotice !== null ? 1 : 0);
 
+    // AN INFORMATIONAL NOTE IS NOT AN ISSUE (#1194). It is rendered (in its own class, see
+    // ppChatFindingClass) but it asks for nothing, so it never counts toward "N issues".
+    var infoShown = 0;
+    findings.forEach(function (f) {
+        if (f && f.severity === 'info') { infoShown++; }
+    });
+    var shown = findings.length - hoisted - infoShown;
+
     if (tail !== null) {
         // The tail is an advisory ABOUT the report, not an issue with the composition,
-        // so it never counts toward either number.
-        return { total: tail.total, shown: findings.length - hoisted, truncated: true };
+        // so it never counts toward either number. Its `total_info` says how many of its
+        // `total` are notes, most of which are past the budget and cannot be counted here.
+        // An IMPOSSIBLE total_info (more notes than findings) is ignored rather than trusted:
+        // the count fails closed toward "more issues", never open toward zero.
+        var totalInfo = (typeof tail.total_info === 'number' && tail.total_info > 0 && tail.total_info <= tail.total)
+            ? tail.total_info : 0;
+        return { total: tail.total - totalInfo, shown: shown, truncated: true };
     }
 
     return {
-        total: findings.length - hoisted,
-        shown: findings.length - hoisted,
+        total: shown,
+        shown: shown,
         truncated: false
     };
 }
@@ -2197,8 +2221,15 @@ function ppChatAppendUndoFindings(card, findings) {
     // disclosure that is the card's only real content. Drop the clause and let the
     // disclosure be the statement.
     var heading = document.createElement('div');
-    heading.className = 'pp-ai-step-warning';
-    heading.textContent = counted.total === 0
+    // A RESTORE WHOSE ONLY FINDINGS ARE NOTES WARNS ABOUT NOTHING (#1194): neutral heading,
+    // no warning sign, truncated or not (a report of 150 notes cut to 100 is still only
+    // notes). The #821 zero-count heading keeps its warning styling, because there the card's
+    // content is the no-undo-point disclosure.
+    var notesOnly = counted.total === 0 && history === null;
+    heading.className = notesOnly ? 'pp-ai-step-info' : 'pp-ai-step-warning';
+    heading.textContent = notesOnly
+        ? 'Restored:'
+        : counted.total === 0
         ? '⚠ Restored:'
         : '⚠ Restored, but the previous version has '
             + counted.total + ' issue' + (counted.total === 1 ? '' : 's')
@@ -2628,7 +2659,7 @@ function ppChatOneShotLink(link, spentLabel, run) {
  * a function rather than a fixed class makes ppChatAppendValidationItems derive the
  * disclosure summary's noun from the hidden items' severities, so an all-withheld overflow
  * now reads "Show N more warnings" and a mixed one "Show N more issues". Those are that
- * helper's own three nouns (#622), not new vocabulary, and the all-failure case — which is
+ * helper's own nouns (#622; #1194 added "notes" for informational findings alone), not new vocabulary, and the all-failure case — which is
  * every pre-#855 report and every old envelope — still reads "errors", byte for byte.
  *
  * That reuse is also a COUPLING, so it is stated rather than left to be discovered: these
@@ -3082,7 +3113,7 @@ function ppChatValidationItemRow(item, className) {
  * caller with items shaped `{ message }` and all of them errors; #855 is what moved it,
  * because a withheld entry has to draw differently from a failed one. In the per-item form the disclosure
  * summary's noun is derived from the hidden items' own severities ("errors", "warnings",
- * or "issues" when they are mixed), never from the class string: calling a set that
+ * "notes" for informational findings alone (#1194), or "issues" when they are mixed), never from the class string: calling a set that
  * contains errors "warnings" is the same misreport one level up.
  *
  * THE INLINE ROWS ARE CHOSEN BAND-AWARE (#655). The budget of 5 was calibrated when a
@@ -3107,7 +3138,11 @@ function ppChatValidationItemRow(item, className) {
  * where it used to draw five rows. The locator on each row (ppChatFindingLocator) and the
  * disclosure are what carry the rest.
  *
- * FIRST-PER-BAND IS ALSO WORST-PER-BAND, and that is inherited rather than coded here.
+ * FIRST-PER-BAND IS ALSO WORST-PER-BAND, and that is inherited rather than coded here,
+ * then notes (severity 'info') last (#1194: pp_order_findings_for_delivery()), which alone
+ * gives first-per-band the right row. One guard IS coded here as well: a note never takes a
+ * band's inline row while that band has a problem, for a payload not built by that
+ * assembler (an older envelope).
  * _pp_composition_findings() (lib/actions.php) appends every ERROR the error engine found
  * and only then every advisory from the smell engine, so a band that has an error meets
  * this loop at that error first and the error is what takes the inline row. Picking the
@@ -3140,11 +3175,27 @@ function ppChatAppendValidationItems(container, items, className) {
     var overflow = [];
     var seenBands = {};
 
+    // A NOTE NEVER TAKES A BAND'S ROW FROM A PROBLEM (#1194). The server delivers notes last
+    // (pp_order_findings_for_delivery()), so first-per-band already picks the problem; this is
+    // the guard for a payload in another order, such as an older envelope.
+    var bandHasProblem = {};
+    if (perItem) {
+        items.forEach(function (item) {
+            var b = ppChatFindingBand(item);
+            if (b !== null && !(item && item.severity === 'info')) {
+                bandHasProblem['band:' + b] = true;
+            }
+        });
+    }
+
     items.forEach(function (item) {
         var band = ppChatFindingBand(item);
         var key = (band === null) ? null : 'band:' + band;
-        var isFirstOfBand = (key === null) || !Object.prototype.hasOwnProperty.call(seenBands, key);
-        if (key !== null) {
+        var yieldsToProblem = perItem && key !== null && item && item.severity === 'info'
+            && Object.prototype.hasOwnProperty.call(bandHasProblem, key);
+        var isFirstOfBand = !yieldsToProblem
+            && ((key === null) || !Object.prototype.hasOwnProperty.call(seenBands, key));
+        if (key !== null && !yieldsToProblem) {
             seenBands[key] = true;
         }
 
@@ -3161,10 +3212,16 @@ function ppChatAppendValidationItems(container, items, className) {
     } else {
         var hasError = false;
         var hasOther = false;
+        var hasInfo  = false;
         overflow.forEach(function (item) {
-            if (item && item.severity === 'error') { hasError = true; } else { hasOther = true; }
+            if (item && item.severity === 'error') { hasError = true; }
+            else if (item && item.severity === 'info') { hasInfo = true; }
+            else { hasOther = true; }
         });
-        noun = (hasError && hasOther) ? 'issue' : (hasError ? 'error' : 'warning');
+        // A list of notes alone is "notes", never "warnings" (#1194).
+        noun = ((hasError ? 1 : 0) + (hasOther ? 1 : 0) + (hasInfo ? 1 : 0) > 1)
+            ? 'issue'
+            : (hasError ? 'error' : (hasOther ? 'warning' : 'note'));
     }
 
     shown.forEach(function (item) {

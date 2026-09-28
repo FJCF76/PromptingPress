@@ -658,3 +658,171 @@ describe('ppChatAppendUndoFindings', () => {
         });
     });
 });
+
+/**
+ * #1194 A1: an INFORMATIONAL finding (severity 'info', e.g. udc_token_minted) is shown on
+ * the undo card in its own neutral class and is never counted as an issue.
+ */
+describe('informational findings on the undo card (#1194)', () => {
+    const NOTE = {
+        type: 'udc_token_minted',
+        severity: 'info',
+        message: 'Component "testimonials": you wrote "19px"; it is stored as the band token --pp-quote-typography-size-d because the value is set per breakpoint.',
+        index: 0
+    };
+
+    it('gives an info finding its own class, never the warning or failure class', () => {
+        expect(findingClass(NOTE)).toBe('pp-ai-step-info');
+        expect(findingClass({ severity: 'INFO' })).toBe('pp-ai-step-warning');
+    });
+
+    it('does not count a note as an issue in the heading', () => {
+        const card = newCard();
+        appendUndoFindings(card, [SMELL_FINDING, NOTE, CHROME_FINDING]);
+
+        expect(card.textContent).toContain('2 issues');
+        expect(card.textContent).not.toContain('3 issues');
+        expect(card.querySelectorAll('.pp-ai-step-info').length).toBe(1);
+    });
+
+    it('a notes-only restore reads as restored, with no issue count', () => {
+        const card = newCard();
+        appendUndoFindings(card, [NOTE, NOTE]);
+
+        expect(card.textContent).toContain('Restored:');
+        expect(card.textContent).not.toMatch(/\d+ issues?/);
+        expect(card.textContent).not.toContain('⚠');
+        expect(card.querySelectorAll('.pp-ai-step-warning').length).toBe(0);
+        // Heading plus the two notes, all neutral.
+        expect(card.querySelectorAll('.pp-ai-step-info').length).toBe(3);
+    });
+
+    it('keeps the warning heading when a note sits beside a real issue', () => {
+        const card = newCard();
+        appendUndoFindings(card, [NOTE, SMELL_FINDING]);
+
+        expect(card.textContent).toContain('⚠ Restored, but the previous version has 1 issue');
+    });
+
+    it('never gives a band\'s inline row to a note while that band has a problem', () => {
+        const card = newCard();
+        const warningSameBand = { type: 'udc_unused_band_token', severity: 'warning', message: 'orphan', index: 0 };
+        appendUndoFindings(card, [NOTE, Object.assign({}, NOTE), warningSameBand]);
+
+        const inline = Array.from(card.children[0].children).filter((el) => el.tagName === 'DIV');
+        // heading + exactly one inline row for band 0, and it is the warning.
+        expect(inline.length).toBe(2);
+        expect(inline[1].className).toBe('pp-ai-step-warning');
+        expect(inline[1].textContent).toContain('orphan');
+    });
+
+    it('still shows a note inline for a band with nothing else', () => {
+        const card = newCard();
+        appendUndoFindings(card, [NOTE, Object.assign({}, SMELL_FINDING, { index: 3 })]);
+
+        const inline = Array.from(card.children[0].children).filter((el) => el.tagName === 'DIV');
+        expect(inline.some((el) => el.className === 'pp-ai-step-info')).toBe(true);
+        expect(card.querySelector('details')).toBeNull();
+    });
+
+    it('a truncated report of notes alone still gets the neutral heading', () => {
+        const card = newCard();
+        const list = [];
+        for (let i = 0; i < 100; i++) {
+            list.push(Object.assign({}, NOTE, { index: i }));
+        }
+        list.push({
+            type: 'findings_truncated', severity: 'warning', index: null, total: 150, total_info: 150,
+            message: 'Showing 100 of 150 findings and 50 more were omitted.'
+        });
+        appendUndoFindings(card, list);
+
+        const heading = card.children[0].children[0];
+        expect(heading.className).toBe('pp-ai-step-info');
+        expect(heading.textContent).toBe('Restored:');
+        expect(card.textContent).not.toMatch(/\d+ issues?/);
+    });
+
+    it('a truncated report with a real issue keeps the warning heading', () => {
+        const card = newCard();
+        const list = [{ type: 'unknown_prop', severity: 'error', message: 'bad', index: 0 }];
+        for (let i = 1; i < 100; i++) {
+            list.push(Object.assign({}, NOTE, { index: i }));
+        }
+        list.push({
+            type: 'findings_truncated', severity: 'warning', index: null, total: 150, total_info: 149,
+            message: 'Showing 100 of 150 findings and 50 more were omitted.'
+        });
+        appendUndoFindings(card, list);
+
+        const heading = card.children[0].children[0];
+        expect(heading.className).toBe('pp-ai-step-warning');
+        expect(heading.textContent).toContain('1 issue');
+    });
+
+    it('calls an overflow of errors and notes "issues"', () => {
+        const card = newCard();
+        const many = [];
+        for (let i = 0; i < 12; i++) {
+            many.push(i % 2 === 0
+                ? Object.assign({}, NOTE, { index: 0 })
+                : { type: 'unknown_prop', severity: 'error', message: 'bad ' + i, index: 0 });
+        }
+        appendUndoFindings(card, many);
+
+        expect(card.textContent).toMatch(/more issues/);
+    });
+
+    it('calls an overflow of warnings and notes "issues"', () => {
+        const card = newCard();
+        const many = [];
+        for (let i = 0; i < 12; i++) {
+            many.push(i % 2 === 0
+                ? Object.assign({}, NOTE, { index: 0 })
+                : Object.assign({}, SMELL_FINDING, { index: 0 }));
+        }
+        appendUndoFindings(card, many);
+
+        expect(card.textContent).toMatch(/more issues/);
+    });
+
+    it('ignores an impossible total_info rather than hiding the issues', () => {
+        // More notes than findings cannot be true, so it fails closed: the full total stands.
+        const tail = { type: 'findings_truncated', severity: 'warning', index: null, total: 5, total_info: 9, message: 'm' };
+        const one = [{ type: 'unknown_prop', severity: 'error', message: 'b', index: 0 }];
+        expect(undoFindingsTotal(one.concat([tail])).total).toBe(5);
+    });
+
+    it('subtracts the server-counted notes from a truncated total', () => {
+        const list = [];
+        for (let i = 0; i < 100; i++) {
+            list.push(i < 40 ? Object.assign({}, NOTE, { index: i })
+                : { type: 'unknown_prop', severity: 'error', message: 'bad ' + i, index: i });
+        }
+        list.push({
+            type: 'findings_truncated', severity: 'warning', index: null,
+            total: 500, total_info: 150,
+            message: 'Showing 100 of 500 findings and 400 more were omitted. Run `wp pp check page --post_id=7` for the complete report.'
+        });
+        expect(undoFindingsTotal(list)).toEqual({ total: 350, shown: 60, truncated: true });
+    });
+
+    it('treats a missing or malformed total_info as zero', () => {
+        const tail = { type: 'findings_truncated', severity: 'warning', index: null, total: 500, message: 'm' };
+        const one = [{ type: 'unknown_prop', severity: 'error', message: 'b', index: 0 }];
+        expect(undoFindingsTotal(one.concat([tail])).total).toBe(500);
+        expect(undoFindingsTotal(one.concat([Object.assign({}, tail, { total_info: 'many' })])).total).toBe(500);
+    });
+
+    it('names an overflow of notes alone "notes"', () => {
+        const card = newCard();
+        const many = [];
+        for (let i = 0; i < 12; i++) {
+            many.push(Object.assign({}, NOTE, { index: i }));
+        }
+        appendUndoFindings(card, many);
+
+        expect(card.textContent).toMatch(/more notes/);
+        expect(card.textContent).not.toMatch(/more warnings/);
+    });
+});
