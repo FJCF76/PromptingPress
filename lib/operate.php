@@ -3709,9 +3709,9 @@ function _pp_advisory_key_or_reason(int $post_id, array $composition, array $fin
     $raw_only = ' (a non-finite number or invalid UTF-8, which only a raw write can store)';
     $context = $context ?? pp_advisory_ack_context();
     if ($context === '') {
-        return ['key' => null, 'reason' => 'the site state cannot be fingerprinted: a design token, a preset or the '
-            . 'Additional CSS holds a value that cannot be encoded exactly' . $raw_only . '. Nothing on the site can be '
-            . 'acknowledged until that value is rewritten.'];
+        return ['key' => null, 'reason' => 'the site state cannot be fingerprinted: a design token, the site udc map '
+            . '(presets or chrome) or a front-page setting holds a value that cannot be encoded exactly' . $raw_only
+            . '. Nothing on the site can be acknowledged until that value is rewritten.'];
     }
     $page_scoped = in_array($type, pp_page_scoped_advisory_types(), true);
     if ($page_scoped) {
