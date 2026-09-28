@@ -4,11 +4,91 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 4] — v2 Sprint 4, the 2.0.1 fix cycle (#1197)
+## [v2.0.1] — 2026-09-28 — v2 Sprint 4, the 2.0.1 fix cycle: a correct site passes `wp pp validate site`, verified judgment calls can be acknowledged, fluid lengths work in padding, margin, gap and border lists, and card checklists sit under their text (#1197; #1194, #1191, #1192, #1193, #1195)
 
-The five version files stay at `2.0.0` until the sprint close; each Sprint-4 PR adds its section here.
+**TL;DR: a site rebuilt on 2.0.0 can now pass its own gate.** The owner's rebuild of a real site on
+2.0.0 turned up the gaps this release closes. A responsive value no longer fails `wp pp validate
+site`. A judgment call the engine cannot measure (an ink over a role's own fill, a raw `_css`
+property, a composition smell) can be recorded as intentional with a reason, and it re-opens the
+moment what you judged changes. A `clamp()` in a `padding` or `margin` list is accepted. Card
+checklists stay under their text in a stretched row. The AI instructions stop teaching grid props
+that are refused. Nothing stored needs migrating.
 
-## The AI instructions no longer tell agents to write grid props that are refused (#1193)
+### Highlights
+
+- **Responsive values stop failing the gate.** `udc_token_minted` is an informational note that
+  never fails `wp pp validate site`, and a report cut short by the per-page finding limit says so
+  with a warning that keeps failing (#1194).
+- **Mark a verified judgment call as intentional.** `wp pp check page` prints a key beside each of
+  eight judgment-call advisories. `wp pp check acknowledge --post_id=<id> --key=<key> --note="<why>"`
+  records it, and `wp pp check unacknowledge` reverses it. The note is required. The
+  acknowledgement dies when what you judged changes: its band (the whole page for a run smell), a
+  design token, a preset, the header or footer chrome, the Additional CSS, the
+  front-page settings or the theme version (#1194). It does not follow code: a development build
+  between releases, a child theme's stylesheet or a plugin's late CSS can change what paints without
+  re-opening it, and a raw `_css` property can reach past the band it covers.
+- **Fluid lengths in padding, margin, gap, border width and radius.** `"padding": "clamp(1.75rem, 1.2rem + 1.5vw, 2.25rem)"`,
+  `"margin": "0 clamp(1rem, 2vw, 3rem)"` and `calc()` in `border.radius` are accepted and painted
+  (#1191). Background position and size, object-position, shadow lengths and grid track lists still
+  take no `clamp()`/`calc()`.
+- **`wp pp schema` shows each role's defaults**, so an agent sees what a role paints before it
+  writes anything (#1192).
+- **The grid docs match the schema.** `AI_RULES.md`, `AI_CONTEXT.md` and `composition.md` no
+  longer describe the retired grid props as live. The icon-scale route is `card-media` →
+  `sizing` (#1193).
+- **Card checklists sit under their text again** in a row of equal-height cards, and the row's
+  links still line up (#1195).
+
+### ⚠️ What breaks
+
+- **Findings severities.** A findings entry's `severity` can now be `info`, and there is a new
+  warning type, `udc_findings_capped`. A consumer that treated every finding as a problem should
+  skip `info`. A truncated report's last entry carries `total_info` (#1194).
+- **Card layout in a stretched row.** The text and checklist no longer take the spare height. A
+  border or background on `card-text` or `card-bullets` now wraps its content instead of
+  stretching. A `card-link` margin other than `margin-top: auto` breaks the line-up of a row's
+  links. With `card-body` → `layout.orientation: "row"`, the text and checklist are sized from
+  their content instead of splitting the width (#1195).
+- **New CLI commands.** `wp pp check acknowledge` and `wp pp check unacknowledge` join the
+  page-addressed commands. They take `--post_id` and `--key`, never a positional argument.
+
+### Upgrading
+
+This is a theme-only update. Nothing stored is rewritten and no data needs migrating.
+1. Run `wp pp validate site`. Pages that failed only on `udc_token_minted` now pass.
+2. For each remaining advisory you have verified as intentional, run `wp pp check page
+   --post_id=<id>`, then `wp pp check acknowledge` with its key and a note saying what you checked.
+3. If you set a `card-link` margin to space the link from the checklist, move that spacing to
+   `card-body` → `spacing.gap`. The grid README gives the exact rule.
+
+### Known issues (rolled up)
+
+- An accent over a scrim (`udc_overlay_accent_off_scrim`) cannot be acknowledged yet. That
+  judgment includes the photo, which the key cannot yet follow reliably (#1211). It keeps failing
+  the gate; set the accent's `typography.color` yourself.
+- `wp pp validate site` does not read header and footer findings, so a gating chrome advisory is
+  reported only on the write that set it (#1204). An undo's count and truncation wording still
+  treat informational notes as issues in three places (a run rollback's count among them) (#1205).
+- Acknowledgements are read only by `wp pp check page` and `wp pp validate site`. A write's
+  `findings` report and the chat still list an acknowledged advisory as a warning.
+- An acknowledgement does not re-open for a code change (a development build between releases, a
+  child theme's stylesheet, a plugin's late CSS), and a raw `_css` property can paint past the band
+  its acknowledgement covers.
+- An acknowledgement row written straight into post meta with a note is honoured. Signing rows is
+  planned (#1214). The band-id namespaces and a few refusal messages have follow-ups (#1213,
+  #1215).
+- A malformed `clamp()` or `calc()` inside a length is accepted and dropped by the browser (#1198),
+  and length values have no size limit (#1199).
+- The documented `card-media` → `_css` `object-fit: contain` route has no effect (#1209). The grid
+  `header` role description contradicts itself (#1208). The default gap between a card's checklist
+  and its link is tight (#1207).
+- A third-party theme's role defaults can carry unbounded or invisible characters into
+  `wp pp schema` output (#1200), and `wp pp schema` echoes rejected `overlay_defaults` keys and a
+  rejected role name raw in `unreportable_because` (#1201).
+
+### Itemized changes
+
+### The AI instructions no longer tell agents to write grid props that are refused (#1193)
 
 **`AI_RULES.md`, `AI_CONTEXT.md` and `ai-instructions/composition.md` now describe the same grid
 as the schema.** On 2.0.0, the composition guide still listed `title_align`, `card_emphasis`,
@@ -22,7 +102,7 @@ retired `image_treatment: "icon"` prop. It now points at the route that replaced
 `card-media` role, `card-media` -> `sizing` -> `{"width": "48px", "height": "48px", "aspect-ratio":
 "auto"}` in the band's `udc` map.
 
-### What changes for you
+#### What changes for you
 
 - `AI_CONTEXT.md` and `composition.md` list the same grid props: `id`, `title`, `title_accent`,
   `eyebrow`, `subheading`, `layout`, `columns`, `items_source` (the posts-page listing, #1181) and
@@ -42,7 +122,7 @@ retired `image_treatment: "icon"` prop. It now points at the route that replaced
 - The retired `text_role` notes now say what the schema measured: three of the four values
   rendered, and `mono`'s route is `card-text` -> `typography.family`.
 
-### ⚠️ What breaks
+#### ⚠️ What breaks
 
 Nothing. This is a documentation change. The theme's behaviour and the chat AI's runtime prompt
 (`lib/ai-context.php`, which already listed grid's retired props and their routes) are unchanged.
@@ -51,7 +131,7 @@ Nothing. This is a documentation change. The theme's behaviour and the chat AI's
   names the `` `card-media` -> `sizing` `` route in that rule's own line. Before, it checked the whole
   file for the retired prop name.
 
-### Known issues
+#### Known issues
 
 - The documented way to keep an icon-sized card image un-cropped, `card-media` -> `_css` ->
   `{"object-fit": "contain"}`, has no effect: it lands on the image's wrapper, not the image. The
@@ -59,7 +139,7 @@ Nothing. This is a documentation change. The theme's behaviour and the chat AI's
 - The grid `header` role's own description in the schema contradicts itself about centring the
   eyebrow pill; `header` -> `typography.align` is the route that works (#1208).
 
-## A correct responsive site passes `wp pp validate site` again (#1194)
+### A correct responsive site passes `wp pp validate site` again (#1194)
 
 **Setting a value per breakpoint no longer fails the site gate.** Every responsive value (a
 `{"d": ..., "p": ...}` map) is stored as a band token, and the engine says so with a
@@ -89,7 +169,7 @@ never takes a page section's one visible row from a real problem.
   entry carries `total_info` (how many of its `total` are informational), and there is a new
   finding type, `udc_findings_capped`.
 
-## Mark a verified judgment call as intentional, so a correct site passes (#1194)
+### Mark a verified judgment call as intentional, so a correct site passes (#1194)
 
 **Some advisories describe a state only you can judge, and you can now say you judged it.** An ink
 set over a role's own default fill (the engine names the pair but cannot measure it), a raw `_css`
@@ -112,7 +192,7 @@ value does not paint, errors, and the list-was-cut row can never be acknowledged
 not paint is never intentional. Something the engine cannot fingerprint (a value only a raw write
 can store) gets no key and keeps failing until it is fixed, and `check page` says why beside it.
 
-### Worth knowing
+#### Worth knowing
 
 - Acknowledgements show in `wp pp check page` and `wp pp validate site` only. A write's `findings`
   report and the chat still list an acknowledged advisory as a warning.
@@ -134,9 +214,9 @@ can store) gets no key and keeps failing until it is fixed, and `check page` say
   `unnoted` buckets, acknowledgeable findings carry `ack_key`, and acknowledgements are stored per page in
   the `_pp_acknowledged_advisories` post meta.
 
-## Fluid `clamp()` / `calc()` lengths work in padding, margin, gap, border width and radius (#1191)
+### Fluid `clamp()` / `calc()` lengths work in padding, margin, gap, border width and radius (#1191)
 
-**A fluid length now works in every length list, at any position.** `"padding": "clamp(1.75rem,
+**A fluid length now works at any position in the padding, margin, gap, border-width and border-radius lists.** `"padding": "clamp(1.75rem,
 1.2rem + 1.5vw, 2.25rem)"`, `"margin": "0 clamp(1rem, 2vw, 3rem)"` and `"border.radius":
 "calc(1rem + 2px) 1rem calc(2rem - 1px) 0"` are accepted, stored as written and painted. On 2.0.0 they
 were refused, with "Value takes at most N space-separated values; got M" (N is 4, or 2 for `gap`) or
@@ -145,7 +225,7 @@ spaces CSS requires inside `clamp()` and `calc()` were counted as separators. Th
 worked on the longhands (`padding-top`, …, or `row-gap` / `column-gap`), so the only workaround was to
 write each side separately.
 
-### What changes for you
+#### What changes for you
 
 - `spacing.padding`, `spacing.margin`, `spacing.gap`, `border.width` and `border.radius` accept a
   `clamp()` or `calc()` wherever a length goes in the list, through every write (`create_page`,
@@ -160,11 +240,11 @@ write each side separately.
 - The AI's instructions now say it plainly: `gap` takes one or two values, `border.style` takes one to
   four keywords, and a `clamp()`/`calc()` counts as one value.
 
-### ⚠️ What breaks
+#### ⚠️ What breaks
 
 Nothing. Every value that was accepted before is still accepted, and still paints the same.
 
-### Known issues
+#### Known issues
 
 - A `clamp()` or `calc()` whose inside is malformed, such as `calc(1px 2px)` or `clamp(1px, 2px)`,
   is accepted and then dropped by the browser. This was already true on the single-value
@@ -175,7 +255,7 @@ Nothing. Every value that was accepted before is still accepted, and still paint
 - No length value has a size limit, so a very long value is stored and checked again on every page
   view (#1199).
 
-## `wp pp schema` now shows each role's defaults (#1192)
+### `wp pp schema` now shows each role's defaults (#1192)
 
 **You can read what every part of a component looks like before you style it, without opening the
 theme's files.** `wp pp schema <component>` now prints each role's `defaults`: the values that part
@@ -187,7 +267,7 @@ and a part that ships its own background keeps it when you darken the band. Befo
 over SSH or in the chat found those out only from the findings after a write. Now it can see them in
 the report first, in the same shape you write a `udc` map in, with `@token` references as written.
 
-### Fixed
+#### Fixed
 
 - `wp pp schema <component>` reports `roles[].defaults` for every role that has defaults (a role with
   none leaves the key out). For every shipped component, what it prints is exactly what the page
@@ -198,7 +278,7 @@ the report first, in the same shape you write a `udc` map in, with `@token` refe
   check, and a rejected key with unusual characters is named as `(unreportable key)`. No shipped
   component is affected.
 
-### Docs
+#### Docs
 
 - The style instructions' "Reading `defaults` in a report" section describes the map the report
   actually prints. The old section described a single desktop `default` value from the 1.x styling
@@ -206,13 +286,13 @@ the report first, in the same shape you write a `udc` map in, with `@token` refe
 - The CLI reference, `AI_CONTEXT.md`, the operating loop, the composition and add-component guides
   and the `wp pp schema` help text all list `defaults` among the role fields.
 
-### Tests
+#### Tests
 
 - The report is checked against the declared defaults and against the engine's emitted defaults, in
   both directions. The shape check has a case for every shape it accepts and every shape it rejects,
   and a docs guard checks that the documentation names every role field the report emits.
 
-## Card checklists sit under their text again (#1195)
+### Card checklists sit under their text again (#1195)
 
 **A pricing row now reads top to bottom on every card.** When a `grid` row of cards has different
 amounts of text, the cards stretch to the height of the tallest one. On the shorter cards the
@@ -226,13 +306,13 @@ extra height, and card heights stay the same. If you worked around this with
 remove it (keep it only if you also rely on the text never shrinking, for example with
 `card-body` → `layout.orientation: "row"`).
 
-### Fixed
+#### Fixed
 
 - In a row of equal-height cards, the text and the checklist stack from the top of the card, and
   only the link's automatic top margin takes the spare height (before, the text and checklist took
   it).
 
-### Worth knowing
+#### Worth knowing
 
 - A border or background you added to a card's text (`card-text`) or checklist (`card-bullets`)
   now wraps its content instead of stretching down the card.
@@ -253,7 +333,7 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
 - There is still no typed parameter for how a card part grows into spare height. That question is
   recorded on the issue as a follow-up decision.
 
-### Tests
+#### Tests
 
 - A rendered check on an equal-height pricing row, at desktop and phone widths, measures from the
   text to the checklist on every card, checks that no text or checklist box is stretched, that the
