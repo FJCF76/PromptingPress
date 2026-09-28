@@ -132,8 +132,9 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
 
 ### Fixed
 
-- In a row of equal-height cards, the text and the checklist stack from the top of the card. Only
-  the link's automatic top margin takes the spare height, as before.
+- In a row of equal-height cards, the text and the checklist stack from the top of the card, and
+  only the link's automatic top margin takes the spare height (before, the text and checklist took
+  it).
 
 ### Worth knowing
 
@@ -143,13 +144,15 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
   down the card, because the list no longer has spare height to spread them over.
 - On a card with no link, `card-body` → `layout.justify` now actually moves the content, because
   the text no longer soaks up the spare height.
-- By default the link's automatic top margin is now the only thing that lines up the links of a row.
+- By default the link's automatic top margin is now the only thing that lines up the links of a row
+  (as long as the row stretches its cards, which it does unless you change `list` → `layout.align`
+  or a card's `sizing.align-self`).
   A length on `card-link` → `spacing.margin-top`, or a `spacing.margin` value such as `"1rem"`,
   `"auto"` or `"auto 0"`, breaks the line-up: short cards' links move up. To add room above the
   links, raise `card-body` → `spacing.gap` instead (it spaces every part of the card, title to text
   included). The grid README lists the exact rule and the one safe `margin` spelling.
-- If you set `card-body` → `layout.orientation` to `row`, the text and the checklist now each take
-  the width of their content instead of splitting the card's width equally.
+- If you set `card-body` → `layout.orientation` to `row`, the text and the checklist no longer split
+  the card's width equally; each is sized from its content.
 - There is still no typed parameter for how a card part grows into spare height. That question is
   recorded on the issue as a follow-up decision.
 

@@ -103,7 +103,8 @@ The condition is *"is this the last child"* — a structural fact about the mark
 - **The same holds per breakpoint, per state and per card:** a `:hover` length makes the link jump on hover, and a value in an item `udc` map moves only that card's link.
 - **To add room above the links**, raise `card-body` → `spacing.gap`; it spaces every child of the card and works on any mix of cards. Do not use a large `card-link` → `spacing.padding-top`: the padding is inside the link's box, so the inset focus ring, the hover and the click target grow into the empty space above the label.
 - **On a card with no link** nothing takes the spare height, so it stays below the content; `card-body` → `layout.justify` (for example `flex-end`) moves the content instead.
-- **With `card-body` → `layout.orientation: "row"`**, the text and checklist each take their content's width instead of splitting the row's width equally.
+- **With `card-body` → `layout.orientation: "row"`**, the text and checklist no longer split the row's width equally; each is sized from its content.
+- **All of this assumes the row stretches its cards**, which is the default. A `list` → `layout.align` other than `stretch`, or a `card` → `sizing.align-self`, stops the stretch: cards keep their own heights and the links no longer line up, whatever the link's margin.
 
 ### The pairs you have to write together
 
