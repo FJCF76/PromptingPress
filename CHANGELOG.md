@@ -211,9 +211,13 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
 ### Tests
 
 - A rendered check on an equal-height pricing row, at desktop and phone widths, measures from the
-  text to the checklist on every card, checks that no text box is stretched, that the links line up,
-  and that a card with no link keeps its spare height below the content. A stylesheet check stops
-  any rule from making the card text or checklist grow again.
+  text to the checklist on every card, checks that no text or checklist box is stretched, that the
+  links line up, and that a card with no link keeps its spare height below the content. It also
+  covers the `steps` layout, `card-body` → `layout.justify` on a card with no link, and each
+  `card-link` margin case above (which ones keep the line-up, which break it, the safe spelling and
+  the `spacing.gap` alternative), plus a row that stops stretching its cards.
+- A stylesheet check stops any rule from making the card text or checklist grow again, and a prompt
+  check keeps the chat assistant's one-line version of the link rule in its instructions.
 
 ---
 
