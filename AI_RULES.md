@@ -106,7 +106,7 @@ Rules for editing `assets/css/`:
 ## Anti-slop rules
 
 When building or editing components:
-- No 3-column icon grids of DECORATION (a CSS icon-in-circle + title + 2-line filler = template slop). This bans decorative filler, not real imagery: a grid whose items carry a real uploaded logo/glyph for a real content object (integration/partner/tech-stack cards) may render those images at icon scale with the grid `image_treatment: "icon"` prop — that is a real content grid, not slop.
+- No 3-column icon grids of DECORATION (a CSS icon-in-circle + title + 2-line filler = template slop). This bans decorative filler, not real imagery: a grid whose items carry a real uploaded logo/glyph for a real content object (integration/partner/tech-stack cards) may render those images at icon scale by sizing the grid's `card-media` role — `card-media` -> `sizing` -> `{"width": "48px", "height": "48px", "aspect-ratio": "auto"}` in the band's `udc` map, the route that replaced the retired `image_treatment: "icon"` prop (#1101; writing that prop is refused with `retired_prop`) — that is a real content grid, not slop.
 - No decorative blobs, wavy dividers, or floating shapes
 - Homepage hero should usually be centered -- it is the page's visual anchor.
   Left-aligned heroes require a balancing element (image in split, or cover with
