@@ -45,6 +45,50 @@ the report first, in the same shape you write a `udc` map in, with `@token` refe
   both directions. The shape check has a case for every shape it accepts and every shape it rejects,
   and a docs guard checks that the documentation names every role field the report emits.
 
+## Card checklists sit under their text again (#1195)
+
+**A pricing row now reads top to bottom on every card.** When a `grid` row of cards has different
+amounts of text, the cards stretch to the height of the tallest one. On the shorter cards the
+checklist used to drift down toward the bottom, leaving a big empty gap between the description and
+the bullets. Now the title, text and checklist stay together at the top of every card, and the extra
+height sits above the link, so the links of a row still line up along the bottom.
+
+Nothing changes where cards stack in one column (phones, by default), because a card there has no
+extra height, and card heights stay the same. If you worked around this with
+`"card-text": {"_css": {"flex": "0 0 auto"}}`, the default now stops the text growing too, so you can
+remove it (keep it only if you also rely on the text never shrinking, for example with
+`card-body` → `layout.orientation: "row"`).
+
+### Fixed
+
+- In a row of equal-height cards, the text and the checklist stack from the top of the card. Only
+  the link's automatic top margin takes the spare height, as before.
+
+### Worth knowing
+
+- A border or background you added to a card's text (`card-text`) or checklist (`card-bullets`)
+  now wraps its content instead of stretching down the card.
+- A `card-bullets` → `layout.justify` value such as `space-between` no longer spreads the bullets
+  down the card, because the list no longer has spare height to spread them over.
+- On a card with no link, `card-body` → `layout.justify` now actually moves the content, because
+  the text no longer soaks up the spare height.
+- By default the link's automatic top margin is now the only thing that lines up the links of a row.
+  A length on `card-link` → `spacing.margin-top`, or a `spacing.margin` value such as `"1rem"`,
+  `"auto"` or `"auto 0"`, breaks the line-up: short cards' links move up. To add room above the
+  links, raise `card-body` → `spacing.gap` instead. The grid README lists the exact rule and the
+  one safe `margin` spelling.
+- If you set `card-body` → `layout.orientation` to `row`, the text and the checklist now each take
+  the width of their content instead of splitting the card's width equally.
+- There is still no typed parameter for how a card part grows into spare height. That question is
+  recorded on the issue as a follow-up decision.
+
+### Tests
+
+- A rendered check on an equal-height pricing row, at desktop and phone widths, measures from the
+  text to the checklist on every card, checks that no text box is stretched, that the links line up,
+  and that a card with no link keeps its spare height below the content. A stylesheet check stops
+  any rule from making the card text or checklist grow again.
+
 ---
 
 ## [v2.0.0] — 2026-09-27 — v2 goes stable. Sprint 3 "trust & authoring reach": writes stop undoing each other, the findings say what will not paint, the blog page becomes a composition, every template page is styled, marker colour returns, and the brand site is rebuilt on v2 as the acceptance test (#1127, #1145, #1167, #1170, #1172; #909, #1094, #1088, #1115, #1116, #1117, #1010, #1060, #1125, #1073, #1141, #1142, #1144, #1111, #1108, #1171, #1028, #1181)
