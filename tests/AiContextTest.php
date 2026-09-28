@@ -544,7 +544,7 @@ class AiContextTest extends TestCase
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('`card-link` `margin-top: auto` aligns a row', $prompt);
         $this->assertStringContainsString('a length top or any auto bottom (`margin: auto`, `margin-bottom: auto`) breaks that', $prompt);
-        $this->assertStringContainsString('For room, raise `card-body` `spacing.gap`', $prompt);
+        $this->assertStringContainsString('For room, raise `card-body` `spacing.gap` (it spaces every card part)', $prompt);
     }
 
     /** No PHP diagnostic text ever reaches the assembled prompt (#1087). */

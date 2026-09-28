@@ -146,8 +146,8 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
 - By default the link's automatic top margin is now the only thing that lines up the links of a row.
   A length on `card-link` → `spacing.margin-top`, or a `spacing.margin` value such as `"1rem"`,
   `"auto"` or `"auto 0"`, breaks the line-up: short cards' links move up. To add room above the
-  links, raise `card-body` → `spacing.gap` instead. The grid README lists the exact rule and the
-  one safe `margin` spelling.
+  links, raise `card-body` → `spacing.gap` instead (it spaces every part of the card, title to text
+  included). The grid README lists the exact rule and the one safe `margin` spelling.
 - If you set `card-body` → `layout.orientation` to `row`, the text and the checklist now each take
   the width of their content instead of splitting the card's width equally.
 - There is still no typed parameter for how a card part grows into spare height. That question is
