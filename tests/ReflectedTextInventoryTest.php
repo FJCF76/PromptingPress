@@ -485,6 +485,23 @@ class ReflectedTextInventoryTest extends TestCase
         // WINDOW-INTEGRITY GUARD, so this test can never again silently shrink below the
         // branches it is asserting over. If the loop is restructured and this marker moves
         // out of the slice, this fails loudly instead of passing over less code.
+        //
+        // #1194 moved the per-page PRINTING into _pp_cli_report_site_page() so it can be
+        // tested (the command reads a process-lifetime page memo and ends in halt()). The
+        // loop now hands the owner-wrapped title to that helper, so the guard follows it:
+        // the loop must call the helper WITH `$title`, and the helper's body joins the slice
+        // this test asserts over.
+        $this->assertMatchesRegularExpression(
+            '/_pp_cli_report_site_page\(\(int\) \$post_id, \$title, \$diagnostics\)/',
+            $loop,
+            'the loop must hand the wrapped title to the per-page reporter'
+        );
+        $helperStart = strpos($source, 'function _pp_cli_report_site_page(');
+        $this->assertNotFalse($helperStart, 'the per-page reporter was not found');
+        $helperEnd = strpos($source, "\n}\n", $helperStart);
+        $helper    = substr($source, $helperStart, $helperEnd - $helperStart);
+        $this->assertStringNotContainsString("\$page['title']", $helper, 'the reporter never sees the raw page');
+        $loop .= $helper;
         $this->assertStringContainsString('OK: Page', $loop, 'the slice must reach the clean-page branch');
 
         $this->assertStringContainsString(

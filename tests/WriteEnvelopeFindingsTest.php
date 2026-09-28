@@ -654,6 +654,11 @@ final class WriteEnvelopeFindingsTest extends TestCase
      * gave the author no hint that the promise had been omitted. Additive, severity-neutral,
      * ignored by every existing consumer, and present only on a truncation entry.
      *
+     * #1194 added `total_info` on the same terms: how many of `total` are informational
+     * (severity 'info', asks for nothing). A consumer that renders "N issues" must not count
+     * a note, and on a truncated report most notes are past the budget, so only the server
+     * can count them. The chat undo card subtracts it; every other consumer ignores it.
+     *
      * THE EXPECTED LIST IS DELIBERATELY EXHAUSTIVE. Adding a key here is a change to what
      * every findings consumer receives, so it should cost a failing test and a decision —
      * that is this pin working, not this pin being in the way.
@@ -665,7 +670,7 @@ final class WriteEnvelopeFindingsTest extends TestCase
         $tail   = end($result['findings']);
 
         $this->assertSame(
-            ['type', 'severity', 'message', 'index', 'omitted_by_type', 'total'],
+            ['type', 'severity', 'message', 'index', 'omitted_by_type', 'total', 'total_info'],
             array_keys($tail)
         );
         $this->assertSame(

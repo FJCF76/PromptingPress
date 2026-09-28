@@ -553,6 +553,17 @@ body.pp-ai-chat-page #wpfooter {
     border-radius: 4px;
 }
 
+/* Informational finding (#1194): a note that asks for nothing, so neutral rather than
+   amber. Same box as .pp-ai-step-warning so a mixed list lines up. */
+.pp-ai-step-info {
+    background: #f0f6fc;
+    color: #1d2327;
+    font-size: 12px;
+    padding: 4px 8px;
+    margin-top: 4px;
+    border-radius: 4px;
+}
+
 /* Diff display (monospace, from=strikethrough, to=bold) */
 .pp-ai-step-diff {
     font-size: 12px;

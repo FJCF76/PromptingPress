@@ -417,8 +417,12 @@ class UdcRawCssTest extends TestCase
             $many[] = ['component' => 'faq', 'id' => 'pp-b' . $b, 'props' => [],
                        'udc' => ['answer' => [PP_UDC_CSS_KEY => $props]]];
         }
-        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count(pp_udc_composition_findings($many)),
+        $bounded = pp_udc_composition_findings($many);
+        $capped  = array_values(array_filter($bounded, static fn (array $f): bool => $f['type'] === 'udc_findings_capped'));
+        $this->assertLessThanOrEqual(PP_UDC_MAX_EMIT_DROPS, count($bounded) - count($capped),
             'the cap is global across the composition, not per band');
+        // #1194: the arm that reached its cap says so ONCE, with a finding that gates.
+        $this->assertCount(1, $capped, 'one truncation finding for the `_css` budget that reached its cap');
         $this->assertNotSame([], $unchecked, 'and must still report — a cap is not a mute');
 
         $this->assertSame(
