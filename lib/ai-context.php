@@ -62,16 +62,16 @@
  * measures. Measured, not estimated: 92199 -> 92502 (+303 bytes), and the ceiling moves to
  * exactly that figure.
  *
- * RAISED 92502 → 92686 (#1195, orchestrator ruling A, 2026-09-28). A grid card's text and
+ * RAISED 92502 → 92666 (#1195, orchestrator ruling A, 2026-09-28). A grid card's text and
  * checklist no longer grow into a stretched card's spare height, so `card-link`'s
- * `margin-top: auto` is the only thing aligning a row's links, and the obvious authored
- * write (a `card-link` margin-top length, or the `margin` shorthand) silently undoes it.
- * Role descriptions never reach this prompt, so the rule is one `GRID:` sentence next to the
- * Layout guidance. Measured, not estimated: 92502 -> 92686 (+184 bytes). Standing practice
- * from this ruling: the budget tracks the measurement and is re-measured on main after
- * each merge.
+ * `margin-top: auto` is what aligns a row's links, and the obvious authored write (a
+ * `card-link` margin-top length, or a `margin` shorthand with a length top or an auto
+ * bottom) silently undoes it. Role descriptions never reach this prompt, so the rule is one
+ * `GRID:` sentence next to the Layout guidance. Measured, not estimated, on the merged tree
+ * over main eedc4dd: 92488 -> 92666 (+178 bytes). Standing practice from this ruling: the
+ * budget tracks the measurement and is re-measured on main after each merge.
  */
-const PP_AI_PROMPT_BUDGET = 92686;
+const PP_AI_PROMPT_BUDGET = 92666;
 
 // ── System Prompt Assembly ─────────────────────────────────────────────────
 
