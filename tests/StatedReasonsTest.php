@@ -499,12 +499,22 @@ class StatedReasonsTest extends TestCase
             $rules,
             'AI_RULES.md lost the carve-out that qualifies the icon-grid ban. Without it '
             . 'the rule reads as "no icons ever", and an agent will refuse a real '
-            . 'integration/partner logo grid that the image_treatment: "icon" prop exists to serve.'
+            . 'integration/partner logo grid that card-media sizing (the route that replaced the '
+            . 'retired image_treatment: "icon" prop, #1101) exists to serve.'
         );
+        // Scoped to the carve-out's own line, so a `card-media` mention anywhere else in
+        // AI_RULES.md cannot satisfy it.
+        $carveOut = '';
+        foreach (explode("\n", $rules) as $line) {
+            if (str_contains($line, 'This bans decorative filler, not real imagery')) {
+                $carveOut = $line;
+                break;
+            }
+        }
         $this->assertStringContainsString(
-            'image_treatment',
-            $rules,
-            'The carve-out no longer names the prop that implements it.'
+            '`card-media` -> `sizing`',
+            $carveOut,
+            'The carve-out no longer names the card-media sizing route that implements it.'
         );
     }
 }
