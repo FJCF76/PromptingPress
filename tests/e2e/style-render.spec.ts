@@ -1577,6 +1577,8 @@ test.describe('Safe-surface rendered proof', () => {
       bodyContentBottom: number; // body border box bottom minus its bottom padding
       textGrow: string | null;
       bulletsGrow: string | null;
+      bodyRowGap: string; // the card body's computed row gap (the documented cure sets it)
+      linkMargins: string | null; // the link's computed margin top/right/bottom/left
     };
     const geometry = (band: string) =>
       page.locator(`#${band}`).evaluate((el) =>
@@ -1612,6 +1614,10 @@ test.describe('Safe-surface rendered proof', () => {
             bodyContentBottom: bodyRect.bottom - parseFloat(bodyCs.paddingBottom) - parseFloat(bodyCs.borderBottomWidth),
             textGrow: text ? getComputedStyle(text).flexGrow : null,
             bulletsGrow: bullets ? getComputedStyle(bullets).flexGrow : null,
+            bodyRowGap: bodyCs.rowGap,
+            linkMargins: link
+              ? (() => { const l = getComputedStyle(link); return [l.marginTop, l.marginRight, l.marginBottom, l.marginLeft].join(' '); })()
+              : null,
           };
         }),
       ) as Promise<CardGeometry[]>;
@@ -1697,6 +1703,16 @@ test.describe('Safe-surface rendered proof', () => {
         // bottom; in a broken row the SHORT card's link leaves the bottom (the tall one has
         // no spare height, so it cannot show the break).
         const aligned = [true, false, true, false, true];
+        // The aligned scenes pass by default too, so each also proves its value LANDED: the
+        // safe shorthand keeps the -5px inline pair and a zero bottom (its top computes to
+        // the used auto margin, a length, so it is not compared), and the cure really
+        // widens the body's gap from @space-sm (8px) to @space-lg (32px).
+        for (const c of linkScenes[2]) {
+          const [, right, bottom, left] = (c.linkMargins as string).split(' ');
+          expect([right, bottom, left], 'the safe shorthand keeps the -5px pair and a zero bottom @1280').toEqual(['-5px', '0px', '-5px']);
+        }
+        expect(linkScenes[0][0].bodyRowGap, 'the unstyled body gap is @space-sm @1280').toBe('8px');
+        expect(linkScenes[4][0].bodyRowGap, 'the documented cure widens the body gap @1280').toBe('32px');
         linkScenes.forEach((row, i) => {
           const off = row[0].bodyContentBottom - (row[0].linkBottom as number);
           if (aligned[i]) {
