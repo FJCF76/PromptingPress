@@ -531,6 +531,22 @@ class AiContextTest extends TestCase
         $this->assertSame('', \pp_udc_obligation_summary('no_such_kind'));
     }
 
+    /**
+     * The prompt tells the model what lines a grid row's links up, and the cure (#1195).
+     *
+     * Card text and checklist no longer grow, so `card-link`'s `margin-top: auto` is the only
+     * thing aligning a row's links, and an authored margin length undoes it. Role
+     * descriptions never reach the prompt, so this sentence is the model's only copy of the
+     * rule; the byte-budget test cannot see it go (a shorter prompt still fits).
+     */
+    public function testThePromptSaysWhatAlignsAGridRowsLinksAndHowToAddRoom(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('`card-link` `margin-top: auto` aligns a stretched row', $prompt);
+        $this->assertStringContainsString('a length top or any auto bottom (`margin: auto`, `margin-bottom: auto`) breaks that', $prompt);
+        $this->assertStringContainsString('For room, raise `card-body` `spacing.gap` (it spaces every card part)', $prompt);
+    }
+
     /** No PHP diagnostic text ever reaches the assembled prompt (#1087). */
     public function testThePromptCarriesNoPhpDiagnosticText(): void
     {

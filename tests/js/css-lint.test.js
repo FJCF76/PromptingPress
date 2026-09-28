@@ -959,6 +959,53 @@ describe('CSS lint: grid steps numeral color routes through --grid-step-text-col
     });
 });
 
+describe('CSS lint: grid card content stacks from the top (#1195)', () => {
+    // A cards row stretches every card to the tallest one. Inside `.grid__item-body` (a
+    // flex column) the ONLY thing allowed to take that free height is the link's
+    // `margin-top: auto`. Before #1195 the paragraph and the checklist both carried
+    // `flex: 1`, so a short card's checklist sat far below its text. The rendered proof
+    // is the #1195 test in style-render.spec.ts; this pins the source so the regression
+    // cannot come back in a media block or a later rule that the smoke run never renders.
+    //
+    // A rule "targets" a block when the block's class is in the selector's LAST compound
+    // (`.grid__item-text a` styles the link inside the paragraph, not the paragraph).
+    const GROWERS = /(?:^|[;\s])flex(?:-grow|-basis)?\s*:/;
+    const targets = (selector, cls) => {
+        const compounds = selector.split(/\s*[\s>+~]\s*/).filter(Boolean);
+        return new RegExp('\\.' + cls + '(?![\\w-])').test(compounds[compounds.length - 1] || '');
+    };
+    const growingRules = (css) =>
+        parseRules(stripComments(css))
+            .filter((r) => r.selectors.some((s) => targets(s, 'grid__item-text') || targets(s, 'grid__item-bullets')))
+            .filter((r) => GROWERS.test(r.body))
+            .map((r) => `${r.media ? '@media ' + r.media + ' ' : ''}${r.selectors.join(', ')} { ${r.body.trim()} }`);
+
+    test('no rule lets the card text or the checklist grow into the free height', () => {
+        expect(growingRules(COMPONENTS_CSS)).toEqual([]);
+    });
+
+    test('the checklist rule is still there (the scan above is not reading an empty set)', () => {
+        const bullets = parseRules().filter((r) => r.media === null && r.selectors.includes('.grid__item-bullets'));
+        expect(bullets.length).toBe(1);
+        expect(bullets[0].body).toMatch(/display\s*:\s*flex/);
+    });
+
+    test('the link alone takes the free height: .grid__item-link keeps margin-top: auto', () => {
+        const link = parseRules().filter((r) => r.media === null && r.selectors.includes('.grid__item-link'));
+        expect(link.length).toBe(1);
+        expect(link[0].body).toMatch(/(?:^|[;\s])margin-top\s*:\s*auto\s*(?:;|$)/);
+    });
+
+    test('detector flags a grower on either block, in a media block too, and ignores descendants', () => {
+        expect(growingRules('.grid__item-text { flex: 1; }')).toHaveLength(1);
+        expect(growingRules('.grid__item-bullets { list-style: none; flex-grow: 1; }')).toHaveLength(1);
+        expect(growingRules('@media (min-width: 768px) { main .grid__item-bullets { flex-basis: 0; } }')).toHaveLength(1);
+        expect(growingRules('.grid__item-text a { flex: 1; }')).toHaveLength(0);
+        expect(growingRules('.grid__item-text-extra { flex: 1; }')).toHaveLength(0);
+        expect(growingRules('.grid__item-bullets { flex-direction: column; flex-wrap: wrap; }')).toHaveLength(0);
+    });
+});
+
 // The #475 inline-items separator COLOUR block was deleted at #1023. Its four rules
 // were section's `--section-separator-color` routing, on a `::before`/`::after` glyph.
 // Section is a v2 component now: the glyph is a shared mechanism (see the SHARED GLYPH
@@ -2897,7 +2944,11 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
                 // spacing on a v2 component is a role's value, not this stylesheet's.
                 // The clearance moved to `card-link` -> `spacing` in schema.json and the
                 // block went back to 29 rules.
-                grid: 29,
+                //
+                // 29 -> 28 at #1195: `.grid__item-text` held only `flex: 1`, which split a
+                // stretched card's free height into the paragraph. With that removed the
+                // rule was empty and went with it.
+                grid: 28,
             };
             const expected = STRUCTURAL_RULE_COUNT[component];
             expect(
