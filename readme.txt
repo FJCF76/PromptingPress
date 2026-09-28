@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 2.0.1 =
+* The 2.0.1 fix cycle, seeded by rebuilding a real site on 2.0.0: a responsive value no longer fails `wp pp validate site`; a verified judgment-call advisory can be acknowledged with a required note (`wp pp check acknowledge`), and the acknowledgement re-opens when what was judged changes; `clamp()`/`calc()` lengths work in every length list; `wp pp schema` shows role defaults; the grid docs match the schema; card checklists sit under their text in a stretched row
+* Verified by full PHP/JS/E2E suites per issue, planted-defect runs in scratch copies, and independent adversarial reviews; one judgment (an accent over a scrim) was held back from acknowledgement until its photo can be fingerprinted reliably (#1211)
 
 = 2.0.0 =
 * v2, the first stable release of the rebuilt styling model: one design contract (roles, style groups, design-token references, per-width maps and states) styles all ten components, the header and the footer, down to a single grid card, and replaces the whole 1.x styling system. There is no migration from 1.x: stored v1 style maps are ignored and must be cleared, then the design re-authored (see the migration how-tos in docs/)
