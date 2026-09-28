@@ -5739,9 +5739,10 @@ function _pp_bounded_findings(
         'index'    => null,
         // WHAT WAS OMITTED, BY SPECIES (#981, boundary-review item E2).
         //
-        // THE PROBLEM THIS CLOSES. Findings arrive errors, then smells, then the
-        // UDC engine's own disclosures, and since #1194 the informational mint notes
-        // LAST of all (pp_order_findings_for_delivery()); this bounds by slicing the HEAD. So the disclosures are the first thing lost — and one
+        // THE PROBLEM THIS CLOSES. Findings arrive in pp_order_findings_for_delivery()
+        // order (#1194): the capped row first, then errors, smells and the UDC engine's
+        // other disclosures, and the informational mint notes last. This bounds by
+        // slicing the HEAD. So the disclosures are the first thing lost — and one
         // of them, `udc_token_minted`, is not an observation about the composition
         // but the §3.1 no-coercion promise itself: "you wrote 19px; it is stored as
         // a band token". On a page with more than PP_WRITE_FINDINGS_BUDGET errors,

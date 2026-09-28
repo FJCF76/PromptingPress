@@ -3120,7 +3120,8 @@ function ppChatValidationItemRow(item, className) {
  * caller with items shaped `{ message }` and all of them errors; #855 is what moved it,
  * because a withheld entry has to draw differently from a failed one. In the per-item form the disclosure
  * summary's noun is derived from the hidden items' own severities ("errors", "warnings",
- * "notes" for informational findings alone (#1194), or "issues" when they are mixed), never from the class string: calling a set that
+ * "notes" for informational findings alone (#1194), "issues" when errors and warnings are
+ * mixed, and notes in a mixed overflow counted apart: "Show 5 more errors and 6 notes"), never from the class string: calling a set that
  * contains errors "warnings" is the same misreport one level up.
  *
  * THE INLINE ROWS ARE CHOSEN BAND-AWARE (#655). The budget of 5 was calibrated when a

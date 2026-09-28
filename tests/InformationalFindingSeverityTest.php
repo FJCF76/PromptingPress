@@ -249,10 +249,7 @@ final class InformationalFindingSeverityTest extends TestCase
         $this->assertNotContains('udc_findings_capped', array_column($diagnostics['smells'], 'type'));
     }
 
-    /**
-     * The info-only budget reaching its cap is NOT a gating truncation: every omitted entry
-     * would have been a note, and a note never gates.
-     */
+    /** The mint notes have their own bound, separate from every gating budget. */
     public function testTheMintNotesHaveTheirOwnBoundOf200(): void
     {
         $composition = [];
@@ -265,6 +262,7 @@ final class InformationalFindingSeverityTest extends TestCase
         $this->assertNotContains('udc_findings_capped', array_column($diagnostics['smells'], 'type'));
     }
 
+    /** The engine's own order is what leads the chrome/preset envelope with the capped row. */
     public function testTheEngineItselfPutsTheCappedRowFirst(): void
     {
         // The chrome/preset envelope does not reorder (#1204), so the engine's own order is
@@ -282,6 +280,10 @@ final class InformationalFindingSeverityTest extends TestCase
         $this->assertSame('udc_findings_capped', $findings[0]['type']);
     }
 
+    /**
+     * The info-only budget reaching its cap is NOT a gating truncation: every omitted entry
+     * would have been a note, and a note never gates.
+     */
     public function testTheMintBudgetReachingItsCapDoesNotGate(): void
     {
         $composition = [];
