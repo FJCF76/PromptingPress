@@ -348,7 +348,7 @@ final class AdvisoryAcknowledgementTest extends TestCase
         }
         $this->assertNotNull($finding, 'premise: the raw-written band raises the finding');
         $this->assertNull(pp_advisory_finding_key($id, pp_get_composition($id), $finding));
-        $this->assertStringContainsString('update_composition', pp_advisory_unkeyable_reason($id, pp_get_composition($id), $finding));
+        $this->assertStringContainsString('update_composition', _pp_advisory_key_or_reason($id, pp_get_composition($id), $finding)['reason']);
     }
 
     public function testUnacknowledgeReversesAndRefusesAnUnknownKey(): void
@@ -483,7 +483,7 @@ final class AdvisoryAcknowledgementTest extends TestCase
         }
         $this->assertNotNull($finding, 'premise: the band raises an acknowledgeable finding');
         $this->assertNull(pp_advisory_finding_key($id, $composition, $finding), 'no key: nothing stable to bind to');
-        $this->assertStringContainsString('cannot be encoded exactly', (string) pp_advisory_unkeyable_reason($id, $composition, $finding));
+        $this->assertStringContainsString('cannot be encoded exactly', (string) _pp_advisory_key_or_reason($id, $composition, $finding)['reason']);
 
         $d = $this->diagnostics($id);
         $this->assertContains('empty_section', array_column($d['smells'], 'type'), 'it keeps gating');
@@ -873,25 +873,171 @@ final class AdvisoryAcknowledgementTest extends TestCase
         $this->assertSame([], pp_acknowledged_advisories($id), 'nothing was written');
     }
 
-    public function testTheAdditionalCssIsReadUncachedInsideTheLock(): void
+    public function testAcknowledgeReadsAdditionalCssThroughTheSameFunctionAsTheGate(): void
     {
+        // ONE TRUTH, ONE READER (focused-cycle ruling, fix 1). A raw "newest published custom_css
+        // row" differs from wp_get_custom_css() (theme_mod resolution plus its filter) whenever an
+        // import or a filter is involved; two readers made every acknowledgement on such a site
+        // impossible. The database here holds a different row than the gate's function returns.
         $id  = $this->page([$this->ownerBand()]);
         $key = $this->inkKey($id);
-
-        // Another process edited the Additional CSS; this process still holds the old copy.
         $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
             public string $posts = 'wp_posts';
             public function get_var(string $query)
             {
-                if (str_contains($query, "post_type = 'custom_css'")) {
-                    return '[data-pp-band] { color: #fff; }';
+                if (str_contains($query, "custom_css")) {
+                    return '/* a stray row the gate never reads */';
                 }
                 return parent::get_var($query);
             }
         };
         try {
-            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'),
-                'the key is checked against the Additional CSS stored now');
+            $this->assertTrue(pp_acknowledge_advisory($id, $key, 'n'), 'the key check page printed is acknowledgeable');
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    public function testANoteThatIsBlankAfterTheCutIsRefused(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        foreach ([str_repeat(' ', PP_ADVISORY_ACK_NOTE_MAX) . 'measured 9:1', "\u{00A0}\u{200B}\u{FEFF}"] as $note) {
+            $result = pp_acknowledge_advisory($id, $key, $note);
+            $this->assertInstanceOf(WP_Error::class, $result, 'a note that reads as nothing is no note');
+            $this->assertSame('acknowledgement_note_required', $result->get_error_code());
+        }
+        $this->assertSame([], pp_acknowledged_advisories($id));
+    }
+
+    public function testAStoredRowWithAnInvisibleNoteIsUnnoted(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => "\u{200B}\u{00A0}"]]);
+
+        $d = $this->diagnostics($id);
+        $this->assertSame([], $d['acknowledged']);
+        $this->assertSame([$key], array_column($d['unnoted'], 'ack_key'));
+    }
+
+    public function testTheLeadingWhitespaceOfANoteIsNotStored(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $this->assertTrue(pp_acknowledge_advisory($id, $key, "  \u{00A0}measured 9:1  "));
+        $this->assertSame('measured 9:1', pp_acknowledged_advisories($id)[$key]['note']);
+    }
+
+    public function testThePostsPageSettingIsReadUncachedInsideTheLock(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        // Another process made this page the posts page; this process's option cache has not seen it.
+        $GLOBALS['wpdb'] = new class($id) extends PP_Lockable_Wpdb {
+            public function __construct(private int $pid) {}
+            public function get_var(string $query)
+            {
+                if (str_contains($query, "option_name = 'show_on_front'")) {
+                    return 'page';
+                }
+                if (str_contains($query, "option_name = 'page_for_posts'")) {
+                    return (string) $this->pid;
+                }
+                return parent::get_var($query);
+            }
+        };
+        try {
+            $this->assertInstanceOf(WP_Error::class, pp_acknowledge_advisory($id, $key, 'n'));
+        } finally {
+            unset($GLOBALS['wpdb']);
+        }
+    }
+
+    public function testAnIntegerAndItsFloatAreDifferentBytes(): void
+    {
+        $id = pp_create_page('Raw');
+        $grid = '{"component":"grid","id":"pp-g0000001","props":{"id":"g","columns":%s,"items":[{"title":"A"}]}}';
+        $run  = '{"component":"section","id":"pp-a0000001","props":{"id":"a","title":"A","body":"<p>A</p>"}},'
+            . '{"component":"section","id":"pp-b0000001","props":{"id":"b","title":"B","body":"<p>B</p>"}},'
+            . '{"component":"section","id":"pp-c0000001","props":{"id":"c","title":"C","body":"<p>C</p>"}}';
+        update_post_meta($id, '_pp_composition', '[' . sprintf($grid, '2') . ',' . $run . ']');
+        $before = $this->runKey($id);
+        update_post_meta($id, '_pp_composition', '[' . sprintf($grid, '2.0') . ',' . $run . ']');
+
+        $this->assertNotSame($before, $this->runKey($id), 'the grid renders 2 and 2.0 differently');
+    }
+
+    public function testTheChromeMapIsPartOfTheSiteContext(): void
+    {
+        $before = pp_advisory_ack_context();
+        update_option(PP_SITE_UDC_OPTION, wp_json_encode(['nav' => ['link' => ['_css' => 'margin-bottom: -40px']]]));
+        $this->assertNotSame($before, pp_advisory_ack_context(), 'chrome _css can reach a band, like Additional CSS');
+    }
+
+    public function testASelfReferencingTokenMapFailsClosedInsteadOfRecursing(): void
+    {
+        // Only a raw write (an unserialized PHP reference) can store this; the canonicaliser
+        // must give up and mint no key, not recurse until the process dies.
+        $id    = $this->page([$this->ownerBand()]);
+        $loop  = ['color-accent' => '#3157f4'];
+        $loop['self'] = &$loop;
+        $GLOBALS['_pp_test_store']['options']['pp_token_overrides'] = $loop;
+
+        $this->assertSame('', pp_advisory_ack_context());
+        foreach ($this->diagnostics($id)['smells'] as $finding) {
+            $this->assertArrayNotHasKey('ack_key', $finding);
+        }
+        unset($GLOBALS['_pp_test_store']['options']['pp_token_overrides']);
+    }
+
+    public function testCheckPagePrintsTheIgnoredRowWithItsRemoval(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => '']]);
+
+        WP_CLI::$lines = [];
+        (new PP_Check_Command())->page([], ['post_id' => (string) $id]);
+        $out = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('ignored acknowledgement ' . $key, $out);
+        $this->assertStringContainsString('wp pp check unacknowledge --post_id=' . $id . ' --key=' . $key, $out);
+    }
+
+    public function testTheOrphanLineSaysItCanCountAgain(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        pp_acknowledge_advisory($id, $key, 'n');
+        $fixed = pp_get_composition($id);
+        unset($fixed[0]['udc']['step-number']);
+        $this->rewrite($id, $fixed);
+
+        WP_CLI::$lines = [];
+        (new PP_Check_Command())->page([], ['post_id' => (string) $id]);
+        $this->assertStringContainsString('it counts again if these exact bytes return', implode("\n", WP_CLI::$lines));
+    }
+
+    public function testAFailedLockedPresetReadRefuses(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        $GLOBALS['wpdb'] = new class extends PP_Lockable_Wpdb {
+            public string $last_error = '';
+            public function get_var(string $query)
+            {
+                $this->last_error = '';
+                if (str_contains($query, "option_name = 'pp_site_udc'")) {
+                    $this->last_error = 'Lock wait timeout exceeded';
+                    return null;
+                }
+                return parent::get_var($query);
+            }
+        };
+        try {
+            $result = pp_acknowledge_advisory($id, $key, 'n');
+            $this->assertInstanceOf(WP_Error::class, $result);
+            $this->assertSame('acknowledgements_unreadable', $result->get_error_code());
         } finally {
             unset($GLOBALS['wpdb']);
         }

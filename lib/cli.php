@@ -2061,13 +2061,14 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
     }
     foreach ($diagnostics['stale'] ?? [] as $row) {
         WP_CLI::line('  - STALE acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
-            . ': what it judged has changed (its band, or the whole page for a run smell; a design token, a preset, '
-            . 'the Additional CSS, the posts-page setting or the theme version), so its finding, or another of its type '
+            . ': what it judged has changed (its band, or the whole page for a run smell; a design token, the site udc '
+            . 'map, the Additional CSS, the front-page settings or the theme version), so its finding, or another of its type '
             . 'there, is listed above again. Review it, and acknowledge the new key if it is still intentional.');
     }
     foreach ($diagnostics['orphaned'] ?? [] as $row) {
         WP_CLI::line('  - orphaned acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
-            . ': its finding is gone, so it does nothing. Remove it with wp pp check unacknowledge --post_id='
+            . ': its finding is gone, so it is inert now; it counts again if these exact bytes return. Remove it with '
+            . 'wp pp check unacknowledge --post_id='
             . $post_id . ' --key=' . _pp_cli_printable((string) $row['ack_key']));
     }
     foreach ($diagnostics['unnoted'] ?? [] as $row) {
@@ -2381,7 +2382,7 @@ class PP_Check_Command extends WP_CLI_Command {
      * escape hatch, the composition smells); a value that does not paint, an error or a note cannot.
      * The key is the one `wp pp check page` prints beside the finding, and it names that exact state:
      * a key for anything that has changed since is refused. The acknowledgement dies when the band, a
-     * design token, a preset, the Additional CSS, the posts-page setting or the theme version changes (#1194).
+     * design token, the site udc map, the Additional CSS, the front-page settings or the theme version changes (#1194).
      *
      * ## OPTIONS
      *
@@ -2393,7 +2394,7 @@ class PP_Check_Command extends WP_CLI_Command {
      *
      * --note=<note>
      * : Required. Record why this state is intentional (for example the measured contrast), so the
-     * acknowledgement can be audited.
+     * acknowledgement can be audited. Stored up to 500 bytes; a note that is blank once cut and trimmed is refused.
      *
      * ## EXAMPLES
      *
@@ -2411,7 +2412,7 @@ class PP_Check_Command extends WP_CLI_Command {
         }
         WP_CLI::success('Acknowledged ' . _pp_cli_printable($key) . ' on page ' . $post_id
             . '. It no longer fails `wp pp validate site` while this exact state stands. '
-            . 'Reverse with wp pp check unacknowledge --post_id=' . $post_id . ' --key=<key>.');
+            . 'Reverse with wp pp check unacknowledge --post_id=' . $post_id . ' --key=' . _pp_cli_printable($key) . '.');
     }
 
     /**
