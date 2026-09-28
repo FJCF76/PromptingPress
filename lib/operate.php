@@ -3493,12 +3493,31 @@ function pp_acknowledgeable_finding_types(): array {
  */
 function pp_advisory_ack_context(?string $version = null): string {
     $version = $version ?? (defined('PP_VERSION') ? (string) PP_VERSION : '');
-    return hash('sha256', (string) wp_json_encode([
+    // KEY ORDER IS NOT MEANING: a token or preset map re-saved in another order renders the
+    // same, so it is canonicalised before hashing and must not re-open every acknowledgement.
+    return hash('sha256', (string) wp_json_encode(_pp_advisory_canonical([
         'tokens'  => pp_get_token_overrides(),
         'presets' => function_exists('pp_udc_custom_presets') ? pp_udc_custom_presets() : [],
         'version' => $version,
-    ]));
+    ])));
 }
+
+/** Recursively sorts string-keyed maps (lists keep their order), for a stable fingerprint. */
+function _pp_advisory_canonical($value) {
+    if (!is_array($value)) {
+        return $value;
+    }
+    foreach ($value as $k => $v) {
+        $value[$k] = _pp_advisory_canonical($v);
+    }
+    if (!array_is_list($value)) {
+        ksort($value, SORT_STRING);
+    }
+    return $value;
+}
+
+/** The longest acknowledgement note stored (bytes); a note is a reason, not a document. */
+const PP_ADVISORY_ACK_NOTE_MAX = 500;
 
 /** The band a finding belongs to, and that band's id, or null when there is none to key on. */
 function _pp_advisory_band(array $composition, array $finding): ?array {
@@ -3663,7 +3682,10 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note = '') {
         foreach (_pp_composition_findings($composition, $post_id) as $finding) {
             if (is_array($finding) && pp_advisory_finding_key($post_id, $composition, $finding, $context) === $key) {
                 $stored       = pp_acknowledged_advisories($post_id);
-                $stored[$key] = ['acknowledged_at' => gmdate('c'), 'note' => $note];
+                $stored[$key] = [
+                    'acknowledged_at' => gmdate('c'),
+                    'note'            => mb_strcut($note, 0, PP_ADVISORY_ACK_NOTE_MAX, 'UTF-8'),
+                ];
                 update_post_meta($post_id, PP_ADVISORY_ACK_META, $stored);
                 return true;
             }

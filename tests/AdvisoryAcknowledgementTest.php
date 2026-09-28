@@ -228,6 +228,25 @@ final class AdvisoryAcknowledgementTest extends TestCase
         $this->assertNotSame($now, $upgrade, 'an upgrade can change what paints, so it re-opens every review');
     }
 
+    public function testReorderingTheTokenMapDoesNotReopenAnything(): void
+    {
+        update_option('pp_token_overrides', ['color-accent' => '#3157f4', 'color-bg' => '#ffffff']);
+        $before = pp_advisory_ack_context();
+        update_option('pp_token_overrides', ['color-bg' => '#ffffff', 'color-accent' => '#3157f4']);
+
+        $this->assertSame($before, pp_advisory_ack_context(), 'key order is not meaning');
+    }
+
+    public function testALongNoteIsBoundedWhenStored(): void
+    {
+        $id  = $this->page([$this->ownerBand()]);
+        $key = $this->inkKey($id);
+        pp_acknowledge_advisory($id, $key, str_repeat('é', 600));
+
+        $this->assertLessThanOrEqual(PP_ADVISORY_ACK_NOTE_MAX, strlen(pp_acknowledged_advisories($id)[$key]['note']));
+        $this->assertTrue(mb_check_encoding(pp_acknowledged_advisories($id)[$key]['note'], 'UTF-8'), 'cut on a character boundary');
+    }
+
     public function testADuplicatedPageDoesNotInheritAcknowledgements(): void
     {
         $a = $this->page([$this->ownerBand()]);
