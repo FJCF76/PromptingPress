@@ -145,8 +145,9 @@ remove it (keep it only if you also rely on the text never shrinking, for exampl
 - On a card with no link, `card-body` → `layout.justify` now actually moves the content, because
   the text no longer soaks up the spare height.
 - By default the link's automatic top margin is now the only thing that lines up the links of a row
-  (as long as the row stretches its cards, which it does unless you change `list` → `layout.align`
-  or a card's `sizing.align-self`).
+  (as long as the row stretches its cards, which it does unless you set `list` → `layout.align` to
+  something other than `stretch` or `normal`, or a card's `sizing.align-self` to something other
+  than `auto`, `normal` or `stretch`).
   A length on `card-link` → `spacing.margin-top`, or a `spacing.margin` value such as `"1rem"`,
   `"auto"` or `"auto 0"`, breaks the line-up: short cards' links move up. To add room above the
   links, raise `card-body` → `spacing.gap` instead (it spaces every part of the card, title to text

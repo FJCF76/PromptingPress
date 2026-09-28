@@ -104,7 +104,7 @@ The condition is *"is this the last child"* — a structural fact about the mark
 - **To add room above the links**, raise `card-body` → `spacing.gap`; it spaces every child of the card and works on any mix of cards. Do not use a large `card-link` → `spacing.padding-top`: the padding is inside the link's box, so the inset focus ring, the hover and the click target grow into the empty space above the label.
 - **On a card with no link** nothing takes the spare height, so it stays below the content; `card-body` → `layout.justify` (for example `flex-end`) moves the content instead.
 - **With `card-body` → `layout.orientation: "row"`**, the text and checklist no longer split the row's width equally; each is sized from its content.
-- **All of this assumes the row stretches its cards**, which is the default. A `list` → `layout.align` other than `stretch`, or a `card` → `sizing.align-self`, stops the stretch: cards keep their own heights and the links no longer line up, whatever the link's margin.
+- **All of this assumes the row stretches its cards**, which is the default. A `list` → `layout.align` other than `stretch` or `normal`, or a `card` → `sizing.align-self` other than `auto`, `normal` or `stretch`, stops the stretch: cards keep their own heights and the links no longer line up, whatever the link's margin.
 
 ### The pairs you have to write together
 
