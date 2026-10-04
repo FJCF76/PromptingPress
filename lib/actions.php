@@ -5332,7 +5332,12 @@ pp_register_action('add_component', [
         } else {
             $after[] = $new_item;
         }
-        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
+        // ITEM ids are minted only on the band this action validated (#1119): the one it
+        // inserts. Every band the insert shifted keeps its stored item bytes.
+        // Where the band actually LANDED: array_splice clamps a position past the end (the
+        // page can shrink between validate's read and this one), so the scope must too.
+        $inserted = isset($params['position']) ? min((int) $params['position'], count($current)) : count($current);
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params), null, [$inserted], [$inserted]);
         if (is_wp_error($result)) {
             return _pp_action_error('add_component', 'page', $result->get_error_message(), $result->get_error_code());
         }
@@ -5392,7 +5397,9 @@ pp_register_action('remove_component', [
         $removed = $current[$params['component_index']];
         $after   = $current;
         array_splice($after, $params['component_index'], 1);
-        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
+        // Removing a band validates no other band's items, so the item-id pass touches none
+        // (#1119): every surviving band keeps its stored item bytes.
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params), null, []);
         if (is_wp_error($result)) {
             return _pp_action_error('remove_component', 'page', $result->get_error_message(), $result->get_error_code());
         }
@@ -5993,7 +6000,7 @@ function _pp_item_design_position_findings(int $post_id): array {
             . '"items" array without the engine-owned "id" on each entry. That is correct if '
             . 'you did not reorder the list, and wrong if you did — the design stays on the '
             . 'slot rather than following the card. To make styling follow cards, re-send '
-            . 'entries with their ids: read them back with `wp pp operate inspect` and include '
+            . 'entries with their ids: read them back with `wp post meta get <post_id> _pp_composition` and include '
             . '"id" on every entry you keep.',
             $carried,
             $carried === 1 ? ' was' : 's were'
@@ -6465,7 +6472,8 @@ pp_register_action('reorder_components', [
         foreach ($params['order'] as $idx) {
             $after[] = $current[$idx];
         }
-        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params));
+        // A reorder validates no band's items, so the item-id pass touches none (#1119).
+        $result = pp_update_composition($params['post_id'], $after, _pp_action_expected_version($params), null, []);
         if (is_wp_error($result)) {
             return _pp_action_error('reorder_components', 'page', $result->get_error_message(), $result->get_error_code());
         }
@@ -6482,7 +6490,7 @@ pp_register_action('update_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
     'description' => 'Updates a single component\'s props and/or its band design, each via shallow merge (patch, not replace). `udc` restyles THIS band only (#1088): it is merged into the band\'s stored `udc` map BY ROLE — a role you send replaces that role\'s map whole (so send every value the role should keep; read the band first), `null` removes a role, and roles you do not send are kept. Engine-minted tokens (`@<role>-<group>-<param>-<bp>` and their `_tokens` entries) that the merge leaves unreferenced are dropped; a `_tokens` key you send replaces the band\'s token map whole. Send at least one of props, udc or style; a call with none is refused with `missing_component_update`. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided. IT ALSO DECLARES A `style` PARAMETER, WHICH IS NOT FOR STYLING: no component declares a style slot, so the only thing it can do is CLEAR a v1 map off a band written before that component was rebuilt. Such a band refuses every edit — a props-only edit included — until the map is gone, and the refusal tells you so. To clear it, send `style` with every stored KEY set to null (a `__recipe` key is not a slot name and must be included) and `props` as `{}`; or rewrite the band with no `style` key through update_composition, which needs no enumeration.',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. udc is shallow-merged by role into the band\'s stored udc map (a sent role replaces that role; null removes it; unsent roles kept; orphaned engine mints pruned). At least one of props/udc/style is required (missing_component_update). The `style` param shallow-merges into the band\'s stored v1 map, which is only useful for emptying it: every key in it is undeclared now, so any non-null value is refused. Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. Target component by component_id or component_index.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. udc is shallow-merged by role into the band\'s stored udc map (a sent role replaces that role; null removes it; unsent roles kept; orphaned engine mints pruned). At least one of props/udc/style is required (missing_component_update). The `style` param shallow-merges into the band\'s stored v1 map, which is only useful for emptying it: every key in it is undeclared now, so any non-null value is refused. Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. An `items` patch on an item-grain component keeps a stored card design only when that card\'s `id` is re-sent or, when the number of entries is unchanged, by position for an entry sent without an `id`; a patch that would leave a stored design with neither is refused with item_design_would_be_lost and nothing is written (#1118). Engine-owned item ids are minted, carried and cleared on the targeted band only (#1119). Target component by component_id or component_index.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component_index'  => ['type' => 'int',    'required' => false],
@@ -6533,6 +6541,12 @@ pp_register_action('update_component', [
         // applies them, so a patch that is only valid in isolation (or only invalid in
         // isolation) is judged on what would actually be stored.
         $applied = _pp_apply_component_update($composition[$params['component_index']], $params);
+        // AN `items` PATCH THAT WOULD LOSE A STORED CARD DESIGN (#1118): one neither re-sent by
+        // id nor, on a same-length patch, carried by position for an id-less entry. Refused
+        // here, so preview (which runs validate first) and dry runs say what the write would.
+        if ($applied['lost'] !== []) {
+            return _pp_item_design_loss_error((int) $params['component_index'], $applied['lost']);
+        }
         if ($applied['stranded'] !== []) {
             return new WP_Error('invalid_prop_value', sprintf(
                 'Component %d: this udc patch removes the value behind the engine-minted token%s %s, '
@@ -6618,6 +6632,17 @@ pp_register_action('update_component', [
         // bytes always match what the caller asked for. The band `udc` (#1088) goes through
         // the same helper, merged by role, with the engine's orphaned mints pruned.
         $applied = _pp_apply_component_update($composition[$index], $params, (int) $params['post_id']);
+        // The same #1118 refusal, judged on the state execute merged into (validate read
+        // earlier). It does not close the general no-expected_version lost-update window
+        // between this read and the write lock; the CAS (expected_version) is what does.
+        if ($applied['lost'] !== []) {
+            // The merge recorded a carried-by-position count for a write that is not happening.
+            if (function_exists('_pp_forget_item_design_carried_by_position')) {
+                _pp_forget_item_design_carried_by_position((int) $params['post_id']);
+            }
+            $loss = _pp_item_design_loss_error((int) $index, $applied['lost'], 'The band changed while this patch was being applied. ');
+            return _pp_action_error('update_component', 'section', $loss->get_error_message(), $loss->get_error_code());
+        }
         // FAIL CLOSED ON THE STATE EXECUTE ACTUALLY MERGED INTO. validate refused a stranded
         // mint on the composition it read; a caller that sends no expected_version can have
         // another write land between the two reads, and pp_update_composition() normalizes
@@ -6652,7 +6677,10 @@ pp_register_action('update_component', [
         $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
 
-        $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params));
+        // Item ids are minted, carried and cleared on THIS band only — the band
+        // pp_validate_composition_band() judged (#1007, #1119). A malformed or map-less stored
+        // item id on another band is left as stored and reported by the page's findings.
+        $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params), null, [(int) $index]);
         if (is_wp_error($result)) {
             return _pp_action_error('update_component', 'section', $result->get_error_message(), $result->get_error_code());
         }
@@ -7596,9 +7624,13 @@ function _pp_resolve_id_param(array &$params, int $post_id) {
  * SCOPED TO DECLARED ITEM-GRAIN COMPONENTS, so nothing else changes shape. A
  * component that declares no `item_roles` merges exactly as it did.
  *
- * @param string $component The band's component, for the item-grain lookup.
+ * @param string     $component The band's component, for the item-grain lookup.
+ * @param array|null $lost      Out: the stored item designs this patch would lose
+ *                              (_pp_preserve_item_design()), [] when none. Only the props
+ *                              merge passes it; the style and band-udc merges have no items.
  */
-function _pp_merge_component_props(array $existing, array $new, string $component = '', int $post_id = 0): array {
+function _pp_merge_component_props(array $existing, array $new, string $component = '', int $post_id = 0, ?array &$lost = null): array {
+    $lost   = [];
     $merged = $existing;
     $declaration = $component !== '' && function_exists('pp_udc_item_roles')
         ? pp_udc_item_roles($component)
@@ -7611,7 +7643,7 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
         }
         if ($declaration !== null && $key === $declaration['prop']
             && is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
-            $value = _pp_preserve_item_design($existing[$key], $value, $post_id);
+            $value = _pp_preserve_item_design($existing[$key], $value, $post_id, $lost);
         }
         $merged[$key] = $value;
     }
@@ -7721,7 +7753,8 @@ function _pp_merge_band_udc(array $stored_item, array $patch, array $merged_item
  *                       (_pp_preserve_item_design), which must describe a write that
  *                       happens — validate and preview pass 0.
  * @return array{item: array, props_before: array, props_after: array, style_before: array,
- *               style_after: array, udc_before: array, udc_after: array, stranded: string[]}
+ *               style_after: array, udc_before: array, udc_after: array, stranded: string[],
+ *               lost: array} `lost` is [] or the shape _pp_preserve_item_design() documents.
  */
 function _pp_apply_component_update(array $item, array $params, int $post_id = 0): array {
     $props_before = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
@@ -7729,8 +7762,9 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
     $udc_before   = isset($item['udc']) && is_array($item['udc']) ? $item['udc'] : [];
     $component    = (string) ($item['component'] ?? '');
 
+    $lost        = [];
     $props_after = isset($params['props']) && is_array($params['props'])
-        ? _pp_merge_component_props($props_before, $params['props'], $component, $post_id)
+        ? _pp_merge_component_props($props_before, $params['props'], $component, $post_id, $lost)
         : $props_before;
     $item['props'] = $props_after;
 
@@ -7774,7 +7808,79 @@ function _pp_apply_component_update(array $item, array $params, int $post_id = 0
         // so its item mints cannot be named before the write (execute reads its record back).
         'udc_after'    => _pp_normalized_band_udc($item),
         'stranded'     => $stranded,
+        // The stored item designs this `items` patch would drop — neither re-sent by id nor
+        // carried by position (#1118); validate and execute refuse on a non-empty value.
+        'lost'         => $lost,
     ];
+}
+
+/**
+ * The refusal for an `items` patch that would lose stored card designs (#1118).
+ *
+ * FACTS, THEN ROUTES THAT DO NOT DEPEND ON HOW THE CALLER GOT HERE. What the engine knows
+ * (how many cards were stored and sent, which stored designs nothing in the patch keeps,
+ * and what each one's stored id is) and the ways out: keep a design by re-sending its
+ * card's id, or remove it on purpose with an explicit clear before the delete. The ids are
+ * read from the stored composition (`wp post meta get`), the surface that returns them.
+ * Stored titles and ids are raw-meta bytes the write gate may never have seen, so each is
+ * reflected (bounded, control characters stripped) and JSON-quoted, which keeps a quote
+ * inside one from closing the span early. Nothing is written.
+ *
+ * @param int    $index  The band's composition offset, named in the message.
+ * @param array  $lost   The `lost` value from _pp_apply_component_update().
+ * @param string $prefix A sentence placed before the message (execute's race wording).
+ */
+function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''): WP_Error {
+    $max   = 10;
+    $quote = static function (string $text): string {
+        return (string) wp_json_encode(_pp_udc_reflect($text), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    };
+    $named = [];
+    foreach (array_slice($lost['items'], 0, $max) as $entry) {
+        $bits = [];
+        if ($entry['title'] !== '') {
+            $bits[] = $quote($entry['title']);
+        }
+        switch ($entry['id_state']) {
+            case 'absent':
+                $bits[] = 'no id';
+                break;
+            case 'malformed':
+                $bits[] = 'id ' . $quote((string) $entry['id']) . ', not an engine id';
+                break;
+            case 'shared':
+                $bits[] = 'id ' . $quote((string) $entry['id']) . ', stored on more than one card';
+                break;
+            default:
+                $bits[] = 'id ' . $quote((string) $entry['id']);
+        }
+        // A raw-meta `items` OBJECT has string keys the gate never saw: reflected like the rest.
+        $where   = is_int($entry['index']) ? (string) $entry['index'] : $quote((string) $entry['index']);
+        $named[] = 'item ' . $where . ' (' . implode(', ', $bits) . ')';
+    }
+    $more   = count($lost['items']) - count($named);
+    $states = array_column($lost['items'], 'id_state');
+
+    return new WP_Error('item_design_would_be_lost', $prefix . sprintf(
+        'Component %d: this `items` patch (%d cards stored, %d sent) would drop the stored design of %s%s. '
+        . 'A stored design is kept only when its card\'s "id" is re-sent, or, when the number of cards is '
+        . 'unchanged, by position for an entry sent without an "id". Nothing was written. To keep a design, '
+        . 'include that card\'s "id" on its entry (read the ids with `wp post meta get <post_id> _pp_composition`). '
+        . 'To delete a styled card, first send "udc": {} on it in a patch that keeps the same number of cards, '
+        . 'then remove it, re-sending the "id" of every other styled card you keep.%s%s',
+        $index,
+        (int) $lost['stored'],
+        (int) $lost['sent'],
+        implode(', ', $named),
+        $more > 0 ? sprintf(' and %d more', $more) : '',
+        in_array('absent', $states, true)
+            ? ' A styled card stored without an id is minted one by any patch that keeps the same number of cards.'
+            : '',
+        in_array('malformed', $states, true)
+            ? ' A card whose stored id is not an engine id cannot be patched through `items`; rewrite the band '
+              . 'whole with update_composition, leaving that id out.'
+            : ''
+    ));
 }
 
 /**
@@ -7855,8 +7961,26 @@ function _pp_diff_udc(array $before, array $after, int $index): array {
  * design and is honoured; only a MISSING key is filled back in. That keeps the
  * clear-it route open, which matters because there is otherwise no way to
  * remove an item's design once minted.
+ *
+ * NO PATCH DROPS A STORED DESIGN SILENTLY (#1118). A stored design is kept when its
+ * card's id is re-sent (pass 1), or, when the number of entries is unchanged, by position
+ * for an entry sent WITHOUT an id (pass 2). A stored design that neither route reaches —
+ * every unclaimed design once the length changed, and on a same-length patch any design
+ * whose position is taken by an entry that named a DIFFERENT card by id — used to be
+ * dropped with `ok: true, findings: []`, the designs of the cards the author KEPT
+ * included. Such designs are now handed back in `$lost` and update_component refuses the
+ * write by name (`item_design_would_be_lost`) instead of storing the loss. An entry that
+ * sends `udc` itself (a map, or `{}` to clear) settles the design at its own position.
+ * Identity is the minted id and nothing else: matching an id-less entry to a stored card
+ * by its copy would be guessing, and a design on the wrong card looks deliberate.
+ *
+ * @param array|null $lost Out: [] when nothing is lost, otherwise
+ *        {stored: int, sent: int, items: list<{index: int|string, id: ?string,
+ *        id_state: 'absent'|'engine'|'shared'|'malformed', title: string}>} — every stored
+ *        entry carrying a non-empty `udc` map that this patch would drop, its `id` as found.
  */
-function _pp_preserve_item_design(array $existing_entries, array $incoming_entries, int $post_id = 0): array {
+function _pp_preserve_item_design(array $existing_entries, array $incoming_entries, int $post_id = 0, ?array &$lost = null): array {
+    $lost = [];
     // ── PASS 1: AN EXPLICIT ID WINS, AND CLAIMS ITS STORED ENTRY ────────────
     //
     // This is what "preserve by index" had to mean once ids existed to win. Index alone
@@ -7877,16 +8001,32 @@ function _pp_preserve_item_design(array $existing_entries, array $incoming_entri
     // eliminate: grid's own `retired_props` says an item is addressed by its minted id
     // "so that reordering carries styling WITH the item". It did not.
     $by_id    = [];
-    $claimed  = [];
+    $shared   = [];
+    $claimed  = [];   // stored keys an incoming entry named by id
     foreach ($existing_entries as $existing_key => $existing_entry) {
         if (!is_array($existing_entry) || !isset($existing_entry[PP_UDC_ITEM_ID_KEY])
             || !is_scalar($existing_entry[PP_UDC_ITEM_ID_KEY])) {
             continue;
         }
         $existing_id = (string) $existing_entry[PP_UDC_ITEM_ID_KEY];
-        if ($existing_id !== '' && !isset($by_id[$existing_id])) {
-            $by_id[$existing_id] = $existing_key;
+        if ($existing_id === '') {
+            continue;
         }
+        if (isset($by_id[$existing_id])) {
+            $shared[$existing_id] = true; // Raw-meta only: the write gate refuses two cards on one id.
+            continue;
+        }
+        $by_id[$existing_id] = $existing_key;
+    }
+
+    // What the caller SENT, read before pass 1 fills anything in: an entry that sends its
+    // own `udc` settles the design at its position (pass 2, and the loss walk below).
+    $sent_map = [];
+    $sends_id = [];
+    foreach ($incoming_entries as $k => $entry) {
+        $sent_map[$k] = is_array($entry) && array_key_exists(PP_UDC_ITEM_MAP_KEY, $entry);
+        $sends_id[$k] = is_array($entry) && isset($entry[PP_UDC_ITEM_ID_KEY])
+            && is_scalar($entry[PP_UDC_ITEM_ID_KEY]) && (string) $entry[PP_UDC_ITEM_ID_KEY] !== '';
     }
 
     foreach ($incoming_entries as $k => $entry) {
@@ -7911,34 +8051,92 @@ function _pp_preserve_item_design(array $existing_entries, array $incoming_entri
 
     // ── PASS 2: POSITION, AND ONLY WHEN POSITION STILL MEANS SOMETHING ──────
     //
-    // A SAME-LENGTH ARRAY IS D6's RED-PROOFED CASE AND IS UNTOUCHED: the editor shape
-    // that sends the list back with one word changed still keeps every design, byte for
-    // byte. A LENGTH CHANGE is the one where position demonstrably lies — an entry was
-    // added or removed, so stored index N and incoming index N are different cards — and
-    // there the design is dropped rather than moved onto a stranger. Losing a design is
-    // visible; finding it on the wrong card looks deliberate.
+    // A SAME-LENGTH ARRAY IS D6's RED-PROOFED CASE: the editor shape that sends the list
+    // back with one word changed still keeps every design, byte for byte. A LENGTH CHANGE
+    // is the one where position demonstrably lies — an entry was added or removed, so
+    // stored index N and incoming index N are different cards — and there a design is
+    // never moved onto a stranger (finding it on the wrong card looks deliberate). Nor is
+    // it dropped: it is reported in `$lost` and the write is refused by name (#1118).
+    //
+    // AN ENTRY THAT SENDS AN ID IS NOT POSITIONAL (#1118). It says which card it is — a
+    // stored one (pass 1) or one this band never held — so it neither receives the design
+    // stored at its position nor settles it. Carrying a design onto an entry that names a
+    // different id would keep the map but orphan the item mints keyed on the stored id
+    // (the reap then strands the map's references and locks the band). The design at that
+    // position belongs to a card the patch did not name, and is lost unless something
+    // else accounts for it.
     //
     // The residual is genuinely undecidable and is DISCLOSED rather than guessed: with
     // no ids and no length change, `[{02},{03}]` cannot be told apart from "the author
     // rewrote the copy of both cards".
-    $same_length   = count($existing_entries) === count($incoming_entries);
+    $same_length         = count($existing_entries) === count($incoming_entries);
     $carried_by_position = 0;
+    $settled             = []; // stored keys whose design this patch carries or replaces at their position
 
     if ($same_length) {
         foreach ($incoming_entries as $k => $entry) {
             if (!is_array($entry) || !isset($existing_entries[$k]) || !is_array($existing_entries[$k])
-                || isset($claimed[$k])) {
+                || isset($claimed[$k]) || $sends_id[$k]) {
                 continue;
+            }
+            if ($sent_map[$k]) {
+                $settled[$k] = true; // The caller restyled or cleared the card at this position.
             }
             foreach ([PP_UDC_ITEM_ID_KEY, PP_UDC_ITEM_MAP_KEY] as $owned) {
                 if (!array_key_exists($owned, $entry) && array_key_exists($owned, $existing_entries[$k])) {
                     $incoming_entries[$k][$owned] = $existing_entries[$k][$owned];
                     if ($owned === PP_UDC_ITEM_MAP_KEY) {
                         $carried_by_position++;
+                        $settled[$k] = true;
                     }
                 }
             }
         }
+    }
+
+    // ── WHAT WOULD BE LOST (#1118) ───────────────────────────────────────────
+    //
+    // Every stored design neither claimed by id nor settled at its position. "Design" is
+    // the predicate the minter uses for "this entry carries a map" (pp_udc_assign_band_ids():
+    // an array, not empty) — an id with no map is not a design and B2 clears it anyway.
+    // ONLY FOR A WELL-FORMED PATCH: a keyed `items` object or a scalar entry is the shape
+    // validator's to refuse, with its own message; answering it with "re-send the ids"
+    // would name the wrong problem.
+    $well_formed = pp_is_list($incoming_entries);
+    foreach ($incoming_entries as $entry) {
+        $well_formed = $well_formed && is_array($entry);
+    }
+    $items = [];
+    foreach ($well_formed ? $existing_entries : [] as $existing_key => $existing_entry) {
+        if (!is_array($existing_entry) || isset($claimed[$existing_key]) || isset($settled[$existing_key])) {
+            continue;
+        }
+        $map = $existing_entry[PP_UDC_ITEM_MAP_KEY] ?? null;
+        if (!is_array($map) || $map === []) {
+            continue;
+        }
+        $raw_id = $existing_entry[PP_UDC_ITEM_ID_KEY] ?? null;
+        if ($raw_id === null || $raw_id === '') {
+            $id = null;
+            $id_state = 'absent';
+        } elseif (!is_scalar($raw_id)) {
+            $id = '';
+            $id_state = 'malformed';
+        } else {
+            $id = (string) $raw_id;
+            $id_state = !pp_udc_valid_item_id($id) ? 'malformed' : (isset($shared[$id]) ? 'shared' : 'engine');
+        }
+        $title = isset($existing_entry['title']) && is_scalar($existing_entry['title'])
+            ? (string) $existing_entry['title']
+            : '';
+        $items[] = ['index' => $existing_key, 'id' => $id, 'id_state' => $id_state, 'title' => $title];
+    }
+    if ($items !== []) {
+        $lost = [
+            'stored' => count($existing_entries),
+            'sent'   => count($incoming_entries),
+            'items'  => $items,
+        ];
     }
 
     // ── THE DISCLOSURE ─────────────────────────────────────────────────────
