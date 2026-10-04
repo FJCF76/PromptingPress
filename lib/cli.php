@@ -2716,8 +2716,8 @@ class PP_Operate_Command extends WP_CLI_Command {
      * run-state option (pp_operate_run_<run_id>, autoload off), after
      * deleting dead run-state rows (not an array, no created_at, or past
      * the TTL). A new token does not revoke one you already hold. If the
-     * row cannot be written the command fails and prints no JSON; the UUID
-     * in that error was never stored, so do not use it.
+     * row cannot be written the command fails and prints no JSON; treat the
+     * UUID in that error as unusable (normally nothing was stored under it).
      *
      * ## OPTIONS
      *

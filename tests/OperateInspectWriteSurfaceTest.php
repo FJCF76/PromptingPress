@@ -313,14 +313,15 @@ class OperateInspectWriteSurfaceTest extends TestCase
         $options_before = $GLOBALS['_pp_test_store']['options'];
         $rest_before    = $this->nonOptionStore();
         $GLOBALS['_pp_test_option_deletes'] = [];
+        $GLOBALS['_pp_test_option_writes']  = [];
 
         try {
             (new PP_Operate_Command())->inspect([], []);
             $this->fail('inspect must fail when the run row cannot be written');
         } catch (WpCliExitException $e) {
             $this->assertStringContainsString('Cannot create run token', $e->getMessage());
-            // The message quotes the UUID it tried to store. The docs tell an agent not to
-            // use it, because nothing was stored under it: pin exactly that.
+            // The message quotes the UUID it tried to store. The docs tell an agent to treat
+            // it as unusable, because (on a refused write) nothing was stored under it.
             $this->assertSame(1, preg_match('/"([0-9a-f-]{36})"/', $e->getMessage(), $m), 'the error quotes a UUID');
             $this->assertSame('not_found', pp_operate_run_status($m[1]), 'the quoted UUID was never stored');
         } finally {
@@ -335,6 +336,10 @@ class OperateInspectWriteSurfaceTest extends TestCase
             array_keys(array_diff_key($options_before, $options_after)),
             'the sweep ran before the refused write and removed only the dead row'
         );
+        $this->assertSame([pp_operate_run_option_name($expired)], array_keys($GLOBALS['_pp_test_option_deletes']), 'no other delete was attempted');
+        $writes = array_keys($GLOBALS['_pp_test_option_writes']);
+        $this->assertCount(1, $writes, 'exactly one write was attempted');
+        $this->assertStringStartsWith('pp_operate_run_', $writes[0], 'and it was the (refused) run row');
         $this->assertSame($rest_before, $this->nonOptionStore(), 'posts, post meta, theme mods and Custom CSS are untouched');
     }
 }
