@@ -1259,15 +1259,17 @@ class AiContextTest extends TestCase
 
     // ── Component Summary ────────────────────────────────────────────────
 
-    public function testSummarizeComponentIncludesLayoutAndTheme(): void
+    public function testSummarizeComponentIncludesLayoutButNotTheRetiredTheme(): void
     {
-        // Issue #69: inspect surfaces structural `layout` and tonal `theme`
-        // separately, and never the retired `variant` key.
+        // Issue #69 split `variant` into `layout` + `theme`. `theme` has since been
+        // retired on every component (the v2 rebuild), so the summary no longer names
+        // it: a stored one describes paint nothing renders (#1163). `layout` stays.
         $item = ['component' => 'grid', 'props' => ['title' => 'Welcome', 'layout' => 'steps', 'theme' => 'muted']];
         $result = _pp_summarize_component($item);
         $this->assertStringContainsString('grid', $result);
         $this->assertStringContainsString('layout: steps', $result);
-        $this->assertStringContainsString('theme: muted', $result);
+        $this->assertStringNotContainsString('theme', $result);
+        $this->assertStringNotContainsString('muted', $result);
         $this->assertStringNotContainsString('variant', $result);
         $this->assertStringContainsString('Welcome', $result);
     }
