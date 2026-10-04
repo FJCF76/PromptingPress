@@ -33,9 +33,11 @@ old order let typed edits land before the safety gate; they no longer can.
 ## Step Details
 
 ### 1. INSPECT
-**Role**: Strategist. Read-only. Do not edit anything.
+**Role**: Strategist. Do not edit anything in this step.
 
 Run: `wp pp operate inspect` (or `wp pp operate inspect --post_id=<id>` for page-specific smells).
+
+`inspect` does not change the site's design (compositions, chrome, presets, tokens, options an operator owns). It does write run bookkeeping: it creates exactly one row, the run-state option `pp_operate_run_<uuid>` (autoload off), whose `<uuid>` is the `run_id` you pass to later steps, and it first deletes dead run-state rows (a value that is not an array, has no `created_at`, or is past the 2-hour TTL). Nothing else. Every call mints a NEW token, so re-running `inspect` mid-run starts a new run rather than refreshing yours; your old token is not revoked and stays usable until its own TTL runs out, so keep passing the one your PREFLIGHT covered. Full contract: `docs/reference-apply-cli.md`.
 
 This returns the full operating picture: target environment, composition pages, drift state, preflight status, design tokens, CSS conflicts, composition smells, and (with `--post_id`) a `composition_decode_error` signal that is set when the page's stored composition is corrupt or not a valid list rather than genuinely empty (issue 144).
 
@@ -81,7 +83,7 @@ Preflight checks:
 - **configuration** (site-state gaps like an unassigned menu location) — resolve through the finding's safe surface (e.g. `set_menu`), OR, if the gap is deliberate (a purposely menu-less footer), record it as intentional with `wp pp readiness acknowledge <finding-key>`. Acknowledged findings report as acknowledged, not warnings, and are reversible with `wp pp readiness unacknowledge <finding-key>`.
 - **capability** (an environment tool missing, e.g. a screenshot browser) — run the finding's next action (e.g. `wp pp screenshot doctor`).
 
-Use `wp pp readiness status` any time for a read-only, grouped view of current findings (`active_warnings` vs `acknowledged`). Status, `inspect`, and `apply preflight` never mutate — only `rebaseline` / `acknowledge` / `unacknowledge` change state, and each is an explicit command. A completed operation should show zero unexplained warnings: every finding is either actionable-now, acknowledged-intentional, or absent. Composition advisories that are judgment calls (an unmeasured ink pair, a raw `_css` property, a composition smell) have the same route since #1194: `wp pp check acknowledge --post_id=<id> --key=<key> --note=...`, with the key `wp pp check page` prints; see `validate-site.md`.
+Use `wp pp readiness status` any time for a read-only, grouped view of current findings (`active_warnings` vs `acknowledged`). Status never writes anything. `inspect` and `apply preflight` never change the site's design, but each writes run bookkeeping: `inspect` creates the run-state row and deletes dead ones, and `apply preflight` records its step, what it covered, the composition freshness marker and its rollback baselines in that same row; if that recording fails because the row has expired or is corrupt, it deletes the row (see the INSPECT step above). Only `rebaseline` / `acknowledge` / `unacknowledge` change readiness state, and each is an explicit command. A completed operation should show zero unexplained warnings: every finding is either actionable-now, acknowledged-intentional, or absent. Composition advisories that are judgment calls (an unmeasured ink pair, a raw `_css` property, a composition smell) have the same route since #1194: `wp pp check acknowledge --post_id=<id> --key=<key> --note=...`, with the key `wp pp check page` prints; see `validate-site.md`.
 
 **Required output**: `preflight_result` — the full preflight result (including the `findings` block).
 

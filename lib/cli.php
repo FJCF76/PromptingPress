@@ -2711,6 +2711,14 @@ class PP_Operate_Command extends WP_CLI_Command {
      * Always generates a run token. Pass the returned run_id to all
      * subsequent mutating CLI commands via --run-id.
      *
+     * Does not change site design (compositions, chrome, presets, tokens,
+     * operator-owned options). It writes run bookkeeping only: one new
+     * run-state option (pp_operate_run_<run_id>, autoload off), after
+     * deleting dead run-state rows (not an array, no created_at, or past
+     * the TTL). A new token does not revoke one you already hold. If the
+     * row cannot be written the command fails and prints no JSON; the UUID
+     * in that error was never stored, so do not use it.
+     *
      * ## OPTIONS
      *
      * [--post_id=<id>]

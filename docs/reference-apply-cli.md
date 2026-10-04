@@ -110,7 +110,16 @@ This command takes flags only; the target is already addressed. Remove "stray" a
 
 ## `wp pp operate inspect` — the INSPECT output
 
-`inspect` is the read-only INSPECT step of the operating loop: one call returns the whole operating picture and mints the run token. It never mutates the site (it does write a run-state row, the same as any `inspect` — see the run token above).
+`inspect` is the INSPECT step of the operating loop: one call returns the whole operating picture and mints the run token.
+
+**What it writes (#1219).** `inspect` does not change your site's design: compositions, chrome styling, presets, design tokens and every option an operator owns are left exactly as they were. It is not write-free, though, and it is not a read-only status command like `wp pp readiness status`. Each call:
+
+- **creates exactly one bookkeeping row**: the run-state option `pp_operate_run_<uuid>`, stored with autoload off. The `<uuid>` is the run token you get back as `run_id`; the row holds the run's progress (`steps_completed: ["INSPECT"]`, `created_at`, `site_id`) (`pp_operate_create_run`, `lib/operate.php`). Every call mints a new token, so running `inspect` mid-run starts a new run; it does not refresh the one you hold, and it does not revoke it either: the old token stays usable until its own TTL runs out.
+- **deletes dead run-state rows first**: an option whose name starts with `pp_operate_run_` is deleted when its value is not an array, has no `created_at`, or is older than the 2-hour TTL (`pp_operate_gc_expired_runs`). Nothing else about the row is checked, so a row inside its TTL that lacks `steps_completed` is kept (the commands that read it still refuse it as corrupt). Each call checks up to 1000 such rows, in the order they were stored. A run row inside its TTL is never touched, whichever session minted it, including one carrying a different site identity (a copied database).
+
+If the run row cannot be written, `inspect` fails with `Cannot create run token: ...` and prints no JSON. The error message quotes the UUID it tried to store; that UUID was never stored, so do not pass it as `--run-id` (it would fail as `not_found`). Fix the database problem and run `inspect` again. The sweep has still run.
+
+PromptingPress writes nothing else: no composition, post, post meta, theme mod, Custom CSS or other option. `tests/OperateInspectWriteSurfaceTest.php` pins this by running the real command handler (`PP_Operate_Command::inspect`) against the unit-test harness and comparing the options, posts, post meta, theme mods and Custom CSS before and after. It does not see the filesystem or the object cache, and its stand-in database does not apply the sweep's 1000-row bound or order. PromptingPress itself writes neither during `inspect`; WordPress's own option and query caching (which a persistent object cache stores) is outside this description.
 
 ```bash
 wp pp operate inspect
