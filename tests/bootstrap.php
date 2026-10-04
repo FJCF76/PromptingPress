@@ -884,6 +884,9 @@ if (!function_exists('update_option')) {
         // identical either way, so an assertion on the value passes whether the guard ran
         // or not.
         $GLOBALS['_pp_test_option_writes'][$key] = ($GLOBALS['_pp_test_option_writes'][$key] ?? 0) + 1;
+        // The autoload flag the caller passed, so a test can pin a row that must stay out of
+        // the alloptions cache (the run-state row, #1219). Recorded, never acted on.
+        $GLOBALS['_pp_test_option_autoload'][$key] = $autoload;
         if (!empty($GLOBALS['_pp_test_unwritable_options'][$key])) {
             return false;
         }
