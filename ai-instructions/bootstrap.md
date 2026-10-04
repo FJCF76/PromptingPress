@@ -42,6 +42,7 @@ wp theme activate promptingpress --path=/var/www/{site}
 ## WordPress Options
 
 **Static homepage (not latest posts)**
+- With `show_on_front = posts` ("Your latest posts") the homepage is the post listing, never a composition (#1173): a composed homepage needs a static front page.
 - Required: `show_on_front = page`
 - Verify: `wp option get show_on_front` → `page`
 - Set: `wp option update show_on_front page`
