@@ -11,6 +11,11 @@ their components from a JSON array stored in the `_pp_composition` post meta key
 
 The format is AI-native: the same JSON a human edits in the admin meta box is what you write directly.
 
+A composed page with a post password (this template, or the static front page) honours it the way
+WordPress content does: until the visitor enters the password, the page shows its title and the
+WordPress password form, none of its bands, and none of their styles. Nothing about the
+composition changes; you author it exactly as for any page.
+
 ---
 
 ## The format

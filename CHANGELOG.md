@@ -8,6 +8,81 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
 
+## Composed pages: honour post passwords (#1219)
+
+**A composed page with a post password asks for it, the way WordPress content does.** A page on the
+Composition template, and a static front page, show the page title and WordPress's password form
+until the visitor enters the page's password. None of the page's bands render, and the head prints
+none of their styles. Once the password is entered, the page renders exactly as before. The posts
+page already worked this way and is unchanged: until its password is entered, `/blog/` shows the
+default post listing.
+
+Head and body ask one question, `pp_composition_locked_page()`. The band loop shared by every composed
+route renders the form instead of the bands, and `pp_udc_current_composition()` returns no
+composition, so the CSS and the markup always agree. The form is WordPress's own (`get_the_password_form()`,
+so the `the_password_form` filter applies), echoed as WordPress returns it. Nothing stored changes,
+and authoring a composed page works exactly as before.
+
+### Fixed
+- **Composed pages and post passwords.** A Composition-template page or static front page with a
+  post password shows its title (WordPress's "Protected: …" form of it) and the password form until
+  the password is entered, with no bands and no band CSS.
+
+### Docs
+- `AI_CONTEXT.md` and `ai-instructions/composition.md` describe what a password-protected composed
+  page shows.
+
+### Tests
+- `tests/ComposedPagePasswordTest.php` (new): the form and the heading in place of the bands, the bands
+  once the password is entered, the head's band CSS following the same rule, the static front page on
+  both sides, and the gate asking about the page being rendered (the queried page, or the posts page),
+  never whichever post happens to be current.
+- `tests/PostsPageCompositionTest.php`: the posts page's head agrees with its body on a password.
+- `tests/e2e/composed-page-password.spec.ts` (new): in the browser with WordPress's own password
+  cookie, a protected page and a protected static front page show the form, then their bands and
+  authored styles once the password is entered.
+
+## Atypical stored data no longer breaks the chat context or warns on render (#1163, #1189)
+
+**A page whose stored composition holds an atypical value now opens in the AI chat and renders
+without PHP warnings.** Stored compositions are not always what the write path accepts: a restore
+reports problems without blocking, older pages predate the current rules, and a raw post-meta write
+is not validated. Two read paths assumed otherwise. The chat's per-band component index stopped with
+a PHP error when a band's stored `title`, `image_url` or `background_image` was a list or an object,
+so the assistant could not be used on that page. The shared band loop behind composition pages, the
+front page and the posts page logged "Array to string conversion" on every render when a band's
+`component` was an array.
+
+Neither path fails on such a value now: the component index leaves it out, and the render loop skips a
+band whose `component` is not a string. Nothing stored is rewritten, and the page's own findings still
+report it. In the component index, a prop that is not plain text is omitted from
+its band's line, never replaced with stand-in text; the composition JSON printed below the index still
+shows the stored value as it is. A list entry that is not a band object at all is listed at its own
+index as `(unreadable entry: a stored <type>, not a component object)`, so the numbering of the other
+bands holds. The index no longer names the retired `theme` and `background_image` props, which no
+component declares and nothing renders.
+
+### Fixed
+- **Chat context on a page with an atypical stored band.** The component index builds for every stored
+  shape of `title`, `image_url`, `layout`, the band's stored `id`, its stored recipe and its style
+  values (#1163). A band whose `component` is an array still stops the chat context one step earlier,
+  in the page inspection the index is built from; that read path is tracked in #1223.
+- **Unreadable list entries in the component index.** A stored string, number, boolean or `null` in
+  the composition list is disclosed at its index rather than stopping the context build (#1163).
+- **Render loop.** `pp_render_composition_bands()` skips a band whose `component` is not a string,
+  with no warning, on every route that uses it (#1189).
+
+### Changed
+- The component index line no longer shows `theme:` or a `background_image` filename; both props are
+  retired on every component (#1163).
+
+### Tests
+- `tests/AiContextStoredShapeTest.php` (new): each atypical shape at unit level, the retired props,
+  the unchanged output for well-formed values, and the chat context built end to end over stored pages
+  (stored bytes unchanged).
+- `tests/PostsPageCompositionTest.php`: the shared loop over list, map, int, float and boolean
+  components, the posts page rendered end to end around such a band, and the write path refusing it.
+
 ## `wp pp validate site` now checks the header and footer (#1204)
 
 **A header or footer advisory now fails the gate.** `wp pp validate site` used to check Custom CSS

@@ -1006,40 +1006,57 @@ function pp_ai_site_context(): array {
  * unambiguously target components when a page has duplicates.
  */
 function _pp_summarize_component(array $item, ?array $inspect_target = null): string {
-    $name  = $item['component'] ?? 'unknown';
-    $props = $item['props'] ?? [];
+    // THE VALUES THIS SUMMARY INTERPOLATES ARE STORED DATA (#1163), and stored data is not
+    // always what the write path accepts: a restore reports without blocking (#233), older
+    // compositions predate the rules, and a raw `_pp_composition` meta write is not
+    // validated. A non-scalar here threw a TypeError in mb_strlen()/basename() and the
+    // chat context for the whole page failed to build. So every stored value is shape-
+    // checked before it is interpolated, and one that fails is LEFT OUT of the line rather
+    // than replaced with a placeholder: the composition JSON printed under this index still
+    // shows the stored value verbatim, which is where the model reads it. Prop and target
+    // values go through `$text` (the family idiom); its `!empty()` keeps the gate those
+    // lines always had, so a falsy value ('', '0', 0, false) is left out too. The component
+    // name must be a string (else the existing `unknown`), `props` must be an array, and a
+    // style-slot override keeps its own gate (noted at the loop).
+    $text = static fn ($value): string => is_scalar($value) && !empty($value) ? (string) $value : '';
+
+    $name  = is_string($item['component'] ?? null) ? $item['component'] : 'unknown';
+    $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
 
     $name_str = $name;
-    if ($inspect_target && !empty($inspect_target['component_id'])) {
-        $name_str .= " ({$inspect_target['component_id']})";
+    // `component_id` is the band's stored `props.id` (pp_inspect_composition).
+    $component_id = $inspect_target ? $text($inspect_target['component_id'] ?? null) : '';
+    if ($component_id !== '') {
+        $name_str .= " ({$component_id})";
     }
     $parts = [$name_str];
 
-    // Structural layout (the main structural differentiator) and, separately,
-    // the color/tone theme — kept distinct so inspect never conflates the two
-    // (issue #69: `variant` was split into `layout` + `theme`).
-    if (!empty($props['layout'])) {
-        $parts[] = "layout: {$props['layout']}";
-    }
-    if (!empty($props['theme'])) {
-        $parts[] = "theme: {$props['theme']}";
+    // Structural layout (the main structural differentiator). The retired `theme`
+    // (#69 split `variant` into `layout` + `theme`) is no longer summarized: no component
+    // declares it since the v2 rebuild, so a stored one describes paint nothing renders.
+    // (The adjacency hint below still reads a stored `theme` in _pp_resolve_component_bg;
+    // that bucket is the defect tracked in #1070.)
+    $layout = $text($props['layout'] ?? null);
+    if ($layout !== '') {
+        $parts[] = "layout: {$layout}";
     }
 
-    // Title (short identifier)
-    if (!empty($props['title'])) {
-        $title = mb_strlen($props['title']) > 40
-            ? mb_substr($props['title'], 0, 37) . '...'
-            : $props['title'];
+    // Title (short identifier).
+    $title = $text($props['title'] ?? null);
+    if ($title !== '') {
+        if (mb_strlen($title) > 40) {
+            $title = mb_substr($title, 0, 37) . '...';
+        }
         $parts[] = "title: \"{$title}\"";
     }
 
     // Image filename (key for image-bearing components). logo_id is an
-    // attachment ID, not a URL, so it is not a basename source here.
-    foreach (['image_url', 'background_image'] as $img_prop) {
-        if (!empty($props[$img_prop])) {
-            $parts[] = basename($props[$img_prop]);
-            break;
-        }
+    // attachment ID, not a URL, so it is not a basename source here. The retired
+    // `background_image` is not read: the band background is the `_band` role's
+    // `background.image` in the `udc` map, an attachment id.
+    $image = $text($props['image_url'] ?? null);
+    if ($image !== '') {
+        $parts[] = basename($image);
     }
 
     $summary = implode(' | ', $parts);
@@ -1047,12 +1064,19 @@ function _pp_summarize_component(array $item, ?array $inspect_target = null): st
     if ($inspect_target) {
         // Style line: recipe + overridden slots
         $style_parts = [];
-        if (!empty($inspect_target['active_recipe'])) {
-            $style_parts[] = "recipe: {$inspect_target['active_recipe']}";
+        // `active_recipe` is the band's stored `style.__recipe` (pp_inspect_composition),
+        // stored data like the rest of the line, so it goes through the same guard.
+        $recipe = $text($inspect_target['active_recipe'] ?? null);
+        if ($recipe !== '') {
+            $style_parts[] = "recipe: {$recipe}";
         }
         if (!empty($inspect_target['style_slots'])) {
             foreach ($inspect_target['style_slots'] as $slot) {
-                if ($slot['current'] !== null && $slot['current'] !== $slot['default']) {
+                // `current` is the band's stored style value for the slot. A non-scalar is
+                // left out; a scalar keeps this line's earlier gate (shown whenever it differs
+                // from the default, falsy or not). No shipped component declares a style slot
+                // since #1101, so this loop sees an empty list today.
+                if (is_scalar($slot['current']) && $slot['current'] !== $slot['default']) {
                     $style_parts[] = "{$slot['slot']}: {$slot['current']}";
                 }
             }
@@ -1357,6 +1381,16 @@ function pp_ai_format_messages(string $system, array $conversation, ?int $page_i
 
                     $system_content .= "Components (use component_index to target):\n";
                     foreach ($page_ctx['composition'] as $idx => $item) {
+                        // A list entry that is not an object at all (a raw meta write or a
+                        // restore can store `"oops"`, a number, `null`) threw a TypeError at
+                        // the summarizer's signature and the whole context failed to build
+                        // (#1163). It is DISCLOSED at its own index, by its stored type and
+                        // nothing else, so the numbering of the bands around it holds and
+                        // nothing is invented; the composition JSON below shows the value.
+                        if (!is_array($item)) {
+                            $system_content .= "  [{$idx}] (unreadable entry: a stored " . get_debug_type($item) . ", not a component object)\n";
+                            continue;
+                        }
                         $target = ($inspect_data && isset($inspect_data[$idx])) ? $inspect_data[$idx] : null;
                         $summary = _pp_summarize_component($item, $target);
                         $system_content .= "  [{$idx}] {$summary}\n";

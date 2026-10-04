@@ -371,7 +371,11 @@ the composition pages whatever its template meta, so `validate site`, the assist
 
 Both `front-page.php` and `composition.php` read `_pp_composition` post meta and render
 components through `pp_render_composition_bands()`, the one band loop they share with the posts
-page (#1181). No page using these templates has hardcoded component structure.
+page (#1181). That loop skips a band whose `component` is not a string (#1189); the stored band
+is left as it is and the findings still report it. No page using these templates has hardcoded component structure.
+A page that needs its post password shows its title and core's password form instead of its bands,
+and the head emits none of its band CSS, until the visitor enters the password
+(`pp_composition_locked_page()`, asked by both the band loop and `pp_udc_current_composition()`).
 
 The homepage has no special editing paradigm — it uses the same JSON composition system
 as any other page. Its initial composition is seeded in `_pp_composition` (post ID 4).
@@ -749,7 +753,7 @@ Assembled by `pp_ai_system_prompt()`:
 - Pre-proposal verification checklist (target correct component, confirm slot exists, confirm value is representable)
 - Response format instructions (conversational vs structured proposal)
 
-When page context is included, each component's summary shows: active recipe, overridden style slots with current values, and editable field names per component type. After the component index, an adjacency hint (#378) lists any consecutive component pair whose **resolved** background matches (per-instance `--{component}-bg` override, else the `theme` bucket — `inverted` or `muted`; image-backed and default/inherited bands are skipped), so the "two touching same-color bands" case is a structural fact instead of an inference. It points at the #377 band-fusing heuristic (zero the facing paddings/margins to close the seam); it is context-only and changes no action, prop, or validator.
+When page context is included, each component's summary shows: the component name (with its `id` when it has one), `layout`, a shortened `title`, the `image_url` filename, then the active recipe, overridden style slots with current values, and editable field names per component type. The retired `theme` and `background_image` props are not named on that line even when a stored band still carries them. Every value on the line is stored data, so one that is not plain text (an array, an object) is left out of the line rather than interpolated (a non-string `component` reads `unknown` on the line; a band whose `component` is an array still stops the context build earlier, in `pp_inspect_composition()`, tracked in #1223), and the composition JSON printed under the index still shows it verbatim (#1163). A composition entry that is not a component object at all is listed at its own index as `(unreadable entry: a stored <type>, not a component object)`, so the numbering of the bands around it holds. After the component index, an adjacency hint (#378) lists any consecutive component pair whose **resolved** background matches (per-instance `--{component}-bg` override, else the `theme` bucket — `inverted` or `muted`; image-backed and default/inherited bands are skipped), so the "two touching same-color bands" case is a structural fact instead of an inference. It points at the #377 band-fusing heuristic (zero the facing paddings/margins to close the seam); it is context-only and changes no action, prop, or validator.
 
 ### The chat's page context on an unreadable page (#750)
 

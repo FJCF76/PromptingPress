@@ -8774,6 +8774,13 @@ function pp_udc_chrome_authored_css(): string {
  * template would ship CSS with no matching markup and nothing would notice.
  */
 function pp_udc_current_composition(): array {
+    // A page that still needs its password renders the password form and no bands, so
+    // it gets no band CSS either: the body's own gate, pp_composition_locked_page().
+    // On /blog/ the queried object is the posts page, which pp_posts_page_composition()
+    // below also gates on its own (it falls back to the default listing there).
+    if (pp_composition_locked_page() !== null) {
+        return [];
+    }
     // THE POSTS PAGE (#1181). The posts index is not singular, so the early return
     // below used to hand it []. It renders the posts page's stored composition when
     // there is one, and this reads it through the SAME resolver home.php renders from,
