@@ -163,7 +163,7 @@ Report:
 
 1. **Pass the run token.** Every `wp pp operate inspect` returns a `run_id`. Pass it to all subsequent mutating CLI commands via `--run-id`. Commands fail without it.
 2. **Inspect before editing.** Never modify state without reading it first.
-3. **Preflight before mutating.** Never change the site (its database content or files) without a completed PREFLIGHT covering the target. The run bookkeeping `inspect` and `apply preflight` write themselves is the one exception (see the INSPECT step). Typed actions and `operate patch` are gated, not just file applies.
+3. **Preflight before mutating.** Never change the site's design or content (compositions, tokens, chrome, site options, theme files) without a completed PREFLIGHT covering the target. Typed actions and `operate patch` are gated, not just file applies. Not gated by PREFLIGHT, and not a breach of this rule: the run bookkeeping `inspect` and `apply preflight` write themselves (see the INSPECT step), the explicit `readiness`/`check` acknowledge, unacknowledge and `readiness rebaseline` commands, and the files `screenshot capture` saves.
 4. **Screenshot before reviewing.** Visual verification is evidence, not assumption.
 5. **Hard gate failure loops to PLAN, not EDIT.** Rethink the approach, don't just retry.
 6. **Never claim VERIFIED without screenshots and a fully evaluated checklist.**
