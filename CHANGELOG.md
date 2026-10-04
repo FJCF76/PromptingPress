@@ -8,6 +8,52 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
 
+## A "latest posts" front page is the posts index, and a visit no longer writes onto a blog post (#1173)
+
+**With Settings → Reading → "Your latest posts", the homepage now shows your posts, styled, and
+viewing it changes nothing.** Before, that homepage painted the theme's default homepage with no
+styles at all, and the first visit wrote that default homepage onto your newest blog post. If the
+newest post had a password, its own page content could appear on the homepage to anyone. Now the
+homepage is the posts listing (the same page `home.php` renders for a posts index), with its
+default styles, and a visit writes nothing.
+
+WordPress loads the theme's front-page template for any front page, including a "latest posts"
+one. The root `front-page.php` now asks `pp_front_page_id()` (the static front page Settings →
+Reading names, or 0) and renders the posts index when there is none. A static front page renders
+the page WordPress queried for the request, and the template asks `pp_composition_locked_page()`
+before anything else: a password-protected front page shows its title and the password form, and
+nothing is resolved behind it. Only the page Settings → Reading names is ever given the default
+homepage composition when it has none (the blank-page safeguard of #506), and never by a visitor
+who has not entered its password.
+
+### Fixed
+- **"Your latest posts" homepage.** Renders the post listing with its default styles instead of an
+  unstyled default homepage, and no longer writes a page composition onto the newest blog post.
+- **A password-protected newest post on a "latest posts" homepage.** Its stored composition is not
+  shown there; the listing shows it the way WordPress shows any protected post.
+- **A password-protected static front page with no composition yet.** A visitor without the
+  password no longer triggers the default-homepage write.
+
+**Upgrading.** A site that was set to "Your latest posts" before this release may have had a page
+composition written onto a blog post by a visit. It is left as it is (nothing stored is ever removed
+by a render). To find such posts: `wp post list --post_type=post --meta_key=_pp_composition`; a
+stray composition on a post can be removed with `wp post meta delete <id> _pp_composition`.
+
+### Docs
+- `AI_CONTEXT.md` describes what the front page renders for each Reading setting, and which page a
+  front-page view may seed; `ai-instructions/bootstrap.md` notes that "Your latest posts" never
+  renders a composition.
+
+### Tests
+- `tests/FrontPageRouteTest.php` (new): `/` through the shipped root `front-page.php` and templates
+  for a latest-posts site (listing, its role defaults, no write, a protected newest post, no posts),
+  a static front page (stored, seeded once, protected before and after the password), and a page
+  WordPress treats as the front page by its title (renders itself, never the configured page).
+- `tests/FrontPageSafeguardTest.php`: only the configured front page is ever seeded.
+- `tests/e2e/latest-posts-front-page.spec.ts` (new): the same routes in WordPress, including core's
+  password cookie.
+- `tests/bootstrap.php`: the `get_the_ID()` stub reads the global post, as core does.
+
 ## Composed pages: honour post passwords (#1219)
 
 **A composed page with a post password asks for it, the way WordPress content does.** A page on the
