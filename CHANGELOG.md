@@ -4,6 +4,44 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [Unreleased — Sprint 5] — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle (#1219)
+
+The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
+
+## Composed pages: honour post passwords (#1219)
+
+**A composed page with a post password asks for it, the way WordPress content does.** A page on the
+Composition template, and a static front page, show the page title and WordPress's password form
+until the visitor enters the page's password. None of the page's bands render, and the head prints
+none of their styles. Once the password is entered, the page renders exactly as before. The posts
+page already worked this way and is unchanged: until its password is entered, `/blog/` shows the
+default post listing.
+
+Head and body ask one question, `pp_composition_locked_page()`. The band loop shared by every composed
+route renders the form instead of the bands, and `pp_udc_current_composition()` returns no
+composition, so the CSS and the markup always agree. The form is WordPress's own (`get_the_password_form()`,
+so the `the_password_form` filter applies), echoed as WordPress returns it. Nothing stored changes,
+and authoring a composed page works exactly as before.
+
+### Fixed
+- **Composed pages and post passwords.** A Composition-template page or static front page with a
+  post password shows its title (WordPress's "Protected: …" form of it) and the password form until
+  the password is entered, with no bands and no band CSS.
+
+### Docs
+- `AI_CONTEXT.md` and `ai-instructions/composition.md` describe what a password-protected composed
+  page shows.
+
+### Tests
+- `tests/ComposedPagePasswordTest.php` (new): the form and the heading in place of the bands, the bands
+  once the password is entered, the head's band CSS following the same rule, the static front page on
+  both sides, and the gate asking about the page being rendered (the queried page, or the posts page),
+  never whichever post happens to be current.
+- `tests/PostsPageCompositionTest.php`: the posts page's head agrees with its body on a password.
+- `tests/e2e/composed-page-password.spec.ts` (new): in the browser with WordPress's own password
+  cookie, a protected page and a protected static front page show the form, then their bands and
+  authored styles once the password is entered.
+
 ## [v2.0.1] — 2026-09-28 — v2 Sprint 4, the 2.0.1 fix cycle: a correct site passes `wp pp validate site`, verified judgment calls can be acknowledged, fluid lengths work in padding, margin, gap and border lists, and card checklists sit under their text (#1197; #1194, #1191, #1192, #1193, #1195)
 
 **TL;DR: a site rebuilt on 2.0.0 can now pass its own gate.** The owner's rebuild of a real site on
