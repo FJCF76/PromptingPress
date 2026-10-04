@@ -7868,7 +7868,9 @@ function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''
         . 'unchanged, by position for an entry sent without an "id". Nothing was written. To keep a design, '
         . 'include that card\'s "id" on its entry (read the ids with `wp post meta get <post_id> _pp_composition`). '
         . 'To delete a styled card, first send "udc": {} on it in a patch that keeps the same number of cards, '
-        . 'then remove it, re-sending the "id" of every other styled card you keep.%s%s',
+        . 'then remove it, re-sending the "id" of every other styled card you keep. Those are two separate writes '
+        . '(in the chat, two turns: every step of one proposal is previewed against the page as it is now), or '
+        . 'rewrite the band whole with update_composition in one write.%s%s%s',
         $index,
         (int) $lost['stored'],
         (int) $lost['sent'],
@@ -7880,6 +7882,10 @@ function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''
         in_array('malformed', $states, true)
             ? ' A card whose stored id is not an engine id cannot be patched through `items`; rewrite the band '
               . 'whole with update_composition, leaving that id out.'
+            : '',
+        in_array('shared', $states, true)
+            ? ' Cards that share one stored id cannot be patched through `items`; rewrite the band whole with '
+              . 'update_composition, keeping that id on one card only.'
             : ''
     ));
 }
