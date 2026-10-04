@@ -204,18 +204,23 @@ codes:
    `update_component`'s `udc` param, merged into the stored map by role.)
 2. **Send every entry you want to keep.** The array is replaced, not merged.
 3. **The `id` is the engine's.** It is minted on write, shaped `it-<hex8>`, only for entries
-   that carry a map. Never author one.
-4. **Re-send the ids when you reorder or delete.** Read them back first, from the stored
-   composition (each entry's `id`):
+   that carry a map. Never invent one.
+4. **Re-send the ids when you reorder, add or delete cards.** Read them back first, from the
+   stored composition (each entry's `id`):
 
    ```
    wp post meta get 42 _pp_composition
    ```
 
-   Without them the engine carries each design by POSITION, which is right if you did not
-   reorder and wrong if you did. It tells you when it has done so —
-   `udc_item_design_carried_by_position` — and a patch that changes the array LENGTH
-   preserves nothing rather than moving a design onto the wrong card.
+   A stored design is kept only when its card's id is re-sent, or, when the number of cards
+   is unchanged, by POSITION for an entry sent without an id. Position is right if you did
+   not reorder and wrong if you did; the engine tells you when it carried by position —
+   `udc_item_design_carried_by_position`. A patch that would leave a stored design with
+   neither (a length change without the ids, or an entry that names one card by id where
+   another styled card sat) is refused with `item_design_would_be_lost`, and nothing is
+   written: no design is dropped silently (#1118). To delete a styled card, first send
+   `"udc": {}` on that entry in a patch that keeps the same number of cards, then remove
+   it, re-sending the id of every other styled card you keep.
 
 **Ten roles are item-settable**: `card`, `card-bar`, `card-media`, `card-body`, `card-title`,
 `card-text`, `card-bullets`, `card-bullet`, `card-link`, `step-number`. The band-level roles
