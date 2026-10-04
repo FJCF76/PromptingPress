@@ -7871,7 +7871,8 @@ function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''
         . 'then remove it, re-sending the "id" of every other styled card you keep. Those are two separate writes '
         . '(in the chat, two turns: every step of one proposal is previewed against the page as it is now), or '
         . 'rewrite the band whole with update_composition in one write, re-sending the "id" of every styled card '
-        . 'you keep, or the band locks.%s%s%s',
+        . 'you keep (otherwise a kept card can take a removed card\'s id, which locks the band when its design '
+        . 'uses per-breakpoint values).%s%s%s',
         $index,
         (int) $lost['stored'],
         (int) $lost['sent'],
@@ -7886,7 +7887,8 @@ function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''
             : '',
         in_array('shared', $states, true)
             ? ' Cards that share one stored id cannot be patched through `items`; rewrite the band whole with '
-              . 'update_composition, keeping that id on one card only.'
+              . 'update_composition, keeping that id on one card only, and write the other card\'s design out in '
+              . 'plain values (not @it- references to the id it gives up).'
             : ''
     ));
 }
