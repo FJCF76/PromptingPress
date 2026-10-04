@@ -452,6 +452,12 @@ every chrome write, and a write carrying either is refused telling you to drop i
 Chrome styling is site-wide. There is no per-page override, and a key that is not a chrome
 component name is refused.
 
+**A chrome write reports back like a band write**: read its `findings` (no `index`; the message
+names the component). `wp pp validate site` lists the same findings, never cut, in its
+`--- Site chrome (header and footer) ---` section and fails on any that is not a `severity: info`
+note (#1204). They cannot be acknowledged yet (#1220): change the value in `pp_site_udc`, or in
+the preset the finding names. See `validate-site.md`, item 6.
+
 **A dark header or footer is where contrast goes wrong most often**, because many chrome parts
 carry their own colour and a background change moves none of them. The accent used above is the
 on-inverted token rather than the plain brand accent for exactly that reason: the plain accent
