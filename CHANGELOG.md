@@ -33,6 +33,19 @@ unchanged and still writes nothing.
   that row only when the recording fails because the row has expired or is corrupt.
 - `lib/cli.php`: the `inspect` help text (`wp help pp operate inspect`) says the same; a `lib/wp.php` comment no longer calls the
   INSPECT surface read-only.
+- `ai-instructions/operating-loop.md`, rules 1 and 3: `--run-id` is asked for only on the commands
+  that take it, and rule 3 points to where each write without a run token is documented, instead of
+  claiming there are none. The command table now says what each ungated command writes, including
+  that a successful `screenshot capture` (and a successful `screenshot doctor` probe) deletes all but
+  the 10 newest `*.png` files in the directory it wrote to, that `integrity check` deletes
+  `pp_last_blocked_update` on a `safe` result, and new rows for `check acknowledge`/`unacknowledge`,
+  `sync check --save-manifest`, `integrity check` and `apply restore-composition`.
+- `docs/reference-apply-cli.md` and `docs/operating-loop-safety.md`: after a `composition_conflict`,
+  re-preflight with the same `--run-id`, as the error says. Both now note that this keeps the rollback
+  baseline from your first preflight, so a later `apply restore-composition` also wipes the other
+  writer's change. The run-token section lists every command that takes `--run-id`.
+- `docs/tutorial-style-a-band-on-the-design-contract.md`: the run-token note covers the writes the
+  tutorial makes, rather than every mutating command.
 
 ### Tests
 - `tests/OperateInspectWriteSurfaceTest.php` (new) runs the real `inspect` command handler against

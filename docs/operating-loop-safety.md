@@ -88,7 +88,9 @@ the preflight with a `composition_conflict` error. Your own run's sequential edi
 still flow, because the run's baseline refreshes to the new marker after each write;
 only a change from *another* path trips the gate. When it does, re-inspect and
 re-preflight with the same `--run-id` (the error names it), not the new token that
-re-inspecting prints.
+re-inspecting prints. That keeps the rollback baseline frozen at your first preflight, so a
+later `apply restore-composition` reverts the page to it and also wipes the other writer's
+change.
 
 That preflight check is a pre-check, so it still leaves a hair-thin window: a
 concurrent write could land in the instant between the check and the write itself.

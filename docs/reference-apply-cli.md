@@ -10,7 +10,7 @@ Command registration: `WP_CLI::add_command('pp apply', 'PP_Apply_Command')` (`li
 
 ## The run token (read this first)
 
-Every mutating subcommand (`execute`, `restore`, `reset`, `preflight`) requires `--run-id=<uuid>`. You get one from:
+Every subcommand that writes (`preflight`, `execute`, `reset`, `restore`, `restore-composition`) requires `--run-id=<uuid>`, as do `wp pp action execute` and a mutating `wp pp operate patch`. You get one from:
 
 ```bash
 wp pp operate inspect
@@ -20,7 +20,7 @@ wp pp operate inspect
 
 - **A UUID v4.** `--run-id` is rejected with `--run-id must be a valid UUID v4. Got: "<value>"` if it isn't (`pp_operate_valid_run_id`).
 - **Install-scoped and time-limited.** The run state is stored per-install and auto-expires **2 hours** after creation (`PP_OPERATE_RUN_TTL = 7200`, `lib/operate.php`). An expired, swept, corrupt, or wrong-install token fails closed on the commands that need it.
-- **The carrier of run state:** which steps completed (`PREFLIGHT`, `APPLY`), the pre-apply token snapshot, and the touched-token trail that `restore` replays.
+- **The carrier of run state:** which steps completed (`INSPECT`, then `PREFLIGHT`, `APPLY`), the pre-apply token snapshot, and the touched-token trail that `restore` replays.
 
 Pass the same `run_id` to `preflight`, then to `execute`/`reset`, then to `restore`.
 
@@ -144,7 +144,7 @@ wp pp operate inspect --post_id=42
 | `smells` | array of `{type, message, index}` | Page composition smells for `--post_id` (`pp_validate_composition_smells`): hero/layout/wall-of-text advisories, `empty_section` (a band whose configured content renders nothing — covers every band component since #579, not just the five structured-content ones), plus `template_owned_component` / `duplicate_component_id` on a page whose stored composition predates those rules. Since #1181 it also carries the page-aware posts-page findings: `listing_band_off_posts_page` (a listing band on a page that is not the posts page) and `posts_page_without_listing` (the posts page's composition has no listing band, `index: null`). `[]` when no `--post_id` is given, the page's composition is empty, or the page is corrupt (a corrupt page is reported via `composition_decode_error`, not here). |
 | `token_smells` | array of `{type, base_token, token, current, expected, message}` | Masked derived-family overrides (#386, `pp_detect_masked_derived_smells`): a derived override (e.g. `--color-accent-strong`) that diverges from what its base (`--color-accent`) currently derives, so a base change won't show where the override applies. Always computed (site-scoped, independent of `--post_id`); `[]` on a coherently themed site. |
 | `composition_decode_error` | `null` \| `"decode_error"` \| `"unexpected_shape"` | Page composition **integrity** for `--post_id` (#144). Always present in the output; only ever non-`null` when `--post_id` names a page whose stored `_pp_composition` is corrupt rather than genuinely empty (see below). |
-| `run_id` | UUID v4 string | The run token this `inspect` minted, appended by the CLI. Pass it as `--run-id` to every mutating subcommand. |
+| `run_id` | UUID v4 string | The run token this `inspect` minted, appended by the CLI. Pass it as `--run-id` to the commands that take it (see [The run token](#the-run-token-read-this-first)). |
 
 ### `composition_decode_error` in detail (#144)
 
@@ -301,7 +301,7 @@ wp pp operate composition-history --post_id=234         # the unreadable bytes, 
 
 > `Stale preflight for post N: the composition changed since preflight (preflight version X, live version Y). Another path (a CLI action, the dashboard editor, or publish flow) modified it. Re-inspect and re-run 'wp pp apply preflight --run-id=<uuid> --post_id=N' before executing. [composition_conflict]`
 
-Your own run's sequential composition mutations are fine — the baseline refreshes to the new marker after each successful write. Only a change from *another* path (another run, the dashboard editor, publish flow) trips the gate. When it fires, re-inspect the page and re-run `wp pp apply preflight` with the same `--run-id` (the error names it), then re-issue the action. Do not switch to the new `run_id` that re-inspecting prints: your run's rollback baselines live on the token you already hold. `preview` never consumes or requires freshness state.
+Your own run's sequential composition mutations are fine — the baseline refreshes to the new marker after each successful write. Only a change from *another* path (another run, the dashboard editor, publish flow) trips the gate. When it fires, re-inspect the page and re-run `wp pp apply preflight` with the same `--run-id` (the error names it), then re-issue the action. Do not switch to the new `run_id` that re-inspecting prints: your run's rollback baselines live on the token you already hold. Know what that keeps: the rollback baseline stays the content frozen at your first preflight, so a later `wp pp apply restore-composition` reverts the page to it and also wipes the other writer's change. `preview` never consumes or requires freshness state.
 
 **Write-time compare-and-swap (#13).** The freshness gate above is a pre-check: it can't cover a write that lands in the narrow window *between* the check and the actual write. To close that, `action execute` and `operate patch` also thread the validated baseline into the write itself as an **`expected_version`** — on `action execute` only when the caller sent none: a caller-supplied `expected_version` reaches the compare-and-swap unchanged (#1094), so a version you read before another write landed is refused rather than silently replaced — and the single composition-write choke point (`pp_update_composition`) performs an atomic compare-and-swap **under the per-post advisory lock** — it re-reads the version fresh from the DB and, if it no longer equals `expected_version`, rejects with a `composition_conflict` `WP_Error` and writes nothing (neither the composition nor either marker moves). From the CLI the pre-check usually fires first with the `Stale preflight` message above; the CAS is the atomic backstop for an interleaved write that slips past it, and returns:
 

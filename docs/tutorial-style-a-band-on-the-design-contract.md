@@ -13,7 +13,7 @@ Every command below was run against a clean install while writing this page. Cop
 - WP-CLI, with `wp pp` responding (`wp pp` prints a usage list).
 - A shell on the install. Everything here is CLI; no admin UI required.
 
-A note on the ceremony: every design or content write needs a **run token** and a completed
+A note on the ceremony: every design or content write this tutorial makes needs a **run token** and a completed
 **preflight**. That is not this tutorial being careful — it is the theme refusing to write
 without a recorded way to undo it. You get the token once and reuse it throughout.
 

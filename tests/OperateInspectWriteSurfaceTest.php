@@ -156,7 +156,7 @@ class OperateInspectWriteSurfaceTest extends TestCase
         return $store;
     }
 
-    /** A $wpdb that enumerates run rows the way the sweep's LIKE query does (oldest first). */
+    /** A $wpdb that enumerates run rows matching the sweep's LIKE query, in insertion order (it does not model ORDER BY or LIMIT). */
     private function installSweepWpdb(): void
     {
         $store =& $GLOBALS['_pp_test_store']['options'];
