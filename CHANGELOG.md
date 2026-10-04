@@ -43,6 +43,40 @@ unchanged and still writes nothing.
 - `tests/bootstrap.php`: the `update_option` stub records the autoload flag, so the test can check
   that the run row is written with autoload off.
 
+## Composed pages: honour post passwords (#1219)
+
+**A composed page with a post password asks for it, the way WordPress content does.** A page on the
+Composition template, and a static front page, show the page title and WordPress's password form
+until the visitor enters the page's password. None of the page's bands render, and the head prints
+none of their styles. Once the password is entered, the page renders exactly as before. The posts
+page already worked this way and is unchanged: until its password is entered, `/blog/` shows the
+default post listing.
+
+Head and body ask one question, `pp_composition_locked_page()`. The band loop shared by every composed
+route renders the form instead of the bands, and `pp_udc_current_composition()` returns no
+composition, so the CSS and the markup always agree. The form is WordPress's own (`get_the_password_form()`,
+so the `the_password_form` filter applies), echoed as WordPress returns it. Nothing stored changes,
+and authoring a composed page works exactly as before.
+
+### Fixed
+- **Composed pages and post passwords.** A Composition-template page or static front page with a
+  post password shows its title (WordPress's "Protected: …" form of it) and the password form until
+  the password is entered, with no bands and no band CSS.
+
+### Docs
+- `AI_CONTEXT.md` and `ai-instructions/composition.md` describe what a password-protected composed
+  page shows.
+
+### Tests
+- `tests/ComposedPagePasswordTest.php` (new): the form and the heading in place of the bands, the bands
+  once the password is entered, the head's band CSS following the same rule, the static front page on
+  both sides, and the gate asking about the page being rendered (the queried page, or the posts page),
+  never whichever post happens to be current.
+- `tests/PostsPageCompositionTest.php`: the posts page's head agrees with its body on a password.
+- `tests/e2e/composed-page-password.spec.ts` (new): in the browser with WordPress's own password
+  cookie, a protected page and a protected static front page show the form, then their bands and
+  authored styles once the password is entered.
+
 ## Atypical stored data no longer breaks the chat context or warns on render (#1163, #1189)
 
 **A page whose stored composition holds an atypical value now opens in the AI chat and renders
@@ -1564,7 +1598,6 @@ the corrected guidance that replaces the wrong guidance is longer than it was.
   rather than re-written, tracked in #1109, which completes #1101.
 - 48 test methods that pass while asserting nothing are catalogued in #1110; about a third of
   them predate this work.
-
 
 ### What changes for you
 
@@ -9578,7 +9611,6 @@ Before this, the rollback snapshot stored only an option's value, so "this optio
 ### Tests
 - PHPUnit `ActionsTest`: snapshot captures `{exists:false}` for an absent whitelisted option, `{exists:true, value:''}` for an explicit empty row, and the stored value otherwise; a non-whitelisted key is recorded absent-shaped without reading (or string-casting) its value; restore deletes an absent baseline, writes `''` for an explicit-empty baseline, writes a value baseline verbatim, leaves non-whitelisted keys untouched, degrades a legacy value-only snapshot to the #281 rule, and an end-to-end batch rolls an absent `pp_footer_social` back to deleted.
 
-
 **A slim post-hero band of short items with a colored dot between them ("No credit card · Cancel anytime · 30-day guarantee") used to be inexpressible: the only route was separator characters typed into body text, and those cannot be recolored because inline `style` spans are (correctly) stripped by the sanitizer. Sections gain a `body_items` prop — a row of short plain-text items rendered as a single centered row below the body, with a CSS-generated middot separator between each. The separator is a real presentational element, so it takes a color from the new `--section-separator-color` style slot and stays silent to screen readers. The items inherit the section body type, so the same `--section-body-size`/`--section-body-weight` slots that set the body's size and weight also set the strip's, and the original brand band (15px/600 text with a lime dot) is now fully expressible with no parent-theme edits.**
 
 `body_items` is a list of plain-text strings, escaped at output like every other text field: at most 8 items, each at most 80 characters, and a write that exceeds either bound or passes a non-string entry is rejected up front instead of silently truncated. The row renders only when it has content, after the body when both are set, and the page is byte-identical when it is unset. The separator color defaults to the muted text color and, on the inverted and background-image bands, follows the same light on-dark text color as its sibling text, so a dark band never gets an invisible dot. The row wraps to more centered rows at narrow widths, so it needs no mobile-specific rule. The bounds check is a generic, schema-driven rule in the shared write-time validator, so it holds for every write path (add/update component, update composition, create page) without a second validator.
@@ -10476,8 +10508,6 @@ Same class of bug as #354, on the stats component. The fix is `margin-left: auto
 ### Tests
 
 - `tests/e2e/style-render.spec.ts` adds a rendered-geometry pin: at 1280px the stats heading box center-x equals its containing `.container` center-x (and the centered `.stats__list` beneath it), with real free space between them so the equality is a genuine reposition, not a fill artifact. Proven red→green: reverting the CSS left-pins the box and fails the assertion by ~224px. `tests/js/css-lint.test.js` adds a declaration-level guard that aggregates per selector and asserts any centered, max-width-capped content-block selector (`__heading`/`__title`/`__body`/`__content`) also declares an auto inline margin, plus targeted pins for `.stats__heading` (#367) and `.section--centered .section__content` (#354).
-
-
 
 **#357 made a grid card's TEXT content (title, text, bullets) alignable through the `align`-typed `--grid-item-text-align` slot, but the `Read more` link stayed pinned left. `.grid__item-link` is a content-width flex item placed by `align-self: flex-start`, and per the #338 flex trap `text-align` cannot move a flex item's box — so a centered contact card (the webfiable use case #357 cites) centered its emoji/label but left the link flush left, only half-expressible. This makes the link follow the same slot: the operator still sets ONE value and both the text and the link align together, so a centered card is fully centered and a right-aligned card is fully right-aligned.**
 

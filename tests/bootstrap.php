@@ -204,9 +204,10 @@ if (!function_exists('get_body_class')) {
     }
 }
 
+// False unless a test sets $GLOBALS['_pp_test_store']['is_front_page'].
 if (!function_exists('is_front_page')) {
     function is_front_page(): bool {
-        return false;
+        return (bool) ($GLOBALS['_pp_test_store']['is_front_page'] ?? false);
     }
 }
 
@@ -1114,6 +1115,23 @@ if (!function_exists('is_singular')) {
 if (!function_exists('get_queried_object_id')) {
     function get_queried_object_id(): int {
         return (int) ($GLOBALS['_pp_test_store']['queried_object_id'] ?? 0);
+    }
+}
+
+// The queried post, from the same `queried_object_id` the stub above reads; null when
+// nothing (or a post the store does not hold) is queried.
+if (!function_exists('get_queried_object')) {
+    function get_queried_object() {
+        $id = (int) ($GLOBALS['_pp_test_store']['queried_object_id'] ?? 0);
+        return $id > 0 ? get_post($id) : null;
+    }
+}
+
+// Core's password form, reduced to a recognisable marker naming the post it is for.
+if (!function_exists('get_the_password_form')) {
+    function get_the_password_form($post = 0): string {
+        $id = is_object($post) ? (int) $post->ID : (int) $post;
+        return '<form class="post-password-form" data-test-post="' . $id . '" method="post"></form>';
     }
 }
 

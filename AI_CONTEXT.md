@@ -373,6 +373,9 @@ Both `front-page.php` and `composition.php` read `_pp_composition` post meta and
 components through `pp_render_composition_bands()`, the one band loop they share with the posts
 page (#1181). That loop skips a band whose `component` is not a string (#1189); the stored band
 is left as it is and the findings still report it. No page using these templates has hardcoded component structure.
+A page that needs its post password shows its title and core's password form instead of its bands,
+and the head emits none of its band CSS, until the visitor enters the password
+(`pp_composition_locked_page()`, asked by both the band loop and `pp_udc_current_composition()`).
 
 The homepage has no special editing paradigm — it uses the same JSON composition system
 as any other page. Its initial composition is seeded in `_pp_composition` (post ID 4).
