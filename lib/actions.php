@@ -7870,7 +7870,8 @@ function _pp_item_design_loss_error(int $index, array $lost, string $prefix = ''
         . 'To delete a styled card, first send "udc": {} on it in a patch that keeps the same number of cards, '
         . 'then remove it, re-sending the "id" of every other styled card you keep. Those are two separate writes '
         . '(in the chat, two turns: every step of one proposal is previewed against the page as it is now), or '
-        . 'rewrite the band whole with update_composition in one write.%s%s%s',
+        . 'rewrite the band whole with update_composition in one write, re-sending the "id" of every styled card '
+        . 'you keep, or the band locks.%s%s%s',
         $index,
         (int) $lost['stored'],
         (int) $lost['sent'],

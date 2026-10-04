@@ -8973,10 +8973,14 @@ function _pp_find_duplicate_band_ids(array $composition): array {
  * its stored item bytes exactly. BAND ids (the first pass) are not scoped here: that
  * tier's churn is #1097.
  *
- * AN ITEM ID CARRIES ONLY FROM THE SAME BAND (#1119). The stored band at an index is
- * that index's band only if the write did not just create it ($new_bands, add_component)
- * and the stored band's id has not moved to another incoming index (an insert or a
- * reorder). Otherwise its items' ids are another band's and are not inherited.
+ * AN ITEM ID NEVER CARRIES FROM A MOVED OR NEW BAND (#1119). An item id carries by
+ * index from the stored band at that index, except when the write just created the band
+ * there ($new_bands, add_component) or the stored band's id now sits at another incoming
+ * index (an insert or a reorder moved it). That is all this guarantees. KNOWN RESIDUAL,
+ * designed in #1234: a band the write DELETED at that index, a stored band with no id, and
+ * band ids the band pass itself carried by index when none were sent (#1097) still hand
+ * their item ids on. Comparing band ids for equality is not the fix: band ids are
+ * authorable, so a renamed band is still the same band (#1234 records that lesson).
  *
  * @param int[]|null $item_scope Incoming indexes the item-id pass may touch; null = all.
  * @param int[]      $new_bands  Incoming indexes holding a band this write creates.
@@ -9051,7 +9055,8 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = [], ?array $ite
     // sits. A stored band whose id is now at a DIFFERENT incoming index is not the
     // band at this index — an insert or a reorder moved it — so its item ids are
     // not this band's to inherit (#1119). Without this, add_component at
-    // position 0 copied the displaced band's item ids onto the new band.
+    // position 0 copied the displaced band's item ids onto the new band. A band
+    // the write DELETED leaves no such trace and is not caught here (#1234).
     $band_at = [];
     foreach ($incoming as $j => $band) {
         if (is_array($band) && isset($band['id']) && is_scalar($band['id']) && (string) $band['id'] !== '') {
@@ -9140,7 +9145,8 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = [], ?array $ite
             // Carried forward by INDEX, the band rule one level down. The
             // component match the band rule also demands is already satisfied:
             // $stored_entries is non-empty only when the stored band at this index
-            // is the same component AND has not moved to another index.
+            // is the same component, was not created by this write, and has not moved to
+            // another index (a band deleted at this index is not detected: #1234).
             $carried_item = '';
             if (isset($stored_entries[$k]) && is_array($stored_entries[$k])
                 && isset($stored_entries[$k][PP_UDC_ITEM_ID_KEY])
