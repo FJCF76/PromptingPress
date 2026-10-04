@@ -8974,9 +8974,11 @@ function _pp_find_duplicate_band_ids(array $composition): array {
  * tier's churn is #1097.
  *
  * AN ITEM ID CARRIES ONLY FROM THE SAME BAND (#1119). The stored band at an index is
- * that index's band only if the write did not just create it ($new_bands, add_component)
- * and the stored band's id has not moved to another incoming index (an insert or a
- * reorder). Otherwise its items' ids are another band's and are not inherited.
+ * that index's band only when the write did not just create it ($new_bands,
+ * add_component) and it is the SAME band: its id equals the settled id of the band now
+ * at that index, or it had no id at all (a legacy band, which carries as before).
+ * Otherwise — an insert or a reorder moved it, or the write deleted it — its items' ids
+ * are another band's and are not inherited.
  *
  * @param int[]|null $item_scope Incoming indexes the item-id pass may touch; null = all.
  * @param int[]      $new_bands  Incoming indexes holding a band this write creates.
@@ -9047,17 +9049,12 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = [], ?array $ite
     // not care which id its band ended up with, and interleaving them would
     // make that independence hard to see.
     //
-    // ONE THING IT DOES READ FROM THE BAND PASS: where each settled band id now
-    // sits. A stored band whose id is now at a DIFFERENT incoming index is not the
-    // band at this index — an insert or a reorder moved it — so its item ids are
-    // not this band's to inherit (#1119). Without this, add_component at
-    // position 0 copied the displaced band's item ids onto the new band.
-    $band_at = [];
-    foreach ($incoming as $j => $band) {
-        if (is_array($band) && isset($band['id']) && is_scalar($band['id']) && (string) $band['id'] !== '') {
-            $band_at[(string) $band['id']] = $j;
-        }
-    }
+    // ONE THING IT DOES READ FROM THE BAND PASS: the settled id of the band at each
+    // index. A stored band whose id differs from it is not the band at this index —
+    // an insert or a reorder moved it, or the write deleted it — so its item ids are
+    // not this band's to inherit (#1119). Without this, add_component at position 0
+    // copied the displaced band's item ids onto the new band, and an update_composition
+    // that dropped band 0 handed band 0's item ids to the band that took its index.
     foreach ($incoming as $i => $item) {
         if (!is_array($item)) {
             continue;
@@ -9100,9 +9097,10 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = [], ?array $ite
 
         $stored_entries = [];
         $stored_band_id = isset($stored[$i]['id']) && is_scalar($stored[$i]['id']) ? (string) $stored[$i]['id'] : '';
-        $moved_away     = isset($new_band_set[$i])
-            || ($stored_band_id !== '' && isset($band_at[$stored_band_id]) && $band_at[$stored_band_id] !== $i);
-        if (!$moved_away && isset($stored[$i]) && is_array($stored[$i])
+        $settled_id     = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
+        $same_band      = !isset($new_band_set[$i])
+            && ($stored_band_id === '' || $stored_band_id === $settled_id);
+        if ($same_band && isset($stored[$i]) && is_array($stored[$i])
             && isset($stored[$i]['component']) && is_scalar($stored[$i]['component'])
             && (string) $stored[$i]['component'] === $component
             && isset($stored[$i]['props'][$prop]) && is_array($stored[$i]['props'][$prop])) {
