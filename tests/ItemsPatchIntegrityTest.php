@@ -98,7 +98,7 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertStringContainsString('"udc": {}', $result['error'], 'and the route for deleting a styled card');
         $this->assertStringContainsString('two turns', $result['error'], 'the delete route says it is two writes, as the chat must send it');
         $this->assertStringContainsString('update_composition in one write', $result['error'], 'and names the one-write alternative that exists');
-        $this->assertStringContainsString('or the band locks', $result['error'], 'and says what the one-write route needs (red-team finding)');
+        $this->assertStringContainsString('locks the band when its design uses per-breakpoint values', $result['error'], 'and says what the one-write route needs (red-team finding)');
         $this->assertSame($before, pp_get_composition($post_id), 'a refused write leaves the stored bytes untouched');
     }
 
@@ -440,6 +440,7 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertSame('item_design_would_be_lost', $result['error_code']);
         $this->assertStringContainsString('item 1 ("B", id "it-dddddddd", stored on more than one card)', $result['error']);
         $this->assertStringContainsString('keeping that id on one card only', $result['error'], 'the route that works for a shared id');
+        $this->assertStringContainsString('plain values', $result['error'], 'and what the card that gives up the id must send');
 
         // Cap: twelve styled cards, none re-sent.
         $twelve = [];
@@ -785,9 +786,11 @@ class ItemsPatchIntegrityTest extends TestCase
 
     /**
      * KNOWN GAPS, PINNED AS SHIPPED (#1234). An item id carries by index from the stored band
-     * at that index unless that band moved or the write created the band there. Two cases
+     * at that index unless that band moved or the write created the band there. Three cases
      * that rule cannot see still carry, and are pinned so the designed fix has to change
-     * them on purpose: a stored band with no id, and a band the write deleted.
+     * them on purpose: a stored band with no id, a band the write deleted, and an insert
+     * through update_composition that sends no band ids (the band pass carries band ids by
+     * index, #1097, so the displaced band does not look moved).
      */
     public function testTheKnownCarryGapsArePinnedAsShipped(): void
     {
@@ -816,6 +819,15 @@ class ItemsPatchIntegrityTest extends TestCase
             pp_get_composition($post2)[0]['props']['items'][0]['id'] ?? null,
             'KNOWN GAP (#1234): the deleted band A still hands its item id to B'
         );
+
+        $post3 = pp_create_page('insert no band ids', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post3, 'composition' => [$mk('A')]])['ok']);
+        $a      = pp_get_composition($post3)[0];
+        $a_item = $a['props']['items'][0]['id'];
+        unset($a['id'], $a['props']['id'], $a['props']['items'][0]['id']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post3, 'composition' => [$mk('N'), $a]])['ok']);
+        $this->assertSame($a_item, pp_get_composition($post3)[0]['props']['items'][0]['id'] ?? null,
+            'KNOWN GAP (#1234, #1097): with no band ids sent, the inserted band N takes A\'s item id');
     }
 
     /** The two update_composition routes the refusal names work as written. */
@@ -853,6 +865,46 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertSame('it-dddddddd', $items[0]['id']);
         $this->assertTrue(pp_udc_valid_item_id($items[1]['id'] ?? ''));
         $this->assertNotSame('it-dddddddd', $items[1]['id']);
+    }
+
+    /**
+     * THE SHARED-ID ROUTE WITH PER-BREAKPOINT VALUES, written as the refusal says: the card
+     * that gives up the id re-sends its design in plain values, so nothing it keeps points at
+     * the other card's tokens, and the band stays editable even after the kept card goes.
+     */
+    public function testTheSharedIdRouteHoldsForPerBreakpointDesigns(): void
+    {
+        $plain = ['card' => ['background' => ['fill' => ['d' => '#101014', 'p' => '#202024']]]];
+        $post_id = pp_create_page('shared responsive', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [[
+            'component' => 'grid', 'props' => ['title' => 'T', 'items' => [['title' => 'A', 'udc' => $plain]]],
+        ]]])['ok']);
+        $band   = pp_get_composition($post_id)[0];
+        $shared = $band['props']['items'][0];
+        $band['props']['items'][] = array_merge($shared, ['title' => 'B']); // raw-meta shape: B reuses A's id and map
+        update_post_meta($post_id, '_pp_composition', wp_slash(wp_json_encode([$band])));
+
+        $band = pp_get_composition($post_id)[0];
+        $band['props']['items'][1] = ['title' => 'B', 'udc' => $plain]; // id left out, design in plain values
+        $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $items = pp_get_composition($post_id)[0]['props']['items'];
+        $this->assertSame($shared['id'], $items[0]['id']);
+        $this->assertNotSame($shared['id'], $items[1]['id'] ?? '');
+
+        // Remove A by id-aware patch; B must stay editable.
+        $removed = pp_execute_action('update_component', [
+            'post_id' => $post_id, 'component_index' => 0,
+            'props' => ['items' => [['title' => 'A', 'udc' => []], ['title' => 'B', 'id' => $items[1]['id']]]],
+        ]);
+        $this->assertTrue($removed['ok'], $removed['error'] ?? '');
+        $this->assertTrue(pp_execute_action('update_component', [
+            'post_id' => $post_id, 'component_index' => 0,
+            'props' => ['items' => [['title' => 'B', 'id' => $items[1]['id']]]],
+        ])['ok'], 'deleting the card that kept the id leaves the other card editable');
+        $this->assertTrue(pp_execute_action('update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'T2'],
+        ])['ok']);
     }
 
     /**

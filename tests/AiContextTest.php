@@ -2180,6 +2180,6 @@ class AiContextTest extends TestCase
         $prompt = pp_ai_system_prompt();
         $this->assertStringContainsString('set its `udc` to `{}` one turn, remove it the next', $prompt);
         $this->assertStringContainsString('update_composition re-sending every kept card', $prompt);
-        $this->assertStringContainsString('or the band locks', $prompt);
+        $this->assertStringContainsString('else ids shift and can lock the band', $prompt);
     }
 }
