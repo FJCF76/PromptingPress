@@ -478,7 +478,7 @@ class ReflectedTextInventoryTest extends TestCase
         // branch — so the two lines that print the title on the OTHER two branches sat
         // outside the very assertion that claimed to cover them. The terminator is the
         // summary section that follows the loop.
-        $end = strpos($source, '// 3. Summary', $start);
+        $end = strpos($source, '// 4. Summary', $start);
         $this->assertNotFalse($end, 'the summary section that ends the per-page loop was not found');
         $loop = substr($source, $start, $end - $start);
 

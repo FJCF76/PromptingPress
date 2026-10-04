@@ -49,6 +49,59 @@ component declares and nothing renders.
 - `tests/PostsPageCompositionTest.php`: the shared loop over list, map, int, float and boolean
   components, the posts page rendered end to end around such a band, and the write path refusing it.
 
+## `wp pp validate site` now checks the header and footer (#1204)
+
+**A header or footer advisory now fails the gate.** `wp pp validate site` used to check Custom CSS
+conflicts and every composition page, and never looked at the header and footer styling
+(`pp_site_udc`). An unused band token, an unchecked raw `_css` property or a `udc_findings_capped` row
+on the nav or footer appeared only once, on the write that caused it, and the command CI runs still
+said "Site validation passed." It now has a `--- Site chrome (header and footer) ---` section. It
+lists the same findings a header or footer write returns, never cut, and exits 1 on any of them that
+is not a `severity: info` note.
+
+The section reads the list the chrome write envelope already carries, through the same severity split
+the pages use. It does not check the chrome map a second way, so the gate and the write cannot
+disagree. A mint (`udc_token_minted`) is printed as a note and never fails. If the report cannot be
+built at all, the `findings_skipped` row fails the gate rather than reading as clean. The chrome and
+preset write envelopes now deliver their findings in the same order as a page report: the
+"capped" row first, then the other warnings, then the notes. So 100 notes can no longer push a
+warning past the 100-entry cut. A cut list now names `wp pp validate site` for the rest.
+
+### What changes for you
+
+- A site with a header or footer advisory now exits 1 from `wp pp validate site`. Fix the value with
+  `update_site_option` on `pp_site_udc` (or the preset the finding names) and run it again.
+- Header and footer findings cannot be acknowledged yet (#1220). A judgment call there, such as an
+  unchecked `_css` property, is printed with `[no key: ...]` saying so, and keeps failing until the
+  value changes.
+- Fix header and footer findings before you acknowledge page judgment calls: every `pp_site_udc`
+  write re-opens the page acknowledgements.
+- The section does not re-check the stored header and footer map against the write rules, the way a
+  page's item 5 does. A map stored by a raw option write is reported only through its advisories.
+
+### Fixed
+
+- `wp pp validate site` reads the header and footer findings and fails on them (#1204).
+- The chrome and preset write envelopes keep a gating warning ahead of the informational notes, so a
+  cut list cannot drop it (#1204).
+- A cut chrome or preset findings list names `wp pp validate site`, which lists it whole, instead of
+  `wp pp operate inspect` (#1204).
+
+### Docs
+
+- `ai-instructions/validate-site.md` (item 6, the header and footer section),
+  `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md`,
+  `docs/AI_IMPLEMENTATION_RECIPES.md` and `AI_CONTEXT.md` describe the new section and its limits.
+
+### Tests
+
+- `tests/ChromeSiteGateTest.php`: the command fails end to end on a header advisory written through
+  `update_site_option`; notes pass; a skipped report fails; unknown severities gate; the no-key line;
+  the gate reads the guarded producer; a chrome write cut at 100 keeps its warning first and names
+  `validate site`, which lists the rest; a preset write is delivered in the same order.
+- `tests/ChromeUdcTest.php`: the chrome envelope delivers its warning before its notes; a cut list
+  names `wp pp validate site`.
+
 ## [v2.0.1] — 2026-09-28 — v2 Sprint 4, the 2.0.1 fix cycle: a correct site passes `wp pp validate site`, verified judgment calls can be acknowledged, fluid lengths work in padding, margin, gap and border lists, and card checklists sit under their text (#1197; #1194, #1191, #1192, #1193, #1195)
 
 **TL;DR: a site rebuilt on 2.0.0 can now pass its own gate.** The owner's rebuild of a real site on
