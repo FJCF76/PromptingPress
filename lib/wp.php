@@ -376,6 +376,33 @@ function pp_posts_listing_items(): array {
 }
 
 /**
+ * The page a composition renders for, when this visitor has not entered its password yet.
+ *
+ * Composed pages honour post passwords the way core's own content does: until the
+ * visitor has entered the page's password, the page shows its title and core's password
+ * form and none of its bands, and the head emits none of its band CSS. Both sides ask THIS function
+ * (the body in pp_render_composition_bands(), the head in pp_udc_current_composition()),
+ * so they cannot disagree — the pattern of the posts-page gate in
+ * pp_posts_page_composition().
+ *
+ * The page is `$owner_page_id` when given (the posts page on /blog/), otherwise the
+ * queried object, and only when that is a post. Never post_password_required() on a
+ * bare id: core resolves an empty id to the GLOBAL post, which on a listing is whichever
+ * post the loop left current, not the page being rendered.
+ *
+ * On /blog/ this is a second line of defence: pp_posts_page_composition() already
+ * answers [] for a posts page that needs its password, so home.php renders its default
+ * listing there, never this form.
+ *
+ * @param int $owner_page_id  The page the bands belong to, or 0 for the queried page.
+ * @return WP_Post|null       The page still needing its password, or null when none does.
+ */
+function pp_composition_locked_page(int $owner_page_id = 0): ?WP_Post {
+    $page = $owner_page_id > 0 ? get_post($owner_page_id) : get_queried_object();
+    return $page instanceof WP_Post && post_password_required($page) ? $page : null;
+}
+
+/**
  * Renders a composition's bands in order: THE band loop for every request route
  * (#1181, D1 — composition.php, front-page.php and home.php share it).
  *
@@ -407,11 +434,28 @@ function pp_posts_listing_items(): array {
  * does nothing) every global is put back exactly as it was before the bands, or unset
  * when it did not exist.
  *
+ * A PAGE THAT STILL NEEDS ITS PASSWORD RENDERS ITS TITLE, CORE'S PASSWORD FORM AND NO
+ * BANDS (pp_composition_locked_page()). The form is echoed as core returns it, never
+ * handed to a component: a rich-text prop goes through wp_kses_post(), which keeps
+ * neither <form> nor <input>.
+ *
  * @param array $items          A composition, as stored.
  * @param int   $owner_page_id  The page the bands belong to when it is not already the
  *                              current post (the posts page); 0 leaves the post alone.
  */
 function pp_render_composition_bands(array $items, int $owner_page_id = 0): void {
+    $locked = pp_composition_locked_page($owner_page_id);
+    if ($locked !== null) {
+        // The theme's content gutter and a band's vertical rhythm, inline as the
+        // front page's admin notices are, so the form needs no stylesheet of its own.
+        // The page keeps a heading: the hero that carries it is one of the bands held
+        // back, and core's title ("Protected: …") is public, as on a default page.
+        echo '<div class="container" style="padding-block: var(--pp-band-padding);">'
+           . '<h1 style="margin-block-end: var(--space-lg);">' . esc_html(get_the_title($locked->ID)) . '</h1>'
+           . get_the_password_form($locked)
+           . '</div>';
+        return;
+    }
     $owner = $owner_page_id > 0 ? get_post($owner_page_id) : null;
     // The globals setup_postdata() writes (core's WP_Query::setup_postdata()), and `post`.
     $post_globals = ['post', 'id', 'authordata', 'currentday', 'currentmonth', 'page', 'pages', 'multipage', 'more', 'numpages'];
