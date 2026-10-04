@@ -11,6 +11,7 @@ Phase: Strategist
 
 Phase: Operator (safety gate)
   3. PREFLIGHT  — Check the environment can safely mutate, BEFORE any design or content write
+                (exception: repairing a corrupt page, ruling D-1 under EDIT)
 
 Phase: Implementer
   4. EDIT       — Execute via typed actions (gated: needs a covering PREFLIGHT)
