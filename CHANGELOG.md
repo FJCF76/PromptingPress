@@ -8,6 +8,41 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
 
+## The docs now say exactly what `wp pp operate inspect` writes (#1219)
+
+**`inspect` is no longer described as read-only, because it is not.** The reference and the AI
+operating loop called INSPECT "read-only" and said it "never mutates the site". In fact every call
+writes a row: the run state that mints the run token `preflight` and `apply` later check. That row is
+part of the design, so the command is unchanged and the description is fixed.
+
+The precise statement, now in `docs/reference-apply-cli.md`, `ai-instructions/operating-loop.md` and
+`wp help pp operate inspect`: `inspect` does not change the site's design (compositions, chrome,
+presets, tokens, options an operator owns). It creates exactly one bookkeeping row, the run-state
+option `pp_operate_run_<run_id>` with autoload off, after deleting dead run-state rows (a value
+that is not an array, has no `created_at`, or is past the 2-hour TTL). A new token does not revoke the
+one you already hold. If that row cannot be written, `inspect` fails with `Cannot create run token`;
+the UUID that message quotes was never stored and must not be used. `wp pp readiness status` is
+unchanged and still writes nothing.
+
+### Docs
+- `docs/reference-apply-cli.md` (the `operate inspect` section, where `validate site`'s
+  `findings_skipped` row points you): what `inspect` writes, what it deletes, and its failure case.
+- `ai-instructions/operating-loop.md`: the INSPECT step states the same, and the readiness paragraph
+  no longer groups `inspect` and `apply preflight` with the read-only `status`. `apply preflight`
+  records its step, coverage, freshness marker and rollback baselines in the run row, and deletes
+  that row only when the recording fails because the row has expired or is corrupt.
+- `lib/cli.php`: the `inspect` help text (`wp help pp operate inspect`) says the same; a `lib/wp.php` comment no longer calls the
+  INSPECT surface read-only.
+
+### Tests
+- `tests/OperateInspectWriteSurfaceTest.php` (new) runs the real `inspect` command handler against
+  the unit-test harness and compares options, posts, post meta, theme mods and Custom CSS before and
+  after. A bare call, a sweep over live, near-TTL, foreign, shape-incomplete, expired, just-expired,
+  corrupt and timestamp-less run rows, a `--post_id` call, and a refused run-row write each add or
+  remove exactly what the docs say.
+- `tests/bootstrap.php`: the `update_option` stub records the autoload flag, so the test can check
+  that the run row is written with autoload off.
+
 ## Atypical stored data no longer breaks the chat context or warns on render (#1163, #1189)
 
 **A page whose stored composition holds an atypical value now opens in the AI chat and renders
