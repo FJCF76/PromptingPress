@@ -254,6 +254,7 @@ class PostsPageCompositionTest extends TestCase
         $GLOBALS['_pp_test_store']['posts'][$this->postsPage]['post_status']   = 'publish';
         $GLOBALS['_pp_test_store']['posts'][$this->postsPage]['post_password'] = 'secret';
         $this->assertSame([], pp_posts_page_composition(), 'password-protected: not without the password');
+        $this->assertSame([], pp_udc_current_composition(), 'password-protected, nothing queried: head');
         // On /blog/ the queried object is the posts page: the head's own password gate
         // (pp_composition_locked_page()) answers the same as the resolver.
         $GLOBALS['_pp_test_store']['queried_object_id'] = $this->postsPage;

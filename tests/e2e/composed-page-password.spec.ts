@@ -1,5 +1,5 @@
 import { test, expect, Browser, Page } from '@playwright/test';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 /**
  * Composed pages honour post passwords, in the real browser with core's own cookie.
@@ -16,8 +16,10 @@ import { execSync } from 'child_process';
  */
 
 const CWD = process.cwd();
-const wp = (args: string): string =>
-  execSync(`npx wp-env run cli wp ${args}`, { cwd: CWD, encoding: 'utf-8' }).trim().split('\n').pop() as string;
+// WP-CLI through wp-env, with each argument passed as its own argv entry (no shell), so a
+// value read back from the site is never re-parsed as command text.
+const wp = (...args: string[]): string =>
+  (execFileSync('npx', ['wp-env', 'run', 'cli', 'wp', ...args], { cwd: CWD, encoding: 'utf-8' }).trim().split('\n').pop() as string);
 
 const PASSWORD = 'opensesame';
 const INK = '#7a3e9d';
@@ -94,21 +96,21 @@ async function expectUnlocked(anon: Page) {
 
 test.describe('composed pages honour post passwords', () => {
   test.beforeAll(() => {
-    savedShowOnFront = wp('option get show_on_front');
-    savedPageOnFront = wp('option get page_on_front');
+    savedShowOnFront = wp('option', 'get', 'show_on_front');
+    savedPageOnFront = wp('option', 'get', 'page_on_front');
     snapshotTaken = true;
-    pageId = parseInt(wp(`post create --post_type=page --post_status=publish --post_title="members-password" --post_password=${PASSWORD} --porcelain`), 10);
-    wp(`post meta update ${pageId} _wp_page_template composition.php`);
+    pageId = parseInt(wp('post', 'create', '--post_type=page', '--post_status=publish', '--post_title=members-password', `--post_password=${PASSWORD}`, '--porcelain'), 10);
+    wp('post', 'meta', 'update', String(pageId), '_wp_page_template', 'composition.php');
   });
 
   test.afterAll(() => {
     if (snapshotTaken) {
-      wp(`option update show_on_front ${savedShowOnFront}`);
-      wp(`option update page_on_front ${savedPageOnFront}`);
+      wp('option', 'update', 'show_on_front', savedShowOnFront);
+      wp('option', 'update', 'page_on_front', savedPageOnFront);
     }
     if (pageId) {
       try {
-        wp(`post delete ${pageId} --force`);
+        wp('post', 'delete', String(pageId), '--force');
       } catch {
         /* already gone */
       }
@@ -138,8 +140,8 @@ test.describe('composed pages honour post passwords', () => {
     await page.goto('/wp-admin/admin.php?page=pp-ai-chat');
     const res = await updateComposition(page, pageId, COMPOSITION);
     expect(res.success, JSON.stringify(res).slice(0, 400)).toBe(true);
-    wp('option update show_on_front page');
-    wp(`option update page_on_front ${pageId}`);
+    wp('option', 'update', 'show_on_front', 'page');
+    wp('option', 'update', 'page_on_front', String(pageId));
 
     const anon = await visitor(browser);
     await anon.goto(`${new URL(page.url()).origin}/`);
