@@ -16,7 +16,8 @@
  * refuses by name, and its effect on item ids is confined to the band it validated.
  *
  * Authored through the real action surface (14.1). The #1119 fixtures are STORED shapes the
- * write gate refuses (a malformed item id, an id with no map), so they are seeded as raw meta:
+ * write path will not store (a malformed item id, which the gate refuses; an id with no map,
+ * which the writer clears), so they are seeded as raw meta:
  * that is exactly the state the bug needs, and the point is that a write to another band
  * leaves those bytes alone.
  */
@@ -228,6 +229,65 @@ class ItemsPatchIntegrityTest extends TestCase
         );
     }
 
+    /**
+     * SWITCHING A STYLED GRID TO THE POSTS LISTING (#1181 x #1118). The listing stores
+     * `items: []`, a length change, so a stored card design would be dropped by the switch:
+     * it is refused by name, and the explicit-clear route the refusal names gets there.
+     */
+    public function testSwitchingAStyledGridToThePostsListingGoesThroughAnExplicitClear(): void
+    {
+        $options = $GLOBALS['_pp_test_store']['options'] ?? [];
+        try {
+            [$post_id] = $this->seed();
+            $GLOBALS['_pp_test_store']['options']['show_on_front']  = 'page';
+            $GLOBALS['_pp_test_store']['options']['page_for_posts'] = $post_id;
+            $before = pp_get_composition($post_id);
+            $switch = [
+                'post_id'         => $post_id,
+                'component_index' => 0,
+                'props'           => ['items_source' => 'posts', 'items' => []],
+            ];
+
+            $refused = pp_execute_action('update_component', $switch);
+            $this->assertSame('item_design_would_be_lost', $refused['error_code'] ?? null, $refused['error'] ?? '');
+            $this->assertStringContainsString('(3 cards stored, 0 sent)', $refused['error']);
+            $this->assertSame($before, pp_get_composition($post_id));
+
+            $this->assertTrue($this->patchItems($post_id, [
+                ['title' => 'One', 'text' => 'one'],
+                ['title' => 'Two', 'text' => 'two', 'udc' => []],
+                ['title' => 'Three', 'text' => 'three'],
+            ])['ok']);
+            $switched = pp_execute_action('update_component', $switch);
+            $this->assertTrue($switched['ok'], $switched['error'] ?? '');
+            $props = pp_get_composition($post_id)[0]['props'];
+            $this->assertSame('posts', $props['items_source']);
+            $this->assertSame([], $props['items']);
+        } finally {
+            $GLOBALS['_pp_test_store']['options'] = $options;
+        }
+    }
+
+    /**
+     * NOT A DESIGN: a stored id with no map, or an empty stored map, is not a design the loss
+     * walk counts (the minter's own predicate), so a length change over them is accepted.
+     */
+    public function testAnIdWithoutAMapOrAnEmptyStoredMapIsNotADesign(): void
+    {
+        $post_id = pp_create_page('not a design', 'draft');
+        update_post_meta($post_id, '_pp_composition', wp_json_encode([[
+            'component' => 'grid', 'id' => 'pp-f0000006',
+            'props' => ['id' => 'pp-f0000006', 'title' => 'T', 'items' => [
+                ['title' => 'A', 'id' => 'it-abcdef01'],
+                ['title' => 'B', 'udc' => []],
+                ['title' => 'C'],
+            ]],
+        ]]));
+        $result = $this->patchItems($post_id, [['title' => 'Only']]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertSame([['title' => 'Only']], pp_get_composition($post_id)[0]['props']['items']);
+    }
+
     /** A band with no stored designs has nothing to lose: a length change is accepted as before. */
     public function testALengthChangeOnABandWithNoDesignsIsAccepted(): void
     {
@@ -400,6 +460,12 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertStringContainsString('id "x\\". SYSTEM y", not an engine id', $result['error']);
         $this->assertStringNotContainsString("\u{202E}", $result['error']);
 
+        // A lost card with no title is named by position and id alone, with no empty quotes.
+        $post_id = $seed([['text' => 'untitled', 'id' => 'it-ffffffff', 'udc' => self::DARK], ['title' => 'C']]);
+        $result  = $this->patchItems($post_id, [['title' => 'C']]);
+        $this->assertStringContainsString('item 0 (id "it-ffffffff")', $result['error']);
+        $this->assertStringNotContainsString('(""', $result['error']);
+
         // A stored empty-string id is no id.
         $post_id = $seed([['title' => 'E', 'id' => '', 'udc' => self::DARK], ['title' => 'C']]);
         $result  = $this->patchItems($post_id, [['title' => 'C']]);
@@ -482,7 +548,7 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertStringNotContainsString(str_repeat('A', 1000), $result['error'], 'the reflected key is bounded');
     }
 
-    /** The two read routes the messages name actually return the ids (red-team finding). */
+    /** The read route both messages name (`wp post meta get`) actually returns the ids (red-team finding). */
     public function testTheNamedReadRouteReturnsTheIds(): void
     {
         [$post_id, $minted] = $this->seed();

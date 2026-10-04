@@ -1751,6 +1751,12 @@ class GridItemUdcTest extends TestCase
      * and collision is the only thing that gate's own message claims to prevent. And
      * `pp_udc_normalize_band()` reaps orphans on the next write, so they do not
      * accumulate. The carve-out is what lets that write happen at all.
+     *
+     * SINCE #1118 `update_component` deletes a styled card as clear-then-remove, so the
+     * clear write already reaps the mint and the removal meets no leftover token. The
+     * carve-out keeps its positive pin through the third route below: `update_composition`
+     * rewriting the band without the card while re-sending the stored `_tokens` — the
+     * write that still meets the orphaned mint and must not be refused over it.
      */
     public function testACardCarryingAResponsiveValueCanBeDeletedAndCleared(): void
     {
@@ -1811,6 +1817,24 @@ class GridItemUdcTest extends TestCase
                 "the orphaned mint must be reaped on the next write (`{$route}`)"
             );
         }
+
+        // REWRITE: the whole band re-sent without the styled card, carrying the stored band
+        // map (its `_tokens` included, as a read-modify-write does). The orphaned mint is in
+        // that map and nothing names it any more.
+        $post_id = $this->newPage('orphan mint rewrite');
+        $this->assertTrue($this->write($post_id, [[
+            'component' => 'grid',
+            'props'     => ['title' => 'T', 'items' => [
+                ['title' => '01'],
+                ['title' => '02', 'udc' => $responsive],
+            ]],
+        ]])['ok']);
+        $band = pp_get_composition($post_id)[0];
+        $this->assertNotSame([], $band['udc']['_tokens'] ?? [], 'the responsive value must have minted');
+        $band['props']['items'] = [['title' => '01']];
+        $result = $this->write($post_id, [$band]);
+        $this->assertTrue($result['ok'], 'a rewrite carrying the orphaned mint must not be refused over it: ' . ($result['error'] ?? ''));
+        $this->assertSame([], pp_get_composition($post_id)[0]['udc']['_tokens'] ?? [], 'and the orphan is reaped');
     }
 
     /**
