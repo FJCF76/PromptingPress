@@ -17,10 +17,11 @@ is not validated. Two read paths assumed otherwise. The chat's per-band componen
 a PHP error when a band's stored `title`, `image_url` or `background_image` was a list or an object,
 so the assistant could not be used on that page. The shared band loop behind composition pages, the
 front page and the posts page logged "Array to string conversion" on every render when a band's
-`component` was not a string.
+`component` was an array.
 
-Both paths now leave such a value out instead of failing. Nothing stored is rewritten, and the page's
-own findings still report it. In the component index, a prop that is not plain text is omitted from
+Neither path fails on such a value now: the component index leaves it out, and the render loop skips a
+band whose `component` is not a string. Nothing stored is rewritten, and the page's own findings still
+report it. In the component index, a prop that is not plain text is omitted from
 its band's line, never replaced with stand-in text; the composition JSON printed below the index still
 shows the stored value as it is. A list entry that is not a band object at all is listed at its own
 index as `(unreadable entry: a stored <type>, not a component object)`, so the numbering of the other
@@ -29,8 +30,9 @@ component declares and nothing renders.
 
 ### Fixed
 - **Chat context on a page with an atypical stored band.** The component index builds for every stored
-  shape of `title`, `image_url`, `layout`, the component name, the band's stored `id`, its stored
-  recipe and its style values (#1163).
+  shape of `title`, `image_url`, `layout`, the band's stored `id`, its stored recipe and its style
+  values (#1163). A band whose `component` is an array still stops the chat context one step earlier,
+  in the page inspection the index is built from; that read path is tracked in #1223.
 - **Unreadable list entries in the component index.** A stored string, number, boolean or `null` in
   the composition list is disclosed at its index rather than stopping the context build (#1163).
 - **Render loop.** `pp_render_composition_bands()` skips a band whose `component` is not a string,
