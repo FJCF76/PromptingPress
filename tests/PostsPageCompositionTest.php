@@ -669,6 +669,129 @@ class PostsPageCompositionTest extends TestCase
         $this->assertLessThan(strpos($html, 'pp-0000000b'), strpos($html, 'pp-0000000a'), 'in order');
     }
 
+    /**
+     * Runs $fn with PHP warnings/notices captured instead of printed; returns them as
+     * "message @file:line". Exceptions propagate.
+     *
+     * @return list<string>
+     */
+    private static function warningsOf(callable $fn): array
+    {
+        $seen = [];
+        set_error_handler(static function (int $no, string $msg, string $file = '', int $line = 0) use (&$seen): bool {
+            $seen[] = $msg . ' @' . basename($file) . ':' . $line;
+            return true;
+        });
+        try {
+            $fn();
+        } finally {
+            restore_error_handler();
+        }
+        return $seen;
+    }
+
+    /** @return array<string, array{0: mixed}> */
+    public static function nonStringComponents(): array
+    {
+        return [
+            'list'       => [['hero']],
+            'locale map' => [['en' => 'hero']],
+            'int'        => [7],
+            'float'      => [1.5],
+            'true'       => [true],
+            'false'      => [false],
+        ];
+    }
+
+    /**
+     * #1189: a stored band whose `component` is not a string is skipped by the shared
+     * loop. It used to be cast to a string, and
+     * an array raised "Array to string conversion" on every render of every route that
+     * runs the loop. Reachable by a raw meta write or a restore (#233), which never block;
+     * the write path refuses it (pinned below).
+     *
+     * @dataProvider nonStringComponents
+     */
+    public function testTheSharedBandLoopSkipsABandWhoseComponentIsNotAString(mixed $bad): void
+    {
+        $html = '';
+        $warnings = self::warningsOf(static function () use ($bad, &$html): void {
+            ob_start();
+            try {
+                pp_render_composition_bands([
+                    ['component' => 'hero', 'id' => 'pp-0000000a', 'props' => ['title' => 'One']],
+                    ['component' => $bad, 'id' => 'pp-0000000c', 'props' => ['title' => 'Malformed']],
+                    ['component' => 'hero', 'id' => 'pp-0000000b', 'props' => ['title' => 'Two']],
+                ]);
+            } finally {
+                $html = (string) ob_get_clean();
+            }
+        });
+        $this->assertSame([], $warnings, 'the loop raises nothing over the malformed band');
+        $this->assertSame(2, substr_count($html, 'data-pp-band='), 'the malformed band renders nothing');
+        $this->assertStringNotContainsString('pp-0000000c', $html);
+        $this->assertStringNotContainsString('Malformed', $html);
+        $this->assertLessThan(strpos($html, 'pp-0000000b'), strpos($html, 'pp-0000000a'), 'the bands around it render, in order');
+    }
+
+    /**
+     * #1189 END TO END, through a real route template: the posts page (templates/home.php,
+     * the route #1181 added to the loop) with a stored band whose component is an array,
+     * between two well-formed bands and the listing band. The page renders every other
+     * band, raises no warning, and the stored bytes are left exactly as they were: the
+     * malformed band is skipped, not repaired.
+     */
+    public function testThePostsPageRendersAroundAStoredBandWhoseComponentIsAnArray(): void
+    {
+        $this->store($this->postsPage, [
+            ['component' => 'hero', 'id' => 'pp-0000001a', 'props' => ['title' => 'Above']],
+            ['component' => ['hero'], 'id' => 'pp-0000001c', 'props' => ['title' => 'Malformed']],
+            self::listingBand(),
+            ['component' => 'hero', 'id' => 'pp-0000001b', 'props' => ['title' => 'Below']],
+        ]);
+        $raw = $GLOBALS['_pp_test_store']['post_meta'][$this->postsPage]['_pp_composition'];
+
+        $html = '';
+        $warnings = self::warningsOf(static function () use (&$html): void {
+            ob_start();
+            try {
+                include dirname(__DIR__) . '/templates/home.php';
+            } finally {
+                $html = (string) ob_get_clean();
+            }
+        });
+
+        $this->assertSame([], $warnings, 'the route renders with no warning');
+        $this->assertStringContainsString('data-pp-band="pp-0000001a"', $html);
+        $this->assertStringContainsString('data-pp-band="pp-0000001b"', $html);
+        $this->assertStringNotContainsString('Malformed', $html);
+        $this->assertStringContainsString('Latest', $html, 'the listing band after it still renders');
+        $this->assertSame($raw, $GLOBALS['_pp_test_store']['post_meta'][$this->postsPage]['_pp_composition'], 'rendering writes nothing');
+    }
+
+    /**
+     * The other half of #1189's reach statement: no shipped write path stores such a
+     * band. Pinned on the authoring surface so the skip above stays a read-side
+     * degradation of data only a raw write or a restore can produce.
+     *
+     * @dataProvider nonStringComponents
+     */
+    public function testTheWritePathRefusesABandWhoseComponentIsNotAString(mixed $bad): void
+    {
+        $result = pp_execute_action('create_page', [
+            'title'       => 'Authoring path, component shape',
+            'composition' => [['component' => $bad, 'props' => ['title' => 'X']]],
+        ]);
+        $this->assertFalse($result['ok'], 'a non-string component is not accepted at write');
+        $this->assertSame('invalid_composition', $result['error_code'] ?? null, 'refused by the composition rules, not for an unrelated reason');
+        $this->assertSame(0, $result['index'] ?? null, 'and the refusal names the band');
+        if (is_array($bad)) {
+            $this->assertStringContainsString('non-scalar "component"', $result['error']);
+        } else {
+            $this->assertStringContainsStringIgnoringCase('unknown component', $result['error']);
+        }
+    }
+
     public function testThePostsPagesBandsRunWithThePageAsTheCurrentPost(): void
     {
         // On the posts index core's current post is the first post of the listing, and the
