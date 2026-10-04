@@ -6679,7 +6679,8 @@ pp_register_action('update_component', [
 
         // Item ids are minted, carried and cleared on THIS band only — the band
         // pp_validate_composition_band() judged (#1007, #1119). A malformed or map-less stored
-        // item id on another band is left as stored and reported by the page's findings.
+        // item id on another band is left as stored; a malformed one is reported by the page's
+        // findings (a map-less engine id is valid and simply left alone).
         $result = pp_update_composition($params['post_id'], $composition, _pp_action_expected_version($params), null, [(int) $index]);
         if (is_wp_error($result)) {
             return _pp_action_error('update_component', 'section', $result->get_error_message(), $result->get_error_code());

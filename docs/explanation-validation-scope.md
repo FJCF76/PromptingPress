@@ -187,7 +187,8 @@ as it was stored. The one thing the writer does do to untouched bands is mint ba
 and normalize responsive literals, which it did before this change too. Engine-owned
 ITEM ids are no longer on that list (#1119): they are minted, carried and cleared only
 on the band the write validated, so a malformed or map-less stored item id on another
-band stays as stored and is reported in the findings instead of being rewritten.
+band stays as stored instead of being rewritten; a malformed one is reported in the
+findings (a map-less engine id is valid data and is simply left alone).
 
 **Refusal is fail-open on ambiguity, and that is the opposite of the advisory it shares
 a grammar with.** `pp_applies_when_clause_met()` resolves every ambiguity to "met",
