@@ -96,6 +96,9 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertStringContainsString('Two', $result['error'], 'and by its title, which is what an author recognises');
         $this->assertStringContainsString('"id"', $result['error'], 'and names the route: re-send the id');
         $this->assertStringContainsString('"udc": {}', $result['error'], 'and the route for deleting a styled card');
+        $this->assertStringContainsString('two turns', $result['error'], 'the delete route says it is two writes, as the chat must send it');
+        $this->assertStringContainsString('update_composition in one write', $result['error'], 'and names the one-write alternative that exists');
+        $this->assertStringContainsString('or the band locks', $result['error'], 'and says what the one-write route needs (red-team finding)');
         $this->assertSame($before, pp_get_composition($post_id), 'a refused write leaves the stored bytes untouched');
     }
 
@@ -436,6 +439,7 @@ class ItemsPatchIntegrityTest extends TestCase
         $result = $this->patchItems($post_id, [['title' => 'A', 'id' => 'it-dddddddd']]);
         $this->assertSame('item_design_would_be_lost', $result['error_code']);
         $this->assertStringContainsString('item 1 ("B", id "it-dddddddd", stored on more than one card)', $result['error']);
+        $this->assertStringContainsString('keeping that id on one card only', $result['error'], 'the route that works for a shared id');
 
         // Cap: twelve styled cards, none re-sent.
         $twelve = [];
@@ -731,8 +735,8 @@ class ItemsPatchIntegrityTest extends TestCase
 
     /**
      * A WHOLE-COMPOSITION REAPPLY THAT SWAPS TWO BANDS (ids re-sent for the bands, not the
-     * items) does not hand each band the other's item ids: an id is only inherited from the
-     * same band. The intended outcome is pinned so a later change has to choose it again.
+     * items) does not hand each band the other's item ids: an id never carries from a band
+     * that MOVED. The intended outcome is pinned so a later change has to choose it again.
      */
     public function testSwappedBandsDoNotExchangeItemIds(): void
     {
@@ -753,6 +757,102 @@ class ItemsPatchIntegrityTest extends TestCase
         $after = pp_get_composition($post_id);
         $this->assertNotSame($ids[0], $after[0]['props']['items'][0]['id'], 'band B must not take band A\'s item id');
         $this->assertNotSame($ids[1], $after[1]['props']['items'][0]['id'], 'band A must not take band B\'s item id');
+    }
+
+    /**
+     * A BAND RE-SENT UNDER A RENAMED BAND ID IS STILL THE SAME BAND (#1234's lesson). Band ids
+     * are authorable, so a re-apply that renames the band and leaves its card's item id out
+     * must keep that id: churning it strands the card map's `@it-<old>` references and locks
+     * the band. A "same band id" rule did exactly that and was reverted.
+     */
+    public function testARenamedBandKeepsItsItemIds(): void
+    {
+        $responsive = ['card' => ['background' => ['fill' => ['d' => '#101014', 'p' => '#202024']]]];
+        $post_id = pp_create_page('rename', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [[
+            'component' => 'grid', 'props' => ['title' => 'T', 'items' => [['title' => 'A', 'udc' => $responsive]]],
+        ]]])['ok']);
+        $band = pp_get_composition($post_id)[0];
+        $kept = $band['props']['items'][0]['id'];
+        $band['id'] = 'pricing';
+        unset($band['props']['items'][0]['id']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band]])['ok']);
+        $this->assertSame($kept, pp_get_composition($post_id)[0]['props']['items'][0]['id'] ?? null);
+        $this->assertTrue(pp_execute_action('update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'T2'],
+        ])['ok'], 'the band must stay editable after the rename');
+    }
+
+    /**
+     * KNOWN GAPS, PINNED AS SHIPPED (#1234). An item id carries by index from the stored band
+     * at that index unless that band moved or the write created the band there. Two cases
+     * that rule cannot see still carry, and are pinned so the designed fix has to change
+     * them on purpose: a stored band with no id, and a band the write deleted.
+     */
+    public function testTheKnownCarryGapsArePinnedAsShipped(): void
+    {
+        $post_id = pp_create_page('legacy carry', 'draft');
+        update_post_meta($post_id, '_pp_composition', wp_json_encode([[
+            'component' => 'grid',
+            'props' => ['title' => 'L', 'items' => [['title' => 'l', 'id' => 'it-12345678', 'udc' => self::DARK]]],
+        ]]));
+        $band = pp_get_composition($post_id)[0];
+        unset($band['props']['items'][0]['id']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band]])['ok']);
+        $this->assertSame('it-12345678', pp_get_composition($post_id)[0]['props']['items'][0]['id'] ?? null,
+            'a legacy band with no band id, re-applied in place, keeps its card\'s item id');
+
+        $post2 = pp_create_page('deleted band', 'draft');
+        $mk = function (string $t): array {
+            return ['component' => 'grid', 'props' => ['title' => $t, 'items' => [['title' => $t, 'udc' => self::DARK]]]];
+        };
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post2, 'composition' => [$mk('A'), $mk('B')]])['ok']);
+        $stored = pp_get_composition($post2);
+        $only_b = $stored[1];
+        unset($only_b['props']['items'][0]['id']);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post2, 'composition' => [$only_b]])['ok']);
+        $this->assertSame(
+            $stored[0]['props']['items'][0]['id'],
+            pp_get_composition($post2)[0]['props']['items'][0]['id'] ?? null,
+            'KNOWN GAP (#1234): the deleted band A still hands its item id to B'
+        );
+    }
+
+    /** The two update_composition routes the refusal names work as written. */
+    public function testTheUpdateCompositionRoutesTheRefusalNamesWork(): void
+    {
+        $post_id = pp_create_page('one write delete', 'draft');
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [[
+            'component' => 'grid', 'props' => ['title' => 'T', 'items' => [
+                ['title' => 'A', 'udc' => self::DARK], ['title' => 'B', 'udc' => self::DARK],
+            ]],
+        ]]])['ok']);
+        $band = pp_get_composition($post_id)[0];
+        $b    = $band['props']['items'][1];
+        $band['props']['items'] = [$b];
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band]])['ok']);
+        $items = pp_get_composition($post_id)[0]['props']['items'];
+        $this->assertSame([$b['id'], self::DARK], [$items[0]['id'], $items[0]['udc']]);
+        $this->assertTrue(pp_execute_action('update_component', [
+            'post_id' => $post_id, 'component_index' => 0, 'props' => ['title' => 'T2'],
+        ])['ok'], 'and the band stays editable');
+
+        $post2 = pp_create_page('shared repair', 'draft');
+        update_post_meta($post2, '_pp_composition', wp_json_encode([[
+            'component' => 'grid', 'id' => 'pp-f0000006',
+            'props' => ['id' => 'pp-f0000006', 'title' => 'T', 'items' => [
+                ['title' => 'A', 'id' => 'it-dddddddd', 'udc' => self::DARK],
+                ['title' => 'B', 'id' => 'it-dddddddd', 'udc' => self::DARK],
+            ]],
+        ]]));
+        $band = pp_get_composition($post2)[0];
+        unset($band['props']['items'][1]['id']);
+        $result = pp_execute_action('update_composition', ['post_id' => $post2, 'composition' => [$band]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $items = pp_get_composition($post2)[0]['props']['items'];
+        $this->assertSame('it-dddddddd', $items[0]['id']);
+        $this->assertTrue(pp_udc_valid_item_id($items[1]['id'] ?? ''));
+        $this->assertNotSame('it-dddddddd', $items[1]['id']);
     }
 
     /**
