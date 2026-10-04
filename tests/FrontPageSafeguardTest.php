@@ -13,6 +13,10 @@
  *   absent meta → seed ONCE through the versioned writer (version marker set to 1,
  *     seeded composition passes pp_validate_composition), renders defaults.
  *   post_id 0 → mode 'no_front', zero writes.
+ *   any page but the one Settings -> Reading names (pp_front_page_id(); setUp names
+ *     $postId) → rendered as stored, NEVER seeded: absent meta renders [] with zero
+ *     writes (#1173: the newest blog post on a latest-posts site, a page core treats as
+ *     the front page by title, page_on_front unset).
  *   present valid list → mode 'render', no seed, meta byte-identical.
  *   stored empty list "[]" → mode 'render' + blank, NOT re-seeded (raw !== null is a
  *     deliberate authored state, not a genuinely-absent page).
@@ -29,6 +33,16 @@ class FrontPageSafeguardTest extends TestCase
     {
         parent::setUp();
         $GLOBALS['_pp_test_store']['post_meta'] = [];
+        // The resolver serves the CONFIGURED static front page only (#1173): Settings ->
+        // Reading names $this->postId as the front page, as setup.php does on activation.
+        $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'page';
+        $GLOBALS['_pp_test_store']['options']['page_on_front'] = $this->postId;
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['_pp_test_store']['options']['show_on_front'], $GLOBALS['_pp_test_store']['options']['page_on_front']);
+        parent::tearDown();
     }
 
     /** Stores an exact raw meta string (bypasses the writer) to exercise a state. */
@@ -172,6 +186,71 @@ class FrontPageSafeguardTest extends TestCase
         $this->assertSame('no_front', $render['mode']);
         $this->assertSame([], $render['composition']);
         $this->assertSame($before, $this->metaSnapshot(), 'no_front must not write any meta');
+    }
+
+    // ── Only the configured static front page is ever seeded (#1173) ──────────
+
+    public function testALatestPostsFrontPageNeverSeedsTheNewestPost(): void
+    {
+        // Settings -> Reading "Your latest posts": core loads front-page.php and the current
+        // post is the NEWEST BLOG POST. Before #1173 a visitor GET wrote the default homepage
+        // onto it. It is not a front page anyone configured: nothing is written.
+        $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'posts';
+        $newestPost = 4711;
+        $before = $this->metaSnapshot();
+
+        $render = pp_resolve_front_page_render($newestPost);
+
+        $this->assertSame(['mode' => 'render', 'composition' => []], $render);
+        $this->assertSame($before, $this->metaSnapshot(), 'a render must never write a composition onto a blog post');
+        $this->assertArrayNotHasKey($newestPost, $GLOBALS['_pp_test_store']['post_meta']);
+    }
+
+    public function testAPageThatIsNotTheConfiguredFrontPageIsNeverSeeded(): void
+    {
+        // A static front page IS configured (506), but the queried page is another one (core's
+        // is_page() also matches a page TITLED "506"). It renders what it stores, which is
+        // nothing; only the configured front page may be seeded.
+        $before = $this->metaSnapshot();
+
+        $render = pp_resolve_front_page_render(777);
+
+        $this->assertSame(['mode' => 'render', 'composition' => []], $render);
+        $this->assertSame($before, $this->metaSnapshot(), 'only the configured front page may be seeded');
+    }
+
+    public function testAPageThatIsNotTheConfiguredFrontPageRendersWhatItStores(): void
+    {
+        update_post_meta(777, '_pp_composition', '[{"component":"hero","props":{"title":"Its own hero"}}]');
+        $before = $this->metaSnapshot();
+
+        $render = pp_resolve_front_page_render(777);
+
+        $this->assertSame('render', $render['mode']);
+        $this->assertSame('Its own hero', $render['composition'][0]['props']['title']);
+        $this->assertSame($before, $this->metaSnapshot(), 'nothing re-written');
+    }
+
+    public function testNoFrontPageOptionMeansNoSeedEvenForAPage(): void
+    {
+        // show_on_front=page with page_on_front unset (0): no static front page exists.
+        $GLOBALS['_pp_test_store']['options']['page_on_front'] = 0;
+        $before = $this->metaSnapshot();
+
+        $this->assertSame(['mode' => 'render', 'composition' => []], pp_resolve_front_page_render($this->postId));
+        $this->assertSame($before, $this->metaSnapshot());
+    }
+
+    public function testFrontPageIdFollowsReadingSettings(): void
+    {
+        $this->assertSame($this->postId, pp_front_page_id());
+        $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'posts';
+        $this->assertSame(0, pp_front_page_id(), 'latest posts: page_on_front is ignored, as core ignores it');
+        unset($GLOBALS['_pp_test_store']['options']['show_on_front']);
+        $this->assertSame(0, pp_front_page_id(), 'unset show_on_front is not a static front page');
+        $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'page';
+        $GLOBALS['_pp_test_store']['options']['page_on_front'] = '506';
+        $this->assertSame(506, pp_front_page_id(), 'the stored option is a string in core; it is read as an id');
     }
 
     // ── Present valid composition: render, never seed ────────────────────────
