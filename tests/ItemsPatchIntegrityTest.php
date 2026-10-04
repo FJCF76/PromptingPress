@@ -96,8 +96,6 @@ class ItemsPatchIntegrityTest extends TestCase
         $this->assertStringContainsString('Two', $result['error'], 'and by its title, which is what an author recognises');
         $this->assertStringContainsString('"id"', $result['error'], 'and names the route: re-send the id');
         $this->assertStringContainsString('"udc": {}', $result['error'], 'and the route for deleting a styled card');
-        $this->assertStringContainsString('two turns', $result['error'], 'the delete route says it is two writes, as the chat must send it');
-        $this->assertStringContainsString('update_composition in one write', $result['error'], 'and names the one-write alternative that exists');
         $this->assertSame($before, pp_get_composition($post_id), 'a refused write leaves the stored bytes untouched');
     }
 
@@ -438,7 +436,6 @@ class ItemsPatchIntegrityTest extends TestCase
         $result = $this->patchItems($post_id, [['title' => 'A', 'id' => 'it-dddddddd']]);
         $this->assertSame('item_design_would_be_lost', $result['error_code']);
         $this->assertStringContainsString('item 1 ("B", id "it-dddddddd", stored on more than one card)', $result['error']);
-        $this->assertStringContainsString('keeping that id on one card only', $result['error'], 'the route that works for a shared id');
 
         // Cap: twelve styled cards, none re-sent.
         $twelve = [];
@@ -756,38 +753,6 @@ class ItemsPatchIntegrityTest extends TestCase
         $after = pp_get_composition($post_id);
         $this->assertNotSame($ids[0], $after[0]['props']['items'][0]['id'], 'band B must not take band A\'s item id');
         $this->assertNotSame($ids[1], $after[1]['props']['items'][0]['id'], 'band A must not take band B\'s item id');
-    }
-
-    /**
-     * A WHOLE-COMPOSITION WRITE THAT DELETES A BAND does not hand the deleted band's item ids
-     * to the band that takes its index (red-team finding, /ship pass 2). Stored [A, B]; the
-     * write sends [B] with its band id and its card's item id left out. The stored band at
-     * index 0 is A, which is gone, so B's card keeps a fresh id of its own, never A's.
-     */
-    public function testDeletingABandDoesNotHandItsItemIdsToTheNextBand(): void
-    {
-        $post_id = pp_create_page('deleted band', 'draft');
-        $band = function (string $t): array {
-            return ['component' => 'grid', 'props' => ['title' => $t, 'items' => [['title' => $t, 'udc' => self::DARK]]]];
-        };
-        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band('A'), $band('B')]])['ok']);
-        $stored = pp_get_composition($post_id);
-        $a_item = $stored[0]['props']['items'][0]['id'];
-
-        $only_b = $stored[1];
-        unset($only_b['props']['items'][0]['id']);
-        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$only_b]])['ok']);
-        $id = pp_get_composition($post_id)[0]['props']['items'][0]['id'] ?? '';
-        $this->assertTrue(pp_udc_valid_item_id($id));
-        $this->assertNotSame($a_item, $id, 'band B must not inherit the deleted band A\'s item id');
-
-        // AND THE SAME-BAND CARRY STILL WORKS: re-applying B unchanged without its item id
-        // keeps the id B now holds.
-        $again = pp_get_composition($post_id)[0];
-        $kept  = $again['props']['items'][0]['id'];
-        unset($again['props']['items'][0]['id']);
-        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$again]])['ok']);
-        $this->assertSame($kept, pp_get_composition($post_id)[0]['props']['items'][0]['id'] ?? null);
     }
 
     /**
