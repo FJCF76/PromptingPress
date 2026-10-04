@@ -964,12 +964,10 @@ function pp_execute_action(string $name, array $params): array {
             pp_udc_site_findings(),
             null,
             PP_WRITE_FINDINGS_BUDGET,
-            // NOT a findings report, and the wording does not pretend otherwise: it is the
-            // command that returns the stored chrome map, which is what every disclosure
-            // here is derived from, and it is the route the runtime prompt already names.
-            // A chrome-scoped diagnostic does not exist yet; pointing at the page-scoped
-            // one would be worse than pointing at the data.
-            'wp pp operate inspect'
+            // THE COMPLETE CHROME REPORT (#1204): `validate site` lists this same list, never
+            // cut, in its header and footer section. It used to name `operate inspect`, the
+            // stored map, because no chrome-scoped diagnostic existed.
+            'wp pp validate site'
         );
     }
 
@@ -5535,7 +5533,7 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
     // DELIVERED IN SEVERITY ORDER (#1194): the capped row, then every other gating finding,
     // then the notes, each in its own order, so no bounded consumer of a PAGE report can see
     // notes crowd out a warning. See pp_order_findings_for_delivery(); the chrome/preset
-    // envelope's half is #1204.
+    // assembler makes the same call (#1204).
     return pp_order_findings_for_delivery($findings);
 }
 
