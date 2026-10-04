@@ -118,7 +118,8 @@ class OperateInspectWriteSurfaceTest extends TestCase
         $this->assertCount(1, WP_CLI::$lines, 'inspect prints exactly one JSON document');
         $doc = json_decode(WP_CLI::$lines[0], true);
         $this->assertIsArray($doc, 'the document decodes');
-        // The whole picture was computed, so the call graph under test is the real one.
+        // The whole picture was computed, so the call graph under test is the real one
+        // (the `pages` listing may come from pp_composition_pages()'s process memo).
         foreach (['target', 'pages', 'drift', 'preflight', 'tokens', 'chrome', 'conflicts', 'smells', 'token_smells', 'composition_decode_error'] as $field) {
             $this->assertArrayHasKey($field, $doc, "inspect computed `{$field}`");
         }
@@ -267,6 +268,11 @@ class OperateInspectWriteSurfaceTest extends TestCase
 
     public function testPageScopedInspectLeavesThePageAlone(): void
     {
+        // pp_composition_pages() memoizes for the whole process and has no reset seam.
+        // Fill the memo BEFORE this test's page exists, so inspect (which reads it
+        // without `$fresh`) can never be the call that memoizes this page and leaks it
+        // into later test classes (AiContextTest expects an empty page list).
+        pp_composition_pages();
         $post_id = pp_create_page('Inspect write-surface page', 'draft');
         pp_update_composition($post_id, [
             ['component' => 'hero', 'props' => ['id' => 'band-1', 'title' => 'One']],
