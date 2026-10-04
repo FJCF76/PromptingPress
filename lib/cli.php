@@ -1949,7 +1949,8 @@ function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): arr
  * miscased, empty or missing severity is a smell, so a new or malformed finding can never
  * pass `wp pp validate site` by accident.
  *
- * @param  array[] $findings  _pp_composition_findings() output.
+ * @param  array[] $findings  _pp_composition_findings() output, or the header and footer
+ *                            findings from pp_udc_site_findings() (#1204).
  * @return array{errors: array[], smells: array[], info: array[]}
  */
 function _pp_cli_diagnostics_buckets(array $findings): array {
@@ -2013,6 +2014,73 @@ function _pp_cli_report_site_page(int $post_id, string $title, array $diagnostic
     }
     _pp_cli_print_acknowledge_hint($post_id, $smells);
     _pp_cli_print_acknowledgements($diagnostics, $post_id);
+    _pp_cli_print_info_findings($diagnostics['info']);
+    return false;
+}
+
+/**
+ * The header and footer (`pp_site_udc`) findings, in the page buckets (#1204).
+ *
+ * ONE OWNER. This reads pp_udc_site_findings(), the list the chrome write envelope carries
+ * (lib/actions.php), and splits it with the fail-closed splitter the pages use. It does not
+ * walk the chrome map itself, so the gate cannot disagree with what a chrome write reported.
+ * The probe's own guard turns a failure to build the report into one `findings_skipped`
+ * warning, which lands in `smells` and fails the gate: a skip is not a clean bill of health.
+ * Its message is reworded on this copy, because the guard's own text speaks of a write.
+ *
+ * NOT ACKNOWLEDGEABLE YET (#1220). Acknowledgements are page post meta keyed on a band, and a
+ * chrome finding has no page and no band (`index: null`). A finding of an acknowledgeable type
+ * therefore gains `ack_unkeyable`, the display note the page path prints beside a finding it
+ * cannot key, so the operator is told why there is no key instead of looking for one. The
+ * note is added to this CLI copy only; the envelope list is never changed.
+ *
+ * @param  array[]|null $findings  The findings to bucket; null reads pp_udc_site_findings().
+ *                                 A seam for the probe-failure and severity pins.
+ * @return array{errors: array[], smells: array[], info: array[]}
+ */
+function _pp_cli_site_chrome_diagnostics(?array $findings = null): array {
+    $buckets = _pp_cli_diagnostics_buckets($findings ?? pp_udc_site_findings());
+    foreach ($buckets['smells'] as $i => $finding) {
+        if (is_array($finding) && ($finding['type'] ?? null) === 'findings_skipped') {
+            // The probe guard words this row for a write envelope ("The write itself landed").
+            // No write happened here, so the gate says what it could not do instead.
+            $buckets['smells'][$i]['message'] = 'The header and footer findings could not be built, so this '
+                . 'command cannot say they are clean. Read the stored map with `wp pp operate inspect`.';
+        } elseif (is_array($finding) && in_array($finding['type'] ?? null, pp_acknowledgeable_finding_types(), true)) {
+            $buckets['smells'][$i]['ack_unkeyable'] = 'header and footer findings cannot be acknowledged yet: an '
+                . 'acknowledgement belongs to a band on a page, and the header and footer are not on one. It '
+                . 'fails this command until the value changes in `pp_site_udc`, or in the preset when the finding names one.';
+        }
+    }
+    return $buckets;
+}
+
+/**
+ * Prints the header and footer section of `wp pp validate site` and says whether it passed
+ * (#1204). The same rule as a page (_pp_cli_page_fails_site_validation()): errors and smells
+ * fail, informational notes are printed and never fail. Chrome has no ambiguous-targeting
+ * bucket (that is about two bands of one type on a page) and no acknowledgements (#1220).
+ *
+ * @param  array $diagnostics  _pp_cli_site_chrome_diagnostics().
+ * @return bool                True when the header and footer pass the gate.
+ */
+function _pp_cli_report_site_chrome(array $diagnostics): bool {
+    $errors = $diagnostics['errors'];
+    $smells = $diagnostics['smells'];
+
+    if ($errors === [] && $smells === []) {
+        WP_CLI::line('OK: the header and footer styling reports no findings that fail this command.');
+        _pp_cli_print_info_findings($diagnostics['info']);
+        return true;
+    }
+
+    WP_CLI::warning('Site chrome: ' . (count($errors) + count($smells)) . ' issue(s)');
+    foreach ($errors as $e) {
+        WP_CLI::line(_pp_cli_finding_line($e));
+    }
+    foreach ($smells as $s) {
+        WP_CLI::line(_pp_cli_smell_line($s));
+    }
     _pp_cli_print_info_findings($diagnostics['info']);
     return false;
 }
@@ -2489,8 +2557,9 @@ class PP_Validate_Command extends WP_CLI_Command {
     /**
      * Runs full site validation battery.
      *
-     * Checks: Custom CSS conflicts, composition validity + styling + smells for all
-     * pages, and composition data integrity.
+     * Checks: Custom CSS conflicts, the header and footer styling findings (`pp_site_udc`,
+     * #1204), composition validity + styling + smells for all pages, and composition data
+     * integrity.
      *
      * EXIT CODE (#622). This is the "nothing is quietly wrong" gate and the command CI
      * runs, so it now exits non-zero for a page whose stored composition current write
@@ -2518,7 +2587,15 @@ class PP_Validate_Command extends WP_CLI_Command {
             WP_CLI::line('OK: No Custom CSS conflicts.');
         }
 
-        // 2. Composition validity + styling per page
+        // 2. Site chrome: the header and footer (`pp_site_udc`) findings (#1204). The same
+        // list the chrome write envelope carries, gated by the same rule as a page.
+        WP_CLI::line('');
+        WP_CLI::line('--- Site chrome (header and footer) ---');
+        if (!_pp_cli_report_site_chrome(_pp_cli_site_chrome_diagnostics())) {
+            $pass = false;
+        }
+
+        // 3. Composition validity + styling per page
         WP_CLI::line('');
         WP_CLI::line('--- Composition validity and styling ---');
         $pages = pp_composition_pages();
@@ -2550,7 +2627,7 @@ class PP_Validate_Command extends WP_CLI_Command {
             }
         }
 
-        // 3. Summary
+        // 4. Summary
         WP_CLI::line('');
         if ($pass) {
             WP_CLI::success('Site validation passed.');

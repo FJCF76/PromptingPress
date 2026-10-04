@@ -193,10 +193,10 @@ function pp_finding_severity(string $type): string {
  *      assemblers emit them);
  *   3. `severity: info` notes, in their own order, so notes can never crowd a warning out.
  *
- * Stable within each group; nothing is dropped or added. The page assembler
- * (_pp_composition_findings()) calls this; the chrome/preset assembler does not yet, and that
- * half is recorded on #1204 (orchestrator preset exit B, A1 review cycle 4). The CLI's own
- * listings (`check page`, `validate site`) are never cut, and print by severity bucket.
+ * Stable within each group; nothing is dropped or added. Both assemblers call this: the page
+ * one (_pp_composition_findings()) and the chrome/preset one (_pp_udc_site_findings_unguarded(),
+ * #1204). The CLI's own listings (`check page`, `validate site`) are never cut, and print by
+ * severity bucket.
  *
  * @param  array[] $findings  Assembled findings.
  * @return array[]            The same findings in delivery order.
@@ -8622,10 +8622,11 @@ function _pp_udc_site_findings_unguarded(): array {
             'index'    => null,
         ];
     }
-    // NOT REORDERED HERE (#1194, orchestrator preset exit B on A1 review cycle 4): putting
-    // chrome/preset notes last moves to #1204 with the chrome gate. The engine already puts
-    // `udc_findings_capped` first within this list (pp_udc_composition_findings()).
-    return $findings;
+    // DELIVERED IN SEVERITY ORDER (#1204), the page assembler's own call: the chrome and
+    // preset envelopes are bounded at 100 entries and keep the head, so in engine order a
+    // component's mint notes could push its gating warning past the cut. `wp pp validate site`
+    // reads this same list and is never cut, so the order is for the envelopes.
+    return pp_order_findings_for_delivery($findings);
 }
 
 /**
@@ -11216,9 +11217,8 @@ function pp_udc_composition_findings(array $items): array {
     ];
     // FIRST, NOT LAST (orchestrator rulings, cycles 2 and 3): every bounded report keeps its
     // head, and a row appended after its arm's 200 entries was always past the 100-entry cut.
-    // The page assembler then puts it ahead of the WHOLE report (pp_order_findings_for_delivery());
-    // the chrome/preset report is this engine's output alone, so this order is what puts it
-    // first there (#1204).
+    // Both assemblers then put it ahead of the WHOLE report (pp_order_findings_for_delivery(),
+    // the chrome/preset one since #1204), which keeps it first however the arms are ordered.
     $capped_rows = [];
     foreach ($gating_budgets as $types => $spent) {
         if ($spent >= PP_UDC_MAX_EMIT_DROPS) {

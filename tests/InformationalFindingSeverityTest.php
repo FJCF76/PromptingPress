@@ -262,11 +262,11 @@ final class InformationalFindingSeverityTest extends TestCase
         $this->assertNotContains('udc_findings_capped', array_column($diagnostics['smells'], 'type'));
     }
 
-    /** The engine's own order is what leads the chrome/preset envelope with the capped row. */
+    /** The engine leads its own output with the capped row, before any assembler orders it. */
     public function testTheEngineItselfPutsTheCappedRowFirst(): void
     {
-        // The chrome/preset envelope does not reorder (#1204), so the engine's own order is
-        // what puts the capped row first there.
+        // Both assemblers also order through pp_order_findings_for_delivery() (the chrome/preset
+        // one since #1204); this pins the engine-level order on its own.
         $tokens = [];
         for ($t = 0; $t < 205; $t++) {
             $tokens['orphan-' . $t] = '17px';

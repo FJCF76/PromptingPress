@@ -36,7 +36,7 @@ This checks:
      Fires on a card's own map too, and then names the card as `item "<id>"`, and on a
      group-grain `_preset` (inside `typography`, say), naming the group.
    - `udc_role_ink_over_own_surface` — on a band whose background you set (a header or footer
-     reports it on the `pp_site_udc` write envelope instead, not here),
+     reports it under item 6 instead, the header and footer section),
      the text colour you set on a role (or on the whole band, reaching a role with no colour of
      its own) paints over that role's OWN default background, which your band background does
      not replace. Only a role whose own element renders text is named (`text_content` in the
@@ -134,6 +134,7 @@ This checks:
    informational `udc_token_minted` still makes `wp pp validate site` exit non-zero, unless it
    is one of the judgment calls you have verified and acknowledged (below).
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
+6. **Header and footer styling** (#1204) — the `pp_site_udc` findings, printed second, under `--- Site chrome (header and footer) ---`. It is the same list a chrome write returns in its `findings` (`update_site_option` on `pp_site_udc`), read from the stored map, so a header or footer advisory you did not fix at write time is still caught here. It checks the header and footer for these findings only; unlike item 5 for a page, it does not re-check the stored map against the write rules. Every warning fails this command (`udc_unused_band_token`, `udc_css_unchecked_property`, `udc_findings_capped` and every other item-4 warning a header or footer can raise), a `severity: info` note (`udc_token_minted`) is printed and never fails, and a report that could not be built at all (`findings_skipped`) fails rather than reading as clean (a single check inside the engine that fails is logged and its findings are missing without a row; tracked in #1222). Lines carry no `index` (a header or footer is not a band on a page); the message names the component. These findings cannot be acknowledged yet (#1220): fix the value with `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with `save_preset`. Fix them BEFORE you acknowledge page judgment calls: every `pp_site_udc` write changes the site context each page acknowledgement fingerprints, so it re-opens all of them (see below). A chrome write whose `findings` list was cut at 100 names this command for the rest.
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares — or, for a key inside an `items[]` entry, names the item and lists the fields that component's entries accept (#643). That holds for the missing-required message at both depths too, so a renamed prop OR a renamed item field is named alongside what is missing, in one message. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
 
@@ -169,7 +170,9 @@ section is a placeholder the client wants), acknowledge it so it stops failing t
    `validate site` no longer fails on it.
 3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
 
-What cannot be acknowledged: an error, an informational note (it never fails anyway), and every
+What cannot be acknowledged: a header or footer finding (item 6; acknowledgements belong to a band on
+a page, so the chrome section prints `[no key: ...]` beside a judgment call there, #1220), an error,
+an informational note (it never fails anyway), and every
 finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_without_image`,
 `udc_css_overrides_group_value`, `udc_unused_band_token`) or that the list was cut
 (`udc_findings_capped`). A value that does not paint is never intentional: delete it instead. An

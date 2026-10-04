@@ -655,6 +655,34 @@ class ChromeUdcTest extends TestCase
         $this->assertContains('udc_unused_band_token', $types);
     }
 
+    /**
+     * THE CHROME ENVELOPE IS DELIVERED IN SEVERITY ORDER (#1204, recorded on it by #1194 A1).
+     *
+     * Every bounded consumer keeps the head of the list, so within one chrome component the
+     * engine order (mint notes before the unused-token lint) let 100+ notes push a gating warning
+     * past the 100-entry cut, where it survived only as a count. The chrome assembler now orders
+     * through pp_order_findings_for_delivery(), the page assembler's own call.
+     */
+    public function testTheChromeEnvelopeDeliversItsWarningBeforeItsNotes(): void
+    {
+        $result = $this->write([
+            'nav' => [
+                '_tokens' => ['nobody-references-me' => '4px'],
+                'link'    => ['typography' => ['size' => ['d' => '19px', 'p' => '15px']]],
+            ],
+        ]);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $types = array_column($result['findings'], 'type');
+        $unused = array_search('udc_unused_band_token', $types, true);
+        $minted = array_search('udc_token_minted', $types, true);
+        $this->assertIsInt($unused, 'premise: the orphan token is disclosed');
+        $this->assertIsInt($minted, 'premise: the responsive size is minted');
+        $this->assertLessThan($minted, $unused, 'the gating warning comes before the first note');
+        $this->assertSame(pp_order_findings_for_delivery($result['findings']), $result['findings'],
+            'the whole envelope is already in delivery order');
+    }
+
     /** A clean chrome write reports an empty array, which is a real answer. */
     public function testACleanChromeWriteReportsNoFindingsRatherThanNoKey(): void
     {
@@ -782,7 +810,8 @@ class ChromeUdcTest extends TestCase
     }
 
     /**
-     * A truncated chrome report names a command chrome actually has.
+     * A truncated chrome report names a command chrome actually has: `validate site`, whose
+     * header and footer section lists the whole report (#1204).
      *
      * The shared tail hardcoded `wp pp check page --post_id=<id>`, written when every
      * caller described a page. Chrome has no page, so printing that would be a route to
@@ -797,12 +826,21 @@ class ChromeUdcTest extends TestCase
             ]),
             null,
             PP_WRITE_FINDINGS_BUDGET,
-            'wp pp operate inspect'
+            'wp pp validate site'
         );
 
         $tail = end($bounded);
         $this->assertSame('findings_truncated', $tail['type']);
-        $this->assertStringContainsString('wp pp operate inspect', $tail['message']);
+        $this->assertStringContainsString('wp pp validate site', $tail['message']);
+
+        // The real chrome/preset envelope passes that command (#1204: `validate site` lists the
+        // whole chrome report, never cut). Pinned on the call shape in the envelope wiring.
+        $actions = (string) file_get_contents(dirname(__DIR__) . '/lib/actions.php');
+        $this->assertMatchesRegularExpression(
+            "/_pp_bounded_findings\(\s*pp_udc_site_findings\(\),\s*null,\s*PP_WRITE_FINDINGS_BUDGET,(?:\s*\/\/[^\n]*)*\s*'wp pp validate site'\s*\)/",
+            $actions,
+            'the chrome envelope must point a truncated report at the command that lists it whole'
+        );
         $this->assertStringNotContainsString('post_id', $tail['message'],
             'a chrome tail must not send an operator to a page-scoped command');
 
