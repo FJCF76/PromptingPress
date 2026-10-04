@@ -34,7 +34,7 @@ unchanged and still writes nothing.
 - `lib/cli.php`: the `inspect` help text (`wp help pp operate inspect`) says the same; a `lib/wp.php` comment no longer calls the
   INSPECT surface read-only.
 - `ai-instructions/operating-loop.md`, rules 1 and 3: `--run-id` is asked for only on the commands
-  that take it, and rule 3 points to where each write without a run token is documented, instead of
+  that take it, and rule 3 points to where each write that needs no PREFLIGHT is documented, instead of
   claiming there are none. The command table now says what each ungated command writes, including
   that a successful `screenshot capture` (and a successful `screenshot doctor` probe) deletes all but
   the 10 newest `*.png` files in the directory it wrote to, that `integrity check` deletes

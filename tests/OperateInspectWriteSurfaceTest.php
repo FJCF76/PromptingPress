@@ -4,7 +4,7 @@
  *
  * THE CLAIM BEING PINNED. The docs used to call INSPECT "read-only" and say it "never
  * mutates the site", while it has always written a row: the run state that mints the run
- * token every mutating command later checks. That row is by design and load-bearing, so
+ * token that `preflight`, `apply` and the typed actions later check. That row is by design and load-bearing, so
  * the fix was the description, not the command. The precise statement, now in
  * docs/reference-apply-cli.md and ai-instructions/operating-loop.md, is:
  *
