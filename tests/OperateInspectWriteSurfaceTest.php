@@ -319,6 +319,10 @@ class OperateInspectWriteSurfaceTest extends TestCase
             $this->fail('inspect must fail when the run row cannot be written');
         } catch (WpCliExitException $e) {
             $this->assertStringContainsString('Cannot create run token', $e->getMessage());
+            // The message quotes the UUID it tried to store. The docs tell an agent not to
+            // use it, because nothing was stored under it: pin exactly that.
+            $this->assertSame(1, preg_match('/"([0-9a-f-]{36})"/', $e->getMessage(), $m), 'the error quotes a UUID');
+            $this->assertSame('not_found', pp_operate_run_status($m[1]), 'the quoted UUID was never stored');
         } finally {
             unset($GLOBALS['_pp_test_unwritable_options']);
         }
