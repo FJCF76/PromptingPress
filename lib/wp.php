@@ -469,7 +469,15 @@ function pp_render_composition_bands(array $items, int $owner_page_id = 0): void
     }
     try {
         foreach ($items as $item) {
-            if (!isset($item['component'])) {
+            // A band whose `component` is not a string is skipped (#1189). Before this guard
+            // any shape reached the string cast below, and an array raised "Array to string
+            // conversion" on every render of every route this loop serves. Only a raw meta
+            // write or a restore (#233) can store one; validation refuses it at write. The
+            // stored band is left as it is, and the findings still report it (a non-scalar
+            // as `invalid_composition`, an int/float/bool as an unknown component). The
+            // `(string)` cast is kept on purpose, though it now only ever sees a string:
+            // TemplateBandDefaultsTest's source analyser recognises this loop by that shape.
+            if (!isset($item['component']) || !is_string($item['component'])) {
                 continue;
             }
             if ($owner !== null && ($GLOBALS['post'] ?? null) !== $owner) {
