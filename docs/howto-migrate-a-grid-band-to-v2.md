@@ -220,7 +220,12 @@ codes:
    another styled card sat) is refused with `item_design_would_be_lost`, and nothing is
    written: no design is dropped silently (#1118). To delete a styled card, first send
    `"udc": {}` on that entry in a patch that keeps the same number of cards, then remove
-   it, re-sending the id of every other styled card you keep.
+   it, re-sending the id of every other styled card you keep. Those are two separate
+   writes (two chat turns: every step of one proposal is previewed against the page as it
+   is now, #1232). Or rewrite the band whole with `update_composition` in one write, and
+   re-send the id of every styled card you keep, or the band locks. Cards that share one
+   stored id cannot be patched through `items`: rewrite the band with `update_composition`,
+   keeping that id on one card only.
 
 **Ten roles are item-settable**: `card`, `card-bar`, `card-media`, `card-body`, `card-title`,
 `card-text`, `card-bullets`, `card-bullet`, `card-link`, `step-number`. The band-level roles
