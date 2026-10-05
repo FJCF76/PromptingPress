@@ -223,6 +223,7 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp readiness unacknowledge <finding-key>` | any | — | Reverse an acknowledgement. Writes the `pp_acknowledged_findings` option |
 | `wp pp check acknowledge --post_id=<id> --key=<key> --note=<text>` | any | — | Record a page's composition advisory as intentional (#1194; see `validate-site.md`). Writes the page's `_pp_acknowledged_advisories` post meta |
 | `wp pp check unacknowledge --post_id=<id> --key=<key>` | any | — | Reverse a page acknowledgement. Writes the page's `_pp_acknowledged_advisories` post meta |
+| `wp pp check unacknowledge --post_id=<id> --malformed` | any | — | Remove every row of the page whose key this version never mints (#1214; listed by `check page` as a malformed key, never shown). Writes the page's `_pp_acknowledged_advisories` post meta |
 | `wp pp sync check [--save-manifest]` | any | — | Theme-file drift against the deployment manifest. Read-only, except `--save-manifest` writes the deployment manifest (the file `readiness rebaseline` writes) |
 | `wp pp integrity check` | any | — | Theme files against the shipped `integrity-manifest.json`. Writes its result to the `pp_theme_integrity` option and, when the result is `safe`, deletes the `pp_last_blocked_update` option |
 | `wp pp operate checklist --playbook=<name>` | REVIEW | — | Get playbook checklist |

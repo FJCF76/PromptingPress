@@ -985,7 +985,7 @@ class DiagnosticReachTest extends TestCase
     public function testAnEmptyCompositionHasNoFindings(): void
     {
         $this->assertSame(
-            ['errors' => [], 'smells' => [], 'info' => [], 'styling' => [], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => []],
+            ['errors' => [], 'smells' => [], 'info' => [], 'styling' => [], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => [], 'unsigned' => []],
             _pp_cli_page_diagnostics([])
         );
     }

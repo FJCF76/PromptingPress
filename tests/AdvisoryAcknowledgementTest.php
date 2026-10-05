@@ -843,7 +843,9 @@ final class AdvisoryAcknowledgementTest extends TestCase
         $d = $this->diagnostics($id);
         $this->assertSame([], $d['acknowledged'], 'a row with no reason acknowledges nothing');
         $this->assertTrue(_pp_cli_page_fails_site_validation($d));
-        $this->assertSame([$key], array_column($d['unnoted'], 'ack_key'), 'and it is reported, so it can be removed');
+        // Since #1214 a raw row fails its signature before its note is judged: still nothing
+        // acknowledged, still reported, now as an unsigned row (AdvisoryAcknowledgementSignatureTest).
+        $this->assertSame([$key], array_column($d['unsigned'], 'ack_key'), 'and it is reported, so it can be removed');
         $this->assertTrue(pp_unacknowledge_advisory($id, $key), 'the cleanup route removes it');
     }
 
@@ -914,7 +916,9 @@ final class AdvisoryAcknowledgementTest extends TestCase
     {
         $id  = $this->page([$this->ownerBand()]);
         $key = $this->inkKey($id);
-        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => "\u{200B}\u{00A0}"]]);
+        // Signed (#1214), so the note arm is what decides.
+        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => "\u{200B}\u{00A0}",
+            'sig' => _pp_advisory_row_signature($id, $key, "\u{200B}\u{00A0}", '')]]);
 
         $d = $this->diagnostics($id);
         $this->assertSame([], $d['acknowledged']);
@@ -1010,12 +1014,14 @@ final class AdvisoryAcknowledgementTest extends TestCase
     {
         $id  = $this->page([$this->ownerBand()]);
         $key = $this->inkKey($id);
-        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => '']]);
+        // Signed (#1214), so this is the no-note line, not the no-signature one.
+        update_post_meta($id, PP_ADVISORY_ACK_META, [$key => ['acknowledged_at' => '', 'note' => '',
+            'sig' => _pp_advisory_row_signature($id, $key, '', '')]]);
 
         WP_CLI::$lines = [];
         (new PP_Check_Command())->page([], ['post_id' => (string) $id]);
         $out = implode("\n", WP_CLI::$lines);
-        $this->assertStringContainsString('ignored acknowledgement ' . $key, $out);
+        $this->assertStringContainsString('ignored acknowledgement ' . $key . ': it carries no note', $out);
         $this->assertStringContainsString('wp pp check unacknowledge --post_id=' . $id . ' --key=' . $key, $out);
     }
 

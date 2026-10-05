@@ -990,6 +990,35 @@ if (!function_exists('wp_unslash')) {
     }
 }
 
+if (!function_exists('wp_hash')) {
+    // WordPress 7.0's wp_hash() (pluggable.php): hash_hmac($algo, $data, wp_salt($scheme)), and an
+    // InvalidArgumentException for an algorithm hash_hmac() does not support (#1214). The salt is
+    // test-controlled so a test can rotate it: $GLOBALS['_pp_test_salts'][$scheme]. Set
+    // $GLOBALS['_pp_test_wp_hash_throws'] = true to model an override that throws.
+    function wp_hash($data, $scheme = 'auth', $algo = 'md5') {
+        if (!empty($GLOBALS['_pp_test_wp_hash_throws']) || !in_array($algo, hash_hmac_algos(), true)) {
+            throw new InvalidArgumentException('Unsupported hashing algorithm: ' . $algo);
+        }
+        if (isset($GLOBALS['_pp_test_wp_hash_override']) && is_callable($GLOBALS['_pp_test_wp_hash_override'])) {
+            return ($GLOBALS['_pp_test_wp_hash_override'])((string) $data); // a pluggable replacement
+        }
+        if (array_key_exists('_pp_test_wp_hash_returns', $GLOBALS)) {
+            return $GLOBALS['_pp_test_wp_hash_returns']; // an override that returns nothing usable
+        }
+        $salt = $GLOBALS['_pp_test_salts'][$scheme] ?? ('pp-test-salt-' . $scheme);
+        return hash_hmac($algo, (string) $data, (string) $salt);
+    }
+}
+
+if (!function_exists('get_current_blog_id')) {
+    // 0 unless a test sets $GLOBALS['_pp_test_blog_id']: the same value every caller computed
+    // when this function did not exist (`function_exists(...) ? ... : 0`), so defining it
+    // changes nothing for them. A test sets it to model another site of a network (#1214).
+    function get_current_blog_id(): int {
+        return (int) ($GLOBALS['_pp_test_blog_id'] ?? 0);
+    }
+}
+
 if (!function_exists('wp_slash')) {
     // Real WP adds slashes (before ', ", \, NUL) and recurses into arrays.
     // Model it faithfully so it forms an exact inverse pair with the wp_unslash
