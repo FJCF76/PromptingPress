@@ -6631,7 +6631,7 @@ pp_register_action('update_component', [
         $before_props = $applied['props_before'];
         $after_props  = $applied['props_after'];
 
-        $changes = _pp_diff_props($before_props, $after_props, $index);
+        $changes = _pp_diff_props($before_props, $after_props, $index, (string) ($composition[$index]['component'] ?? ''));
 
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
         $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $applied['udc_after'], $index));
@@ -6701,7 +6701,7 @@ pp_register_action('update_component', [
             }
         }
 
-        $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
+        $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index, (string) ($applied['item']['component'] ?? ''));
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
 
         // Item ids are minted, carried and cleared on THIS band only — the band
@@ -7673,6 +7673,14 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
             && is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
             $value = _pp_preserve_item_design($existing[$key], $value, $post_id, $lost);
         }
+        // A CUSTOM BAND'S ISLANDS MERGE BY KEY (LAYER-3-CONTRACT.md §7.2, #1242 T5): a sent
+        // island replaces that island, null removes it, and unsent islands are kept — the D1
+        // rule this function's udc caller applies by role (#1088), applied one level down.
+        // A wholesale replace would silently empty every sibling island on a one-island edit.
+        if ($component === 'custom' && $key === 'islands' && is_array($value)
+            && isset($existing[$key]) && is_array($existing[$key])) {
+            $value = _pp_merge_component_props($existing[$key], $value);
+        }
         $merged[$key] = $value;
     }
     return $merged;
@@ -8223,12 +8231,26 @@ function _pp_diff_style(array $before, array $after, int $index): array {
 /**
  * Computes a prop-level diff for the changes array.
  */
-function _pp_diff_props(array $before, array $after, int $index): array {
+function _pp_diff_props(array $before, array $after, int $index, string $component = ''): array {
     $changes = [];
     $all_keys = array_unique(array_merge(array_keys($before), array_keys($after)));
     foreach ($all_keys as $key) {
         $from = $before[$key] ?? null;
         $to   = $after[$key] ?? null;
+        // A custom band's island is one field (§7.2): an island edit diffs as
+        // props.islands.<name>, never as the whole map.
+        if ($component === 'custom' && $key === 'islands' && is_array($from) && is_array($to)) {
+            foreach (array_unique(array_merge(array_keys($from), array_keys($to))) as $island) {
+                if (($from[$island] ?? null) !== ($to[$island] ?? null)) {
+                    $changes[] = [
+                        'path' => 'composition[' . $index . '].props.islands.' . $island,
+                        'from' => $from[$island] ?? null,
+                        'to'   => $to[$island] ?? null,
+                    ];
+                }
+            }
+            continue;
+        }
         if ($from !== $to) {
             $changes[] = [
                 'path' => 'composition[' . $index . '].props.' . $key,

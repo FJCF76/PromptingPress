@@ -111,6 +111,20 @@ const PP_CONTENT_WRITE_MAX_BYTES = 1048576;
 const PP_CONTENT_WRITE_MAX_VALUES = 4096;
 
 /**
+ * §7.2 + M-8, the custom band (3C). `markup` takes the per-prop cap above: M-8's printed 128 KiB
+ * figure for it predates the Sprint-6 measurement, which put a 128 KiB value over the one-second
+ * line (see PP_CONTENT_PROP_MAX_BYTES). Each island takes M-8's 16 KiB, at most 64 islands per band.
+ * The COMPOSED band (markup with every island rendered in) is parsed again as a whole, so the
+ * band's markup and islands together take M-8's 128 KiB custom figure. Measured worst case for a
+ * maximal band (write 2.2 s, render 2.4 s, uncached; about five times that on a shared CI
+ * runner) is recorded in
+ * tests/CustomBandIslandsTest.php (T-17 row).
+ */
+const PP_CONTENT_ISLAND_MAX_BYTES = 16384;
+const PP_CONTENT_ISLAND_MAX = 64;
+const PP_CONTENT_CUSTOM_MAX_BYTES = 131072;
+
+/**
  * The M-8 refusals for one changed band, charging its content to the write's budget.
  *
  * @param  array  $item    The band.
@@ -121,7 +135,15 @@ const PP_CONTENT_WRITE_MAX_VALUES = 4096;
 function pp_content_band_size_errors(array $item, string $name, array &$budget): array {
     $errors = [];
     $values = pp_content_band_values($item);
-    foreach ($values as [$label, , , $value]) {
+    foreach ($values as [$label, $path, , $value]) {
+        if ($path === 'islands{}' && strlen($value) > PP_CONTENT_ISLAND_MAX_BYTES) {
+            $errors[] = ['prop' => $label, 'message' => sprintf(
+                'Component "%s" %s is %s bytes; an island may be at most %s bytes (LAYER-3-CONTRACT.md M-8). '
+                . 'Nothing was stored; content is refused whole, never truncated, so split it across islands.',
+                $name, $label, number_format(strlen($value)), number_format(PP_CONTENT_ISLAND_MAX_BYTES)
+            )];
+            continue;
+        }
         if (strlen($value) > PP_CONTENT_PROP_MAX_BYTES) {
             $errors[] = ['prop' => $label, 'message' => sprintf(
                 'Component "%s" prop %s is %s bytes; a content prop may be at most %s bytes (LAYER-3-CONTRACT.md M-8). '
@@ -130,10 +152,23 @@ function pp_content_band_size_errors(array $item, string $name, array &$budget):
             )];
         }
     }
+    // §7.2 + M-8: the composed custom band (markup with its islands rendered in) is parsed
+    // again as a whole, so its total is bounded too.
+    $band_bytes = array_sum(array_map(static fn ($v) => strlen($v[3]), $values));
+    if ($errors === [] && ($item['component'] ?? null) === 'custom' && $band_bytes > PP_CONTENT_CUSTOM_MAX_BYTES) {
+        $errors[] = ['prop' => '"markup"', 'message' => sprintf(
+            'Component "%s": its markup and islands together are %s bytes; a custom band may carry at most %s bytes, '
+            . 'because the composed band is checked again as a whole (LAYER-3-CONTRACT.md M-8, §7.2). '
+            . 'Nothing was stored; content is refused whole, never truncated, so split it across bands.',
+            $name, number_format($band_bytes), number_format(PP_CONTENT_CUSTOM_MAX_BYTES)
+        )];
+    }
     if ($errors !== []) {
         return $errors;
     }
-    $budget['bytes'] += array_sum(array_map(static fn ($v) => strlen($v[3]), $values));
+    // A custom band's composed bytes are parsed three more times (the bare and composed
+    // structure walks and the composed predicate pass), so they are charged that often.
+    $budget['bytes'] += ($item['component'] ?? null) === 'custom' ? 4 * $band_bytes : $band_bytes;
     $budget['values'] += count($values);
     if ($budget['bytes'] > PP_CONTENT_WRITE_MAX_BYTES || $budget['values'] > PP_CONTENT_WRITE_MAX_VALUES) {
         $errors[] = ['prop' => '(this write)', 'message' => sprintf(
@@ -157,6 +192,9 @@ function pp_content_band_size_errors(array $item, string $name, array &$budget):
  *   rich_cell  the same contract parsed inside table > tbody > tr > td
  *   inline     P-2 B+: a[href|title] strong em br span[class|style] sup sub small mark code,
  *              parsed inside the template's <p>
+ *   custom     the custom band's `markup` (§7): `rich` plus the two island attributes
+ *   island     (path `islands{}`) one value per island, routed to the sink its host's kind
+ *              declares in markup: `plain`, `inline` or `rich` (pp_content_band_values())
  *   heading    the SAME inline set (P-2 B+ "the same inline set in PLAIN titles and
  *              headings"), parsed inside an <h2>. The props are the ones the templates
  *              render as a band's or an item's heading (h1-h3) plus each band's
@@ -189,6 +227,9 @@ function pp_content_prop_contracts(): array {
         'embed'        => ['title' => 'heading', 'content' => 'rich'],
         'logos'        => ['title' => 'heading'],
         'table'        => ['title' => 'heading', 'rows[][]' => 'rich_cell'],
+        // §7 (3C): the author's markup in the `custom` sink (RICH plus the two island
+        // attributes), and one value per island in the sink its host's kind declares.
+        'custom'       => ['markup' => 'custom', 'islands{}' => 'island'],
     ];
 }
 
@@ -206,6 +247,22 @@ function pp_content_band_values(array $item): array {
     $props = (isset($item['props']) && is_array($item['props'])) ? $item['props'] : [];
     $out = [];
     foreach ($contracts as $path => $sink) {
+        if ($path === 'islands{}') {
+            // §7.2: each island in the sink of the kind its host declares in `markup`. An
+            // entry with no host is listed as plain (escaped, never parsed) so its bytes still
+            // count toward the write's caps; the band-level rule refuses it by name.
+            $islands = $props['islands'] ?? null;
+            if (!is_array($islands)) {
+                continue;
+            }
+            $kinds = pp_content_custom_host_kinds(is_string($props['markup'] ?? null) ? $props['markup'] : '');
+            foreach ($islands as $island => $value) {
+                if (is_string($value) && $value !== '') {
+                    $out[] = [pp_content_island_label((string) $island), $path, $kinds[(string) $island] ?? 'plain', $value];
+                }
+            }
+            continue;
+        }
         if (preg_match('/^([a-z_]+)\[\]\[\]$/', $path, $m)) {
             $rows = $props[$m[1]] ?? null;
             if (!is_array($rows)) {
@@ -721,6 +778,7 @@ function pp_content_clause_text(string $clause): string {
         'D5'   => 'forms are descoped by the owner (2026-10-05): a form and its controls are refused until the Layer-3 forms contract admits them',
         'guard' => 'content must be a string',
         'unfiltered_html' => 'markup beyond what WordPress admits for a user without the unfiltered_html capability (the core `post` set)',
+        '§7.2' => 'the custom band\'s island rules (LAYER-3-CONTRACT.md §7.2)',
     ];
     return $texts[$clause] ?? $clause;
 }
@@ -959,7 +1017,8 @@ function _pp_content_normalise_declarations(string $css): array {
  * The one content predicate (§2.1).
  *
  * @param  mixed  $bytes  The stored or submitted prop value.
- * @param  string $sink   rich | rich_cell | inline | heading | plain.
+ * @param  string $sink   rich | rich_cell | inline | heading | plain | custom (§7: rich plus
+ *                        the island attributes; `custom_composed` in $ctx marks the composed band).
  * @param  array  $ctx    Cross-band facts, as pp_content_band_context() builds them (keyed sets
  *                        and page-wide counts). A direct caller may instead pass plain lists:
  *                        `anchors` (every band anchor in the composition), `band_ids` (ids
@@ -1008,6 +1067,10 @@ function _pp_content_check($bytes, string $sink, array $ctx = []): array {
         'lexical_starts' => [],
         'open' => [],               // the tree walk's open-element counts (it resets them)
         'html' => '',
+        // §7.2, the `custom` sink only: island hosts by name, and whether the markup is the
+        // COMPOSED band (islands rendered in), where hosts are not empty by construction.
+        'islands'  => [],
+        'composed' => $sink === 'custom' && !empty($ctx['custom_composed']),
     ];
 
     // Fail closed: without its derived tables the predicate would admit too much (E11's
@@ -1050,12 +1113,19 @@ function _pp_content_finish(array $state, array $ctx = []): array {
             break;
         }
     }
-    return [
+    $result = [
         'html'   => $html,
         'losses' => $losses,
         'notes'  => array_values(array_unique($state['notes'])),
         'ids'    => array_values(array_unique($state['ids'])),
     ];
+    if ($state['sink'] === 'custom') {
+        // §7.2: the island hosts the walk admitted, with each one's byte offset in `html`
+        // (right after its start tag; null when the host was not emitted). An emptied render
+        // view has no host to fill.
+        $result['islands'] = $html === '' ? [] : $state['islands'];
+    }
+    return $result;
 }
 
 /** Builds one Loss: a fact, not advice (§2.1). */
@@ -1191,7 +1261,10 @@ function _pp_content_check_universal_attribute(string $tag, string $attr, $value
         $state['losses'][] = _pp_content_loss($construct, $where, 'E1', pp_content_clause_text('E1'));
         return true;
     }
-    if (strncmp($attr, 'data-pp-', 8) === 0) {
+    // E6's one carve-out (§7.2): the two island attributes, in `custom.markup` only. Island
+    // content is judged in its own sink, where they stay refused like every data-pp-* name.
+    if (strncmp($attr, 'data-pp-', 8) === 0
+        && !(($state['sink'] ?? '') === 'custom' && in_array($attr, ['data-pp-island', 'data-pp-island-kind'], true))) {
         $state['losses'][] = _pp_content_loss($construct, $where, 'E6', pp_content_clause_text('E6'));
         return true;
     }
@@ -1643,6 +1716,7 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
     $stack = [];
     $state['open'] = [];
     $tree_starts = [];
+    $island_open = null;        // [name, depth] of an island host whose emptiness is pending
 
     while ($p->next_token()) {
         $type  = $p->get_token_type();
@@ -1657,6 +1731,16 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
         }
 
         if ($phase === 'inside') {
+            // §7.2: an island host must be EMPTY in markup. Judged on the parser's own tokens:
+            // the token right after the host's start must be the host's own closer (text,
+            // whitespace, a comment or an element is content, which belongs in `islands`).
+            if ($island_open !== null) {
+                if (!($type === '#tag' && $p->is_tag_closer() && $depth === $island_open[1] - 1)) {
+                    $state['losses'][] = _pp_content_loss('data-pp-island="' . _pp_content_reflect($island_open[0], 64) . '"', '', '§7.2',
+                        'an island element must be empty in markup: its content belongs in islands, never in two places');
+                }
+                $island_open = null;
+            }
             if ($type === '#comment' && $p->get_modifiable_text() === $end_marker) {
                 $end_seen = true;
                 continue;
@@ -1728,7 +1812,18 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
                         }
                     } else {
                         $html .= $admitted;
+                        if (isset($state['island_last'])) {
+                            // The host's fill point is the render view's own byte offset,
+                            // taken from the buffer it was just appended to.
+                            $state['islands'][$state['island_last']]['offset'] = strlen($html);
+                        }
                     }
+                }
+                if (isset($state['island_last'])) {
+                    if (!$state['composed'] && $p->expects_closer() === true) {
+                        $island_open = [$state['island_last'], $depth];
+                    }
+                    unset($state['island_last']);
                 }
                 continue;
             }
@@ -1932,6 +2027,9 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
     $values = [];
     foreach ($attrs as $attr) {
         $values[strtolower((string) $attr)] = $p->get_attribute($attr);
+    }
+    if ($state['sink'] === 'custom' && (isset($values['data-pp-island']) || isset($values['data-pp-island-kind']))) {
+        _pp_content_island_host($ns, $tag, $qual, $values, $where, $state);
     }
     // The trust tier: a writer without unfiltered_html writes the core `post` set.
     if (($state['ctx']['tier'] ?? 'full') === 'core' && !_pp_content_core_tier_check($ns, $tag, $qual, $values, $where, $state)) {
@@ -2654,18 +2752,25 @@ function pp_content_band_losses(array $items, $key, ?array $index = null, ?array
     }
     $index ??= pp_content_composition_index($items);
     $values = $index[$key]['values'] ?? [];
-    if ($values === []) {
+    $custom = ($items[$key]['component'] ?? null) === 'custom';
+    if ($values === [] && !$custom) {
         return [];
     }
     $ctx = pp_content_band_context($items, $key, $index, $counts);
     $states = $index[$key]['states'] ?? null;
     $out = [];
+    $results = [];
     foreach ($values as $n => [$label, , $sink, $value]) {
         // The walk that produced this band's facts is finished, never run twice.
         $result = isset($states[$n]) ? _pp_content_finish($states[$n], $ctx) : pp_content_sanitize($value, $sink, $ctx);
+        $results[$label] = $result;
         foreach ($result['losses'] as $loss) {
             $out[] = ['prop' => $label, 'loss' => $loss];
         }
+    }
+    if ($custom) {
+        // §7.2: the band-level island rules and the composed band (routed item 10).
+        array_push($out, ...pp_content_custom_compose($items[$key], $results, $ctx, false)['losses']);
     }
     return $out;
 }
@@ -2977,6 +3082,11 @@ function pp_content_composition_disclosures(array $items): array {
             }
         }
         $band = is_int($key) ? (string) $key : '"' . _pp_content_reflect((string) $key, 64) . '"';
+        if (($item['component'] ?? null) === 'custom') {
+            foreach (pp_content_custom_disclosures($item, $band) as $disclosure) {
+                $out[] = $disclosure + ['index' => $key];
+            }
+        }
         if ($globals !== []) {
             $out[] = [
                 'type'    => 'content_global_shadow',
@@ -3077,6 +3187,489 @@ function pp_content_anchor_collisions(array $items, ?array $baseline, $only = nu
             ];
             break;
         }
+    }
+    return $out;
+}
+
+// ── 3C: THE CUSTOM BAND AND CONTENT ISLANDS (LAYER-3-CONTRACT.md §7) ────────────────────
+//
+// A custom band is author-structured `markup` plus `islands`: each island is an EMPTY element
+// in markup carrying data-pp-island="<name>", and its content lives in `islands.<name>`,
+// judged in the sink its kind declares (plain: escaped text; inline; rich). Everything here
+// is the same predicate: markup runs it in the `custom` sink (RICH plus the two island
+// attributes), each island runs it in its own sink, and the COMPOSED band runs it once more.
+//
+// ROUTED ITEM 10, RULED BY PRINCIPLE (the parser-state principle): island content is verified
+// under its host's FULL ancestor chain, by parsing the band as the browser will, not the
+// island in isolation. The mechanism (ratified at plan-eng-review): re-parse the band's render
+// view with each island substituted into its host, and compare it with the same band with the
+// islands empty. Comment markers bracket each island (a per-call nonce, inside the host only):
+//
+//   markup html ──splice(fills = '')───► BARE  ──┐ full-parser walk in the custom wrapper:
+//   markup html ──splice(fills = html)─► FULL  ──┤  outside-marker token stream (type, name,
+//                                                │  closer, depth) BARE == FULL, and per island:
+//                                                │  end-marker breadcrumbs == start-marker's,
+//                                                └  no token inside below the host's depth
+//
+// Why that is exact: WP_HTML_Processor yields a closer token for every element it pops and a
+// start token for every element it pushes (reconstructed formatting elements included), and
+// get_current_depth() is its own stack depth. So no inside token below the host's depth means
+// the host was never popped while the island was parsed; equal breadcrumbs mean the island left
+// nothing open; an equal outside stream means nothing after it was implied, closed or rebuilt.
+// That catches an inline island's <a> under an authored <a> (adoption agency), a <button>
+// closing an authored <button>, <li> in an li host, <td> in a cell host, and an unclosed
+// formatting element. A context-aware FRAGMENT parse was the rejected alternative:
+// create_fragment() takes only the <body> context in WordPress 7.0 and drops stray closers
+// (§2.1), and a synthetic ancestor-chain wrapper would re-derive parser state the full parser
+// already has.
+
+/** §7.2 + P-25: the elements each island kind may use as its host. */
+function pp_content_island_hosts(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $rich = ['div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'figure', 'figcaption',
+        'blockquote', 'li', 'dd', 'td', 'th', 'details'];
+    // Never `a`: inline content may carry a link, and a link inside a link closes its host.
+    $inline = ['span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'small', 'mark', 'label',
+        'dt', 'summary', 'caption', 'figcaption', 'legend', 'cite', 'q'];
+    // P-25 (ratified 2026-10-04): plain content is escaped text, so a link or button label is
+    // editable without a structural write, and an `a` host cannot receive a nested link.
+    $plain = array_merge($rich, $inline, ['a', 'button', 'time', 'code', 'abbr', 'sub', 'sup']);
+    return $cache = [
+        'plain'  => array_fill_keys($plain, true),
+        'inline' => array_fill_keys($inline, true),
+        'rich'   => array_fill_keys($rich, true),
+    ];
+}
+
+/** An island's label in messages and in the band's value list. */
+function pp_content_island_label(string $name): string {
+    return sprintf('islands "%s"', _pp_content_reflect($name, 64));
+}
+
+/**
+ * The island hosts markup names, by a LEXICAL read (name => kind), first occurrence winning.
+ * It routes each island value to its sink; the tree walk is the authority on the hosts
+ * themselves (where the two could disagree, the union rule has already refused the markup).
+ * Memoized per markup: the write path asks for every band several times.
+ *
+ * @return array<string, string>  name => plain | inline | rich
+ */
+function pp_content_custom_host_kinds(string $markup): array {
+    static $memo = [];
+    if ($markup === '' || stripos($markup, 'data-pp-island') === false) {
+        return [];
+    }
+    $key = md5($markup);
+    if (isset($memo[$key])) {
+        return $memo[$key];
+    }
+    if (count($memo) >= 64) {
+        $memo = [];
+    }
+    $out = [];
+    $p = new WP_HTML_Tag_Processor($markup);
+    while ($p->next_tag()) {
+        $name = $p->get_attribute('data-pp-island');
+        if (!is_string($name) || isset($out[$name])) {
+            continue;
+        }
+        $kind = $p->get_attribute('data-pp-island-kind');
+        $out[$name] = in_array($kind, ['inline', 'rich'], true) ? $kind : 'plain';
+    }
+    return $memo[$key] = $out;
+}
+
+/**
+ * Judges one element carrying an island attribute, in the `custom` sink's tree walk. Every
+ * refusal is content_construct_excluded naming the §7.2 clause (M-21); the message carries the
+ * rule's own name. An admitted host is recorded (the walk adds its render-view offset).
+ */
+function _pp_content_island_host(string $ns, string $tag, string $qual, array $values, string $where, array &$state): void {
+    $name = $values['data-pp-island'] ?? null;
+    $construct = 'data-pp-island="' . _pp_content_reflect(is_string($name) ? $name : '', 64) . '" on <' . $qual . '>';
+    $refuse = static function (string $why) use ($construct, $where, &$state): void {
+        $state['losses'][] = _pp_content_loss($construct, $where, '§7.2', $why);
+    };
+    if (!is_string($name)) {
+        $refuse('data-pp-island-kind belongs on an island element, which carries data-pp-island="<name>"');
+        return;
+    }
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,63}\z/', $name)) {
+        $refuse('an island name is a lowercase letter followed by up to 63 lowercase letters, digits, "_" or "-"');
+        return;
+    }
+    $kind = $values['data-pp-island-kind'] ?? 'plain';
+    if (!in_array($kind, ['plain', 'inline', 'rich'], true)) {
+        $refuse('data-pp-island-kind is plain (the default), inline or rich');
+        return;
+    }
+    if ($ns !== 'html' || ($state['open']['svg'] ?? 0) > 0 || ($state['open']['math'] ?? 0) > 0) {
+        $refuse('custom_island_host: an island host is an HTML element outside SVG and MathML');
+        return;
+    }
+    if (!isset(pp_content_island_hosts()[$kind][$tag])) {
+        $refuse(sprintf('custom_island_host: <%s> cannot host an island of kind %s, because the host decides how the browser '
+            . 'parses what is rendered into it; %s hosts: %s', $tag, $kind, $kind, implode(' ', array_keys(pp_content_island_hosts()[$kind]))));
+        return;
+    }
+    if (isset($state['islands'][$name])) {
+        $refuse('an island name is unique within the band');
+        return;
+    }
+    if (count($state['islands']) >= PP_CONTENT_ISLAND_MAX) {
+        $refuse(sprintf('a band has at most %d islands', PP_CONTENT_ISLAND_MAX));
+        return;
+    }
+    $state['islands'][$name] = ['kind' => $kind, 'tag' => $tag, 'offset' => null];
+    $state['island_last'] = $name;
+}
+
+/**
+ * Splices island content into a render view at the hosts' offsets, optionally bracketed by
+ * marker comments `pp-is-<nonce>-<n>` / `pp-ie-<nonce>-<n>`.
+ *
+ * @param array<string, int> $offsets  name => byte offset in $html
+ * @param array<string, string> $fills name => content html ('' or absent: empty)
+ * @param list<string> $order          Out: marker number => island name.
+ */
+function _pp_content_custom_splice(string $html, array $offsets, array $fills, ?string $nonce, ?array &$order = null): string {
+    $order = array_keys($offsets);
+    $at = [];
+    foreach ($order as $n => $name) {
+        $at[] = [$offsets[$name], $n, $name];
+    }
+    usort($at, static fn ($a, $b) => $b[0] <=> $a[0] ?: $b[1] <=> $a[1]);
+    foreach ($at as [$offset, $n, $name]) {
+        $insert = $fills[$name] ?? '';
+        if ($nonce !== null) {
+            $insert = '<!--pp-is-' . $nonce . '-' . $n . '-->' . $insert . '<!--pp-ie-' . $nonce . '-' . $n . '-->';
+        }
+        $html = substr($html, 0, $offset) . $insert . substr($html, $offset);
+    }
+    return $html;
+}
+
+/**
+ * One full-parser walk of a spliced band (see the section header): the token stream outside
+ * the markers, and the islands whose content left its host. Null when the parser bails.
+ *
+ * @return array{outside: list<string>, failed: list<int>}|null
+ */
+function _pp_content_island_walk(string $bytes, string $nonce): ?array {
+    [$open, $close] = _pp_content_wrapper('custom', $nonce);
+    $doc = '<!DOCTYPE html><html><head></head><body><main><section>' . $open . $bytes . $close . '</section></main></body></html>';
+    $p = WP_HTML_Processor::create_full_parser($doc);
+    if ($p === null) {
+        return null;
+    }
+    $outside = [];
+    $failed = [];
+    $in = null; // [marker number, host depth, start-marker breadcrumbs]
+    $marker = '/^pp-i([se])-' . $nonce . '-(\d+)\z/';
+    while ($p->next_token()) {
+        $type = $p->get_token_type();
+        $depth = $p->get_current_depth();
+        if ($type === '#comment' && preg_match($marker, $p->get_modifiable_text(), $m)) {
+            $crumbs = implode('>', $p->get_breadcrumbs() ?? []);
+            $n = (int) $m[2];
+            if ($m[1] === 's') {
+                $in = [$n, $depth - 1, $crumbs];
+            } else {
+                if ($in === null || $in[0] !== $n || $crumbs !== $in[2]) {
+                    $failed[$n] = true;
+                }
+                $in = null;
+            }
+            $outside[] = $m[1] . $n . '@' . $depth;
+            continue;
+        }
+        $closer = $type === '#tag' && $p->is_tag_closer();
+        if ($in !== null) {
+            // Inside the island: every token sits under the host (a closer of a child leaves
+            // the host's own depth; anything lower popped the host).
+            if ($depth < $in[1] + ($closer ? 0 : 1)) {
+                $failed[$in[0]] = true;
+            }
+            continue;
+        }
+        $outside[] = $type . ':' . ($closer ? '/' : '') . $p->get_token_name() . '@' . $depth;
+    }
+    if ($p->get_last_error() !== null) {
+        return null;
+    }
+    if ($in !== null) {
+        $failed[$in[0]] = true; // the end marker was never reached
+    }
+    return ['outside' => $outside, 'failed' => array_keys($failed)];
+}
+
+/**
+ * Routed item 10: which islands restructure the markup in their host's context.
+ *
+ * @return array{failed: list<string>}  The island names not verified. When the comparison
+ *         itself fails (a parser bail, or the outside streams differ with no island to blame),
+ *         every filled island is named.
+ */
+function _pp_content_island_structure(string $html, array $offsets, array $fills): array {
+    $nonce = bin2hex(random_bytes(8));
+    $bare = _pp_content_island_walk(_pp_content_custom_splice($html, $offsets, [], $nonce), $nonce);
+    $full = _pp_content_island_walk(_pp_content_custom_splice($html, $offsets, $fills, $nonce, $order), $nonce);
+    $filled = array_keys(array_filter($fills, static fn ($f) => $f !== ''));
+    if ($bare === null || $full === null) {
+        return ['failed' => $filled];
+    }
+    $failed = array_values(array_intersect(array_map(static fn ($n) => $order[$n], $full['failed']), $filled));
+    if ($bare['outside'] !== $full['outside'] && $failed === []) {
+        return ['failed' => $filled];
+    }
+    return ['failed' => $failed];
+}
+
+/**
+ * The custom band's band-level rules and its composed render (§7.2), for the write gate and
+ * the render path alike.
+ *
+ * WRITE ($render false): the losses the per-value pass cannot see: an `islands` entry with no
+ * host (custom_island_unknown), a non-string island, island content that restructures the
+ * markup in its host's context (routed item 10), and the composed band's own predicate pass.
+ * A markup or island value that already has losses is reported by the per-value pass, and the
+ * composition is then not attempted.
+ *
+ * RENDER ($render true): the composed band's bytes. Fail closed: an island over its cap or
+ * failing the structure check renders EMPTY, and a composed band whose host set changed
+ * renders the markup alone. When the composed pass is lossless its input is emitted as is (the
+ * bytes verified are the bytes emitted); otherwise its render view is.
+ *
+ * @param array $results  label => finished predicate result for the band's values; a value
+ *                        missing here is judged now.
+ * @param array $ctx      The band's cross-band context.
+ * @return array{html: string, losses: list<array{prop: string, loss: array}>}
+ */
+function pp_content_custom_compose(array $item, array $results, array $ctx, bool $render): array {
+    $props = (isset($item['props']) && is_array($item['props'])) ? $item['props'] : [];
+    $markup = $props['markup'] ?? null;
+    $islands = $props['islands'] ?? [];
+    $losses = [];
+    if (!is_string($markup) || !is_array($islands)) {
+        return ['html' => '', 'losses' => []]; // the schema rules refuse these shapes by name
+    }
+    $mr = $results['"markup"'] ?? pp_content_sanitize($markup, 'custom', $ctx);
+    if (!$render && $mr['losses'] !== []) {
+        return ['html' => '', 'losses' => []];
+    }
+    $hosts = $mr['islands'] ?? [];
+    $kinds = pp_content_custom_host_kinds($markup);
+    $fills = [];
+    $offsets = [];
+    $blocked = false;
+    foreach ($islands as $name => $value) {
+        $name = (string) $name;
+        if (!isset($hosts[$name])) {
+            $losses[] = ['prop' => pp_content_island_label($name), 'loss' => _pp_content_loss(pp_content_island_label($name), '', '§7.2',
+                'custom_island_unknown: no element in markup carries data-pp-island="' . _pp_content_reflect($name, 64)
+                . '", so this content would render nowhere (an accepted write that stores what never renders)')];
+            continue;
+        }
+        if (!is_string($value)) {
+            $losses[] = ['prop' => pp_content_island_label($name), 'loss' => _pp_content_loss(pp_content_island_label($name), '', 'guard',
+                'an island\'s content must be a string; got ' . gettype($value))];
+        }
+    }
+    foreach ($hosts as $name => $host) {
+        if ($host['offset'] === null) {
+            continue;
+        }
+        $offsets[$name] = $host['offset'];
+        $value = $islands[$name] ?? '';
+        if (!is_string($value) || $value === '' || ($render && strlen($value) > PP_CONTENT_ISLAND_MAX_BYTES)) {
+            $fills[$name] = '';
+            continue;
+        }
+        $label = pp_content_island_label($name);
+        $reused = ($kinds[$name] ?? null) === $host['kind'] && isset($results[$label]);
+        $result = $reused ? $results[$label] : pp_content_sanitize($value, $host['kind'], $ctx);
+        if (!$render && $result['losses'] !== []) {
+            $blocked = true;
+            // Judged here in the sink its parsed host declares (the per-value pass routed it
+            // by the lexical read): its losses are this band's to report, never dropped.
+            if (!$reused) {
+                foreach ($result['losses'] as $loss) {
+                    $losses[] = ['prop' => $label, 'loss' => $loss];
+                }
+            }
+        }
+        $fills[$name] = $result['html'];
+    }
+    if ($render && $mr['html'] === '') {
+        return ['html' => '', 'losses' => []];
+    }
+    if (!$render && ($blocked || $losses !== [])) {
+        return ['html' => '', 'losses' => $losses];
+    }
+    if (array_filter($fills, static fn ($f) => $f !== '') === []) {
+        return ['html' => $mr['html'], 'losses' => $losses];
+    }
+
+    // One island's restructuring can disturb a sibling's markers as well (a closed ancestor
+    // moves what follows), so a failing island is re-checked ALONE: the culprits are those
+    // that fail on their own; if none does, they fail only together and all are named. The
+    // render path empties the culprits and checks again until the band verifies (each round
+    // empties at least one island, so this ends).
+    $structure = _pp_content_island_structure($mr['html'], $offsets, $fills);
+    $culprits = [];
+    for ($round = 0; $structure['failed'] !== [] && $round <= count($fills); $round++) {
+        $alone = array_values(array_filter($structure['failed'], static fn ($name) =>
+            _pp_content_island_structure($mr['html'], $offsets, [$name => $fills[$name]])['failed'] !== []));
+        $round_culprits = $alone !== [] ? $alone : $structure['failed'];
+        array_push($culprits, ...$round_culprits);
+        if (!$render) {
+            break;
+        }
+        foreach ($round_culprits as $name) {
+            $fills[$name] = '';
+        }
+        $structure = _pp_content_island_structure($mr['html'], $offsets, $fills);
+    }
+    if ($culprits !== []) {
+        if (!$render) {
+            foreach ($culprits as $name) {
+                $losses[] = ['prop' => pp_content_island_label($name), 'loss' => _pp_content_loss(pp_content_island_label($name), '', '§7.2',
+                    'island content is verified under its host\'s full ancestor chain (routed item 10), and this content restructures '
+                    . 'the markup there: it closes, re-opens or re-nests an element around its host (for example a link inside an '
+                    . 'authored link, a button inside an authored button, a list item in a list-item host, or an element left open)'
+                    . ($alone === [] ? '; no one of the named islands does it alone, so each is named' : ''))];
+            }
+            return ['html' => '', 'losses' => $losses];
+        }
+        if ($structure['failed'] !== []) {
+            return ['html' => $mr['html'], 'losses' => []]; // never verified: the markup alone
+        }
+    }
+
+    $composed = _pp_content_custom_splice($mr['html'], $offsets, $fills, null);
+    $cr = pp_content_sanitize($composed, 'custom', $ctx + ['custom_composed' => true]);
+    $same_hosts = array_map(static fn ($h) => $h['kind'], $cr['islands'] ?? []) == array_map(static fn ($h) => $h['kind'], $hosts);
+    if (!$render) {
+        foreach ($cr['losses'] as $loss) {
+            $losses[] = ['prop' => '"markup"', 'loss' => _pp_content_loss('the composed band', '', $loss['clause'],
+                'markup with its islands rendered in, checked again as a whole (§2.1): ' . $loss['message'])];
+        }
+        if (!$same_hosts) {
+            $losses[] = ['prop' => '"markup"', 'loss' => _pp_content_loss('the composed band', '', '§7.2',
+                'with its islands rendered in, the band no longer carries exactly the island hosts its markup declares')];
+        }
+        return ['html' => '', 'losses' => $losses];
+    }
+    if (!$same_hosts) {
+        return ['html' => $mr['html'], 'losses' => []];
+    }
+    return ['html' => $cr['losses'] === [] ? $composed : $cr['html'], 'losses' => []];
+}
+
+/**
+ * The custom band's emitted bytes (components/custom/custom.php): the composed band, verified
+ * as pp_content_custom_compose() says, then the E6 emission belt. One band, judged in its own
+ * context (the page's other bands are T3b's render-side context).
+ */
+function pp_content_custom_band_html(array $props): string {
+    $markup = $props['markup'] ?? null;
+    if (!is_string($markup) || $markup === '' || strlen($markup) > PP_CONTENT_PROP_MAX_BYTES) {
+        return '';
+    }
+    $islands = is_array($props['islands'] ?? null) ? $props['islands'] : [];
+    // Fail closed on stored bytes over the caps (raw meta): an over-large island renders
+    // empty, and a band over the composed cap renders its markup with every island empty.
+    $total = strlen($markup);
+    foreach ($islands as $name => $value) {
+        if (!is_string($value) || strlen($value) > PP_CONTENT_ISLAND_MAX_BYTES) {
+            unset($islands[$name]);
+            continue;
+        }
+        $total += strlen($value);
+    }
+    if ($total > PP_CONTENT_CUSTOM_MAX_BYTES) {
+        $islands = [];
+    }
+    $item = ['component' => 'custom', 'props' => ['markup' => $markup, 'islands' => $islands]
+        + (isset($props['id']) && is_string($props['id']) ? ['id' => $props['id']] : [])];
+    $index = pp_content_composition_index([$item]);
+    $counts = pp_content_index_counts($index);
+    $ctx = pp_content_band_context([$item], 0, $index, $counts);
+    $results = [];
+    foreach ($index[0]['values'] ?? [] as $n => [$label, , $sink, $value]) {
+        $results[$label] = isset($index[0]['states'][$n])
+            ? _pp_content_finish($index[0]['states'][$n], $ctx)
+            : pp_content_sanitize($value, $sink, $ctx);
+    }
+    return pp_content_emission_belt(pp_content_custom_compose($item, $results, $ctx, true)['html']);
+}
+
+/**
+ * THE E6 EMISSION BELT. The predicate refuses engine identity in content at write (E6, the
+ * braces); this removes it from the emitted bytes regardless (the belt), so content can never
+ * wear the engine's identity even if a stored value reached render around the gate or a future
+ * predicate change admitted one: every `data-pp-*` attribute (the island attributes too —
+ * nothing on the page reads them) and every id of the form the engine mints or reserves.
+ * Deliberately independent of the predicate's tables: it is the check that holds when they
+ * are wrong. The template's own data-pp-band / data-pp-component sit on the band root, which
+ * the template writes outside these bytes.
+ */
+function pp_content_emission_belt(string $html): string {
+    if ($html === '' || (stripos($html, 'data-pp-') === false && stripos($html, 'id') === false)) {
+        return $html;
+    }
+    $p = new WP_HTML_Tag_Processor($html);
+    while ($p->next_tag()) {
+        foreach ($p->get_attribute_names_with_prefix('data-pp-') ?? [] as $attr) {
+            $p->remove_attribute($attr);
+        }
+        $id = $p->get_attribute('id');
+        if (is_string($id) && preg_match('/^(?:(?:pp|it)-[0-9a-f]{8}|main|pp-nav-menu)\z/', $id)) {
+            $p->remove_attribute('id');
+        }
+    }
+    return $p->get_updated_html();
+}
+
+/**
+ * The custom band's findings (§7.2, §7.4), facts only:
+ *   custom_band_unverified  info: the insides were checked for safety, not readability
+ *   custom_island_empty     warning: island hosts in markup with no content, rendering empty
+ *
+ * @return list<array{type: string, message: string}>
+ */
+function pp_content_custom_disclosures(array $item, string $band): array {
+    $props = (isset($item['props']) && is_array($item['props'])) ? $item['props'] : [];
+    $out = [[
+        'type'    => 'custom_band_unverified',
+        'message' => sprintf(
+            'Component %s is a custom band: its markup and islands were checked for safety (LAYER-3-CONTRACT.md §3-§4), not for '
+            . 'readability. The readability, presence and overlay findings reason about declared roles, and custom markup declares '
+            . 'none, so they run on the band itself (_band) only (§7.4).',
+            $band
+        ),
+    ]];
+    $islands = is_array($props['islands'] ?? null) ? $props['islands'] : [];
+    $empty = [];
+    foreach (array_keys(pp_content_custom_host_kinds(is_string($props['markup'] ?? null) ? $props['markup'] : '')) as $name) {
+        if (!isset($islands[$name]) || !is_string($islands[$name]) || $islands[$name] === '') {
+            $empty[] = '"' . _pp_content_reflect((string) $name, 64) . '"';
+        }
+    }
+    if ($empty !== []) {
+        $out[] = [
+            'type'    => 'custom_island_empty',
+            'message' => sprintf(
+                'Component %s: the island%s %s named in markup %s no content in islands, so %s empty (§7.2). '
+                . 'An island is filled through props.islands.<name>.',
+                $band, count($empty) > 1 ? 's' : '', implode(', ', array_slice($empty, 0, 8))
+                    . (count($empty) > 8 ? sprintf(' and %d more', count($empty) - 8) : ''),
+                count($empty) > 1 ? 'have' : 'has', count($empty) > 1 ? 'each renders' : 'it renders'
+            ),
+        ];
     }
     return $out;
 }

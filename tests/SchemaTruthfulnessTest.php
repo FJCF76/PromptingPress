@@ -837,9 +837,9 @@ class SchemaTruthfulnessTest extends TestCase
         return $out;
     }
 
-    // ── A-16: the `id` surface is exactly ten components ────────────────────
+    // ── A-16: the `id` surface is exactly eleven components (custom joined, #1242 T5) ──
 
-    public function testExactlyTheTenSectionLevelComponentsDeclareAnIdProp(): void
+    public function testExactlyTheElevenSectionLevelComponentsDeclareAnIdProp(): void
     {
         $declaring = [];
         foreach ($this->allSchemas() as $component => $schema) {
@@ -849,20 +849,21 @@ class SchemaTruthfulnessTest extends TestCase
         }
         sort($declaring);
         $this->assertSame(
-            ['cta', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            ['cta', 'custom', 'embed', 'faq', 'grid', 'hero', 'logos', 'section', 'stats', 'table', 'testimonials'],
             $declaring,
             'table and faq were missing from the documented anchor-ID list for releases; '
             . 'nav and footer must never appear here (template-owned chrome).'
         );
     }
 
-    public function testAiContextNamesAllTenAnchorIdComponents(): void
+    public function testAiContextNamesAllElevenAnchorIdComponents(): void
     {
         $doc = file_get_contents($this->themeRoot . '/AI_CONTEXT.md');
-        $this->assertStringContainsString('All 10 section-level components', $doc);
-        foreach (['table', 'faq'] as $component) { // both still declare and render `id`
+        $this->assertStringContainsString('All 11 section-level components', $doc);
+        // table and faq both still declare and render `id`; custom joined at #1242 T5.
+        foreach (['table', 'faq', 'custom'] as $component) {
             $this->assertMatchesRegularExpression(
-                '/All 10 section-level components \([^)]*\b' . $component . '\b[^)]*\)/',
+                '/All 11 section-level components \([^)]*\b' . $component . '\b[^)]*\)/',
                 $doc,
                 "{$component} declares and renders `id` and is in the scroll-margin-top list."
             );

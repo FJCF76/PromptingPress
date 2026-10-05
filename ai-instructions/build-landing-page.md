@@ -43,8 +43,9 @@ A landing page is a sequence of bands, each one component. A five-band spine tha
 | 4 | `faq` | The questions that stop people converting |
 | 5 | `cta` | The closing action |
 
-Pick from the ten composable components — `hero`, `section`, `grid`, `cta`, `faq`,
-`stats`, `table`, `embed`, `logos`, `testimonials`. **`nav` and `footer` are not on that
+Pick from the eleven composable components — `hero`, `section`, `grid`, `cta`, `faq`,
+`stats`, `table`, `embed`, `logos`, `testimonials`, `custom` (your own markup with content
+islands; reach for it only when no structured component fits). **`nav` and `footer` are not on that
 list**: they are site chrome the template renders on every page, and composing either is
 rejected with `template_owned_component`.
 
@@ -58,7 +59,7 @@ style.
 ## Step 3 — Write the composition
 
 Content is `props`; appearance is `udc`. The two never mix: there is no `theme` prop on
-any of the ten v2 components, and no style slots on any of them either.
+any of the eleven v2 components, and no style slots on any of them either.
 
 **On images, before you write one into this example.** A site-relative
 `/wp-content/uploads/…` value is EXISTENCE-CHECKED against the Media Library at write, and

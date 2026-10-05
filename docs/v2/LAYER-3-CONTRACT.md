@@ -31,8 +31,10 @@
 > **Implementation is Sprint 6 (#1242), and every §3 admission is bound to v2.1.0 (P-26).**
 > Every clause from §2 on is **scheduled: v2.1.0** unless it is marked **met**, is a §11
 > deferred item (each has a guaranteed destination and an owning contract, P-26), or is an
-> open question listed in the note under the §12 mechanics table. §9 is historical. Today one
-> clause is met: the §8.3 preview-isolation precondition (Sprint 6 T1a, PR #1246).
+> open question listed in the note under the §12 mechanics table. §9 is historical. Met so far:
+> the §8.3 preview-isolation precondition (Sprint 6 T1a, PR #1246), §8.2's assistant-context
+> framing (T2, PR #1252), §6's scoped sheet (T4, PR #1258) and §7's custom band and content
+> islands (T5, PR #1259).
 >
 > The contract is **additive in admission, and narrower than today in named places**,
 > including these (every §4 row that refuses something core `post` admits today is one more:
@@ -1428,12 +1430,40 @@ selectors, so the scoped sheet is how its insides are styled.
     structural write. Plain content is escaped text, so an `a` host cannot receive a nested
     link.
   Never a void element, an RCDATA element (`textarea`, HTML `title`), a table-structure
-  element other than a cell, or anything in the SVG or MathML namespace. A wrong host is
-  refused (`custom_island_host`). How a host's own ancestors in `markup` affect parsing is open
-  (routed item 10 under the §12 table).
+  element other than a cell, or anything in the SVG or MathML namespace (read as: a host inside
+  an SVG or MathML subtree is refused too). A wrong host is refused (`custom_island_host`,
+  reported as `content_construct_excluded` naming the §7.2 clause: M-21 governs, see routed item
+  14). How a host's own ancestors in `markup` affect parsing is **ruled** (routed item 10, by
+  principle: island content is verified under its full ancestor chain); the mechanism is the
+  next bullet.
 - **The composed band is verified as a whole** (§2.1): markup and islands are sanitized
   separately, then the rendered composition is re-parsed once, in the band-root context, and
   the §4 check runs on that.
+- **Island content is verified in its host's full ancestor chain** (routed item 10, ruled by
+  principle 2026-10-05; mechanism ratified at T5's plan-eng-review). The band's render view is
+  re-parsed with each island substituted into its host and compared with the same band with the
+  islands empty, both in the full parser, with comment markers (a per-call nonce) bracketing
+  each island inside its host. An island is verified when the token stream outside every marker
+  pair is identical in both parses, its end marker's breadcrumbs equal its start marker's, and no
+  token between them sits below the host's depth. Because the parser yields a token for every
+  element it pushes or pops (reconstructed formatting elements included), that means the
+  island's subtree is exactly the host's children. Content that fails is refused at write,
+  naming the island (an inline island's `<a>` under an authored `<a>`, a `<button>` in a
+  `<button>`, `<li>` in an `li` host, a cell in a cell host); a stored island that fails renders
+  empty. A context-aware fragment parse was the rejected alternative: `create_fragment()` takes
+  only the `<body>` context in WordPress 7.0 (above), and a synthetic ancestor wrapper would
+  re-derive parser state the full parser already has.
+- **The emission belt (E6).** The custom band's emitted bytes pass a last pass that removes
+  every `data-pp-*` attribute (the island attributes too: nothing on the page reads them) and
+  every id of the minted or reserved form, independent of the predicate's tables. The predicate
+  refuses engine identity at write; the belt keeps it off the page even for bytes that reached
+  render around the gate. The template writes the band root's own `data-pp-band` and
+  `data-pp-component` outside those bytes.
+- **Bounds (M-8 as refined in Sprint 6).** `markup` takes the measured per-prop cap (64 KiB;
+  M-8's printed 128 KiB figure predates the measurement that put a 128 KiB value over the
+  one-second line), each island 16 KiB, at most 64 islands, and the band's markup and islands
+  together 128 KiB, because the composed band is parsed again as a whole. Measured worst case
+  for a maximal band: write 2.2 s, render 2.4 s, uncached (T-17; the render cache is #1089).
 - **Attribute islands** (`href`, `src`, `alt`) and **repeatable islands** are not in this
   release's island set; they are guaranteed destinations of this contract (P-25, P-26; §11).
 
@@ -1484,6 +1514,19 @@ The readability, presence and overlay findings reason about **declared roles**. 
 declares none. So those findings run on `_band` only, and the band carries one disclosure,
 `custom_band_unverified`. It states that the insides were checked for **safety** (§3–§4) and
 not for **readability**.
+
+Stated plainly (as implemented in T5):
+
+- **What the engine verifies inside custom markup:** everything §3-§4 verifies for rich content
+  (the exclusions, E10 containment, E12 references inside the band, the M-8 caps), the island
+  rules of §7.2, each island in its own sink, island content in its host's full ancestor chain,
+  and the composed band once more as a whole.
+- **What it does not:** contrast, legibility, the presence of a heading, overlay legibility on a
+  background image, or how the markup lays out at any width. It cannot see a role in the markup
+  because the markup declares none. A class borrowed from the theme renders with that class's
+  styling and is not a contract (§5.4).
+- `custom_band_unverified` is information (it asks for nothing); a warning on every custom band
+  would fail `wp pp validate site` on every admitted custom band.
 
 This is the design doc's *"reduced verifiability disclosed via the same findings check
 code"*, made specific.
@@ -1800,7 +1843,7 @@ The rules every pin follows:
 | T-10 | §6.2 selector gate | **the probe `:hover + section` verbatim** (refused at write; and, with the **gate bypassed but the emitter unchanged**, a Playwright hover actually activates the condition and the next band's computed style is asserted unchanged, next to a positive control where the same declaration on an in-band subject **does** change under the same hover), plus `:not(.x) ~ *`, `:first-child ~ [data-pp-band]` and `a, + .x`; the byte matrix; each pseudo-class allowed and refused; leading `+`/`~` refused; emitted-form pins proving every subject is inside the band (a sibling band's computed style is unchanged). Each condition is **activated** in the fixture: the band is placed as a first child for `:first-child ~ …`, and the §6.7 network-log assertion runs with an external `<img loading="lazy">` present and every condition state entered. M-16 is pinned three ways: a scoped rule on an embed band whose attribute-selector compound reads inside the shortcode output is refused at write; with that gate bypassed, the network log does change (the fixture can see the channel); and no admitted condition that reads plugin output, including one that toggles a P-19 background, changes which external requests the page makes. Routed item 8 is ruled as disclosure (§6.7), so the unchanged assertion covers the conditions M-16 governs (attribute conditions over plugin output). Plus the limit and edge matrix (256 bytes, the top-level comma refused per M-20, depth 3, `:has()` inside `:has()`, the `html`/`head`/`body` type refusal, one pseudo-element and last, the nth-argument grammar); the at-rule matrix (`@keyframes`, `@import` and a width `@media` each refused; a non-width media feature, `@supports` and `@container` admitted, P-21); `:popover-open` and `:modal` admitted (P-14); state sub-map keys refused in a `_scoped` rule's `css`; `_scoped` accepted and painting on a structured band (P-3), not only on the custom band; in a scoped rule, an author custom property admitted and `--pp-*` and a minted token name refused (P-20); an attachment-id background admitted with the computed `background-image` resolving to this install's uploads URL, and an author `url(https://…)` refused (P-19); an equal-specificity tie won by the scoped rule; two same-specificity rules in swapped order flipping the computed value. |
 | T-11 | §6.4 `content` | `""` and the two counter forms paint a pseudo-element box, and `none`/`normal` suppress it (both pinned); `attr()` and text strings are refused. *As implemented (Sprint 6 T4):* the two counter forms are refused while §6.4's deviation bound to #1254 stands, so they are pinned refused, as are the quote keywords (Q5) and a control byte in the value (F2) |
 | T-12 | §8 sinks | prompt-regression cases (ai-ready harness): content carrying the P-15 set and instruction-shaped text reaches the model framed and neutralized, and a Persian ZWNJ word and a ZWJ emoji reach it unchanged. A preview isolation pin: the preview document's origin is opaque. Plus the **spoofed sender**: a message from a second sandboxed frame is ignored (`event.source` check), not only the opaque-origin check. **The preview pins are met** (Sprint 6 T1a, PR #1246: `tests/e2e/preview-isolation.spec.ts`, with `tests/PreviewFrameIsolationTest.php` and `tests/js/pp-editor-preview-isolation.test.js`, covers the opaque origin, the second sandboxed frame, and messages from inside the frame with an extra field and with an action verb). Plus a chat pin that a content value carrying `<img onerror>` renders as text in `changes[].from/to`; the neutralized set is exactly P-15's (U+202A–U+202E, U+2066–U+2069, U+E0000–U+E007F), and the preserved code points (ZWNJ, ZWJ, U+200E, U+200F, U+061C) are listed and asserted to survive. **The prompt cases, the chat pin and the set pins are met** (Sprint 6 T2: `tests/AssistantContextFramingTest.php`, `tests/js/pp-ai-chat-content-as-text.test.js`). Still scheduled: v2.1.0, with the render side (§2.4): one pin per enclosing catch site of §2.4 (the editor preview render's try/catch, `lib/admin.php:5916-5940` on 2026-10-05; `lib/post-apply-validate.php:101-106`; the presence-probe render's try/catch, `lib/udc.php:7221-7234` on 2026-10-05) asserting `pre_kses` is hooked after a hostile render through that site. |
-| T-13 | §7 islands | name gate; empty-island and unknown-island rules; a patch to `islands.<name>` diffs as one field; CAS and undo per island write. Plus: the host matrix per kind (`custom_island_host`, `a` refused as an inline host, void/RCDATA/SVG hosts refused, cells the only table-structure hosts); `a`, `button`, `time`, `code`, `abbr`, `sub` and `sup` admitted as plain hosts (P-25); P-7: a `wp pp operate patch` selector naming `markup` on a custom band is refused and `markup` is unchanged byte for byte, with `islands.<name>` on the same band succeeding as the positive control; a non-empty island element refused; a duplicate island name refused; a 65th island refused; presence pins for `custom_band_unverified` and for `content_plugin_output` naming the shortcode tags; a docs pin that the AI surface no longer says shortcode output is stripped. **Sibling preservation** (the planted-proof shape of the items[] edit work: plant a sibling, write one island, assert the sibling survives byte-identical), and `null` removing exactly one island. |
+| T-13 | §7 islands | name gate; empty-island and unknown-island rules; a patch to `islands.<name>` diffs as one field; CAS and undo per island write. Plus: the host matrix per kind (`custom_island_host`, `a` refused as an inline host, void/RCDATA/SVG hosts refused, cells the only table-structure hosts); `a`, `button`, `time`, `code`, `abbr`, `sub` and `sup` admitted as plain hosts (P-25); P-7: a `wp pp operate patch` selector naming `markup` on a custom band is refused and `markup` is unchanged byte for byte, with `islands.<name>` on the same band succeeding as the positive control; a non-empty island element refused; a duplicate island name refused; a 65th island refused; presence pins for `custom_band_unverified` and for `content_plugin_output` naming the shortcode tags; a docs pin that the AI surface no longer says shortcode output is stripped. **Sibling preservation** (the planted-proof shape of the items[] edit work: plant a sibling, write one island, assert the sibling survives byte-identical), and `null` removing exactly one island. **Met** (Sprint 6 T5, PR #1259: `tests/CustomBandIslandsTest.php`, `tests/js/pp-editor-islands.test.js`, `tests/e2e/custom-band.spec.ts`), except the two §7.5 rows (`content_plugin_output` naming shortcode tags, and the AI-surface docs pin), which belong to the embed band's §7.5 obligations, not to the custom band. |
 | T-14 | §2.6 / M-2 | a stored band with a now-refused construct does not block an edit to another band, through `update_component`, `update_composition`, `create_page` and the JSON save; a re-emitted but structurally identical band is not "changed"; the preview renders the strip and never refuses on the stored loss Plus: an id-less aged band re-sent under a fresh random id is **unchanged** (matched by content); and `onclick="a"` rewritten to `onclick="b"` is **changed** (raw-parse comparison), so the write is refused. |
 | T-15 | §5.1 rank | a content `style` beats a role value on its own element (computed style); `content_inline_style` states the count and properties. Plus: `content_inline_style` names a `popover` element; a fixture group claiming a new property does not make stored content using it invalid (§5.2); a borrowed `.section__content` class inside content does not register role presence (§5.4/M-11). |
 | T-16 | AI surface derived | the exclusion list in the prompt is built from the predicate's own tables (I43), as LAYER-2 §7′ requires for `_css` |
@@ -2334,9 +2377,12 @@ mechanism silently:
    is refused. So is any form whose `action` is a same-site admin endpoint (`wp-admin/`,
    `wp-login.php`, `admin-ajax.php`, `admin-post.php`, matched by path in any percent-encoded
    spelling). An on-origin password form is admitted.
-10. **Island content parsed under its host's ancestors.** An `inline` host inside an authored
-    `a` or `button` lets island content restructure the markup; the island's wrapper and the
-    composed check both use the host alone.
+10. **Island content parsed under its host's ancestors.** *Ruled 2026-10-05 by principle (#1242
+    T5 brief): island content is verified under its FULL ancestor chain, and content that would
+    restructure the markup in that context is refused fail-closed. Mechanism (T5 plan-eng-review):
+    the band re-parsed with each island substituted vs empty (§7.2).* An `inline` host inside an
+    authored `a` or `button` lets island content restructure the markup; the island's wrapper and
+    the composed check both used the host alone.
 11. **Titles and headings under P-2.** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):*
     `strong`, `em`, `br` and the widening set, no `a`; a raw `<` refused at write; a stored
     failing title renders fully escaped and is census-listed.
@@ -2353,8 +2399,10 @@ mechanism silently:
     operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
     bytes (implementation: T3b).
 14. **M-17, M-20 and M-21 against §6.2 and §7.2.** *Ruled (Sprint 6): the mechanics table
-    governs; §6.2 corrected (T4), §7.2 at T5.* Non-ASCII selector bytes, the top-level
-    comma, and the island refusal codes: which text governs.
+    governs; §6.2 corrected (T4), §7.2 at T5: `custom_island_unknown` and `custom_island_host`
+    are reported as `content_construct_excluded` naming the §7.2 clause, and the dedicated codes
+    are findings only (`custom_island_empty`, `custom_band_unverified`).* Non-ASCII selector
+    bytes, the top-level comma, and the island refusal codes: which text governs.
 15. **M-3 and custom-property case.** *Ruled (Sprint 6): names are case-sensitive; no lowercase
     suggestion, the refusal names the exact name.* M-3 refuses an uppercase property and suggests the
     lowercase form; for an author custom property that suggestion names a different property.

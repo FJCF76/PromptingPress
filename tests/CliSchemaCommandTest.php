@@ -183,7 +183,7 @@ class CliSchemaCommandTest extends TestCase
             array_column($index, 'component'),
             'the index is the loader registry, in loader order — not a hand-kept list'
         );
-        $this->assertCount(12, $index, 'the twelve shipped components');
+        $this->assertCount(13, $index, 'the thirteen shipped components (custom joined, #1242 T5)');
     }
 
     public function testIndexMarksTemplateOwnedChromeAsNotComposable(): void
@@ -212,7 +212,7 @@ class CliSchemaCommandTest extends TestCase
     public function testIndexEntriesCarryOnlyIdentityAndComposability(): void
     {
         $index = pp_component_schema_index();
-        $this->assertCount(12, $index, 'discovery is not vacuous');
+        $this->assertCount(13, $index, 'discovery is not vacuous');
 
         foreach ($index as $entry) {
             $this->assertSame(['component', 'composable'], array_keys($entry));
@@ -234,7 +234,7 @@ class CliSchemaCommandTest extends TestCase
 
     public function testReportSurfacesEveryDeclaredPropSlotAndRecipe(): void
     {
-        $this->assertCount(12, $this->shippedComponents(), 'discovery is not vacuous');
+        $this->assertCount(13, $this->shippedComponents(), 'discovery is not vacuous');
 
         foreach ($this->shippedComponents() as $name) {
             $schema = $this->shippedSchema($name);
@@ -1106,7 +1106,7 @@ class CliSchemaCommandTest extends TestCase
 
         // NOT VACUOUS: the walk has to have visited the shipped twelve and found real
         // declarations in them, or an empty registry would satisfy everything above.
-        $this->assertSame(12, $components, 'the twelve shipped components');
+        $this->assertSame(13, $components, 'the thirteen shipped components (custom joined, #1242 T5)');
         $this->assertGreaterThan(90, $props, 'the walk is reading real schemas');
         $this->assertSame([], $withSlots, 'a shipped component declares style slots again — restore the population walk');
         $this->assertSame([], $withRecipes, 'a shipped component declares recipes again — restore the population walk');

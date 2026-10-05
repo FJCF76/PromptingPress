@@ -1,6 +1,6 @@
 {
   "component": "embed",
-  "description": "A generic content embed block. Renders an optional heading and passes content through do_shortcode(). Use for WP plugin shortcodes (contact forms, calendars, etc.) that belong to WP rather than to the PromptingPress composition model. This is the only sanctioned way to introduce arbitrary content into a composition. REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See docs/v2/BUILD-SPEC-sprint0.md §3.",
+  "description": "A generic content embed block. Renders an optional heading and passes content through do_shortcode(). Use for WP plugin shortcodes (contact forms, calendars, etc.) that belong to WP rather than to the PromptingPress composition model. This is the sanctioned way to bring plugin output into a composition; author-structured HTML with editable text belongs in the custom band, whose markup is never passed through do_shortcode(). REBUILT ON THE UNIVERSAL DESIGN CONTRACT (v2): it declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See docs/v2/BUILD-SPEC-sprint0.md §3.",
   "props": {
     "id": {
       "type": "string",

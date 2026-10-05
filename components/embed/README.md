@@ -2,7 +2,7 @@
 
 A generic content embed block. Renders an optional heading and passes `content` through `do_shortcode()`. Use it for WP plugin shortcodes — contact forms, calendars, booking widgets — that belong to WordPress rather than to the PromptingPress composition model.
 
-`content` is the only way to introduce arbitrary HTML into a composition. That is intentional and explicit, not a workaround.
+`content` is how plugin output (a shortcode) enters a composition. That is intentional and explicit, not a workaround. Author-structured HTML with editable text belongs in the [`custom`](../custom/README.md) band, whose markup is never passed through `do_shortcode()`.
 
 **This is a v2 component.** It declares no style slots. Every designable value — colour, type, spacing, border, shadow, size, motion — is set through the `udc` map on the band, per role. See `docs/v2/BUILD-SPEC-sprint0.md` §3 and `docs/explanation-cascade-layers.md`.
 

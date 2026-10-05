@@ -261,13 +261,12 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
     }
 
     /**
-     * No shipped schema declares a TOP-LEVEL `object` prop, asserted rather than assumed.
-     *
-     * The top-level arm is therefore reachable only by the synthetic fixture in §5. If
-     * this count ever moves, that arm has a real caller and §5 is no longer the only
-     * thing standing between it and a silent regression.
+     * Exactly ONE shipped schema declares a TOP-LEVEL `object` prop: custom.islands (#1242
+     * T5, LAYER-3-CONTRACT.md §7). Asserted rather than assumed: the top-level arm used to be
+     * reachable only by the synthetic fixture in §5, and the real declaration is pinned
+     * through the write path below.
      */
-    public function testNoShippedSchemaDeclaresATopLevelObjectProp(): void
+    public function testTheOneShippedTopLevelObjectPropIsCustomIslands(): void
     {
         $found = [];
         foreach (pp_composable_components() as $component => $schema) {
@@ -277,9 +276,32 @@ class ObjectShapedPropWriteEnforcementTest extends TestCase
                 }
             }
         }
-        $this->assertSame([], $found,
-            'a top-level `object` prop now ships — the §5 synthetic arm is no longer the only'
-            . ' coverage that rule has, and this file should pin the real declaration too');
+        $this->assertSame(['custom.islands'], $found,
+            'a new top-level `object` prop ships — pin its real declaration here too');
+    }
+
+    /** The real declaration through the real write path: a scalar or a list is refused. */
+    public function testCustomIslandsRefusesAScalarAndAListThroughUpdateComposition(): void
+    {
+        $post_id = pp_create_page('Islands shape', 'draft');
+        foreach (['a string' => 'text', 'a list' => ['one', 'two']] as $label => $islands) {
+            $result = pp_execute_action('update_composition', [
+                'post_id'     => $post_id,
+                'composition' => [['component' => 'custom', 'props' => [
+                    'markup' => '<p data-pp-island="one"></p>', 'islands' => $islands,
+                ]]],
+            ]);
+            $this->assertFalse($result['ok'], "islands as {$label} must be refused");
+            $this->assertSame('invalid_prop_value', $result['error_code'], $label);
+            $this->assertStringContainsString('"islands"', $result['error'], $label);
+        }
+        $accepted = pp_execute_action('update_composition', [
+            'post_id'     => $post_id,
+            'composition' => [['component' => 'custom', 'props' => [
+                'markup' => '<p data-pp-island="one"></p>', 'islands' => ['one' => 'Text'],
+            ]]],
+        ]);
+        $this->assertTrue($accepted['ok'], 'the positive control: a name -> string map is accepted');
     }
 
     /**
