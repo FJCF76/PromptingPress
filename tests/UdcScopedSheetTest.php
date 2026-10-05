@@ -1172,4 +1172,16 @@ class UdcScopedSheetTest extends TestCase
         $this->assertSame(array_keys(pp_udc_scoped_pseudo_classes()), $report['udc_scoped']['pseudo_classes']);
         $this->assertArrayNotHasKey('udc_scoped', pp_component_schema_report(pp_udc_chrome_names()[0]), 'chrome takes no scoped sheet');
     }
+
+    /** One owner for the Layer-3 CSS function list: the content gate reads the scoped sheet's. */
+    public function testBothLayerThreeChannelsReadOneFunctionList(): void
+    {
+        $this->assertSame(pp_layer3_css_functions(), pp_content_css_functions(), 'byte-for-byte the same list (#1242 unification)');
+        foreach (['path', 'stylistic', 'swash'] as $ruled) {
+            $this->assertArrayHasKey($ruled, pp_layer3_css_functions(), "{$ruled}() was ruled admissible for Layer 3");
+        }
+        foreach (['attr', 'anchor', 'anchor-size', 'paint', 'element', '-moz-element', 'url', 'image-set'] as $refused) {
+            $this->assertArrayNotHasKey($refused, pp_layer3_css_functions());
+        }
+    }
 }

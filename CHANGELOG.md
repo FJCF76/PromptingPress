@@ -6,6 +6,95 @@ All notable changes to PromptingPress are documented here.
 
 ## Unreleased — Sprint 6
 
+### Changed
+
+- **Layer 3A: content is checked when it is written (#1242 T3a).** Every content prop (a band's
+  body, an FAQ answer, a table cell, embed content, hero proof, the INLINE props and, under the
+  ratified P-2, every title, heading and subheading) now runs one content check at write, in
+  `update_composition`, `update_component`, `create_page`, `add_component` and the editor save.
+  A write whose content contains anything the Layer-3 contract excludes is refused whole with
+  `content_construct_excluded`, naming the prop, the construct and the rule (for example `onclick
+  on <p> at p is refused by E1`). Nothing is stripped or rewritten and nothing is stored, where
+  before the write was accepted and the render silently dropped the construct. Refused: event
+  handlers and `data-wp-*` (E1); script-bearing or off-list URLs, checked after entity decoding
+  and in every `srcset` candidate (E2); author iframes, embeds and `srcdoc` (E3); script, style
+  and document-level elements, including an in-body `<body onload>` (E4); active SVG and MathML
+  (E5); the engine's `data-pp-*` namespace, minted ids, `main`, `pp-nav-menu` and any id equal to
+  a band anchor on the page (E6); `url()`, `!important` and the excluded properties in a `style`
+  attribute (E7), and any CSS function not on the admitted list, such as `-moz-element()`,
+  `paint()`, `attr()` or `anchor()`, in a style declaration or in any SVG or MathML attribute
+  except text attributes such as `aria-label` (a quoted font name or a label with parentheses is
+  text, not a call; `path()` and font-variant functions such as `styleset()` are admitted) (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
+  (E9); markup that escapes its container, such as a stray `</div>` or an unclosed comment
+  (E10); the `id` or `name` of an `<object>` that shadows a built-in `document` property such as
+  `forms` or `cookie` (an image's `name` is not admitted at all, and embedded elements are
+  refused) (E11; other ids are admitted,
+  even `top`, `title` or `forms`, because an id shadows no `window` property and reaches `document`
+  only through an `<object>` or a named `<img>`; an id equal to a page-script global such as `wp`
+  is disclosed as an info note, `content_global_shadow`); an id or a single-id reference containing whitespace (E12); an id
+  reference to an element outside the band, including an SVG `<use href="#x">` or `url(#x)` and
+  an image map's `usemap`, which bind to the first match anywhere on the page (E12), and, on a page whose other bands hold more
+  than one write can check (1 MiB), a new id, id reference, details group or band anchor, which
+  cannot be verified against them (E12, E6); and markup the HTML parser cannot verify, named
+  "unsupported markup" with the element to close first, such as `<p><b>Note</p>`, or an element
+  the parser drops where a browser may still build it, such as a table part outside a table (P-16).
+- **What content may carry is wider, per the ratified contract.** The full HTML and ARIA 1.2
+  attribute set (microdata, `tabindex`, `translate`, `inert`, `bdi`, and the rest;
+  `nonce` is refused because it does nothing outside script and style); inline SVG, spec-derived,
+  with same-document `url(#id)` and fragment `href` on `use`, gradients, patterns, filters and
+  `textPath`, and editor attributes such as `inkscape:label` under the same value checks as every
+  SVG attribute; `picture`, `source` and `srcset`; app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`) in a
+  link's `href` on `a` and `area` only; `autofocus`, `contenteditable` and `is`; base64
+  raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`, served from
+  the same origin as the uploads (scheme, host and port; an http link on an https site is
+  refused); hyphenated
+  custom elements (disclosed as `content_plugin_output`, an info note); modern CSS in `style`
+  attributes, including your own custom properties (`--pp-*` stays the engine's). INLINE props
+  admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`, `mark` and
+  `code`; titles and headings admit the same set without `a`; labels, button text and URLs stay
+  plain text.
+- **Forms are not admitted yet.** The ratified contract admits forms (P-5, P-24), but the owner
+  descoped them from this release on 2026-10-05: `form`, `input`, `select`, `option`, `optgroup`,
+  `selectedcontent`, `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause Δ5,
+  "descoped by the owner"), and they arrive with the Layer-3 forms contract. `button`, `label`,
+  `meter` and `progress` are admitted: none of them submits anything without a form.
+- **The wider set is for users WordPress trusts with unfiltered HTML.** Everything beyond core's
+  own `post` list needs the `unfiltered_html` capability, as in WordPress itself. A user without
+  it (a Contributor or Author, or an Editor on multisite) writes what core's `post` list admits:
+  its elements and attributes, WordPress's own URL protocols, and styles core's CSS filter keeps
+  whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped. A
+  stored band such a user does not change is not re-checked. WP-CLI writes with server-level
+  access.
+- **An old band never blocks an edit to another band.** Content is checked only in the bands a
+  write changes, compared by content rather than by band id, so a stored band whose content a
+  later rule refuses keeps rendering and does not stop edits elsewhere on the page. Each stored
+  band vouches for one band only: a copy of a stored band is new content and is checked. The
+  comparison has the same budget as a write, so a large stored page never makes a small edit slow:
+  a band it cannot compare within the budget is checked as new content.
+- **Every URL is read the way a browser reads it.** One shared reader judges every URL in content
+  (links, sources, the PDF `<object>`): it strips the control characters browsers
+  strip, treats a backslash as a slash, resolves `.` and `..` segments, and reads `https:/path`
+  on an https site as the path it is. A URL it cannot read cleanly (a control character inside,
+  a malformed host or port, a `file:` URL) is refused (E2).
+- **Content has a size limit.** A content prop may be at most 64 KiB, and one write may carry at
+  most 1 MiB and 4,096 values of changed content. Larger content is refused with
+  `content_too_large`, naming the prop and its size, never truncated. A content prop may nest
+  elements at most 256 deep, counted as the HTML parser nests them; deeper content is refused as
+  `content_construct_excluded` (clause M-8), saying it nests at least 257 deep and naming the limit. The editor
+  preview and the findings report never refuse on content. A write that adds a band anchor equal
+  to an id already inside another band's content is refused on the band being changed.
+
+### Known limits until the rest of Sprint 6 lands
+
+- The render still uses WordPress's own sanitizer and the templates' own escaping, so a construct
+  the write now admits (for example inline SVG) is accepted and stored but not yet rendered as
+  markup, and inline markup in a title or heading (`<sup>®</sup>`) shows as literal text until
+  the render side lands. A title is now parsed as markup, so a literal `<` followed by a letter
+  (`x<y`) is refused; write it as `&lt;`. Rendering stored content
+  through the same check, with a finding for anything stripped, and the census of stored content
+  are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
+  contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
+
 ### Fixed
 
 - **Editor: the live preview renders content in an isolated origin.** The composition editor's
@@ -55,6 +144,42 @@ All notable changes to PromptingPress are documented here.
   `unacknowledge`. Rotating `AUTH_KEY` / `AUTH_SALT`, or copying the database to an environment
   with other salts, ignores every acknowledgement the same way: fail closed, then re-acknowledge.
 
+- **Chat: site content reaches the AI as quoted data.** Every stored value the AI chat is given
+  (the site name, URL and tagline, page titles, statuses and URLs, menu names and items,
+  design-token values, Custom CSS selectors, media file names, alt text and URLs, the current
+  page and its component index) now arrives as one quoted JSON string, cut to a stated length
+  with `(truncated)` after it when it is longer. The page's composition was already JSON and
+  stays so. A title, alt text or block of content can no longer start a line of the AI's
+  instructions, end the value it sits in, or close the composition block, whatever characters it
+  holds; the AI is told the format once. Bidirectional-override and invisible "tag" characters
+  (U+202A–U+202E, U+2066–U+2069, U+E0000–U+E007F) are shown to the AI as `\u` escapes, so
+  they cannot reorder or hide text from it, and so are the C1 control characters, one of which
+  is a line break; nothing stored changes. Every other character, the
+  Persian and Indic zero-width non-joiner, the emoji zero-width joiner and the right-to-left marks
+  included, reaches the AI exactly as written (LAYER-3-CONTRACT §8.2, ruling P-15).
+
+- **Chat: the AI's menu list follows what WordPress shows you.** A user who can edit menus
+  (Appearance > Menus) is shown every menu item, as WordPress shows them. For anyone else, who
+  cannot change menus, the menus the AI is told about now leave out items that link to a page or
+  post they cannot edit, the same check as the page list; a menu with nothing left reads "(none
+  you can edit)". Custom links and category or tag items are unchanged, and a menu's theme
+  location is quoted like every other stored value.
+
+- **Chat: the posts-page line is true for every user.** An unmarked page list now tells the AI
+  that either no posts page is set or it is not one this user can edit, instead of only the
+  first.
+
+- **Schemas: a role's `defaults` and `overlay_defaults` values are bounded.** A string value is
+  at most 256 bytes and cannot contain a bidirectional-override or tag character (#1200). Every
+  shipped value is far inside the limit (the longest is 35 bytes); a hand-edited schema that
+  breaks it is reported by the schema check and its role is left out of `wp pp schema` and the
+  AI's catalog, as for any malformed role. The single-line check now also refuses invalid UTF-8.
+
+- **Presets: the list of preset names in messages and in the AI's context is bounded** at the
+  most a site can store through `save_preset` (64, plus the theme's three), with the exact
+  remainder ("and N more") after it, like every other list the engine prints (#1122). Every
+  preset a site saved normally is still listed; only a store written around those limits is cut.
+
 ### Docs
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
@@ -70,6 +195,9 @@ All notable changes to PromptingPress are documented here.
   a removed row written back byte for byte verifies again; the readiness acknowledgements are not
   signed, #1249). `AI_CONTEXT.md`, `docs/reference-apply-cli.md` and `operating-loop.md` carry the
   same facts and the `--malformed` route.
+- The Layer-3 contract marks §8.2 (the assistant's context) as met, with the sink owner and the
+  tests that pin it. `AI_CONTEXT.md` lists the sink owner and the menu filter among the context
+  functions, and `ai-instructions/add-component.md` states the role-default value limits.
 
 ### Tests
 
@@ -109,6 +237,28 @@ All notable changes to PromptingPress are documented here.
 - `tests/e2e/ack-signing.spec.ts` runs the round trip on real WordPress with the real `wp_hash()`:
   acknowledge, the stored row's signature, the page released, then a raw tamper that makes the row
   ignored and named.
+- `AssistantContextFramingTest` pins the sink owner (each of the P-15 code points escaped and
+  decoding back, the Persian ZWNJ word and the ZWJ emoji byte-identical, format characters
+  outside the set untouched, the byte and character bounds, invalid UTF-8) and every sink: an
+  instruction-shaped value in a page title, the site name, a menu, a media alt, a design-token
+  value, a Custom CSS selector, the current page and the component index starts no prompt line,
+  and the composition block keeps exactly one fence and decodes to the stored composition. It
+  also pins the menu filter (by `edit_theme_options` and per post) and the posts-page sentence. `SchemaSinkBoundsTest` pins the
+  role-default byte cap at its boundary, the P-15 refusal and its limits, invalid UTF-8, the
+  bounded preset-name list and a full legitimate store listed whole. `pp-ai-chat-content-as-text.test.js` pins that a content value
+  carrying `<img onerror>` renders as text in both approval-card diff views (§8.1). The prompt
+  byte budget is 92,970 (measured; was 92,713).
+- `ContentPredicateTest` pins every admission row in both directions and every exclusion by its
+  contract test shape that applies at write, plus T-18 open-set rows, a render-view fixed point
+  and a 64 KiB write-time budget (T-17). `ContentWriteGateTest` runs the gate through the real
+  actions and the editor save: refusals store nothing, ratified admissions are stored as authored,
+  and the M-2 rules hold (T-14). `ContentTableDriftTest` pins the admission table against WordPress
+  7.0's and 7.1.2's `post` lists (T-1) and the parser-bail set under both versions (P-16; where
+  they differ, the refusal follows the runtime parser). `tests/e2e/content-predicate.spec.ts`
+  compares the snapshots for the live core's version and the clobber tables against live WordPress
+  and Chromium, checks that an admitted `id="top"` is a working anchor, and
+  runs a mutation-XSS corpus through sanitize, browser parse and sanitize again (T-9). The PHPUnit
+  suite now loads WordPress 7.0's HTML API from a test fixture (7.1.2's with `PP_TEST_HTML_API=7.1.2`).
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 

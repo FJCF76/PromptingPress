@@ -321,10 +321,27 @@ const PP_ROLE_NAME_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
  * SCOPED TO THE FIELDS THIS GATE ADDED (`why`, `with`). The pre-existing
  * `conditionality_note` and `values` checks use the narrow form; widening those changes what
  * the schema surface has accepted since #575/#630, so it is filed rather than folded in.
+ *
+ * FAILS CLOSED ON INVALID UTF-8 (#1200). preg_match() answers false, not 0, when the `/u`
+ * pattern meets invalid UTF-8, and `!false` read that as "single line". Only an explicit 0
+ * (no match on a valid subject) passes. Unreachable through json_decode()'d schemas today,
+ * which refuse invalid UTF-8; the check no longer depends on that.
  */
 function pp_udc_is_single_line(string $value): bool {
-    return !preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value);
+    return preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value) === 0;
 }
+
+/**
+ * Longest string a role `defaults` / `overlay_defaults` value may be, in BYTES (#1200).
+ *
+ * Measured, not guessed: the longest shipped value is 35 bytes (grid `card`'s
+ * `0 10px 24px rgba(15, 23, 42, 0.055)`), so 256 bounds a mistyped or hostile schema without
+ * touching a real value (SchemaSinkBoundsTest pins both). Without it a 200 KB value under a
+ * valid parameter passed the gate, was printed whole by `wp pp schema` and was scanned on every
+ * chat prompt build (the gate runs about 286 times per build). Checked with strlen() BEFORE any
+ * regex, so the bound also bounds the scan.
+ */
+const PP_ROLE_DEFAULT_VALUE_MAX_BYTES = 256;
 
 /**
  * Is `$value` the SHAPE of one role-default parameter value? (#1144, shared with #1192)
@@ -336,12 +353,24 @@ function pp_udc_is_single_line(string $value): bool {
  * A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a checker
  * stricter than the compiler would report a role the engine renders as unreportable. A boolean is
  * not a number here. SHAPE ONLY: each parameter's grammar is not checked.
+ *
+ * BOUNDED AND P-15-CLEAN (#1200, #1242 T2). A string leaf is at most
+ * PP_ROLE_DEFAULT_VALUE_MAX_BYTES bytes and carries none of the P-15 set
+ * (PP_NEUTRALIZED_FORMAT_PATTERN: bidi overrides and isolates, the tag block). This replaces
+ * the recorded "option b" posture (schema bytes rest on theme-root integrity) for the VALUES
+ * of these two maps: `wp pp schema` prints only roles that pass this gate
+ * (pp_component_schema_report()), so a refused value never reaches its raw-unicode sink.
+ * (Group and parameter KEYS are checked against the registry by the definition gate, not here.) The set is P-15's, not `\p{Cf}`: ZWJ,
+ * ZWNJ and the directional marks stay admitted, as in content.
  */
 function _pp_role_default_value_shape_ok($value): bool {
     $leaves   = is_array($value) ? $value : [$value];
     $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
     foreach ($leaves as $leaf) {
-        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
+        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== ''
+                && strlen($leaf) <= PP_ROLE_DEFAULT_VALUE_MAX_BYTES
+                && pp_udc_is_single_line($leaf)
+                && preg_match(PP_NEUTRALIZED_FORMAT_PATTERN, $leaf) === 0)
             || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
     }
     return $shape_ok;
@@ -901,7 +930,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                             if (!isset($group_params[$state_key])) {
                                 $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` has no parameter `{$state_key}`.";
                             } elseif (!_pp_role_default_value_shape_ok($state_value)) {
-                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` parameter `{$state_key}` must be a single-line string or a number, or a breakpoint map of them.";
+                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` parameter `{$state_key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                             }
                         }
                         continue;
@@ -911,7 +940,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                         continue;
                     }
                     if (!_pp_role_default_value_shape_ok($value)) {
-                        $errors[] = "{$label}: `defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                        $errors[] = "{$label}: `defaults` group `{$group}` parameter `{$key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                     }
                 }
             }
@@ -957,16 +986,15 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     }
                     // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
                     // sink, so a value is a single-line string or a number (what the engine compiles), or a breakpoint map of them.
-                    // The SAME standard as `selector` and `description`, deliberately: pp_udc_is_single_line() refuses
-                    // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
-                    // under the theme root, so what else they carry rests on theme-root integrity, not on this check
-                    // (PR-2 review cycle 2, security; option b).
+                    // Since #1200 the string is also BOUNDED (PP_ROLE_DEFAULT_VALUE_MAX_BYTES) and carries none of the
+                    // P-15 set (bidi overrides and isolates, the tag block); other format characters stay admitted. This
+                    // replaces the earlier "option b" posture (theme-root integrity alone) for `defaults` and here.
                     // SHAPE ONLY (see _pp_role_default_value_shape_ok()): a value of the right shape the parameter
                     // refuses is dropped when the overlay tier compiles, and that path keeps no ledger, so the drop
                     // is silent: check overlay values against the group grammar yourself (follow-up filed; final
                     // scoped red team).
                     if (!_pp_role_default_value_shape_ok($value)) {
-                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                     }
                 }
             }
@@ -2635,9 +2663,24 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  *                          Only pp_validate_composition() passes a value; see below.
  * @param  int|null $only_index  Run the per-item rules for this offset only (null = all).
  *                          Cross-item rules always run over the whole composition.
+ * @param  array|false|null $content_baseline  THE LAYER-3 CONTENT GATE (LAYER-3-CONTRACT.md
+ *                          §2.2/§2.6, #1242 T3a). null: every band is new, so every band's
+ *                          content runs the predicate (fail-closed default: create_page,
+ *                          add_component). An array: the STORED composition; a band matched
+ *                          one-to-one to a DISTINCT stored band of the same component (position,
+ *                          band id, byte-equal, then structurally equal; pp_content_unchanged_keys())
+ *                          is unchanged and is not refused (M-2 / Q-A4 — a stored band's losses surface at
+ *                          render, never as a block on an unrelated edit). false: the gate is
+ *                          off — report surfaces and the editor preview, which must never
+ *                          refuse on content (§2.6 last bullet).
+ * @param  array|null $content_page  For add_component only: $items is exactly ONE new band that is
+ *                          not on the page yet, and this is the stored page it will join. The
+ *                          content gate's cross-band rules (E6 anchors, E12 details groups,
+ *                          the anchor-add refusal) judge the band as appended to this page;
+ *                          every other rule still judges the synthetic one-item array.
  * @return WP_Error[]       Empty when the composition is valid.
  */
-function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $only_index = null): array {
+function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $only_index = null, $content_baseline = null, ?array $content_page = null): array {
     // THE CONTAINER, JUDGED BEFORE ANY BAND (#724).
     //
     // A composition is a LIST. A JSON object decodes to an associative PHP array that
@@ -2706,6 +2749,11 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
     $errors     = [];
     // One sink for the whole composition: per-item claims plus the shared budget.
     $sink = ['claimed' => [], 'budget' => $limit];
+    // The Layer-3 content gate's per-call indexes, built on first use (see the gate below).
+    $content_unchanged = null;
+    $content_size_errors = null;
+    $content_counts = null;
+    $content_index = null;
 
     foreach ($items as $i => $item) {
         // Authored locations inside THIS item that already carry a finding (#621).
@@ -4820,6 +4868,115 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 }
             }
         }
+
+        // ── THE LAYER-3 CONTENT GATE (LAYER-3-CONTRACT.md §2.2, #1242 T3a) ──────
+        //
+        // Every content prop of this band runs the one predicate (lib/content.php). A write
+        // whose content produces ANY Loss is refused whole: nothing is stripped, rewritten
+        // or stored (I34). Last in the per-item loop, so the cheaper schema rules speak
+        // first, and skipped once the budget is spent — a full parse per prop is the
+        // costliest rule here and its finding could not be returned anyway.
+        //
+        // Both indexes are built once per call, on first use: §2.6's one-to-one matching of
+        // incoming to stored bands, and the composition's cross-band facts (lib/content.php).
+        $content_gate_runs = $content_baseline !== false && !($sink['budget'] !== null && $sink['budget'] < 1);
+        if ($content_gate_runs && is_array($content_baseline)) {
+            $content_unchanged ??= pp_content_unchanged_keys($items, $content_baseline);
+            $content_gate_runs = !isset($content_unchanged[$i]);
+        }
+        if ($content_gate_runs) {
+            // THE M-8 BOUNDS (lib/content.php: PP_CONTENT_PROP_MAX_BYTES and the per-write
+            // caps), checked over EVERY band this write will judge before any band is
+            // parsed: an over-large prop, or a write whose changed content would cost more to
+            // judge than the request can afford, is refused whole and named, and nothing is
+            // parsed at all. Never truncated (§2.2).
+            if ($content_size_errors === null) {
+                $content_size_errors = [];
+                $budget = ['bytes' => 0, 'values' => 0];
+                foreach ($items as $k => $candidate) {
+                    if (!is_array($candidate) || !is_string($candidate['component'] ?? null)
+                        || ($only_index !== null && $k !== $only_index) || isset($content_unchanged[$k])) {
+                        continue;
+                    }
+                    $found = pp_content_band_size_errors($candidate, $candidate['component'], $budget);
+                    if ($found !== []) {
+                        $content_size_errors[$k] = $found;
+                        break;
+                    }
+                }
+            }
+            foreach ($content_size_errors[$i] ?? [] as $size_error) {
+                if (_pp_claim_item_finding($sink, 'content', $size_error['prop'])) {
+                    $errors[] = new WP_Error('content_too_large', $size_error['message'], [
+                        'index' => is_int($i) ? $i : null,
+                    ]);
+                }
+            }
+            $content_gate_runs = $content_size_errors === [];
+        }
+        if ($content_gate_runs) {
+            if ($content_page !== null) {
+                // add_component: $items is the ONE band being added (pp_validate_composition_item()),
+                // judged as it will sit appended to the stored page.
+                $content_items = array_merge(array_values($content_page), [$item]);
+                $content_index = pp_content_composition_index($content_items, [count($content_items) - 1], pp_content_write_tier());
+                $content_counts = pp_content_index_counts($content_index);
+                $content_losses = pp_content_band_losses($content_items, count($content_items) - 1, $content_index, $content_counts);
+            } else {
+                // The bands this write judges have their facts read from the predicate's
+                // walk, which is then finished rather than run again (lib/content.php).
+                if ($content_index === null) {
+                    $content_judged = [];
+                    foreach ($items as $k => $candidate) {
+                        if (($only_index === null || $k === $only_index) && !isset($content_unchanged[$k])) {
+                            $content_judged[] = $k;
+                        }
+                    }
+                    $content_index = pp_content_composition_index($items, $content_judged, pp_content_write_tier());
+                }
+                $content_counts ??= pp_content_index_counts($content_index);
+                $content_losses = pp_content_band_losses($items, $i, $content_index, $content_counts);
+            }
+            $by_prop = [];
+            foreach ($content_losses as $entry) {
+                $by_prop[$entry['prop']][] = $entry['loss'];
+            }
+            foreach ($by_prop as $prop_label => $losses) {
+                if (!_pp_claim_item_finding($sink, 'content', $prop_label)) {
+                    continue;
+                }
+                $first = $losses[0];
+                $errors[] = new WP_Error('content_construct_excluded', sprintf(
+                    'Component "%s" prop %s: %s.%s Nothing was stored; content is never stripped or '
+                    . 'rewritten at write (LAYER-3-CONTRACT.md §2.2), so send the content without it.',
+                    $name,
+                    $prop_label,
+                    $first['message'],
+                    count($losses) > 1 ? sprintf(' %d more construct(s) in this prop are refused too.', count($losses) - 1) : ''
+                ), [
+                    'index'     => is_int($i) ? $i : null,
+                    'clause'    => $first['clause'],
+                    'construct' => $first['construct'],
+                ]);
+            }
+        }
+    }
+
+    // E6, PROPS SIDE (LAYER-3-CONTRACT.md §4 E6, #1242 T3a): a write that ADDS a band
+    // anchor equal to an id already inside band content (another band's, or the band's own
+    // unchanged content) is the write refused,
+    // on the band whose anchor is new (the #1007 rule: the refusal lands on the band
+    // being changed). The code is the props envelope's (M-9). Off with the content gate.
+    if ($content_baseline !== false && !($sink['budget'] !== null && $errors !== [])) {
+        $anchor_items = $content_page !== null ? array_merge(array_values($content_page), array_values($items)) : $items;
+        $anchor_only  = $content_page !== null ? count($anchor_items) - 1 : $only_index;
+        $anchor_base  = $content_page ?? (is_array($content_baseline) ? $content_baseline : null);
+        foreach (pp_content_anchor_collisions($anchor_items, $anchor_base, $anchor_only,
+            $content_index) as $collision) {
+            $errors[] = new WP_Error('invalid_prop_value', $collision['message'], [
+                'index' => ($content_page === null && is_int($collision['index'])) ? $collision['index'] : null,
+            ]);
+        }
     }
 
     // Duplicate BAND ids (v2, BUILD-SPEC §3.1/§3.4). A band id scopes that
@@ -5104,10 +5261,13 @@ function _pp_unlocated_composition_error(WP_Error $error): WP_Error {
  * pp_validate_composition_item() instead — same rules, no band locator.
  *
  * @param  array            $items  Decoded composition array.
+ * @param  array|false|null $content_baseline  The Layer-3 content gate's baseline (null: every
+ *                          band is checked; the stored composition: unchanged bands are not;
+ *                          false: off, for the preview). See pp_validate_composition_errors().
  * @return true|WP_Error
  */
-function pp_validate_composition(array $items) {
-    $errors = pp_validate_composition_errors($items, 1);
+function pp_validate_composition(array $items, $content_baseline = null) {
+    $errors = pp_validate_composition_errors($items, 1, null, $content_baseline);
 
     return $errors === []
         ? true
@@ -5139,9 +5299,12 @@ function pp_validate_composition(array $items) {
  *
  * @param  array $items  The full composition, with the caller's change already merged.
  * @param  int   $index  Offset of the band this write touches.
+ * @param  array|false|null $content_baseline  The Layer-3 content gate's baseline: the stored
+ *                        composition, so an unchanged band is not refused for content (M-2).
+ *                        See pp_validate_composition_errors().
  * @return true|WP_Error
  */
-function pp_validate_composition_band(array $items, int $index) {
+function pp_validate_composition_band(array $items, int $index, $content_baseline = null) {
     // THE BUDGET AND THE CROSS-ITEM PASSES INTERACT, and the interaction is benign in
     // exactly one direction, so it is written down rather than rediscovered. The
     // cross-item passes are skipped when the budget is set AND a finding already exists
@@ -5154,7 +5317,7 @@ function pp_validate_composition_band(array $items, int $index) {
     // What it costs: when both are wrong, the message names the targeted band and stays
     // silent about the collision. The operator repairs one, retries, and meets the other.
     // Two round trips, never a silent accept.
-    $errors = pp_validate_composition_errors($items, 1, $index);
+    $errors = pp_validate_composition_errors($items, 1, $index, $content_baseline);
 
     return $errors === []
         ? true
@@ -5174,11 +5337,14 @@ function pp_validate_composition_band(array $items, int $index) {
  * The message is unchanged either way: it describes the payload the caller just
  * submitted, which needs no band to be actionable.
  *
- * @param  array $item  One composition item, as submitted.
+ * @param  array      $item  One composition item, as submitted.
+ * @param  array|null $page  The stored page the item will join (add_component). Only the Layer-3
+ *                           content gate reads it, for its cross-band rules (E6, E12); every other
+ *                           rule still judges the item alone.
  * @return true|WP_Error
  */
-function pp_validate_composition_item(array $item) {
-    $result = pp_validate_composition_errors([$item], 1);
+function pp_validate_composition_item(array $item, ?array $page = null) {
+    $result = pp_validate_composition_errors([$item], 1, null, null, $page);
 
     return $result === []
         ? true
@@ -5902,7 +6068,9 @@ add_action('wp_ajax_pp_preview_composition', function () {
         wp_send_json_error('Invalid JSON.');
     }
 
-    $result = pp_validate_composition($composition);
+    // Content gate OFF (false): the preview renders what render renders and never refuses
+    // on content (LAYER-3-CONTRACT.md §2.6, last bullet).
+    $result = pp_validate_composition($composition, false);
     if (is_wp_error($result)) {
         // Cleaned at the sink (#864), like every other composed validator message the
         // editor renders. The preview endpoint validates the composition the EDITOR

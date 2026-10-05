@@ -24,8 +24,9 @@
  * this list does not name, because an unknown function is an unreviewed way to fetch,
  * read or print something.
  *
- * ONE OWNER FOR LAYER 3. The content `style` gate (3A, #1242 T3a, not yet on main) carries
- * the same set; whichever lands second reads this function instead of keeping a copy.
+ * ONE OWNER FOR LAYER 3. The content `style` gate (3A, lib/content.php) reads this function
+ * through pp_content_css_functions(); the two channels cannot admit different functions
+ * (pinned by UdcScopedSheetTest). Unified when T4 merged second after T3a (#1242).
  *
  * `counter()`/`counters()` are not here: they exist only inside `content`'s own closed
  * grammar (§6.4, M-7).
@@ -55,6 +56,13 @@ function pp_layer3_css_functions(): array {
         // shapes, grid, timing
         'circle', 'ellipse', 'inset', 'polygon', 'rect', 'xywh', 'repeat', 'minmax', 'fit-content',
         'cubic-bezier', 'steps', 'linear',
+        // path(): pure geometry data (clip-path, offset-path), references nothing (ruled 2026-10-05, T3a).
+        'path',
+        // font-variant-alternates: name font-internal features, fetch nothing (ruled 2026-10-05, T3a).
+        'stylistic', 'styleset', 'character-variant', 'swash', 'ornaments', 'annotation',
+        // NOT admitted, by ruling (2026-10-05): attr() (reads attributes into CSS, a text-to-style
+        // channel) and the anchor-positioning family (anchor(), anchor-size(): cross-element
+        // positioning, refused until ruled); and every function this list does not name.
     ], true);
 }
 

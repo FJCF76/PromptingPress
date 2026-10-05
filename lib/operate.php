@@ -2913,10 +2913,10 @@ function pp_component_schema_report(string $component): array|WP_Error {
             // compiled CSS); the gate checks SHAPE, not grammar, so a third-party default the engine cannot place
             // (an unresolvable `@reference`, a value its parameter refuses, a role whose selector the emitter
             // skips) is still printed. Safe for the raw-unicode sink because the gate above shape-checks every
-            // key and value of it (pp_schema_definition_errors), to the standard recorded for `overlay_defaults`
-            // ("option b"): a value is refused for control and line-breaking characters, while format characters
-            // (`\p{Cf}`) and length rest on theme-root integrity, like the rest of schema.json (#1200 tracks that
-            // posture). Values stay as written, `@token` references
+            // key and value of it (pp_schema_definition_errors): a value is refused for control and line-breaking
+            // characters, for the P-15 set (bidi overrides and isolates, the tag block) and over
+            // PP_ROLE_DEFAULT_VALUE_MAX_BYTES (#1200); other format characters stay admitted, as in content.
+            // Values stay as written, `@token` references
             // included; a few name engine tokens (`@pp-band-padding`) that only a default may reference.
             // An EMPTY group or state map (`"typography": {}`, `":hover": {}`) compiles to nothing and would print as a
             // JSON LIST (`[]`, since json_decode makes `{}` a PHP []), which is not the shape an authored map takes, so

@@ -794,6 +794,25 @@ const PP_REFLECTED_NAME_MAX = 256;
 const PP_REFLECTED_ERROR_MAX = 4096;
 
 /**
+ * The invisible format characters a MODEL-FACING sink neutralizes (LAYER-3-CONTRACT §8.2,
+ * ruling P-15, ratified 2026-10-04): the bidi overrides and isolates (U+202A-U+202E,
+ * U+2066-U+2069) and the tag block (U+E0000-U+E007F). Nothing else.
+ *
+ * DELIBERATELY NOT `\p{Cf}`, which is what _pp_clean_reflected_text() below strips from
+ * single-line CLI and refusal messages. In content, that category is the wrong set: ZWNJ
+ * (U+200C) spells Persian and the Indic scripts, ZWJ (U+200D) joins every multi-person and
+ * skin-tone emoji, and right-to-left text needs U+200E, U+200F and U+061C. A site written in
+ * those languages would have its own words corrupted in what the assistant reads and proposes
+ * back. These are the characters that reorder or hide text from a reader without being part
+ * of any word.
+ *
+ * Here, in the always-loaded first file, because two owners use it: the assistant-context
+ * sink in lib/ai-context.php (pp_ai_context_json()) and the role-default shape check in
+ * lib/admin.php (_pp_role_default_value_shape_ok(), #1200).
+ */
+const PP_NEUTRALIZED_FORMAT_PATTERN = '/[\x{202A}-\x{202E}\x{2066}-\x{2069}\x{E0000}-\x{E007F}]/u';
+
+/**
  * Normalizes a piece of caller-supplied text for inclusion in a response.
  *
  * Both callers pass caller-derived text: a style slot name, or the validator
@@ -1681,7 +1700,8 @@ function pp_check_nav_readiness(): array {
  * against real state (issue 132), mirroring pp_composition_pages()'s role
  * for pages.
  *
- * @return array[]  Each: ['id'=>int, 'name'=>string, 'location'=>?string, 'items'=>[['title'=>string,'url'=>string], ...]]
+ * @return array[]  Each: ['id'=>int, 'name'=>string, 'location'=>?string,
+ *                   'items'=>[['title'=>string,'url'=>string,'post_id'=>?int], ...]]
  */
 function pp_get_menus(): array {
     $menus = wp_get_nav_menus();
@@ -1694,8 +1714,14 @@ function pp_get_menus(): array {
             'id'       => $menu->term_id,
             'name'     => $menu->name,
             'location' => $locations[$menu->term_id] ?? null,
+            // `post_id` names the post a post item links to, and is null for a custom link or a
+            // term: the chat lists a post item only to a user who may edit that post (#1242 T2).
             'items'    => array_map(function ($item) {
-                return ['title' => $item->title, 'url' => $item->url];
+                return [
+                    'title'   => $item->title,
+                    'url'     => $item->url,
+                    'post_id' => ($item->type ?? '') === 'post_type' ? (int) ($item->object_id ?? 0) : null,
+                ];
             }, $items ?: []),
         ];
     }
@@ -3490,6 +3516,9 @@ function pp_render_faq_schema(array $items): string {
     return '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
 }
 
+/** The largest inline data: image URI any image sink accepts (bytes). */
+const PP_IMAGE_DATA_URI_MAX_BYTES = 1_000_000;
+
 /**
  * Safely escapes an image source for output in <img src="..."> or a CSS
  * background-image:url(...) value embedded in an HTML style attribute.
@@ -3573,9 +3602,9 @@ function pp_esc_image_src(string $url, int $depth = 0): string {
         return str_replace(')', '%29', esc_url($url));
     }
 
-    // Sanity bound against pathologically large inline payloads.
-    $max_data_uri_length = 1_000_000;
-    if (strlen($url) > $max_data_uri_length) {
+    // Sanity bound against pathologically large inline payloads. One constant, shared with
+    // the Layer-3 content gate's raster data: admission (P-10, lib/content.php).
+    if (strlen($url) > PP_IMAGE_DATA_URI_MAX_BYTES) {
         return '';
     }
 

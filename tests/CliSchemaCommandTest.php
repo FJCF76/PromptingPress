@@ -629,7 +629,7 @@ class CliSchemaCommandTest extends TestCase
     public static function malformedDefaultsProvider(): array
     {
         $p = 'c role r: `defaults` group ';
-        $shape = 'must be a single-line string or a number, or a breakpoint map of them.';
+        $shape = 'must be a single-line string (at most 256 bytes, no bidi or tag characters) or a number, or a breakpoint map of them.';
         return [
             'a list'                  => [[['typography']], 'c role r: `defaults` must be a MAP of groups, not a list.'],
             'group not permitted'     => [['border' => ['width' => '1px']], $p . '`border` is not one of this role\'s `groups`.'],

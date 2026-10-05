@@ -93,7 +93,7 @@ class AiContextStoredShapeTest extends TestCase
             ['component' => 'section', 'props' => ['title' => $bad, 'layout' => 'image-left']]
         ));
         $this->assertSame([], $warnings);
-        $this->assertSame('section | layout: image-left', $line, 'no title segment, and nothing written in its place');
+        $this->assertSame('section | layout: "image-left"', $line, 'no title segment, and nothing written in its place');
     }
 
     /** @dataProvider nonScalarShapes */
@@ -103,7 +103,7 @@ class AiContextStoredShapeTest extends TestCase
             ['component' => 'section', 'props' => ['image_url' => $bad, 'layout' => 'cover']]
         ));
         $this->assertSame([], $warnings);
-        $this->assertSame('section | layout: cover', $line);
+        $this->assertSame('section | layout: "cover"', $line);
     }
 
     /** @dataProvider nonScalarShapes */
@@ -166,7 +166,7 @@ class AiContextStoredShapeTest extends TestCase
             ]]
         ));
         $this->assertSame([], $warnings);
-        $this->assertSame("section | title: \"About\"\n      Style: pad: 2rem", $line, 'the scalar override is still shown');
+        $this->assertSame("section | title: \"About\"\n      Style: pad: \"2rem\"", $line, 'the scalar override is still shown');
     }
 
     public function testAScalarRecipeIsStillShown(): void
@@ -175,7 +175,7 @@ class AiContextStoredShapeTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'About']],
             ['active_recipe' => 'bold']
         );
-        $this->assertSame("section | title: \"About\"\n      Style: recipe: bold", $line);
+        $this->assertSame("section | title: \"About\"\n      Style: recipe: \"bold\"", $line);
     }
 
     public function testAScalarComponentIdIsStillShown(): void
@@ -184,7 +184,7 @@ class AiContextStoredShapeTest extends TestCase
             ['component' => 'section', 'props' => ['title' => 'About']],
             ['component_id' => 'about']
         );
-        $this->assertSame('section (about) | title: "About"', $line);
+        $this->assertSame('section ("about") | title: "About"', $line);
     }
 
     public function testNonArrayPropsSummarizeTheNameOnly(): void
@@ -223,7 +223,7 @@ class AiContextStoredShapeTest extends TestCase
                 ['slot' => 'radius', 'default' => '4px',  'current' => '0'],
             ]]
         );
-        $this->assertSame("section\n      Style: radius: 0", $line);
+        $this->assertSame("section\n      Style: radius: \"0\"", $line);
     }
 
     public function testAnEmptyInspectTargetAddsNoStyleLine(): void
@@ -258,7 +258,7 @@ class AiContextStoredShapeTest extends TestCase
     {
         $this->assertSame('hero | title: "2024"', _pp_summarize_component(['component' => 'hero', 'props' => ['title' => 2024]]));
         $this->assertSame(
-            'hero | layout: split | title: "This is a very long title that should..." | photo.jpg',
+            'hero | layout: "split" | title: "This is a very long title that should be" (truncated) | "photo.jpg"',
             _pp_summarize_component(['component' => 'hero', 'props' => [
                 'layout'    => 'split',
                 'title'     => 'This is a very long title that should be truncated at forty characters',

@@ -228,7 +228,8 @@ buys you a role that passes CI and styles nothing.
   (#1192), so the definition gate checks their SHAPE (#1192): each key a UDC group the
   role's `groups` permits, each group a MAP whose keys are that group's parameters or a
   state (`":hover"`, `":focus-visible"`, `":active"`) holding a map of them, and each
-  value a single-line string or a number, or a `d`/`t`/`p` breakpoint map of them. A role
+  value a single-line string (at most 256 bytes, with no bidi override, isolate or tag
+  character) or a number, or a `d`/`t`/`p` breakpoint map of them. A role
   that fails is reported `unreportable` and left out of the AI prompt's catalog (the
   engine still compiles whatever of its defaults it can place); CI's `SchemaValidationTest` fails on it first. The parameter's
   grammar is checked by the schema walk in `UdcEngineTest`, not by this gate.
@@ -256,7 +257,8 @@ buys you a role that passes CI and styles nothing.
   anything else: each key is a registered UDC group ("is not a UDC group") that the role's
   `groups` permits; each group's value is a MAP of that group's parameters ("must be a MAP of
   parameters"), never a scalar or a list; no state keys (`":hover"`: the tier is a resting
-  default); and each value is a single-line string or a number, or a `d`/`t`/`p` breakpoint map of them.
+  default); and each value is a single-line string (at most 256 bytes, with no bidi override, isolate
+  or tag character) or a number, or a `d`/`t`/`p` breakpoint map of them.
   The gate checks that shape only, not the parameter's grammar: a well-shaped value the parameter
   refuses (a colour that is not a colour) is dropped when the tier compiles, with no message, so
   write values `wp pp schema` lists in `udc_groups` for that parameter. It
