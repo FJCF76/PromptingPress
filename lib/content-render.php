@@ -191,6 +191,33 @@ function _pp_content_render_index(array $items, int $post_id): array {
     return [$memo[1], $memo[2], $memo[3]];
 }
 
+/**
+ * The active render context's view of the band being rendered: the page, the band's key, the
+ * page's render index (per-value tier, render budget) and the band's finished values. For a
+ * component that composes its own content from several values (the custom band, §7.2) so it
+ * renders in the page's context, as every other band does. Null outside a render context.
+ *
+ * @return array{items: array, key: int|string, index: array, counts: array, values: list<array>}|null
+ */
+function pp_content_render_band_view(): ?array {
+    if (!pp_content_render_active()) {
+        return null;
+    }
+    $stack = &_pp_content_render_stack();
+    $frame = &$stack[count($stack) - 1];
+    _pp_content_render_band_results($frame, $frame['band']);
+    if (!is_array($frame['index'])) {
+        return null;
+    }
+    return [
+        'items'  => $frame['items'],
+        'key'    => $frame['band'],
+        'index'  => $frame['index'],
+        'counts' => $frame['counts'],
+        'values' => _pp_content_finish_band($frame['items'], $frame['band'], $frame['index'], $frame['counts']),
+    ];
+}
+
 /** The content sink of a component's prop path ('plain' when the contract names none). */
 function pp_content_prop_sink(string $component, string $path): string {
     return pp_content_prop_contracts()[$component][$path] ?? 'plain';

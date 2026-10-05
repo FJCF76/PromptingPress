@@ -765,4 +765,49 @@ class ContentRenderTest extends TestCase
         $this->assertTrue(pp_update_composition($id, [$band]), 'then an ungated write of the same composition');
         $this->assertSame(['h' => [], 'f' => []], pp_content_vouched($id), 'an ungated action starts its lifecycle clean');
     }
+
+    // ── the custom band (#1242 T5) renders in its page through the same render side ──────
+
+    private function custom(string $markup, array $islands): array
+    {
+        return ['component' => 'custom', 'props' => ['markup' => $markup, 'islands' => $islands]];
+    }
+
+    public function testACustomBandsStoredFailingIslandIsCensusListedAndRendersEmpty(): void
+    {
+        $markup = '<h2 data-pp-island="title"></h2><div data-pp-island="body" data-pp-island-kind="rich"></div>';
+        $id = $this->page([$this->custom($markup, ['title' => 'Hello', 'body' => 'x</div><p>escaped</p>'])]);
+        $rows = pp_content_census([$id]);
+        $this->assertSame([['islands "body"', 'empty', 'E10']], array_map(static fn ($r) => [$r['prop'], $r['outcome'], $r['clause']], $rows),
+            'the island is listed with its clause');
+        $html = $this->render($id);
+        $this->assertStringContainsString('Hello', $html);
+        $this->assertStringNotContainsString('escaped', $html, 'the failing island renders empty');
+        $this->assertStringContainsString('renders EMPTY', $this->findings($id, 'content_stripped_at_render')[0]['message']);
+    }
+
+    public function testACrossBandReferenceFromCustomMarkupDropsAtRenderAndTheIslandsStayInPlace(): void
+    {
+        $markup = '<p aria-describedby="note"><span data-pp-island="lead"></span> and more</p><div data-pp-island="body" data-pp-island-kind="rich"></div>';
+        $id = $this->page([
+            $this->custom($markup, ['lead' => 'Lead text', 'body' => '<p>Body text</p>']),
+            $this->section('<p id="note">the note</p>'),
+        ]);
+        $this->vouch($id, [$markup, '<p>Body text</p>', '<p id="note">the note</p>']);
+        $html = $this->render($id);
+        $this->assertStringNotContainsString('aria-describedby', $html, 'the out-of-band reference is dropped');
+        $this->assertMatchesRegularExpression('#<p\s*><span\s*>Lead text</span> and more</p><div\s*><p>Body text</p></div>#', $html,
+            'and each island still fills its own host');
+    }
+
+    public function testUnvouchedCustomMarkupRendersAtCoreParity(): void
+    {
+        $markup = '<div data-pp-island="t"></div><svg viewBox="0 0 4 4"><circle cx="2" cy="2" r="1"/></svg>';
+        $id = $this->page([$this->custom($markup, ['t' => 'Text'])]);
+        $html = $this->render($id);
+        $this->assertStringContainsString('Text', $html);
+        $this->assertStringNotContainsString('<svg', $html, 'markup no trusted, checked write vouched for renders at core parity');
+        $this->vouch($id, [$markup]);
+        $this->assertStringContainsString('<circle cx="2" cy="2" r="1"/>', $this->render($id), 'vouched, it renders widened');
+    }
 }

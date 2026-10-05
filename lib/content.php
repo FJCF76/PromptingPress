@@ -1167,11 +1167,14 @@ function _pp_content_finish(array $state, array $ctx = []): array {
     // refuses are still in `html`. The render view drops exactly those (remove-only, #1242
     // T3b): "a render-time Loss strips the construct" (§2.3) stays true for cross-band
     // references too. The write path never reads `html`.
-    // Not on the custom band's markup: its island hosts are recorded as byte offsets into
-    // this html, and the custom band is composed and verified as a whole by its own renderer
-    // (pp_content_custom_band_html(), LAYER-3 §7.2).
-    if (!$whole_loss && $html !== '' && !empty($state['drops']) && $state['sink'] !== 'custom') {
-        $html = _pp_content_drop_attributes($html, $state['drops']);
+    // On the custom band's markup the island hosts are byte offsets into this html (§7.2), so
+    // the drop keeps them pointing at the same place.
+    if (!$whole_loss && $html !== '' && !empty($state['drops'])) {
+        if ($state['sink'] === 'custom' && !empty($state['islands'])) {
+            [$html, $state['islands']] = _pp_content_drop_attributes_keeping_offsets($html, $state['drops'], $state['islands']);
+        } else {
+            $html = _pp_content_drop_attributes($html, $state['drops']);
+        }
     }
     $result = [
         'html'   => $html,
@@ -1222,6 +1225,42 @@ function _pp_content_drop_attributes(string $html, array $drops): string {
         }
     }
     return $p->get_updated_html();
+}
+
+/**
+ * _pp_content_drop_attributes() for the custom band's markup, whose island hosts are byte
+ * offsets into `html` (§7.2): each offset is marked with a comment only this call knows, the
+ * attributes are dropped (comments pass through the tag processor untouched), and the offsets
+ * are read back from where the markers landed.
+ *
+ * @return array{0: string, 1: array}  The html and the islands with their offsets moved.
+ */
+function _pp_content_drop_attributes_keeping_offsets(string $html, array $drops, array $islands): array {
+    $nonce = bin2hex(random_bytes(8));
+    $marked = [];
+    foreach ($islands as $name => $host) {
+        if (isset($host['offset']) && is_int($host['offset'])) {
+            $marked[] = [$host['offset'], (string) $name];
+        }
+    }
+    usort($marked, static fn ($a, $b) => $b[0] <=> $a[0]);
+    foreach ($marked as $n => [$offset, $name]) {
+        $html = substr($html, 0, $offset) . '<!--pp-off-' . $nonce . '-' . $n . '-->' . substr($html, $offset);
+    }
+    $html = _pp_content_drop_attributes($html, $drops);
+    // Read back from the FIRST marker in the string: once it is removed, every later marker
+    // is found at its true offset by the next search.
+    foreach (array_reverse($marked, true) as $n => [, $name]) {
+        $marker = '<!--pp-off-' . $nonce . '-' . $n . '-->';
+        $at = strpos($html, $marker);
+        if ($at === false) {
+            $islands[$name]['offset'] = null;
+            continue;
+        }
+        $html = substr($html, 0, $at) . substr($html, $at + strlen($marker));
+        $islands[$name]['offset'] = $at;
+    }
+    return [$html, $islands];
 }
 
 /** Builds one Loss: a fact, not advice (§2.1). */
@@ -3769,6 +3808,30 @@ function pp_content_custom_band_html(array $props): string {
     }
     $item = ['component' => 'custom', 'props' => ['markup' => $markup, 'islands' => $islands]
         + (isset($props['id']) && is_string($props['id']) ? ['id' => $props['id']] : [])];
+    // IN ITS PAGE (#1242 T3b, §2.3): inside a render context, the band's values are the page
+    // render's own (the page's cross-band context, each value at the tier its gated writes
+    // vouched for), so a cross-band reference from the markup is dropped, unvouched markup
+    // renders at core parity, and what renders is what the census and the findings report.
+    // Outside one (a direct call), or when a value of the band is past the render budget, or
+    // the caps above changed what is rendered, the band is judged on its own as before.
+    $view = pp_content_render_band_view();
+    $stored = $view !== null ? ($view['items'][$view['key']] ?? null) : null;
+    if ($view !== null && is_array($stored) && ($stored['component'] ?? null) === 'custom'
+        && ($stored['props']['markup'] ?? null) === $markup && ($stored['props']['islands'] ?? []) === $islands) {
+        $results = [];
+        $complete = true;
+        foreach ($view['values'] as $v) {
+            if ($v['result'] === null) {
+                $complete = false;
+                break;
+            }
+            $results[$v['label']] = $v['result'];
+        }
+        if ($complete) {
+            $ctx = pp_content_band_context($view['items'], $view['key'], $view['index'], $view['counts']);
+            return pp_content_emission_belt(pp_content_custom_compose($stored, $results, $ctx, true)['html']);
+        }
+    }
     $index = pp_content_composition_index([$item]);
     $counts = pp_content_index_counts($index);
     $ctx = pp_content_band_context([$item], 0, $index, $counts);
