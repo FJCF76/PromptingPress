@@ -168,7 +168,10 @@ section is a placeholder the client wants), acknowledge it so it stops failing t
    (whitespace or invisible characters only) is refused.
    `check page` then lists it as "acknowledged as intentional (not failing)" with your note, and
    `validate site` no longer fails on it.
-3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it.
+3. `wp pp check unacknowledge --post_id=<id> --key=<key>` reverses it. It also removes a row
+   `check page` lists as stale or orphaned, or as ignored with its key shown. A row listed as
+   ignored with a **malformed key** (its key is never shown) is removed with
+   `wp pp check unacknowledge --post_id=<id> --malformed` instead (see below).
 
 What cannot be acknowledged: a header or footer finding (item 6; acknowledgements belong to a band on
 a page, so the chrome section prints `[no key: ...]` beside a judgment call there, #1220), an error,
@@ -198,7 +201,8 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
 - **Stale**: the finding is still there but something it judged changed. `check page` lists the
   acknowledgement as STALE and the finding is back among the smells, failing the gate, until you
   review it and acknowledge its new key. A theme upgrade does this to every acknowledgement, on
-  purpose: an upgrade can change what paints. The theme version is the boundary: a development
+  purpose: an upgrade can change what paints. (The upgrade that introduced signed acknowledgements,
+  #1214, lists the old rows as ignored instead; see "Acknowledgements are signed" below.) The theme version is the boundary: a development
   build deployed between releases, a child theme's stylesheet or a plugin's late CSS can change what
   paints without changing any key, and they do not re-open anything. A raw `_css` property can reach
   past its own band (a negative margin, `position`), but its acknowledgement covers that band only.
@@ -210,11 +214,66 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
 
 Acknowledging refuses a key that is not a finding on the page right now, so you can only acknowledge
 the state `check page` just showed you. That proves the state was current, not that anyone looked:
-the required `--note` is where you record what you checked. An acknowledgement row written straight
-into post meta without a note acknowledges nothing; `check page` lists it as ignored, with the
-command that removes it. A band with neither a minted `id` nor an authored `props.id` (for example
+the required `--note` is where you record what you checked. A band with neither a minted `id` nor an authored `props.id` (for example
 one written straight into post meta without them) has no id
 and cannot be acknowledged; write the page through `update_composition`, which mints ids.
+
+**Acknowledgements are signed (#1214).** The key is printed by `check page`, so anyone who can
+write post meta could copy it into a row by hand. `wp pp check acknowledge` therefore signs the row
+it stores, with WordPress's own salts (`wp_hash()`, sha256, under `AUTH_KEY` and `AUTH_SALT`), over
+the note, the timestamp and the site, page and key the row belongs to. `check page` and `validate
+site` check that signature every time they read the row. A row that fails the check acknowledges
+nothing: its finding keeps failing the gate exactly as if the row were absent, and `check page` lists
+the row as an **ignored acknowledgement** and says why. It prints a route only where following it
+cannot destroy a row that is valid in another context, so what it offers depends on the reason:
+
+- **No signature**: the row was written straight into post meta, or before acknowledgements were
+  signed. Every acknowledgement made before the upgrade that brought #1214 reads this way. They are
+  not signed on upgrade, because signing whatever the database held at upgrade time would turn
+  every row planted before it into a valid one. After that upgrade, `check page` lists each old row
+  as an ignored acknowledgement (no signature), not as STALE or ORPHANED, and keeps listing it on
+  every run until you remove it with `unacknowledge`. Re-acknowledge the ones that are still
+  intentional, using the key `check page` prints now (the upgrade changed every key anyway). The
+  line offers both routes: acknowledge again, or remove with `unacknowledge --key=<key>`.
+- **Does not verify**: the row was changed after the command wrote it, moved to another key, page or
+  site of the same multisite network, or signed under other salts. (A copy of the database on
+  another install that shares the same salts, post ids and page state still verifies there: it is
+  the same signed state.) Rotating `AUTH_KEY` / `AUTH_SALT` does this to every row, and
+  so does copying the database to an environment with different salts (a staging push, a dev pull,
+  a CI job that runs `validate site` against a snapshot), and so does a plugin that replaces
+  `wp_hash()` differently in another context. This fails closed on purpose. The line prints **no**
+  route: such a row is valid where it was signed. Rule out a salt or plugin difference first;
+  re-acknowledge on the site, and in the context, that will read the rows; remove a row with
+  `unacknowledge --key=<key>` only once you know it is not a valid one.
+- **Cannot be checked here**: `wp_hash()` gives no salted sha256 signature on this site (a plugin
+  replaces it badly), so nothing can be signed or checked. `check acknowledge` refuses ("The
+  acknowledgement could not be signed with this site's salts ...") until that is fixed. The line
+  prints **no** route and says not to remove the row: it may be a valid acknowledgement that
+  verifies again once signatures work. Fix `wp_hash()`. A plugin that replaces `wp_hash()` or
+  filters the salts only in some contexts (for example, absent under `--skip-plugins`) makes rows
+  signed in one context fail in the other.
+
+A row with no note still acknowledges nothing and is listed as ignored too. A row whose key does not
+have the shape this version prints (`<type>:<band>:<32 hex>`) is ignored whatever its signature
+(it was written straight into post meta, or its type can no longer be acknowledged). Its key is
+never shown, because its bytes could carry a shell or instruction payload: the line gives only its
+length. Do not copy the stored bytes into a command. Remove every such row on the page with
+`wp pp check unacknowledge --post_id=<id> --malformed`, which needs no key and removes only rows
+whose key fails this shape check (a row with a well-formed key, signed or not, is left alone).
+
+What the signature does not protect against: anyone who can run PHP on the site can sign. If the
+salts are not set in `wp-config.php`, are left as the sample phrase, or repeat one another, WordPress
+keeps them in the database (the options table, or the network's `sitemeta` table on multisite),
+where a database writer can read them. A `wp_hash()` or salt filter that ignores
+the salt makes every row forgeable. A row removed with `unacknowledge` and written back byte for
+byte verifies again, but only for the exact state someone once acknowledged. If WordPress cannot
+keep the salts it generates (none in `wp-config.php` and a database it cannot write), they
+change from one process to the next: `check acknowledge` reports success, but every later read
+lists the row as not verifying. Rolling the theme back to a version without signing stops the
+check: there, any noted row whose key matches that version's findings counts again, signed or not
+(including a row written straight into post meta). Any acknowledge or unacknowledge run there
+drops the signatures; after rolling forward, those rows read as unsigned. The readiness
+acknowledgements (`wp pp readiness acknowledge`) are a separate store and are not signed.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 
