@@ -1456,42 +1456,17 @@ function pp_content_style_losses(string $value): array {
 }
 
 /**
- * CSS functions, DEFAULT-DENY (I19; cycle-9 ruling): the functions a value may call. The
- * url() family is not here: a same-document `url(#id)` is admitted by its own rule (P-13)
- * and every other url(), image(), image-set(), src(), element() and -moz-element() is
- * refused, as is any function this list does not name.
+ * CSS functions, DEFAULT-DENY (I19; cycle-9 ruling): the functions a content value may call.
+ *
+ * ONE OWNER FOR LAYER 3 (#1242, orchestrator ruling): the list itself is
+ * pp_layer3_css_functions() in lib/css-layer3.php, which the scoped sheet (3B) reads too, so
+ * the two Layer-3 CSS channels cannot admit different functions. This name stays for the
+ * content gate's call sites. The url() family is not in the list: a same-document `url(#id)`
+ * is admitted by its own rule (P-13), and every other url(), image(), image-set(), src(),
+ * element() and -moz-element() is refused, as is any function the list does not name.
  */
 function pp_content_css_functions(): array {
-    static $cache = null;
-    if ($cache !== null) {
-        return $cache;
-    }
-    return $cache = array_fill_keys([
-        // colour
-        'rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color', 'color-mix', 'light-dark',
-        // maths and custom properties
-        'calc', 'min', 'max', 'clamp', 'round', 'mod', 'rem', 'abs', 'sign', 'sin', 'cos', 'tan', 'asin', 'acos',
-        'atan', 'atan2', 'pow', 'sqrt', 'hypot', 'log', 'exp', 'var', 'env',
-        // transforms
-        'translate', 'translatex', 'translatey', 'translatez', 'translate3d', 'scale', 'scalex', 'scaley', 'scalez',
-        'scale3d', 'rotate', 'rotatex', 'rotatey', 'rotatez', 'rotate3d', 'skew', 'skewx', 'skewy', 'matrix',
-        'matrix3d', 'perspective',
-        // gradients
-        'linear-gradient', 'radial-gradient', 'conic-gradient', 'repeating-linear-gradient',
-        'repeating-radial-gradient', 'repeating-conic-gradient',
-        // filters
-        'blur', 'brightness', 'contrast', 'drop-shadow', 'grayscale', 'hue-rotate', 'invert', 'opacity', 'saturate', 'sepia',
-        // shapes, grid, timing
-        'circle', 'ellipse', 'inset', 'polygon', 'rect', 'xywh', 'repeat', 'minmax', 'fit-content',
-        'cubic-bezier', 'steps', 'linear',
-        // path(): pure geometry data (clip-path, offset-path), references nothing (ruled 2026-10-05).
-        'path',
-        // font-variant-alternates: name font-internal features, fetch nothing (ruled 2026-10-05).
-        'stylistic', 'styleset', 'character-variant', 'swash', 'ornaments', 'annotation',
-        // NOT admitted, by ruling (2026-10-05): attr() (reads attributes into CSS, a text-to-style
-        // channel) and the anchor-positioning family (anchor(), anchor-size(): cross-element
-        // positioning, refused until ruled); and every function this list does not name.
-    ], true);
+    return pp_layer3_css_functions();
 }
 
 /**

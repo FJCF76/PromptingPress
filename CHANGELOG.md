@@ -6,7 +6,45 @@ All notable changes to PromptingPress are documented here.
 
 ## Unreleased — Sprint 6
 
+### Added
+
+- **Layer 3B: a scoped style sheet on every band (#1242 T4).** A band's `udc` map now takes
+  `_scoped`, beside `_tokens`: a list of rules, each `{selector, css}` with an optional `media`,
+  `supports` or `container` condition, that style the band and anything inside it with ordinary CSS selectors.
+  Each rule is emitted as `[data-pp-band="<id>"] <selector>` (or `[data-pp-band="<id>"]:hover` when
+  the selector starts with a pseudo-class), so it can reach only its own band: a selector that
+  could match outside the band (a sibling combinator at the root, a `:has()` that looks outward)
+  is refused when it is written, as are `:root`, `:scope` and `:host`, which never mean the
+  band, namespaces and a top-level selector list (write one rule per selector). The pseudo-classes
+  and pseudo-elements a selector may use are pinned lists, and an embed band refuses attribute
+  selectors. Declarations take the same grammar as a band's `_css`, plus your own custom
+  properties (no strings in them, never `--pp-*` or a site token name), `content` limited to
+  `""`, `none` and `normal`, `@media` and `@container` conditions from a pinned feature list and
+  `@supports` tests whose value passes the same checks,
+  `url(#id)` only on `filter`, `clip-path`, `mask`, `marker`, `fill` and `stroke`, and a
+  background image only as a media-library attachment id written as a number (a token
+  reference such as `"@img"` is refused). CSS functions come from the same
+  fixed list the Layer-3 content check uses. Every rule is checked again when the page renders,
+  so a stored rule the gate no longer admits is dropped there, not emitted. A band holds at most
+  128 rules, 64 declarations a rule and a 64 KiB compiled sheet. Each scoped selector carries
+  the band's reduced-motion guard. `wp pp schema <component>` lists the scoped sheet's keys,
+  bounds and pinned lists, and an untyped property in a scoped rule is reported as unchecked,
+  as in `_css`.
+- **What a scoped rule may not do, and why.** A rule that can match the band root itself may set
+  `display` only to a fixed set of values and may not set custom properties, so it cannot make
+  the band a list item and give the page a marker. On a band whose `_css` already sets a string
+  list marker or counter, scoped `display`, `list-style` and `content` take the same narrow set.
+  `counter()` and `counters()` are refused in `content` until Layer 2's counter path closes
+  (#1254). Quote keywords (`open-quote` and the rest) and CSS-wide keywords on text-bearing
+  properties are refused, and the text-bearing properties include CSS Overflow 4's
+  `block-ellipsis` and `line-clamp`, which take no string.
+
 ### Changed
+
+- **One list of CSS functions for both Layer-3 channels.** The content check's admitted CSS
+  functions (`pp_content_css_functions()`) now come from `pp_layer3_css_functions()`, which the
+  scoped sheet reads too, so content and scoped CSS cannot admit different functions. The list
+  itself is unchanged.
 
 - **Layer 3A: content is checked when it is written (#1242 T3a).** Every content prop (a band's
   body, an FAQ answer, a table cell, embed content, hero proof, the INLINE props and, under the
@@ -97,6 +135,10 @@ All notable changes to PromptingPress are documented here.
 
 ### Fixed
 
+- **Scoped sheet: a control byte can no longer end a `url(#…)` early (#1242 T4).** Found in
+  review before release: a fragment URL with a line break inside it, such as `url(#a` followed by
+  a newline, could leave an unterminated value that the browser reads differently from the gate.
+  Any control byte in a scoped value, `content` included, is now refused at write and at render.
 - **Editor: the live preview renders content in an isolated origin.** The composition editor's
   preview frame now shares no origin with the admin screen (LAYER-3-CONTRACT §8.3), and the
   preview document carries its own content policy: script in it cannot use the request APIs or
@@ -198,6 +240,13 @@ All notable changes to PromptingPress are documented here.
 - The Layer-3 contract marks §8.2 (the assistant's context) as met, with the sink owner and the
   tests that pin it. `AI_CONTEXT.md` lists the sink owner and the menu filter among the context
   functions, and `ai-instructions/add-component.md` states the role-default value limits.
+- The scoped sheet is documented where authors look: `ai-instructions/style-component.md` has a
+  `_scoped` section (shape, selectors, what a declaration may hold, bounds),
+  `ai-instructions/website-building.md`, `ai-instructions/composition.md`,
+  `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md` (the `udc_scoped` field of
+  `wp pp schema`), `AI_RULES.md`, `AI_CONTEXT.md` and `README.md` name it,
+  and the Layer-3 contract's §6 records every T4 ruling, the counter deviation bound to #1254 and
+  the named divergences.
 
 ### Tests
 
@@ -259,6 +308,15 @@ All notable changes to PromptingPress are documented here.
   and Chromium, checks that an admitted `id="top"` is a working anchor, and
   runs a mutation-XSS corpus through sanitize, browser parse and sanitize again (T-9). The PHPUnit
   suite now loads WordPress 7.0's HTML API from a test fixture (7.1.2's with `PP_TEST_HTML_API=7.1.2`).
+- `UdcScopedSheetTest` pins the scoped sheet (#1242 T4): every selector, declaration and condition
+  refusal at write and again at render, with each review reproduction pinned red before its fix;
+  confinement of the emitted selector; the bounds at their edges; the band-root and marker-band
+  rules; the one CSS function list shared with the content check; and the `wp pp schema` report.
+  `tests/e2e/scoped-sheet.spec.ts` checks in Chromium that a scoped rule paints inside its band
+  and not in the band beside it (with counterfactual selectors), `:first-child` on the band root,
+  the cascade order against `_css`, an attachment background, and that an embed band's selector
+  cannot probe attributes over the network. The prompt byte budget is 94,988 (measured on the
+  merged tree; was 92,970).
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
