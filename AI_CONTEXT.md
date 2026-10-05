@@ -806,7 +806,7 @@ On Apply, all of a proposal's steps execute in a single request to `wp_ajax_pp_a
 |----------|---------|
 | `pp_ai_system_prompt()` | Assembles complete system prompt |
 | `pp_ai_page_context($post_id)` | Returns composition + metadata for a specific page; `[]` when the page does not exist or the current user may not edit it |
-| `pp_ai_page_context_permitted($page_id)` | Whether the current user may have this page in the chat context: `edit_post` on it (no page in scope is permitted). Used by `ai-stream.php`, `wp_ajax_pp_ai_chat` and `pp_ai_page_context()` |
+| `pp_ai_page_context_permitted($page_id)` | Whether the current user may have this page in the chat context: `edit_post` on it. A null or 0 `page_id` is allowed: no page-specific context is loaded. Used by `ai-stream.php`, `wp_ajax_pp_ai_chat` and `pp_ai_page_context()` |
 | `pp_ai_media_inventory($limit)` | Returns recent media attachments (id, filename, url, alt, mime, dimensions) |
 | `pp_ai_site_context()` | Bundles all site context into a single array |
 | `pp_ai_format_messages($system, $conversation, $page_id)` | Formats for OpenAI chat completions API |

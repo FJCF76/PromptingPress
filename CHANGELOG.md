@@ -10,8 +10,8 @@ All notable changes to PromptingPress are documented here.
 
 - **Chat: page context honours per-page permissions.** The AI chat places a page in its context
   only for a user who can edit that page, on both the streaming and the non-streaming path. For
-  any other page the request gets the chat's usual permission refusal, before anything else is
-  checked, and the chat shows that refusal instead of retrying in compatibility mode. Nothing
+  any other page the request gets the chat's usual permission refusal, right after the chat's
+  own permission check and before any provider, message or page work, and the chat shows that refusal instead of retrying in compatibility mode. Nothing
   changes for an editor or administrator working on pages they can edit.
 
 ### Tests
