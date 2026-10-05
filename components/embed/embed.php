@@ -93,12 +93,12 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
     <div class="container">
 
         <?php if ($title) : ?>
-            <h2 class="embed__heading"><?php echo esc_html($title); ?></h2>
+            <h2 class="embed__heading"><?php echo pp_content_prop_html('embed', 'title', $title); ?></h2>
         <?php endif; ?>
 
         <?php if ($content) : ?>
             <div class="embed__content">
-                <?php echo do_shortcode(wp_kses_post($content)); ?>
+                <?php echo do_shortcode(pp_content_prop_html('embed', 'content', $content)); ?>
             </div>
         <?php endif; ?>
 

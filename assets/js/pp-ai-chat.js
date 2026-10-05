@@ -1611,6 +1611,10 @@ function ppChatGetErrorStepClass(data) {
     // was wrong to clear styling from a band that does not exist is the #667 defect.
     if (code === 'component_not_found') return 'pp-ai-step-fixable';
     if (code === 'invalid_style_value' || code === 'invalid_recipe') return 'pp-ai-step-fixable';
+    // THE LAYER-3 CONTENT REFUSALS (#1242 T3b). Both refuse the write whole and name what to
+    // change (the construct and its rule, or the prop over the size cap), and resending the
+    // content without it lands: fixable, never a hard failure.
+    if (code === 'content_construct_excluded' || code === 'content_too_large') return 'pp-ai-step-fixable';
     return 'pp-ai-step-failed';
 }
 
@@ -1668,6 +1672,8 @@ function ppChatGetStatusMessage(data) {
     if (code === 'invalid_style_slot') return 'This band still stores styling from the old system, which blocks edits to it. Clear it first — see details above.';
     if (code === 'component_not_found') return 'I couldn\'t find that component on the page. Check the id and try again.';
     if (code === 'invalid_style_value') return 'The value format needs adjustment. See suggestions above.';
+    if (code === 'content_construct_excluded') return 'The content holds markup the content check refuses. Nothing was saved; send it without the part named above.';
+    if (code === 'content_too_large') return 'That content is larger than one prop may hold. Nothing was saved; split it across bands or items.';
     return 'Some changes couldn\'t be previewed. See details above.';
 }
 

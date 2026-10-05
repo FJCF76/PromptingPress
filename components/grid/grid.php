@@ -195,7 +195,7 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
                     <h2 class="grid__heading"><?php echo pp_render_heading_with_accent($title, $title_accent, 'grid__heading-accent'); ?></h2>
                 <?php endif; ?>
                 <?php if ($subheading) : ?>
-                    <p class="grid__subheading"><?php echo esc_html($subheading); ?></p>
+                    <p class="grid__subheading"><?php echo pp_content_prop_html('grid', 'subheading', $subheading); ?></p>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -404,17 +404,19 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
                             <?php endif; ?>
 
                             <?php if ($item_title) : ?>
-                                <h3 class="grid__item-title"><?php echo esc_html($item_title); ?></h3>
+                                <h3 class="grid__item-title"><?php echo $is_listing ? esc_html($item_title) : pp_content_prop_html('grid', 'items[].title', $item_title); ?></h3>
                             <?php endif; ?>
 
                             <?php if ($item_text) : ?>
-                                <?php // Inline-HTML supporting-text prop (#439): a/strong/em/br
-                                      // allowed and sanitized; block/script tags stripped.
+                                <?php // Inline-HTML supporting-text prop (#439): the Layer-3 INLINE
+                                      // contract, rendered from the check's own view (#1242
+                                      // T3b); a posts-listing card is WordPress data and keeps
+                                      // pp_kses_inline().
                                       // The v1 `text_role` preset class is gone (#1101): its
                                       // four values were mono/meta/label/kicker, two of which
                                       // measured byte-identical to the default above 767px, and
                                       // per-card typography is what an item `udc` map expresses. ?>
-                                <p class="grid__item-text"><?php echo pp_kses_inline($item_text); ?></p>
+                                <p class="grid__item-text"><?php echo $is_listing ? pp_kses_inline($item_text) : pp_content_prop_html('grid', 'items[].text', $item_text); ?></p>
                             <?php endif; ?>
 
                             <?php if (!empty($bullets)) : ?>

@@ -636,7 +636,9 @@ class ContentPredicateTest extends TestCase
 
     public function testDelta4AddsNoopenerOnSvgLinksToo(): void
     {
-        $html = pp_content_sanitize('<svg><a href="/x" target="_blank"><text>t</text></a><use xlink:href="#i"/></svg>', 'rich')['html'];
+        // The reference resolves in the prop (`#i` is defined here): an unresolved one is E12, and
+        // the render view drops it (#1242 T3b).
+        $html = pp_content_sanitize('<svg><a href="/x" target="_blank"><text>t</text></a><defs><g id="i"></g></defs><use xlink:href="#i"/></svg>', 'rich')['html'];
         $this->assertStringContainsString('target="_blank" rel="noopener"', $html);
         $this->assertStringContainsString('xlink:href="#i"', $html, 'the render view keeps the qualified attribute name');
     }

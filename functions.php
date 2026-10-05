@@ -25,6 +25,8 @@ require_once get_template_directory() . '/lib/screenshot.php';
 require_once get_template_directory() . '/lib/setup.php';
 require_once get_template_directory() . '/lib/post-apply-validate.php';
 require_once get_template_directory() . '/lib/content.php';
+require_once get_template_directory() . '/lib/content-render.php';
+require_once get_template_directory() . '/lib/content-census.php';
 
 if (is_admin()) {
     require_once get_template_directory() . '/lib/ai-chat.php';

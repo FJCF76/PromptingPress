@@ -1721,10 +1721,11 @@ class InvariantTest extends TestCase
         // the weakest link in a scanner: at 13 against a real 19, six guarded sites could
         // be deleted or renamed out of the scan and this would still pass, so the one
         // assertion standing between a silently shrinking scan and a green run would not
-        // fire. The real distribution today is table 1, grid 1, footer 3, section 4, nav 2,
-        // hero 4, cta 2, faq 1, embed 1.
+        // fire. The real distribution today is grid 1, footer 3, section 1, nav 2, hero 2,
+        // cta 2 (#1242 T3b moved the eight rich-content sites, section 3, hero 2, table,
+        // faq and embed, to pp_content_prop_html(), which takes any value).
         $this->assertSame(
-            19,
+            11,
             $sites,
             'the number of component call sites reaching core\'s esc_url() / wp_kses_post()'
             . ' changed (#730). If you ADDED one, it must carry the guard (or be exempted by'

@@ -502,8 +502,12 @@ function pp_render_composition_bands(array $items, int $owner_page_id = 0): void
             }
         }
     }
+    // LAYER 3A RENDER CONTEXT (#1242 T3b): every content prop of these STORED bands renders
+    // through the one predicate, with this composition's cross-band context and this page's
+    // verified headings (lib/content-render.php). Closed in the finally below.
+    pp_content_render_begin($items, $owner_page_id > 0 ? $owner_page_id : (int) get_the_ID());
     try {
-        foreach ($items as $item) {
+        foreach ($items as $band_key => $item) {
             // A band whose `component` is not a string is skipped (#1189). Before this guard
             // any shape reached the string cast below, and an array raised "Array to string
             // conversion" on every render of every route this loop serves. Only a raw meta
@@ -527,9 +531,11 @@ function pp_render_composition_bands(array $items, int $owner_page_id = 0): void
             // it is still in the composition, still refuses every edit to its band until
             // cleared, and is still named in the refusal (_pp_validate_style_slot_map).
             $props = pp_udc_promote_band_identity($item, $props);
+            pp_content_render_band($band_key);
             pp_get_component((string) $item['component'], $props);
         }
     } finally {
+        pp_content_render_end();
         if ($owner !== null) {
             foreach ($post_globals as $name) {
                 if (array_key_exists($name, $saved)) {
@@ -3379,6 +3385,15 @@ function _pp_udc_dangling_background_images(array $udc): array {
  * @return string  Safe-to-echo HTML (already escaped) — do not pass through esc_html() again.
  */
 function pp_render_heading_with_accent(string $title, string $accent, string $accent_class): string {
+    // LAYER 3A (#1242 T3b): a STORED title whose markup passed the 3A write gate renders
+    // through the predicate's parsed view, with the accent matched on its text runs only
+    // (lib/content-render.php). Every other title, including every title stored before the
+    // gate and every title that fails the predicate, takes the plain-text path below,
+    // byte for byte what it always was (the stored-intent rule, routed item 17).
+    $markup = pp_content_title_markup_html($title, $accent, $accent_class);
+    if ($markup !== null) {
+        return $markup;
+    }
     if ($accent === '') {
         return esc_html($title);
     }
@@ -7308,6 +7323,7 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         // `history_entry_not_restorable` (#818) sends its caller to exactly this listing;
         // spelling it the same way here is the #650/#652 rule applied to an operator route
         // rather than to a sentence about corruption.
+        pp_content_reset_vouches(); // a refused write's vouch notes are spent too (#1242 T3b)
         $ring    = pp_get_composition_history($post_id);
         $pointer = $ring
             ? ' Earlier states of this page are recorded in its history ring — list them with'
@@ -7328,7 +7344,7 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         );
     }
 
-    return _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version, $in_lock_precondition) {
+    $committed = _pp_with_composition_lock($post_id, function ($wpdb) use ($post_id, $json, $hash, $expected_version, $in_lock_precondition, $composition) {
         // Read the version fresh from the DB inside the lock (bypassing the meta cache the
         // pre-lock freshness check may have warmed). Absent → 0, so the first write is v1.
         $current_version = _pp_read_composition_version_locked($wpdb, $post_id);
@@ -7574,6 +7590,12 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         // (new version, stale hash) can only make the freshness check MISMATCH, which
         // fails closed (rejects), never a silent false pass.
         update_post_meta($post_id, '_pp_composition', wp_slash($json));
+        // The stored-intent marker (#1242 T3b): the markup headings the 3A gate admitted in
+        // this request and this composition holds may render as markup from now on. Only a
+        // gated write noted any (pp_content_note_vouches()); a restore or an ungated
+        // path records nothing. Written before the version, so a reader that sees the new
+        // version sees its marker.
+        pp_content_record_verified($post_id, $composition);
         update_post_meta($post_id, '_pp_composition_hash', $hash);
         update_post_meta($post_id, '_pp_composition_version', $next_version);
         return true;
@@ -7582,6 +7604,15 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
         'Could not acquire the composition write lock for post ' . $post_id
         . '; the write was skipped to avoid a lost update. Retry once contention clears.'
     ));
+    // P-27 (#1242 T3b): while the last census found props that render empty, an accepted
+    // write schedules a re-run (on a later request), so the admin notice follows the fix.
+    // Whatever the outcome, this write's vouch notes are spent: a commit recorded them, a
+    // refusal discards them (#1242 T3b), so they never reach a later write in this request.
+    pp_content_reset_vouches();
+    if ($committed === true) {
+        pp_content_census_after_write();
+    }
+    return $committed;
 }
 
 /**

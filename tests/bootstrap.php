@@ -2064,6 +2064,9 @@ if (!defined('DAY_IN_SECONDS')) {
 
 if (!function_exists('wp_next_scheduled')) {
     function wp_next_scheduled(string $hook, array $args = []) {
+        if (isset($GLOBALS['_pp_test_store']['cron_single'][$hook][md5(serialize($args))])) {
+            return $GLOBALS['_pp_test_store']['cron_single'][$hook][md5(serialize($args))]['timestamp'];
+        }
         return $GLOBALS['_pp_test_store']['cron'][$hook] ?? false;
     }
 }
@@ -2080,10 +2083,52 @@ if (!function_exists('wp_schedule_event')) {
     }
 }
 
+if (!function_exists('wp_schedule_single_event')) {
+    // #1242 T3b (the census re-run). Keyed by hook AND args, as core keys single events, so
+    // the caller's wp_next_scheduled($hook, $args) guard is what dedups, never the stub.
+    function wp_schedule_single_event(int $timestamp, string $hook, array $args = [], bool $wp_error = false): bool {
+        $GLOBALS['_pp_test_store']['cron_calls'][$hook] = ($GLOBALS['_pp_test_store']['cron_calls'][$hook] ?? 0) + 1;
+        $GLOBALS['_pp_test_store']['cron_single'][$hook][md5(serialize($args))] = ['timestamp' => $timestamp, 'args' => $args];
+        return true;
+    }
+}
+
+if (!function_exists('get_current_user_id')) {
+    function get_current_user_id(): int {
+        return (int) ($GLOBALS['_pp_test_user_id'] ?? 1);
+    }
+}
+
+if (!function_exists('get_user_meta')) {
+    function get_user_meta(int $user_id, string $key = '', bool $single = false) {
+        $value = $GLOBALS['_pp_test_store']['user_meta'][$user_id][$key] ?? null;
+        return $value === null ? ($single ? '' : []) : ($single ? $value : [$value]);
+    }
+}
+
+if (!function_exists('update_user_meta')) {
+    function update_user_meta(int $user_id, string $key, $value, $prev = '') {
+        $GLOBALS['_pp_test_store']['user_meta'][$user_id][$key] = $value;
+        return true;
+    }
+}
+
+if (!function_exists('wp_nonce_url')) {
+    function wp_nonce_url(string $url, $action = -1, string $name = '_wpnonce'): string {
+        return $url . (str_contains($url, '?') ? '&' : '?') . $name . '=nonce';
+    }
+}
+
 if (!function_exists('wp_clear_scheduled_hook')) {
     function wp_clear_scheduled_hook(string $hook, array $args = []): int {
         $existed = isset($GLOBALS['_pp_test_store']['cron'][$hook]) ? 1 : 0;
         unset($GLOBALS['_pp_test_store']['cron'][$hook]);
+        // Single events are keyed by args, as core clears only the events whose args match.
+        $sig = md5(serialize($args));
+        if (isset($GLOBALS['_pp_test_store']['cron_single'][$hook][$sig])) {
+            unset($GLOBALS['_pp_test_store']['cron_single'][$hook][$sig]);
+            $existed++;
+        }
         return $existed;
     }
 }
@@ -2189,3 +2234,5 @@ require_once $_pp_lib . '/ai-chat.php';
 require_once $_pp_lib . '/post-apply-validate.php';
 require_once $_pp_lib . '/setup.php';
 require_once $_pp_lib . '/content.php';
+require_once $_pp_lib . '/content-render.php';
+require_once $_pp_lib . '/content-census.php';

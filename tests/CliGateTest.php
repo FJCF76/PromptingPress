@@ -700,6 +700,7 @@ class CliGateTest extends TestCase
      */
     private const OPTIONAL_POST_ID_COMMANDS = [
         'pp apply preflight',
+        'pp content census',
         'pp screenshot capture',
     ];
 
@@ -1485,6 +1486,7 @@ class CliGateTest extends TestCase
             'pp check page'                  => [PP_Check_Command::class, 'page'],
             'pp check acknowledge'           => [PP_Check_Command::class, 'acknowledge'],
             'pp check unacknowledge'         => [PP_Check_Command::class, 'unacknowledge'],
+            'pp content census'              => [PP_Content_Command::class, 'census'],
             'pp validate page'               => [PP_Validate_Command::class, 'page'],
             'pp operate inspect-composition' => [PP_Operate_Command::class, 'inspect_composition'],
             'pp operate patch'               => [PP_Operate_Command::class, 'patch'],

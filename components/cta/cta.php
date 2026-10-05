@@ -229,10 +229,10 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                 <?php endif; ?>
 
                 <?php if ($body) : ?>
-                    <?php // Inline-HTML supporting-body prop (#439): a link + light
-                          // emphasis (a/strong/em/br) is allowed and sanitized via
-                          // pp_kses_inline; block/script tags are stripped. ?>
-                    <p class="cta__body"><?php echo pp_kses_inline($body); ?></p>
+                    <?php // Inline-HTML supporting-body prop (#439): the Layer-3 INLINE
+                          // contract (pp_content_prop_contracts()), checked at write and
+                          // rendered from the check's own view (#1242 T3b). ?>
+                    <p class="cta__body"><?php echo pp_content_prop_html('cta', 'body', $body); ?></p>
                 <?php endif; ?>
             </div>
             <?php endif; ?>

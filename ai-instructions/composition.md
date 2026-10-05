@@ -71,14 +71,20 @@ next. The rule (#439):
 
 | Contract | Props | What you may write |
 |----------|-------|--------------------|
-| **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer`, `table.rows[][]` cells, `embed.content`, `hero.proof`, `custom.markup` (plus the island attributes), a `rich` island | Block markup: paragraphs, lists, headings, links, `strong`/`em`. `section.body` and `faq.items[].answer` are the main prose surfaces; a `table` **cell** takes the same contract (its `headers` and `caption` do not — those are plain text); `embed.content` is additionally passed through `do_shortcode()` after sanitizing, which is why shortcode brackets survive; `hero.proof` is a free-form trust-signal panel. |
-| **Inline HTML** (`a, strong, em, br`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote`, an `inline` island | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements: a write with `<p>`, `<ul>` or `<h2>` here is refused. |
-| **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `grid.items[].bullets[]`, `testimonials.items[].author`, `faq.items[].question`, `table.headers[]`, `table.caption`, `logos.items[].label`, `section.body_items[]`, `section.panel_body`, `section.panel_items[]`, a `plain` island (the default kind), and all URLs | Text only. Any `<...>` renders as visible characters, not markup. Note `table` splits its contract: **cells** are rich, **headers and caption** are plain. |
+| **Rich HTML** (Layer 3) | `section.body`, `faq.items[].answer`, `table.rows[][]` cells, `embed.content`, `hero.proof`, `custom.markup` (plus the island attributes), a `rich` island | Post markup: paragraphs, lists, headings, links, `strong`/`em`, plus inline SVG and MathML, `picture` and `srcset`. `section.body` and `faq.items[].answer` are the main prose surfaces; a `table` **cell** takes the same contract (its `headers` and `caption` do not — those are plain text); `embed.content` is additionally passed through `do_shortcode()` after the content check, which is why shortcode brackets survive (shortcode output is plugin output, outside the check); `hero.proof` is a free-form trust-signal panel. |
+| **Inline HTML** (`a, strong, em, br, span, sup, sub, small, mark, code`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote`, an `inline` island | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements: a write with `<p>`, `<ul>` or `<h2>` here is refused. |
+| **Titles and headings** (the inline set without `a`) | every `title`, `subheading`, `section.panel_heading`, `grid.items[].title` | Text, or light inline markup such as `H<sub>2</sub>O` or `<em>fast</em>`. No links. A literal `<` is written `&lt;`. Markup renders as markup only when a checked write admitted it: a title stored before Layer 3 keeps rendering as the text it was until it is edited (re-sending it unchanged does not re-check it). |
+| **Plain text** (escaped) | Eyebrows, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].bullets[]`, `testimonials.items[].author`, `faq.items[].question`, `table.headers[]`, `table.caption`, `logos.items[].label`, `section.body_items[]`, `section.panel_body`, `section.panel_items[]`, a `plain` island (the default kind), and all URLs | Text only. Any `<...>` renders as visible characters, not markup. Note `table` splits its contract: **cells** are rich, **headers and caption** are plain. |
 
-Both HTML contracts are checked at write: content with `script`, `style`, `iframe`,
+Every content contract is checked at write: content with `script`, `style`, `iframe`,
 a form, event handlers (`onclick`) or a `javascript:` URL is refused whole with
-`content_construct_excluded`, naming the construct; nothing is stripped or stored.
-In a title or other plain-text prop, write a literal `<` as `&lt;`. A link in a supporting-text prop is normal marketing copy — write it
+`content_construct_excluded`, naming the construct; nothing is stripped or stored. A prop
+over 65,536 bytes is refused with `content_too_large`. In a title, write a literal `<` as
+`&lt;`. The page renders stored content through the same check: content stored before it
+(a restore, an old page) that the check refuses is reported as `content_stripped_at_render`
+(a warning naming the band, the prop, the construct and the rule; a prop whose markup escapes
+its container or cannot be verified renders EMPTY, a title renders as plain text). Edit the
+prop to remove what it names. `wp pp content census` lists every such prop on the site. A link in a supporting-text prop is normal marketing copy — write it
 as real HTML (`<a href="...">`), not as escaped source, and never put a link in a
 plain-text prop (it will show as literal `<a href=...>` text on the page).
 
@@ -788,7 +794,8 @@ wp pp action execute create_page --run-id=<uuid> --params='{
 ```
 
 Then read the envelope. `ok: true` is not the whole result: an empty `findings` array, or one holding only
-`severity: info` notes (`udc_token_minted`, #1194), is the positive confirmation; any error or
+`severity: info` notes (`udc_token_minted`, #1194; `content_inline_style`, `content_plugin_output`,
+`content_global_shadow`, Layer 3), is the positive confirmation; any error or
 warning in it is the engine telling you a value did not land the way you wrote it. `create_page` is all-or-nothing — if the composition write fails, the page it created
 moments earlier is removed rather than left behind empty.
 

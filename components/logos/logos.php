@@ -60,7 +60,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
     <div class="container">
 
         <?php if ($title) : ?>
-            <h2 class="logos__heading"><?php echo esc_html($title); ?></h2>
+            <h2 class="logos__heading"><?php echo pp_content_prop_html('logos', 'title', $title); ?></h2>
         <?php endif; ?>
 
         <?php if (!empty($items)) : ?>

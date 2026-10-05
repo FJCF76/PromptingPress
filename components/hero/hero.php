@@ -205,6 +205,9 @@ if (!in_array($vertical_align, $allowed_vertical_aligns, true)) {
     $vertical_align = 'center';
 }
 
+// Trimmed for the emptiness and layout checks only: the render is handed the STORED bytes
+// ($proof), so it reads the predicate's own judgment of them, with their vouched tier
+// (#1242 T3b). pp_content_prop_html() takes any value and renders a non-scalar as nothing.
 $proof_markup        = trim((string) $proof);
 
 // Graceful degradation (#440): the "split" layout only makes sense when the
@@ -270,7 +273,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                 <h1 class="hero__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'hero__title-accent'); ?></h1>
 
                 <?php if ($subheading) : ?>
-                    <p class="hero__subtitle"><?php echo esc_html($subheading); ?></p>
+                    <p class="hero__subtitle"><?php echo pp_content_prop_html('hero', 'subheading', $subheading); ?></p>
                 <?php endif; ?>
 
                 <?php if ($button_text) : ?>
@@ -291,13 +294,13 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                 <?php endif; ?>
 
                 <?php if ($proof_markup && $effective_layout !== 'split') : ?>
-                    <div class="hero__proof"><?php echo wp_kses_post($proof_markup); ?></div>
+                    <div class="hero__proof"><?php echo pp_content_prop_html('hero', 'proof', $proof); ?></div>
                 <?php endif; ?>
             </div>
 
             <?php if ($effective_layout === 'split' && $proof_markup) : ?>
                 <div class="hero__surface" aria-label="Product workflow surface">
-                    <?php echo wp_kses_post($proof_markup); ?>
+                    <?php echo pp_content_prop_html('hero', 'proof', $proof); ?>
                 </div>
             <?php elseif ($effective_layout === 'split' && $has_split_media) : ?>
                 <div class="hero__image-wrap">

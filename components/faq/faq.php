@@ -183,7 +183,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                             <?php echo esc_html($question); ?>
                         </summary>
                         <div class="faq__answer">
-                            <?php echo wp_kses_post($answer); ?>
+                            <?php echo pp_content_prop_html('faq', 'items[].answer', $answer); ?>
                         </div>
                     </details>
                 <?php endforeach; ?>

@@ -1328,3 +1328,20 @@ describe('compositionUndoTarget', function () {
         expect(compositionUndoTarget(steps)).toEqual({ postId: '5', stepsBack: 2 });
     });
 });
+
+// ─── The Layer-3 content refusals are fixable, not hard failures (#1242 T3b) ─────────
+//
+// `content_construct_excluded` and `content_too_large` refuse a write whole and name what
+// to change; resending the content without it lands. Before T3b both fell through to the
+// red `pp-ai-step-failed` class and the generic "couldn't be previewed" sentence.
+describe('the content refusal codes are styled by what the author can do', function () {
+    test.each([
+        ['content_construct_excluded', 'send it without the part named above'],
+        ['content_too_large', 'split it across bands or items'],
+    ])('%s is fixable and its sentence names the repair', function (code, repair) {
+        var data = { error_code: code, user_message: 'x' };
+        expect(getErrorStepClass(data)).toBe('pp-ai-step-fixable');
+        expect(getStatusMessage(data)).toContain(repair);
+        expect(getStatusMessage(data)).toContain('Nothing was saved');
+    });
+});

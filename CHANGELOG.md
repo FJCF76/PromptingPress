@@ -122,6 +122,60 @@ All notable changes to PromptingPress are documented here.
   preview and the findings report never refuse on content. A write that adds a band anchor equal
   to an id already inside another band's content is refused on the band being changed.
 
+- **Pages render stored content through the same check (#1242 T3b).** Every content prop of a
+  stored page now renders what the Layer-3 check admits, read with the whole page as context:
+  inline SVG, `picture`, the wider inline set and everything else the write admits now paints.
+  Content stored before the check (an older page, a restore, a raw write) can hold something
+  it refuses. Then the page leaves that construct out (an event handler, a script and its
+  text), and reports it. A prop whose markup escapes its container (`x</div>`) or that the
+  HTML parser cannot verify (`<p><a href="#">x</p>`, `<p><b>Note</p><p>rest</p>`) renders
+  **empty**, and the rest of the band and the page render normally; so does a prop over 64 KiB.
+  Each case is reported as `content_stripped_at_render` (a warning in `wp pp check page`, the
+  write's `findings` and the chat's report), naming the band, the prop, the construct and the
+  rule. Edit the prop to remove what it names, and save. A cross-band id reference the check refuses is
+  dropped from the rendered markup too. The custom band (below) renders the same way: its markup and
+  islands are judged in their page's context and at the level their saves vouched for, and the
+  census and findings list them.
+- **Stored content keeps rendering at WordPress's own level until a trusted, checked write
+  saves it.** The wider set Layer 3 admits (inline SVG, MathML, `data:` images, custom elements
+  and the rest beyond core's `post` list) renders only for content a user with the
+  `unfiltered_html` capability saved through the editor or the AI after this release. Content
+  stored earlier, or by anyone else, renders exactly what WordPress's own sanitizer showed
+  before; anything beyond that is left out and reported (`content_stripped_at_render`, rule
+  `unfiltered_html`). Saving content unchanged does not count: edit it.
+- **A page view checks at most 1 MiB or 4,096 values of stored content.** On a page that holds
+  more, the rest renders through WordPress's own sanitizer as before, and the page reports
+  `content_not_checked` (a warning naming the bands), so a very large page never makes a page
+  view slow. The editor preview has the same bound and the write's size limits.
+- **Inline icons in content stay on their line.** An SVG inside a sentence, a list item or a
+  table cell now flows with its text; an SVG standing on its own is still a block.
+- **Titles and headings render markup only when a checked write admitted it.** A title or
+  heading saved through the editor or the AI after this release may carry the inline set
+  (`H<sub>2</sub>O`, `<em>fast</em>`), and renders it. A title stored before it keeps rendering
+  as the text it was, even when it looks like markup (`The <span> element`), until it is edited
+  (saving it unchanged does not re-check it); a stored title the check refuses (`The <code> element`) renders as plain text, never
+  empty. `title_accent` now matches the title's text, inside one run of text, and never splits
+  a tag.
+- **New: `wp pp content census`, and an admin notice.** The census lists, for every page, each
+  stored content prop that renders differently from how it is stored: empty, without a
+  construct, or (a title) as plain text, with the rule. It is read-only and judges the stored
+  bytes as stored (shortcodes are not expanded). When props render empty, administrators see a
+  notice pointing at the command, until they dismiss it for that list. The census runs again on
+  its own after a WordPress update (scheduled for a later request, so it judges with the new
+  HTML parser), on the first admin visit after a theme update, and after an edit while props
+  still render empty, and the notice says when a WordPress update made the list longer. Run
+  `wp pp content census` after updating to this release. The scheduled run reads the site in
+  batches of 1 MiB of stored content, one request each, so a large site never times out.
+- **Two new findings, one new note.** `content_duplicate_id` (warning) names an id used in the
+  content of two bands; `content_inline_style` (info) says how many `style` declarations a
+  band's content carries, which properties they set, and any `popover` element.
+- **The AI is told the content rules.** The chat's instructions now state which props take
+  rich, inline and title markup, what each admits, what is refused and the size cap, read from
+  the check's own tables, and the content refusal codes and findings with their severities.
+  The chat card shows `content_construct_excluded` and `content_too_large` as fixable, with the
+  repair. Validation messages after an AI change now quote stored names, ids and media paths
+  as quoted data. The chat's media list is shown only to users who can browse the media library
+  (WordPress's `upload_files`, as the media screen requires).
 - **Layer 3C: the custom band and content islands (#1242 T5).** A new component, `custom`,
   is a band whose inside is your own HTML (`markup`), with named **islands** for the text people
   edit. An island is an empty element in the markup carrying `data-pp-island="<name>"`; its
@@ -146,19 +200,11 @@ All notable changes to PromptingPress are documented here.
   engine-shaped id when they reach the page. Limits: markup 64 KiB, an island 16 KiB, markup and
   islands together 128 KiB.
 
-### Known limits until the rest of Sprint 6 lands
+### Known limits
 
-- The render still uses WordPress's own sanitizer and the templates' own escaping, so a construct
-  the write now admits (for example inline SVG) is accepted and stored but not yet rendered as
-  markup, and inline markup in a title or heading (`<sup>®</sup>`) shows as literal text until
-  the render side lands. A title is now parsed as markup, so a literal `<` followed by a letter
-  (`x<y`) is refused; write it as `&lt;`. Rendering stored content
-  through the same check, with a finding for anything stripped, and the census of stored content
-  are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
-  contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
 - A custom band is composed and verified on every render, with no cache yet: a maximal band
   (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig and about
-  five times that on a shared CI runner; an ordinary one takes a few milliseconds. The render cache is #1089's.
+  five times that on a shared CI runner; an ordinary one takes a few milliseconds. There is no render cache yet (#1089 is the chat prompt's cache, not this one).
 
 ### Fixed
 
