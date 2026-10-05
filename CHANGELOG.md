@@ -8,6 +8,54 @@ All notable changes to PromptingPress are documented here.
 
 The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
 
+## The docs now say exactly what `wp pp operate inspect` writes (#1219)
+
+**`inspect` is no longer described as read-only, because it is not.** The reference and the AI
+operating loop called INSPECT "read-only" and said it "never mutates the site". In fact every call
+writes a row: the run state that mints the run token `preflight` and `apply` later check. That row is
+part of the design, so the command is unchanged and the description is fixed.
+
+The precise statement, now in `docs/reference-apply-cli.md`, `ai-instructions/operating-loop.md` and
+`wp help pp operate inspect`: `inspect` does not change the site's design (compositions, chrome,
+presets, tokens, options an operator owns). It creates exactly one bookkeeping row, the run-state
+option `pp_operate_run_<run_id>` with autoload off, after deleting dead run-state rows (a value
+that is not an array, has no `created_at`, or is past the 2-hour TTL). A new token does not revoke the
+one you already hold. If that row cannot be written, `inspect` fails with `Cannot create run token`;
+the UUID that message quotes is unusable (normally nothing was stored under it). `wp pp readiness status` is
+unchanged and still writes nothing.
+
+### Docs
+- `docs/reference-apply-cli.md` (the `operate inspect` section, where `validate site`'s
+  `findings_skipped` row points you): what `inspect` writes, what it deletes, and its failure case.
+- `ai-instructions/operating-loop.md`: the INSPECT step states the same, and the readiness paragraph
+  no longer groups `inspect` and `apply preflight` with the read-only `status`. `apply preflight`
+  records its step, coverage, freshness marker and rollback baselines in the run row, and deletes
+  that row only when the recording fails because the row has expired or is corrupt.
+- `lib/cli.php`: the `inspect` help text (`wp help pp operate inspect`) says the same; a `lib/wp.php` comment no longer calls the
+  INSPECT surface read-only.
+- `ai-instructions/operating-loop.md`, rules 1 and 3: `--run-id` is asked for only on the commands
+  that take it, and rule 3 points to where each write that needs no PREFLIGHT is documented, instead of
+  claiming there are none. The command table now says what each ungated command writes, including
+  that a successful `screenshot capture` (and a successful `screenshot doctor` probe) deletes all but
+  the 10 newest `*.png` files in the directory it wrote to, that `integrity check` deletes
+  `pp_last_blocked_update` on a `safe` result, and new rows for `check acknowledge`/`unacknowledge`,
+  `sync check --save-manifest`, `integrity check` and `apply restore-composition`.
+- `docs/reference-apply-cli.md` and `docs/operating-loop-safety.md`: after a `composition_conflict`,
+  re-preflight with the same `--run-id`, as the error says. Both now note that this keeps the rollback
+  baseline from your first preflight, so a later `apply restore-composition` also wipes the other
+  writer's change. The run-token section lists every command that takes `--run-id`.
+- `docs/tutorial-style-a-band-on-the-design-contract.md`: the run-token note covers the writes the
+  tutorial makes, rather than every mutating command.
+
+### Tests
+- `tests/OperateInspectWriteSurfaceTest.php` (new) runs the real `inspect` command handler against
+  the unit-test harness and compares options, posts, post meta, theme mods and Custom CSS before and
+  after. A bare call, a sweep over live, near-TTL, foreign, shape-incomplete, expired, just-expired,
+  corrupt and timestamp-less run rows, a `--post_id` call, and a refused run-row write each add or
+  remove exactly what the docs say.
+- `tests/bootstrap.php`: the `update_option` stub records the autoload flag, so the test can check
+  that the run row is written with autoload off.
+
 ## A "latest posts" front page is the posts index, and a visit no longer writes onto a blog post (#1173)
 
 **With Settings → Reading → "Your latest posts", the homepage now shows your posts, styled, and

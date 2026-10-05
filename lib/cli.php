@@ -2708,8 +2708,17 @@ class PP_Operate_Command extends WP_CLI_Command {
      * Returns the full site operating picture as JSON.
      *
      * Used by agents at the INSPECT step of the operating loop.
-     * Always generates a run token. Pass the returned run_id to all
-     * subsequent mutating CLI commands via --run-id.
+     * Always generates a run token. Pass the returned run_id via --run-id
+     * to the commands that take it (the --run-id column of the command
+     * table in ai-instructions/operating-loop.md).
+     *
+     * Does not change site design (compositions, chrome, presets, tokens,
+     * operator-owned options). It writes run bookkeeping only: one new
+     * run-state option (pp_operate_run_<run_id>, autoload off), after
+     * deleting dead run-state rows (not an array, no created_at, or past
+     * the TTL). A new token does not revoke one you already hold. If the
+     * row cannot be written the command fails and prints no JSON; treat the
+     * UUID in that error as unusable (normally nothing was stored under it).
      *
      * ## OPTIONS
      *
@@ -3341,8 +3350,9 @@ WP_CLI::add_command('pp sync', 'PP_Sync_Command');
  *   - `unacknowledge` (mutating) reverses an acknowledgement.
  *
  * Read-only-status invariant: `status` never mutates. Re-baseline and
- * (un)acknowledge are the ONLY writers, and each is an explicit command — never
- * a side effect of reading state.
+ * (un)acknowledge are the only writers in this group, and each is an explicit
+ * command — never a side effect of reading state. Outside it, `wp pp sync check
+ * --save-manifest` also writes the deployment manifest.
  */
 class PP_Readiness_Command {
 

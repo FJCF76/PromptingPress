@@ -10,7 +10,8 @@ Phase: Strategist
   2. PLAN       — Declare what will change before changing it
 
 Phase: Operator (safety gate)
-  3. PREFLIGHT  — Check the environment can safely mutate, BEFORE any write
+  3. PREFLIGHT  — Check the environment can safely mutate, BEFORE any design or content write
+                (exception: repairing a corrupt page, ruling D-1 under EDIT)
 
 Phase: Implementer
   4. EDIT       — Execute via typed actions (gated: needs a covering PREFLIGHT)
@@ -33,9 +34,11 @@ old order let typed edits land before the safety gate; they no longer can.
 ## Step Details
 
 ### 1. INSPECT
-**Role**: Strategist. Read-only. Do not edit anything.
+**Role**: Strategist. Do not edit anything in this step.
 
 Run: `wp pp operate inspect` (or `wp pp operate inspect --post_id=<id>` for page-specific smells).
+
+`inspect` does not change the site's design (compositions, chrome, presets, tokens, options an operator owns). It does write run bookkeeping: it creates exactly one row, the run-state option `pp_operate_run_<uuid>` (autoload off), whose `<uuid>` is the `run_id` you pass to later steps, and it first deletes dead run-state rows (a value that is not an array, has no `created_at`, or is past the 2-hour TTL). Nothing else. Every call mints a NEW token, so re-running `inspect` mid-run starts a new run rather than refreshing yours; your old token is not revoked and stays usable until its own TTL runs out, so keep passing the one your PREFLIGHT covered. Full contract: `docs/reference-apply-cli.md`.
 
 This returns the full operating picture: target environment, composition pages, drift state, preflight status, design tokens, CSS conflicts, composition smells, and (with `--post_id`) a `composition_decode_error` signal that is set when the page's stored composition is corrupt or not a valid list rather than genuinely empty (issue 144).
 
@@ -81,7 +84,7 @@ Preflight checks:
 - **configuration** (site-state gaps like an unassigned menu location) — resolve through the finding's safe surface (e.g. `set_menu`), OR, if the gap is deliberate (a purposely menu-less footer), record it as intentional with `wp pp readiness acknowledge <finding-key>`. Acknowledged findings report as acknowledged, not warnings, and are reversible with `wp pp readiness unacknowledge <finding-key>`.
 - **capability** (an environment tool missing, e.g. a screenshot browser) — run the finding's next action (e.g. `wp pp screenshot doctor`).
 
-Use `wp pp readiness status` any time for a read-only, grouped view of current findings (`active_warnings` vs `acknowledged`). Status, `inspect`, and `apply preflight` never mutate — only `rebaseline` / `acknowledge` / `unacknowledge` change state, and each is an explicit command. A completed operation should show zero unexplained warnings: every finding is either actionable-now, acknowledged-intentional, or absent. Composition advisories that are judgment calls (an unmeasured ink pair, a raw `_css` property, a composition smell) have the same route since #1194: `wp pp check acknowledge --post_id=<id> --key=<key> --note=...`, with the key `wp pp check page` prints; see `validate-site.md`.
+Use `wp pp readiness status` any time for a read-only, grouped view of current findings (`active_warnings` vs `acknowledged`). Status never writes anything. `inspect` and `apply preflight` never change the site's design, but each writes run bookkeeping: `inspect` creates the run-state row and deletes dead ones, and `apply preflight` records its step, what it covered, the composition freshness marker and its rollback baselines in that same row; if that recording fails because the row has expired or is corrupt, it deletes the row (see the INSPECT step above). Readiness state changes only through explicit commands: `readiness rebaseline` / `acknowledge` / `unacknowledge`, and `sync check --save-manifest`, which writes the same deployment manifest as `rebaseline`. A completed operation should show zero unexplained warnings: every finding is either actionable-now, acknowledged-intentional, or absent. Composition advisories that are judgment calls (an unmeasured ink pair, a raw `_css` property, a composition smell) have the same route since #1194: `wp pp check acknowledge --post_id=<id> --key=<key> --note=...`, with the key `wp pp check page` prints; see `validate-site.md`.
 
 **Required output**: `preflight_result` — the full preflight result (including the `findings` block).
 
@@ -159,9 +162,9 @@ Report:
 
 ## Rules
 
-1. **Pass the run token.** Every `wp pp operate inspect` returns a `run_id`. Pass it to all subsequent mutating CLI commands via `--run-id`. Commands fail without it.
+1. **Pass the run token.** Every `wp pp operate inspect` returns a `run_id`. Pass it via `--run-id` to the commands that take it (see the `--run-id` column of the command table below); those commands fail without it.
 2. **Inspect before editing.** Never modify state without reading it first.
-3. **Preflight before mutating.** Never write to the database or files without a completed PREFLIGHT covering the target. Typed actions and `operate patch` are gated, not just file applies.
+3. **Preflight before mutating.** Never change the site's design or content without a completed PREFLIGHT covering the target; typed actions and `operate patch` are gated, not just file applies. The writes that need no PREFLIGHT are documented where they live: the run bookkeeping (the INSPECT step for `inspect`, the PREFLIGHT step for `apply preflight`), the corrupt-page repair carve-out (ruling D-1, in the EDIT step), and the command table's commands with no `--run-id`, each of which says what it writes.
 4. **Screenshot before reviewing.** Visual verification is evidence, not assumption.
 5. **Hard gate failure loops to PLAN, not EDIT.** Rethink the approach, don't just retry.
 6. **Never claim VERIFIED without screenshots and a fully evaluated checklist.**
@@ -173,7 +176,7 @@ Report:
 
 Two complementary enforcement mechanisms protect the loop:
 
-1. **Run tokens (real-time ordering):** `wp pp operate inspect` records run state (completed steps) in a per-run row in the install's options table. Mutating commands (`action execute`, `apply preflight`, `apply execute`, `apply restore`, `apply reset`) require `--run-id` and check that recorded state before proceeding. This prevents out-of-order CLI calls, and because the state lives in the database it is shared across separate CLI invocations even when each runs in its own ephemeral container (#409).
+1. **Run tokens (real-time ordering):** `wp pp operate inspect` records run state (completed steps) in a per-run row in the install's options table. Mutating commands (`action execute`, `operate patch`, `apply preflight`, `apply execute`, `apply restore`, `apply restore-composition`, `apply reset`) require `--run-id` and check that recorded state before proceeding. This prevents out-of-order CLI calls, and because the state lives in the database it is shared across separate CLI invocations even when each runs in its own ephemeral container (#409).
 
 2. **`wp pp operate validate` (post-hoc completeness):** Validates the finished run manifest — checks that all 8 steps ran, required outputs are present, viewports match the playbook, hard-gate checklist items were evaluated, and retry count is within bounds. This catches incomplete runs at HANDOFF.
 
@@ -207,15 +210,20 @@ Three playbooks are available. Each one customizes the loop for a specific opera
 | `wp pp operate patch --post_id=<id> --target=... --value=... --run-id=<uuid>` | EDIT | Required (mutation) | Patch a composition field (needs a PREFLIGHT covering the page; `--preview` is read-only and ungated) |
 | `wp pp apply execute <name> --run-id=<uuid> --params='...'` | APPLY | Required | Commit a typed apply (DB-backed token/font override) |
 | `wp pp apply restore --run-id=<uuid> [--token=<name>]` | APPLY | Required | Per-run rollback: reverts the tokens THIS run changed (primary + derived) to the snapshot frozen at the run's preflight; tokens the run never touched are preserved. `--token` restores that token and its derived family from the snapshot. Short-lived: only works within the run-token TTL; fails closed (changes nothing) if the snapshot is missing/expired/corrupt or from another install — it never falls back to product defaults. |
+| `wp pp apply restore-composition --run-id=<uuid>` | APPLY | Required | Per-run composition rollback: rewrites every page THIS run changed back to the content frozen at its PREFLIGHT (#133). Pages only another run or writer changed are never touched, but on a page this run changed the restore also discards any change another writer made there since that PREFLIGHT |
 | `wp pp apply reset --run-id=<uuid> [--token=<name>]` | APPLY | Required | Reset token overrides to product defaults — all, or one with `--token`. This is the deliberate "back to base.css" path, NOT a per-run undo. Use `apply restore` to undo a specific run. |
-| `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports |
-| `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL |
-| `wp pp screenshot doctor [--no-probe]` | SCREENSHOT | — | Diagnose capture readiness — tri-state available/unavailable/broken (probes by default) |
+| `wp pp screenshot capture --post_id=<id> --playbook=<name>` | SCREENSHOT | — | Capture both viewports. Writes PNG files under the screenshot directory (`PP_SCREENSHOT_DIR`, else `pp-screenshots/` in the content directory). Each successful capture then deletes all but the 10 newest `*.png` files in the directory it wrote to, so older runs' captures there are removed |
+| `wp pp screenshot capture --capture-url=<url> --width=<px>` | SCREENSHOT | — | Capture single URL. Writes a PNG file to the screenshot directory, or to `--output=<path>`. A successful capture then deletes all but the 10 newest `*.png` files in that file's directory, including a directory you chose with `--output` |
+| `wp pp screenshot doctor [--no-probe]` | SCREENSHOT | — | Diagnose capture readiness — tri-state available/unavailable/broken (probes by default). When a browser command is configured, the probe writes a temporary PNG in the screenshot directory (creating the directory if missing) and deletes it; a successful probe also deletes all but the 10 newest `*.png` files in that directory. `--no-probe` writes nothing |
 | `wp pp schema` | any | — | Read-only: every registered component and whether it is composable (`nav`/`footer` are template-owned chrome) |
 | `wp pp schema <component>` | any | — | Read-only: one component's declared props, its **`roles`** (each with its selector, permitted groups, description, `defaults` and obligations, and when declared its `overlay_defaults`, `within` and `text_content`), **`udc_groups`** and **`udc_raw_css`**, plus **`item_roles`** on a component that declares one (which roles a SINGLE entry of its repeater prop may set) — the schema contract without filesystem access (#688). **Read the `roles`: that is a component's entire styling surface, and since #1101 every one of them has zero style slots.** The `style_slots` and `recipes` halves are empty on every component and stay in the report so their emptiness is readable |
 | `wp pp readiness status` | any | — | Read-only: current findings grouped by class (integrity/configuration/capability) with per-finding next actions (#496) |
-| `wp pp readiness rebaseline` | any | — | Re-baseline the deployment manifest against the installed release (resolves integrity drift) |
-| `wp pp readiness acknowledge <finding-key> [--note=<text>]` | any | — | Record a configuration finding as intentional (reversible) |
-| `wp pp readiness unacknowledge <finding-key>` | any | — | Reverse an acknowledgement |
+| `wp pp readiness rebaseline` | any | — | Re-baseline the deployment manifest against the installed release (resolves integrity drift). Writes `pp-deployment-manifest.json` in the content directory (`WP_CONTENT_DIR`, normally `wp-content/`) |
+| `wp pp readiness acknowledge <finding-key> [--note=<text>]` | any | — | Record a configuration finding as intentional (reversible). Writes the `pp_acknowledged_findings` option |
+| `wp pp readiness unacknowledge <finding-key>` | any | — | Reverse an acknowledgement. Writes the `pp_acknowledged_findings` option |
+| `wp pp check acknowledge --post_id=<id> --key=<key> --note=<text>` | any | — | Record a page's composition advisory as intentional (#1194; see `validate-site.md`). Writes the page's `_pp_acknowledged_advisories` post meta |
+| `wp pp check unacknowledge --post_id=<id> --key=<key>` | any | — | Reverse a page acknowledgement. Writes the page's `_pp_acknowledged_advisories` post meta |
+| `wp pp sync check [--save-manifest]` | any | — | Theme-file drift against the deployment manifest. Read-only, except `--save-manifest` writes the deployment manifest (the file `readiness rebaseline` writes) |
+| `wp pp integrity check` | any | — | Theme files against the shipped `integrity-manifest.json`. Writes its result to the `pp_theme_integrity` option and, when the result is `safe`, deletes the `pp_last_blocked_update` option |
 | `wp pp operate checklist --playbook=<name>` | REVIEW | — | Get playbook checklist |
 | `wp pp operate validate --run='...'` | HANDOFF | — | Validate loop run completeness |

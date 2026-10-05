@@ -6208,7 +6208,7 @@ function pp_masked_derived_overrides(string $base_token, string $base_value): ar
         // it can't mask the base change. A non-string override value can only come
         // from a corrupt pp_token_overrides option (the write path enforces string);
         // skip it rather than let this advisory detector fatal on bad stored data —
-        // this runs on the read-only INSPECT surface, which must stay chaos-tolerant.
+        // this runs on the INSPECT surface, which must stay chaos-tolerant (it writes only run bookkeeping, #1219).
         if (!isset($overrides[$derived_token]) || !is_string($overrides[$derived_token])) {
             continue;
         }
