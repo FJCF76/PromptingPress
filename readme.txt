@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 2.0.2
+Stable tag: 2.1.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 2.1.0 =
+* Layer 3, the content-freedom contract: content is checked when it is written and refused by name instead of being stripped silently at render; users with `unfiltered_html` get the wider set (inline SVG, `picture`/`srcset`, the full HTML and ARIA attribute set, modern inline styles, inline markup in titles and headings), everyone else WordPress's own `post` rules; stored content renders at the level its writer vouched for, and content stored earlier renders as before, except a prop whose markup is broken or oversized, which now renders empty; a stored title the check refuses renders as plain text, never empty; `wp pp content census` lists stored content that renders differently, with an admin notice and a re-run after WordPress updates; every band takes a scoped style sheet (`udc._scoped`); a new `custom` band holds your own HTML with editable islands; the editor preview renders in an isolated origin and the chat follows per-page permissions. Forms are not admitted in this release (descoped; they arrive with the Layer-3 forms contract)
+* Verified by full PHP/JS/E2E suites per change and independent adversarial reviews. Acknowledgements are now signed, so the update re-opens every acknowledged judgment call and the old rows must be redone with `wp pp check acknowledge`; run `wp pp content census` after updating
 
 = 2.0.2 =
 * The 2.0.2 trust & confidentiality fix cycle: a "Your latest posts" homepage shows the styled post listing and a visit no longer writes a page composition onto a blog post; composed pages honour post passwords; `wp pp validate site` checks the header and footer and fails on their advisories; a grid `update_component` items patch that would drop a stored card design is refused (`item_design_would_be_lost`) and a write no longer re-mints or deletes item ids on bands it did not validate (some carry cases remain, #1234); a stored title or image that is a list or an object no longer breaks the chat context, and a non-string stored component no longer warns on render; the docs say exactly what `wp pp operate inspect` writes
