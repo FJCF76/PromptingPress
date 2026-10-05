@@ -38,6 +38,11 @@ All notable changes to PromptingPress are documented here.
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
   the §8.3 precondition as met.
+- The Layer-3 content contract (`docs/v2/LAYER-3-CONTRACT.md`) is ratified, and the document now
+  says so: each of its 27 owner decisions carries its ruling, and the sections those decisions
+  change state what was decided. Everything the contract admits in content is scheduled for
+  2.1.0; each piece left for later names the contract that will carry it. The build specification's
+  Layer-3 note records the ratification.
 
 ### Tests
 

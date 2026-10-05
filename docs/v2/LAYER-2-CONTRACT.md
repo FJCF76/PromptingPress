@@ -1017,7 +1017,7 @@ Layer 3 (the custom band), the AI-instruction rewrite (#1009, the next task), it
 
 | Deferred | Rationale |
 |---|---|
-| Layer 3 (the custom band) | gated on Layer-2 escape telemetry by the design doc; and §0.5f says the selector pressure it would serve is real but four-dimensional, needing its own contract |
+| Layer 3 (the custom band) | gated on Layer-2 escape telemetry by the design doc; and §0.5f says the selector pressure it would serve is real but four-dimensional, needing its own contract. **Superseded 2026-10-04:** that contract is LAYER-3-CONTRACT.md, ratified; its P-1 ruling makes Layer 3 a standing content-freedom guarantee, never demand-gated, and P-26 binds its admissions to v2.1.0 |
 | Item grain (`_css` on one card) | Addendum B / #1024 is unruled; shipping it here pre-empts the owner |
 | `min()` / `max()` | a widening of the shared grammar owner for every value in the program (§2.6) |
 | A `filters` / `transform` / `position` / `animation` group | 2nd cut in the approved coverage table; scheduled, not skipped |
