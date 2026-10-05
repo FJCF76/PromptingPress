@@ -137,7 +137,7 @@ class ContentPredicateTest extends TestCase
         $this->assertRefused('<div srcdoc="&lt;script&gt;">x</div>', 'E3');
         $uploads = 'http://example.test/wp-content/uploads/2026/10/a.pdf';
         $this->assertAdmitted('<object type="application/pdf" data="' . $uploads . '"></object>');
-        $this->assertAdmitted('<object type="application/pdf" data="https://example.test/wp-content/uploads/a.pdf" width="600" height="400"></object>');
+        $this->assertAdmitted('<object type="application/pdf" data="http://example.test/wp-content/uploads/a.pdf" width="600" height="400"></object>');
         foreach ([
             '<object type="application/pdf" data="https://evil.example/wp-content/uploads/a.pdf"></object>',
             '<object type="application/pdf" data="http://example.test/wp-content/uploads/a.pdf?x=1"></object>',
@@ -388,19 +388,15 @@ class ContentPredicateTest extends TestCase
         $table = pp_content_clobber_table();
         foreach (['getElementById', 'querySelector', 'cookie', 'forms', 'images', 'body', 'title'] as $n) {
             $this->assertArrayHasKey($n, $table['document'], $n);
-            $this->assertRefused("<form name=\"{$n}\" action=\"/s\"></form>", 'E11');
             $this->assertRefused("<img alt=\"\" src=\"/a.png\" name=\"{$n}\">", 'E11');
             $this->assertAdmitted("<h2 id=\"{$n}\">x</h2><a href=\"#{$n}\">back</a>");
         }
         $this->assertAdmitted('<svg aria-labelledby="title"><title id="title">Logo</title></svg>');
-        foreach (['action', 'submit', 'elements', 'method', 'name'] as $n) {
-            $this->assertRefused("<form action=\"/s\"><input type=\"text\" name=\"{$n}\"></form>", 'E11');
-            $this->assertRefused("<form action=\"/s\"><button id=\"{$n}\">b</button></form>", 'E11');
-        }
         foreach (['top', 'status', 'name', 'history', 'location', 'navigation', 'opener', 'pricing-table'] as $n) {
             $this->assertAdmitted("<div id=\"{$n}\">x</div><a href=\"#{$n}\">back</a>");
         }
-        $this->assertAdmitted('<form action="/s"><input type="email" name="email"><input type="text" name="q"></form>');
+        // Without a form there is no form-control named access: a button's id is any id.
+        $this->assertAdmitted('<button id="submit">b</button><button id="action">c</button>');
         $this->assertAdmitted('<a href="/x" name="top">x</a>', 'rich', [], 'an <a name> is not document named access');
         // `name` is judged only on the five elements document named access exposes: a
         // document built-in as an <a name> is admitted.
@@ -410,42 +406,32 @@ class ContentPredicateTest extends TestCase
         $this->assertRefused($pdf('cookie'), 'E11');
         $this->assertRefused($pdf('getElementById'), 'E11');
         $this->assertAdmitted($pdf('annual-report'));
-        // <img> is form-associated: its id inside a form becomes a form property.
-        $this->assertRefused('<form action="/s"><img alt="" src="/a.png" id="action"></form>', 'E11');
         $this->assertAdmitted('<img alt="" src="/a.png" id="action">');
     }
 
     /**
-     * Form ownership as the PARSER has it (cycle-7 ruling), read from the processor: an open
-     * <form> among the control's ancestors, or the form element pointer still set. An
-     * implicit close of the form leaves the pointer set; a </form> the parser ignores (inside
-     * <select>) or that cannot reach the form (behind a td, caption, MathML mi/mtext, SVG desc
-     * or object scope boundary) leaves the form open. Every one is judged as owned.
+     * Δ5, DESCOPED BY THE OWNER 2026-10-05: a form and its controls are refused (clause D5)
+     * until the Layer-3 forms contract admits them. Every shape the forms arm once judged
+     * (credential and admin-endpoint actions, implicitly closed and pointer-owned forms,
+     * radio groups across bands) is now refused whole by this one rule. `button`, `label`,
+     * `meter` and `progress` stay admitted: none owns form data without a form.
      */
-    public function testE11FollowsTheParsersFormOwner(): void
+    public function testFormsAreDescoped(): void
     {
-        foreach (['<div><form action="/s"></div><input name="action">', '<div><form action="/s"></div><input id="action">',
-            '<div><form action="/x"></div><button name="submit">b</button></form>',
-            '<form action="/x"><table><tr><td></form></td></tr></table><input name="action"><button id="submit">Go</button></form>',
-            '<form><table><caption></form></caption></table><input name="action"></form>',
-            '<form><math><mi></form></mi></math><button id="submit">x</button></form>',
-            '<form><math><mtext></form></mtext></math><input name="action"></form>',
-            '<form><svg><desc></form></desc></svg><input name="action"></form>',
-            '<form><object type="application/pdf" data="/wp-content/uploads/a.pdf"></form></object><input name="action"></form>',
-            '<form action="/s"><select></form></select><input type="text" name="action"></form>',
-            '<div><form><select></form></select></div><input name="action">'] as $shape) {
-            $this->assertRefused($shape, 'E11');
+        foreach (['<form action="/s"></form>', '<form method="dialog"><button>x</button></form>',
+            '<form action="https://evil.example/x" method="post"><input type="password" name="pw"></form>',
+            '<form action="/wp-login.php"><input type="hidden" name="log" value="a"></form>',
+            '<div><form action="/s"></div><input name="action">', '<form action="/s">', '<input type="text" name="q">',
+            '<input type="radio" name="plan" value="a">', '<select name="s"><option>a</option></select>',
+            '<textarea name="t">x</textarea>', '<output name="o"></output>', '<fieldset><legend>L</legend></fieldset>',
+            '<datalist id="d"><option value="a"></option></datalist>', '<input type="image" src="/a.png" name="i">'] as $shape) {
+            $this->assertRefused($shape, 'D5');
+            $this->assertStringContainsString('descoped by the owner', implode(' ', array_column($this->losses($shape), 'message')), $shape);
         }
-        // A </form> that does close the form ends ownership, also from inside foreign content.
-        $this->assertAdmitted('<form><svg></svg></form><input type="text" name="action">');
-        // The parser's form pointer is readable on this HTML API (else the answer is "owned").
-        $p = WP_HTML_Processor::create_full_parser('<form>');
-        $this->assertFalse(_pp_content_parser_form_pointer($p));
-        while ($p->next_tag()) {
-        }
-        $this->assertTrue(_pp_content_parser_form_pointer($p));
-        $this->assertAdmitted('<form action="/s"></form><input type="hidden" name="action" value="x">');
-        $this->assertAdmitted('<input type="text" name="name"><button id="submit">b</button>');
+        $this->assertAdmitted('<button popovertarget="p">o</button><div id="p" popover>x</div>'
+            . '<label for="m">M</label><meter id="m" value="0.5"></meter><progress value="1" max="2"></progress>');
+        // Every write tier refuses them: D5 is judged before the trust tier.
+        $this->assertContains('D5', array_column(pp_content_sanitize('<form></form>', 'rich', ['tier' => 'core'])['losses'], 'clause'));
     }
 
     /**
@@ -458,11 +444,11 @@ class ContentPredicateTest extends TestCase
         foreach (['<div id=" x ">a</div>', '<div id="a b">a</div>', '<svg><g id="a b"></g></svg>', "<div id=\"a\fb\">a</div>"] as $shape) {
             $this->assertStringContainsString('an id may not contain whitespace', implode(' | ', array_column($this->losses($shape), 'message')), $shape);
         }
-        $target = '<div id="x" popover>p</div><input id="x2" type="text" name="t"><datalist id="x3"></datalist><dialog id="x4">d</dialog>';
+        $target = '<div id="x" popover>p</div><meter id="x2" value="1"></meter><dialog id="x4">d</dialog>';
         foreach (['<button popovertarget=" x">b</button>', "<button popovertarget=\"x\f\">b</button>",
             '<button commandfor="x4 " command="show-modal">o</button>', '<label for=" x2">E</label>',
-            '<input type="text" name="q" list="x3 ">', '<div role="listbox" aria-activedescendant=" x">l</div>',
-            '<input type="text" name="r" aria-invalid="true" aria-errormessage="x ">'] as $ref) {
+            '<div role="listbox" aria-activedescendant=" x">l</div>',
+            '<div role="textbox" aria-invalid="true" aria-errormessage="x ">t</div>'] as $ref) {
             $this->assertStringContainsString('a reference to one id may not contain whitespace',
                 implode(' | ', array_column($this->losses($ref . $target), 'message')), $ref);
             // The same reference without the whitespace resolves and is admitted.
@@ -470,6 +456,8 @@ class ContentPredicateTest extends TestCase
         }
         $this->assertAdmitted('<p aria-describedby=" d1  d2 ">x</p><span id="d1">a</span><span id="d2">b</span>',
             'rich', [], 'an id-reference LIST is whitespace-separated by definition');
+        // `list` (an input's) stays a single-id reference in the table for the forms contract.
+        $this->assertSame('one', pp_content_idref_attributes()['list']);
     }
 
     // ── E12 ───────────────────────────────────────────────────────────────────
@@ -479,12 +467,10 @@ class ContentPredicateTest extends TestCase
         $in = [
             '<button popovertarget="m">o</button><div popover id="m">m</div>',
             '<button commandfor="d" command="show-modal">o</button><dialog id="d">d</dialog>',
-            '<label for="e">E</label><input id="e" type="email" name="e">',
-            '<output for="a b" name="o"></output><input id="a" type="number" name="a"><input id="b" type="number" name="b">',
+            '<label for="e">E</label><meter id="e" value="1"></meter>',
             '<img alt="" src="/m.png" usemap="#m"><map name="m"><area alt="" href="/x" shape="rect" coords="0,0,1,1"></map>',
             '<p aria-describedby="d1 d2" aria-labelledby="d1" aria-controls="d2" aria-owns="d1">x</p><span id="d1">a</span><span id="d2">b</span>',
             '<table><tr><th id="h">H</th></tr><tr><td headers="h">c</td></tr></table>',
-            '<input type="text" name="q" list="dl"><datalist id="dl"><option value="a"></option></datalist>',
             '<details name="faq"><summary>a</summary>b</details><details name="faq"><summary>c</summary>d</details>',
         ];
         foreach ($in as $shape) {
@@ -494,7 +480,6 @@ class ContentPredicateTest extends TestCase
             '<button popovertarget="pp-nav-menu">o</button>', '<button commandfor="elsewhere" command="close">x</button>',
             '<label for="pp-ai-input">x</label>', '<img alt="" src="/m.png" usemap="#nomap">',
             '<p aria-describedby="here gone">x</p><span id="here">a</span>', '<table><tr><td headers="gone">c</td></tr></table>',
-            '<input type="text" name="q" list="nolist">',
         ];
         foreach ($out as $shape) {
             $this->assertRefused($shape, 'E12');
@@ -530,23 +515,11 @@ class ContentPredicateTest extends TestCase
     public function testP17BaseAndTheFourArguedAttributes(): void
     {
         $this->assertAdmitted('<div tabindex="0" translate="no" inert itemscope itemprop="x" accesskey="k" draggable="true" spellcheck="false" autocapitalize="off" enterkeyhint="go" inputmode="text" aria-pressed="true" aria-level="2" aria-invalid="false" aria-modal="true" role="region" popover="auto" slot="s">x</div><bdi>b</bdi><canvas width="1" height="1"></canvas>');
-        $this->assertAdmitted('<input type="text" name="a" autofocus><div contenteditable="true">e</div>');
+        $this->assertAdmitted('<button autofocus>a</button><div contenteditable="true">e</div>');
         $this->assertRefused('<p nonce="n">x</p>', 'P-17');
         $this->assertAdmitted('<button is="x-button">b</button>');
         $this->assertRefused('<p aria-description="ARIA 1.3, not 1.2">x</p>', 'P-17');
         $this->assertRefused('<p frobnicate="1">x</p>', 'P-17');
-    }
-
-    /** P-5 / P-24 */
-    public function testDelta5FormsBothDirections(): void
-    {
-        $this->assertAdmitted('<form action="https://example.com/s" method="get" novalidate autocomplete="on" name="s1"><fieldset><legend>L</legend><select name="c"><optgroup label="g"><option value="a" selected>A</option></optgroup></select><textarea name="m" rows="3"></textarea><input type="range" min="0" max="9" step="1" name="r"><input type="hidden" name="h" value="1"><output name="o"></output></fieldset></form>');
-        $this->assertAdmitted('<form method="dialog"><button>x</button></form>');
-        $this->assertAdmitted('<form action="/u" method="post" enctype="multipart/form-data"><input type="file" name="f" accept="image/*" multiple></form>');
-        $this->assertRefused('<form method="put"></form>', 'D5');
-        $this->assertRefused('<form enctype="application/json"></form>', 'D5');
-        $this->assertRefused('<input type="image" src="/a.png" name="i">', 'D5');
-        $this->assertRefused('<form action="vbscript:x"></form>', 'E2');
     }
 
     // ── INLINE / heading (P-2 B+) ─────────────────────────────────────────────
@@ -586,7 +559,7 @@ class ContentPredicateTest extends TestCase
     {
         foreach (array_merge(ContentWriteGateTest::admittedBodies(), [
             ['<p>a<p>b<ul><li>c<li>d</ul><svg viewbox="0 0 1 1"><path d="M0 0"/></svg><math><mi>x</mi></math>'],
-            ['<p style="font-family:&quot;X&quot;">Q&amp;A &lt;tag&gt; &quot;q&quot;</p><textarea name="t">&lt;b&gt;</textarea>'],
+            ['<p style="font-family:&quot;X&quot;">Q&amp;A &lt;tag&gt; &quot;q&quot;</p>'],
         ]) as [$body]) {
             $first = pp_content_sanitize($body, 'rich');
             $this->assertSame([], $first['losses'], $body);
@@ -597,16 +570,6 @@ class ContentPredicateTest extends TestCase
     }
 
     // ── review fixes (#1242 T3a /review cycle 1) ──────────────────────────────
-
-    /** E10: an unclosed <form> keeps the parser's form pointer set, so it captures every later form. */
-    public function testE10AnUnclosedFormIsRefused(): void
-    {
-        foreach (['<form action="https://evil.example/c" method="post">', '<p>x</p><form action="/a"><p>y</p>'] as $shape) {
-            $this->assertRefused($shape, 'E10', 'rich');
-            $this->assertRefused($shape, 'E10', 'rich_cell');
-        }
-        $this->assertAdmitted('<form action="/x"><input type="text" name="q"></form><form action="/y"></form>');
-    }
 
     /**
      * The title blind spot: the lexical tokenizer reads every <title> as RCDATA, the tree
@@ -639,7 +602,6 @@ class ContentPredicateTest extends TestCase
             $clauses = $this->clauses($shape);
             $this->assertNotSame([], array_intersect(['P-16', $own], $clauses), "{$shape}: " . implode(',', $clauses));
         }
-        $this->assertAdmitted('<select name="s"><optgroup label="g"><option>a</option></optgroup><hr><option>b</option></select>');
     }
 
     /** P-11: the uploads path may not be climbed out of in any spelling a browser resolves. */
@@ -654,10 +616,19 @@ class ContentPredicateTest extends TestCase
         }
         // Read by the shared canonicaliser: a `.` segment that stays inside uploads resolves
         // to the same file a browser fetches.
-        $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/./x.pdf'));
+        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test/wp-content/uploads/./x.pdf'));
         // The page's own scheme with one slash is a root-relative path (https site).
         $this->assertTrue(pp_content_is_same_install_pdf('https:/wp-content/uploads/a.pdf'));
-        $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/2026/10/a.pdf'));
+        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test/wp-content/uploads/2026/10/a.pdf'));
+        // A network-path reference takes the PAGE's scheme (https here), so it names the
+        // uploads only when they are served under the same scheme.
+        $this->assertFalse(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/a.pdf'));
+        $GLOBALS['_pp_test_upload_baseurl'] = 'https://example.test/wp-content/uploads';
+        try {
+            $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/a.pdf'));
+        } finally {
+            unset($GLOBALS['_pp_test_upload_baseurl']);
+        }
     }
 
     /** E12 for every ARIA id-reference list, and a usemap that is not a #reference. */
@@ -803,7 +774,47 @@ class ContentPredicateTest extends TestCase
 
     public function testP11ComparesTheHostCaseInsensitively(): void
     {
-        $this->assertTrue(pp_content_is_same_install_pdf('//EXAMPLE.test/wp-content/uploads/a.pdf'));
+        $this->assertTrue(pp_content_is_same_install_pdf('http://EXAMPLE.test/wp-content/uploads/a.pdf'));
+    }
+
+    /**
+     * P-11 compares the canonical ORIGIN, port included (cycle-9 ruling): another port, or
+     * another scheme's default port, is another origin. A host spelled in characters a
+     * browser would map (full-width, an ideographic full stop, a soft hyphen) is kept as
+     * written, never equals the uploads host, and is therefore refused: inequality is refusal.
+     */
+    public function testP11ComparesTheCanonicalOriginIncludingPort(): void
+    {
+        foreach (['http://example.test:8080/wp-content/uploads/a.pdf', 'https://example.test/wp-content/uploads/a.pdf',
+            'http://ｅxample.test/wp-content/uploads/a.pdf', 'http://example。test/wp-content/uploads/a.pdf',
+            "http://exa\u{00AD}mple.test/wp-content/uploads/a.pdf", 'http://EXAMPLE.TEST.evil/wp-content/uploads/a.pdf'] as $url) {
+            $this->assertFalse(pp_content_is_same_install_pdf($url), $url);
+        }
+        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test:80/wp-content/uploads/a.pdf'), 'an explicit default port is the same origin');
+        $GLOBALS['_pp_test_upload_baseurl'] = 'https://example.test:8443/wp-content/uploads';
+        try {
+            $this->assertFalse(pp_content_is_same_install_pdf('https://example.test/wp-content/uploads/a.pdf'));
+            $this->assertTrue(pp_content_is_same_install_pdf('https://example.test:8443/wp-content/uploads/a.pdf'));
+        } finally {
+            unset($GLOBALS['_pp_test_upload_baseurl']);
+        }
+    }
+
+    /** CSS functions are default-deny (I19): the url() family only by its own rules; anything unlisted is refused. */
+    public function testCssFunctionsAreDefaultDeny(): void
+    {
+        foreach (['background:-moz-element(#secret)', 'background:element(#secret)', 'background: paint(x)',
+            'width: attr(data-w px)', 'color: unknown-fn(1)', 'background: cross-fade(red, blue)'] as $decl) {
+            $this->assertRefused('<div style="' . $decl . '">x</div><p id="secret">s</p>', 'D3');
+        }
+        $this->assertRefused('<svg><rect transform="frobnicate(1)"/></svg>', 'D1');
+        foreach (['color: rgb(0 0 0 / .5)', 'width: calc(100% - var(--gap, 1rem))', 'transform: rotate(3deg) translateX(2px)',
+            'background: linear-gradient(red, blue)', 'filter: drop-shadow(0 1px 2px #000)', 'clip-path: polygon(0 0, 1px 1px, 0 1px)',
+            'grid-template-columns: repeat(3, minmax(0, 1fr))', 'transition: opacity .2s cubic-bezier(.2, 0, 0, 1)',
+            'color: color-mix(in oklch, red 50%, blue)'] as $decl) {
+            $this->assertAdmitted('<div style="' . $decl . '">x</div>');
+        }
+        $this->assertAdmitted('<svg><rect transform="rotate(45 10 10) translate(1 2)" fill="rgb(0,0,0)"/></svg>');
     }
 
     // ── review fixes (#1242 T3a /review cycle 3) ──────────────────────────────
@@ -823,9 +834,9 @@ class ContentPredicateTest extends TestCase
     /** E12: an id another band also carries binds to whichever comes first, so it is not "in band". */
     public function testE12RefusesATargetIdThatAnotherBandAlsoCarries(): void
     {
-        $this->assertRefused('<label for="email">E</label><input id="email" type="email" name="e">', 'E12', 'rich',
+        $this->assertRefused('<label for="email">E</label><meter id="email" value="1"></meter>', 'E12', 'rich',
             ['other_ids' => ['email']]);
-        $this->assertAdmitted('<label for="email">E</label><input id="email" type="email" name="e">', 'rich',
+        $this->assertAdmitted('<label for="email">E</label><meter id="email" value="1"></meter>', 'rich',
             ['other_ids' => ['phone']]);
     }
 
@@ -871,13 +882,6 @@ class ContentPredicateTest extends TestCase
         $this->assertAdmitted('<div itemscope itemref="here">x</div><p id="here">y</p>');
         $this->assertRefused('<svg aria-labelledby="gone"><rect width="1" height="1"/></svg>', 'E12');
         $this->assertAdmitted('<svg aria-labelledby="t1"><title id="t1">Logo</title></svg>');
-    }
-
-    /** Form-control named access exists only inside a form. */
-    public function testE11FormControlNamesAreJudgedOnlyInsideAForm(): void
-    {
-        $this->assertAdmitted('<input type="text" name="name"><button id="submit">b</button>');
-        $this->assertRefused('<form action="/s"><input type="hidden" name="action" value="x"></form>', 'E11');
     }
 
     /**
@@ -1001,7 +1005,7 @@ class ContentPredicateTest extends TestCase
      */
     public function testReferencesUseHtmlWhitespace(): void
     {
-        $this->assertRefused("<input type=\"text\" name=\"q\" list=\"x\x0B\"><datalist id=\"x\"></datalist>", 'E12');
+        $this->assertRefused("<button popovertarget=\"x\x0B\">b</button><div id=\"x\" popover>p</div>", 'E12');
         $this->assertRefused("<p aria-labelledby=\"x\x0B\">a</p><span id=\"x\">s</span>", 'E12');
         $this->assertAdmitted('<p aria-labelledby="&#12;x">a</p><span id="x">s</span>');
         $this->assertAdmitted('<p aria-labelledby="x&#12;y">a</p><span id="x">s</span><span id="y">t</span>');
@@ -1017,25 +1021,18 @@ class ContentPredicateTest extends TestCase
             'props' => ['title' => 'T', 'body' => '<details name=""><summary>a</summary>x</details><p id="">y</p>']]])[0]['details']);
     }
 
-    /** Every form-associated element's name and id is judged inside a form, and only those. */
-    public function testE11CoversEveryFormAssociatedElement(): void
+    /** Document named access reaches an id only on <object>; an <object name> is refused (P-17 and E11). */
+    public function testE11ReachesIdsOnlyOnObject(): void
     {
-        foreach (['<textarea name="action"></textarea>', '<select name="action"><option>a</option></select>',
-            '<fieldset name="action"></fieldset>', '<output name="action"></output>',
-            '<object type="application/pdf" data="/wp-content/uploads/a.pdf" id="action"></object>'] as $control) {
-            $this->assertRefused('<form action="/s">' . $control . '</form>', 'E11');
-        }
-        // An id that spells a document built-in is admitted on every element but <object>.
         $this->assertAdmitted('<img alt="" src="/a.png" id="cookie">');
-        $this->assertAdmitted('<form action="/s" id="cookie"></form>');
-        // An <object name> is document named access (refused by P-17 and E11 both).
+        $this->assertAdmitted('<button id="cookie">b</button>');
         $this->assertContains('E11', $this->clauses('<object type="application/pdf" data="/wp-content/uploads/a.pdf" name="cookie"></object>'));
     }
 
     /** Small value gates, each pinned by the input that needs it. */
     public function testValueGateEdges(): void
     {
-        $this->assertSame(['E12'], $this->clauses('<output for="gone" name="o"></output>'));
+        $this->assertSame(['E12'], $this->clauses('<label for="gone">l</label>'));
         $this->assertSame(['D1', 'E2'], $this->sorted($this->clauses('<svg><use href="javascript:x"/></svg>')),
             'an SVG href is judged by the SVG branch too, not only as a URL');
         $this->assertRefused('<svg><a xlink:title="x"><text>t</text></a></svg>', 'D1');
@@ -1059,8 +1056,6 @@ class ContentPredicateTest extends TestCase
     public function testRenderViewAndMessageEdges(): void
     {
         $this->assertStringContainsString('rel="noopener"', pp_content_sanitize('<map name="m"><area alt="" href="/x" target="_blank" shape="rect" coords="0,0,1,1"></map>', 'rich')['html']);
-        $this->assertStringContainsString('rel="noopener"', pp_content_sanitize('<form action="/s" target="_blank"></form>', 'rich')['html']);
-        $this->assertStringContainsString('>hi</textarea>', pp_content_sanitize('<textarea name="t">hi</textarea>', 'rich')['html']);
         $losses = $this->losses("<p onclick=\"a\">x</p><span onmouseover=\"c\">y</span>");
         $this->assertCount(2, array_filter($losses, static fn ($l) => $l['clause'] === 'E1'), 'one Loss per construct, not per clause');
         // A reflected VALUE carries no control character into the message.
@@ -1072,36 +1067,6 @@ class ContentPredicateTest extends TestCase
         }
         $this->assertStringNotContainsString('close <p> before', pp_content_close_first_hint('<div><p>a<p>b</p></div>'),
             'a <p> closes an open <p> sibling by itself');
-    }
-
-    /**
-     * Routed item 9 (ruled for T3a): a form holding a password field posts only to this site,
-     * and no form posts to this site's admin endpoints. Red-proofed both ways.
-     */
-    public function testFormsCredentialGate(): void
-    {
-        $pw = '<input type="password" name="pw">';
-        foreach (['<form action="/login-handler" method="post">' . $pw . '</form>', '<form method="post">' . $pw . '</form>',
-            '<form action="https://example.com/members" method="post">' . $pw . '</form>', '<form action="#x">' . $pw . '</form>',
-            '<form action="https://evil.example/search"><input type="text" name="q"></form>',
-            '<form action="https://evil.example/wp-login.php"><input type="text" name="q"></form>'] as $admitted) {
-            $this->assertAdmitted($admitted);
-        }
-        foreach (['https://evil.example/x', '//evil.example/x', '\\\\evil.example\\x', 'http://example.com/x',
-            'https://example.com:8443/x', 'mailto:a@example.com'] as $action) {
-            $losses = array_filter($this->losses('<form action="' . $action . '" method="post">' . $pw . '</form>'),
-                static fn ($l) => $l['clause'] === 'D5');
-            $this->assertNotSame([], $losses, $action);
-            $this->assertStringContainsString('password field may post only to this site', implode(' ', array_column($losses, 'message')));
-        }
-        // Fail closed on which form owns the field: any off-site form in the prop counts.
-        $this->assertRefused('<form action="https://evil.example/s"></form><form action="/ok">' . $pw . '</form>', 'D5');
-        foreach (['/wp-login.php', '/wp-admin/admin-post.php', 'wp-admin/', '/blog/wp-admin/admin-ajax.php',
-            'https://example.com/wp-login.php', '/wp%2Dadmin/options.php', '/admin-post.php?action=x'] as $action) {
-            $losses = array_filter($this->losses('<form action="' . $action . '"><input type="text" name="q"></form>'),
-                static fn ($l) => $l['clause'] === 'D5');
-            $this->assertStringContainsString('admin endpoints', implode(' ', array_column($losses, 'message')), $action);
-        }
     }
 
     /** Item 16 (ruled): app schemes on a link's href only, `a` and `area`; every other URL attribute refuses them. */
@@ -1117,21 +1082,11 @@ class ContentPredicateTest extends TestCase
     }
 
     /**
-     * THE URL CANONICALISER (cycle 9): one parse, browser semantics, fail closed. The four
-     * admin-endpoint bypass shapes of cycle 8 are refused; a fuzz set pins the parse.
+     * THE URL CANONICALISER (cycle 9): one parse, browser semantics, fail closed, for E2,
+     * srcset, P-11 and the trust tier. A table and a fuzz set pin the parse.
      */
     public function testTheUrlCanonicaliserFollowsTheBrowser(): void
     {
-        $form = static fn (string $action) => '<form action="' . $action . '"><input type="text" name="q"></form>';
-        foreach (['/a:1/../wp-login.php', '&#x01;wp-login.php', '&#12;wp-admin/', 'https:/wp-login.php', 'HTTPS:/wp-admin/admin-post.php',
-            '/wp-login.php/x', '/admin-ajax.php', '\\wp-admin\\x', '/WP-LOGIN.PHP', '/%2577p-admin/', '//example.com/wp-login.php',
-            "/wp-\tadmin/", '/wp-admin', '/x/%2e%2e/wp-login.php', 'https://example.com:443/wp-login.php',
-            'https://EXAMPLE.com/wp-admin/', 'https:wp-login.php'] as $action) {
-            $this->assertStringContainsString('admin endpoints', implode(' ', array_column($this->losses($form($action)), 'message')), $action);
-        }
-        foreach (['/wp-login.php.html', '/my-wp-admin/', 'https://evil.example/wp-login.php', '/blog/'] as $action) {
-            $this->assertStringNotContainsString('admin endpoints', implode(' ', array_column($this->losses($form($action)), 'message')), $action);
-        }
         // The parse itself (kind, scheme, host, port, resolved path); null = refused.
         foreach ([
             ['https://example.com/x', ['absolute', 'https', 'example.com', 443, '/x']],
@@ -1172,23 +1127,6 @@ class ContentPredicateTest extends TestCase
         }
     }
 
-    /** The forms gate's remaining spellings, both directions (cycle-8 mutation review). */
-    public function testFormsCredentialGateSpellings(): void
-    {
-        $pw = static fn (string $type = 'password') => '<input type="' . $type . '" name="pw">';
-        foreach (['https://example.com:443/x', 'https://EXAMPLE.com/x', 'https:/x'] as $same) {
-            $this->assertAdmitted('<form action="' . $same . '" method="post">' . $pw() . '</form>');
-        }
-        foreach (['PASSWORD', ' password '] as $type) {
-            $this->assertRefused('<form action="https://evil.example/x">' . $pw($type) . '</form>', 'D5');
-        }
-        foreach ([' https://evil.example/x', "ht\ttps://evil.example/x", 'http:/evil.example/x'] as $off) {
-            $this->assertRefused('<form action="' . $off . '">' . $pw() . '</form>', 'D5');
-        }
-        // A password field no form owns is not posted by a form: admitted beside an off-site form.
-        $this->assertAdmitted($pw() . '<form action="https://evil.example/s"><input type="text" name="q"></form>');
-    }
-
     /** Remaining edges from the cycle-8 mutation review. */
     public function testCycleEightMutationEdges(): void
     {
@@ -1220,6 +1158,14 @@ class ContentPredicateTest extends TestCase
         // Kept WHOLE: a declaration core's filter rewrites (here: drops) is refused.
         $this->assertContains('unfiltered_html', $core('<p style="color: red; display: grid">x</p>'));
         $this->assertSame([], $core('<p style="color:red;text-align : center">x</p>'), 'whitespace is normalised');
+    }
+
+    /** A fragment-reference refusal names the attribute's own value, not only its target id. */
+    public function testAFragmentReferenceMessageShowsTheAttributeValue(): void
+    {
+        $messages = implode(' | ', array_column($this->losses('<svg><rect fill="url(#gone)"/></svg><p style="filter:url(#nope)">x</p>'), 'message'));
+        $this->assertStringContainsString('fill="url(#gone)"', $messages);
+        $this->assertStringContainsString('style="filter:url(#nope)"', $messages);
     }
 
     private function sorted(array $list): array

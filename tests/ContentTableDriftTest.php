@@ -21,7 +21,10 @@ class ContentTableDriftTest extends TestCase
     /** §4 as drafted, restated here so the derivation is independent of lib/content.php. */
     private const E3_E4 = ['iframe', 'frame', 'frameset', 'embed', 'applet', 'portal', 'fencedframe',
         'script', 'style', 'noscript', 'template', 'base', 'meta', 'link', 'title', 'html', 'head', 'body',
-        'slot', 'xmp', 'noembed', 'noframes', 'plaintext', 'listing'];
+        'slot', 'xmp', 'noembed', 'noframes', 'plaintext', 'listing',
+        // Δ5, descoped by the owner 2026-10-05: forms are refused (D5) until the forms contract.
+        'form', 'input', 'select', 'option', 'optgroup', 'selectedcontent', 'datalist', 'textarea', 'output',
+        'fieldset', 'legend'];
     private const E9 = ['formaction', 'formtarget', 'formmethod', 'formenctype', 'ping', 'http-equiv', 'form', 'srcdoc'];
 
     private function core(): array

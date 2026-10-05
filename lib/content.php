@@ -264,7 +264,14 @@ function pp_content_excluded_elements(): array {
     $e3 = ['iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'portal', 'fencedframe'];
     $e4 = ['script', 'style', 'noscript', 'template', 'base', 'meta', 'link', 'title', 'html',
         'head', 'body', 'slot', 'xmp', 'noembed', 'noframes', 'plaintext', 'listing'];
-    return $cache = array_fill_keys($e3, 'E3') + array_fill_keys($e4, 'E4');
+    // Δ5, DESCOPED BY THE OWNER 2026-10-05: `form` and its controls are refused until the
+    // Layer-3 forms contract (the scheduled destination of P-5/P-24) admits them. `button`
+    // stays: it carries the invoker commands (popovertarget, commandfor) and, with no form
+    // and `form=` refused (E9), submits nothing. `label`, `meter` and `progress` stay too:
+    // they label and show values, and own no form data.
+    $d5 = ['form', 'input', 'select', 'option', 'optgroup', 'selectedcontent', 'datalist', 'textarea',
+        'output', 'fieldset', 'legend'];
+    return $cache = array_fill_keys($e3, 'E3') + array_fill_keys($e4, 'E4') + array_fill_keys($d5, 'D5');
 }
 
 /**
@@ -362,10 +369,8 @@ function pp_content_html_element_additions(): array {
         'canvas'   => ['width', 'height'],
         'col'      => ['span'], 'colgroup' => ['span'],
         'data'     => ['value'],
-        'datalist' => [],
         'details'  => ['open', 'name'],
         'dialog'   => ['open', 'closedby'],
-        'fieldset' => ['disabled', 'name'],
         // Δ2 adds srcset/sizes/decoding/fetchpriority; the rest is the living standard.
         'img'      => ['alt', 'src', 'srcset', 'sizes', 'crossorigin', 'usemap', 'ismap', 'width',
             'height', 'referrerpolicy', 'decoding', 'loading', 'fetchpriority'],
@@ -374,28 +379,14 @@ function pp_content_html_element_additions(): array {
         'map'      => ['name'],
         'meter'    => ['value', 'min', 'max', 'low', 'high', 'optimum'],
         'ol'       => ['reversed', 'start', 'type'],
-        'output'   => ['for', 'name'],
         'progress' => ['value', 'max'],
         'td'       => ['colspan', 'rowspan', 'headers'],
         'th'       => ['colspan', 'rowspan', 'headers', 'scope', 'abbr'],
-        'textarea' => ['autocomplete', 'cols', 'dirname', 'disabled', 'maxlength', 'minlength', 'name',
-            'placeholder', 'readonly', 'required', 'rows', 'wrap'],
         'time'     => ['datetime'],
         'track'    => ['default', 'kind', 'label', 'src', 'srclang'],
         // Δ2: responsive images and media sources.
         'picture'  => [],
         'source'   => ['type', 'src', 'srcset', 'sizes', 'media', 'width', 'height'],
-        // Δ5 (P-5, P-24): forms. `action` passes E2; the formaction family is E9.
-        'form'     => ['action', 'method', 'name', 'autocomplete', 'novalidate', 'enctype',
-            'accept-charset', 'target', 'rel'],
-        'input'    => ['accept', 'autocomplete', 'capture', 'checked', 'dirname', 'disabled', 'list',
-            'max', 'maxlength', 'min', 'minlength', 'multiple', 'name', 'pattern', 'placeholder',
-            'readonly', 'required', 'size', 'step', 'type', 'value', 'popovertarget',
-            'popovertargetaction'],
-        'select'   => ['autocomplete', 'disabled', 'multiple', 'name', 'required', 'size'],
-        'selectedcontent' => [],
-        'option'   => ['disabled', 'label', 'selected', 'value'],
-        'optgroup' => ['disabled', 'label'],
         // P-11: the same-install PDF object, a named Δ2 exception to E3 (gated below).
         'object'   => ['data', 'type', 'width', 'height'],
     ];
@@ -652,10 +643,9 @@ function pp_content_app_schemes(): array {
  *             .getElementById … — 309 of the 310 names on document's chain (all but the
  *             unforgeable `location`). Refused as the NAME of those elements, and as the ID of an <object>.
  *   form      Form-control named access: a control's name or id becomes a property of the
- *             form that owns it (`action`, `submit`, `elements`, `name` …). Refused while
- *             the parser gives the control a form owner: an open <form> among its
- *             ancestors, or the parser's form element pointer still set
- *             (_pp_content_has_form_owner(), read from the processor itself).
+ *             form that owns it (`action`, `submit`, `elements`, `name` …). Unreachable while
+ *             forms are descoped (Δ5, refused by D5); the probed set is kept, pinned, for the
+ *             Layer-3 forms contract that will admit them.
  *   ids       ADMITTED on every element but <object>, even an id that spells a document
  *             built-in or a window property. The probe shows an id shadows 0 of the 997 names on the window
  *             chain, and an id reaches document named access only on an <object>, or an
@@ -690,15 +680,6 @@ function pp_content_named_access_elements(): array {
         return $cache;
     }
     return $cache = array_fill_keys(['embed', 'form', 'iframe', 'img', 'object'], true);
-}
-
-/** Form-associated elements: their name and id become properties of their form. */
-function pp_content_form_associated_elements(): array {
-    static $cache = null;
-    if ($cache !== null) {
-        return $cache;
-    }
-    return $cache = array_fill_keys(['button', 'fieldset', 'input', 'object', 'output', 'select', 'textarea', 'img'], true);
 }
 
 /** E12: id-reference attributes and how many ids each carries. */
@@ -737,7 +718,7 @@ function pp_content_clause_text(string $clause): string {
         'D1'   => 'SVG (Δ1) value gate',
         'D2'   => 'responsive images and the same-install PDF object (Δ2)',
         'D3'   => 'the style attribute runs the program\'s CSS gates (Δ3)',
-        'D5'   => 'forms (Δ5)',
+        'D5'   => 'forms are descoped by the owner (2026-10-05): a form and its controls are refused until the Layer-3 forms contract admits them',
         'guard' => 'content must be a string',
         'unfiltered_html' => 'markup beyond what WordPress admits for a user without the unfiltered_html capability (the core `post` set)',
     ];
@@ -963,18 +944,6 @@ function _pp_content_remove_dot_segments(string $path): string {
     return ($absolute ? '/' : '') . implode('/', $out);
 }
 
-/** Same origin as this site? A relative reference resolves against the page itself. */
-function _pp_content_url_is_same_origin(array $c): bool {
-    if ($c['kind'] === 'relative') {
-        return true;
-    }
-    if ($c['kind'] === 'opaque') {
-        return false;
-    }
-    $site = _pp_content_site_url_parts();
-    return ($c['scheme'] ?? $site['scheme']) === $site['scheme'] && $c['host'] === $site['host'] && $c['port'] === $site['port'];
-}
-
 /** A style value's declarations, whitespace-normalised, for an exact comparison. */
 function _pp_content_normalise_declarations(string $css): array {
     return array_map(static function (string $decl): string {
@@ -983,37 +952,6 @@ function _pp_content_normalise_declarations(string $css): array {
         $value = $colon === false ? '' : (preg_replace('/\s+/', ' ', trim(substr($decl, $colon + 1))) ?? '');
         return $prop . ':' . $value;
     }, _pp_content_split_declarations($css));
-}
-
-// ── FORMS: where a form may post (routed item 9, ruled for T3a) ─────────────────────────
-
-/**
- * Is this form action same-origin with the site (home_url())? A missing action posts to
- * the page itself; a relative or #fragment action resolves against it. An action the
- * canonicaliser cannot parse is not same-origin (and is refused by E2 anyway).
- */
-function pp_content_action_is_same_origin(string $action): bool {
-    $c = pp_content_url_parse($action);
-    return $c !== null && _pp_content_url_is_same_origin($c);
-}
-
-/**
- * Does this same-origin action target a WordPress admin endpoint? Matched on the
- * canonical, dot-resolved path (percent-decoded, case-insensitive): any `wp-admin` segment,
- * and `wp-login.php`, `admin-ajax.php` or `admin-post.php` followed by `/` or the end (a
- * PATH_INFO suffix still runs the script). A relative path matches in any segment: on the
- * front page `wp-login.php` resolves to `/wp-login.php`.
- */
-function pp_content_action_is_admin_endpoint(string $action): bool {
-    $c = pp_content_url_parse($action);
-    if ($c === null || !_pp_content_url_is_same_origin($c)) {
-        return false;
-    }
-    $path = $c['path'];
-    for ($i = 0; $i < 3 && preg_match('/%[0-9a-f]{2}/i', $path); $i++) {
-        $path = _pp_content_remove_dot_segments(rawurldecode($path));
-    }
-    return preg_match('#(^|/)(wp-admin|wp-login\.php|admin-ajax\.php|admin-post\.php)(/|\z)#i', $path) === 1;
 }
 
 // ── THE PREDICATE ─────────────────────────────────────────────────────────────────────
@@ -1497,6 +1435,12 @@ function pp_content_style_losses(string $value): array {
             $reasons[] = sprintf('"%s" value %s (E7)', $prop, $forbidden);
             continue;
         }
+        $function = _pp_content_unlisted_css_function($probe);
+        if ($function !== null) {
+            $reasons[] = sprintf('"%s" calls %s(), which is not on the admitted CSS function list (unknown functions are refused) (E7)',
+                $prop, _pp_content_reflect($function, 40));
+            continue;
+        }
         $text_bearing = ['quotes', 'list-style-type', 'list-style', 'text-emphasis-style',
             'text-emphasis', 'hyphenate-character', 'text-overflow'];
         if (in_array($prop, $text_bearing, true) && preg_match('/["\']/', $val)) {
@@ -1505,6 +1449,50 @@ function pp_content_style_losses(string $value): array {
         }
     }
     return $reasons;
+}
+
+/**
+ * CSS functions, DEFAULT-DENY (I19; cycle-9 ruling): the functions a value may call. The
+ * url() family is not here: a same-document `url(#id)` is admitted by its own rule (P-13)
+ * and every other url(), image(), image-set(), src(), element() and -moz-element() is
+ * refused, as is any function this list does not name.
+ */
+function pp_content_css_functions(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    return $cache = array_fill_keys([
+        // colour
+        'rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color', 'color-mix', 'light-dark',
+        // maths and custom properties
+        'calc', 'min', 'max', 'clamp', 'round', 'mod', 'rem', 'abs', 'sign', 'sin', 'cos', 'tan', 'asin', 'acos',
+        'atan', 'atan2', 'pow', 'sqrt', 'hypot', 'log', 'exp', 'var', 'env',
+        // transforms
+        'translate', 'translatex', 'translatey', 'translatez', 'translate3d', 'scale', 'scalex', 'scaley', 'scalez',
+        'scale3d', 'rotate', 'rotatex', 'rotatey', 'rotatez', 'rotate3d', 'skew', 'skewx', 'skewy', 'matrix',
+        'matrix3d', 'perspective',
+        // gradients
+        'linear-gradient', 'radial-gradient', 'conic-gradient', 'repeating-linear-gradient',
+        'repeating-radial-gradient', 'repeating-conic-gradient',
+        // filters
+        'blur', 'brightness', 'contrast', 'drop-shadow', 'grayscale', 'hue-rotate', 'invert', 'opacity', 'saturate', 'sepia',
+        // shapes, grid, timing
+        'circle', 'ellipse', 'inset', 'polygon', 'rect', 'xywh', 'repeat', 'minmax', 'fit-content',
+        'cubic-bezier', 'steps', 'linear',
+    ], true);
+}
+
+/** The first CSS function a value calls that pp_content_css_functions() does not admit, or null. */
+function _pp_content_unlisted_css_function(string $value): ?string {
+    if (preg_match_all('/([a-zA-Z_\\-][a-zA-Z0-9_\\-]*)\s*\(/', $value, $m)) {
+        foreach ($m[1] as $name) {
+            if (!isset(pp_content_css_functions()[strtolower($name)])) {
+                return strtolower($name);
+            }
+        }
+    }
+    return null;
 }
 
 /** Splits a style value on `;` outside quotes and parentheses; empty declarations drop. */
@@ -1569,6 +1557,10 @@ function pp_content_svg_value_loss(string $attr, string $value): ?string {
     if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|@import|javascript:/', $unescaped, $m)) {
         return sprintf('"%s" is refused in an SVG attribute value; only a same-document url(#id) on a reference attribute is admitted (Δ1)', $m[0]);
     }
+    $function = _pp_content_unlisted_css_function(_pp_css_unescape($value));
+    if ($function !== null) {
+        return sprintf('%s() is not on the admitted CSS function list (unknown functions are refused) (Δ1)', _pp_content_reflect($function, 40));
+    }
     return null;
 }
 
@@ -1610,12 +1602,8 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
     // outside it even when the wrapper's surplus closer is silently ignored, and a prop that
     // swallows what follows (an unclosed comment, textarea or title) never reaches it.
     $end_marker = 'pp-end-' . $nonce;
-    // The form sentinel: an unclosed <form> leaves the parser's form pointer set after its
-    // container closes, so every later <form> start tag on the page is IGNORED and the
-    // controls after it join the author's form. A <p> sentinel cannot see that; a form can.
-    $form_sentinel = 'pp-sentinel-form-' . $nonce;
     $doc = '<!DOCTYPE html><html><head></head><body><main><section>' . $open . $bytes . '<!--' . $end_marker . '-->' . $close
-        . '</section><p id="' . $sentinel . '">s</p><form id="' . $form_sentinel . '"></form></main></body></html>';
+        . '</section><p id="' . $sentinel . '">s</p></main></body></html>';
 
     $p = WP_HTML_Processor::create_full_parser($doc);
     if ($p === null) {
@@ -1628,7 +1616,6 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
     $container_depth = 0;
     $tail_index = 0;
     $sentinel_ok = false;
-    $form_ok = false;
     $html = '';
     $skip_depth = null;         // depth at which a refused subtree started (render view)
     $inline = in_array($state['sink'], ['inline', 'heading'], true);
@@ -1762,12 +1749,6 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
             $phase = 'after';
             continue;
         }
-
-        if ($type === '#tag' && !$p->is_tag_closer() && $p->get_tag() === 'FORM'
-            && $p->get_attribute('id') === $form_sentinel
-            && ($p->get_breadcrumbs() ?? []) === ['HTML', 'BODY', 'MAIN', 'FORM']) {
-            $form_ok = true;
-        }
     }
 
     if ($p->get_last_error() !== null) {
@@ -1778,16 +1759,6 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
     if (!$sentinel_ok && !_pp_content_has_clause($state['losses'], 'E10')) {
         $state['losses'][] = _pp_content_loss('the prop', '', 'E10',
             'the next band would not render intact after it (an unclosed element swallows or re-wraps what follows)');
-    }
-    if (isset($state['owned_password'], $state['offsite_form'])) {
-        // Fail closed on which form owns the field: any off-site form in the prop counts.
-        $state['losses'][] = _pp_content_loss('<input type="password">', $state['owned_password'], 'D5',
-            'a form with a password field may post only to this site (browser autofill would hand a visitor\'s saved '
-            . 'credentials to the form\'s target); this prop has a form posting elsewhere: ' . $state['offsite_form']);
-    }
-    if (!$form_ok && !_pp_content_has_clause($state['losses'], 'E10')) {
-        $state['losses'][] = _pp_content_loss('<form>', '', 'E10',
-            'a <form> left open captures every later form on the page; close it with </form>');
     }
     // THE UNION RULE, SYMMETRIC: a start tag the lexical view saw and the tree builder
     // dropped (inside <select>, a stray <td>, a nested <form>) was judged only by the
@@ -1949,22 +1920,6 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
     if (($state['ctx']['tier'] ?? 'full') === 'core' && !_pp_content_core_tier_check($ns, $tag, $qual, $values, $where, $state)) {
         return null;
     }
-    // Where a form may post (routed item 9): never to this site's admin endpoints, and a
-    // form holding a password field only to this site (judged when the walk ends).
-    if ($ns === 'html' && $tag === 'form') {
-        $action = isset($values['action']) && is_string($values['action']) ? $values['action'] : '';
-        if (pp_content_action_is_admin_endpoint($action)) {
-            $state['losses'][] = _pp_content_loss('action="' . _pp_content_reflect($action, 60) . '" on <form>', $where, 'D5',
-                'a form may not post to this site\'s admin endpoints (wp-admin/, wp-login.php, admin-ajax.php, admin-post.php)');
-        }
-        if (!pp_content_action_is_same_origin($action)) {
-            $state['offsite_form'] ??= 'action="' . _pp_content_reflect($action, 60) . '" on <form>';
-        }
-    }
-    if ($ns === 'html' && $tag === 'input' && is_string($values['type'] ?? null)
-        && strtolower(trim($values['type'])) === 'password' && _pp_content_has_form_owner($p)) {
-        $state['owned_password'] ??= $where;
-    }
     foreach ($values as $attr => $value) {
         $qattr = $ns === 'html' ? $attr : (string) $p->get_qualified_attribute_name($attr);
         $construct = $qattr . ' on <' . $qual . '>';
@@ -1987,7 +1942,7 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
                 }
                 $out_attrs[$lname === 'href' ? 'href' : 'xlink:href'] = $string_value;
                 foreach (_pp_content_fragment_references($ns, $tag, $lname, $string_value) as $target) {
-                    $state['refs'][] = ['frag:' . $lname, $qual, $target, $where];
+                    $state['refs'][] = ['frag:' . $lname, $qual, $target, $where, $string_value];
                 }
                 continue;
             }
@@ -2064,8 +2019,8 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         if (isset(pp_content_idref_attributes()[$attr]) && is_string($value)) {
             $state['refs'][] = [$attr, $tag, $value, $where];
         }
-        if ($ns === 'html' && $attr === 'for' && in_array($tag, ['label', 'output'], true) && is_string($value)) {
-            $state['refs'][] = [$tag === 'label' ? 'for:one' : 'for:many', $tag, $value, $where];
+        if ($ns === 'html' && $attr === 'for' && $tag === 'label' && is_string($value)) {
+            $state['refs'][] = ['for:one', $tag, $value, $where];
         }
         if ($ns === 'html' && $attr === 'usemap' && is_string($value)) {
             $state['refs'][] = ['usemap', $tag, $value, $where];
@@ -2076,7 +2031,7 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         // id in the document, so it is an E12 reference like any other.
         if (is_string($value)) {
             foreach (_pp_content_fragment_references($ns, $tag, $lower, $value) as $target) {
-                $state['refs'][] = ['frag:' . $qattr, $qual, $target, $where];
+                $state['refs'][] = ['frag:' . $qattr, $qual, $target, $where, $value];
             }
         }
     }
@@ -2094,7 +2049,7 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         }
         // Δ4: a link that opens another browsing context carries rel=noopener (render
         // view only; disclosed as normalisation, M-10).
-        if (in_array($tag, ['a', 'area', 'form'], true) && isset($out_attrs['target'])
+        if (in_array($tag, ['a', 'area'], true) && isset($out_attrs['target'])
             && is_string($out_attrs['target'])
             && !in_array(strtolower(trim($out_attrs['target'])), ['', '_self', '_parent', '_top'], true)) {
             $rel = isset($out_attrs['rel']) && is_string($out_attrs['rel']) ? $out_attrs['rel'] : '';
@@ -2120,25 +2075,14 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
     if ($ns !== 'html' && $p->has_self_closing_flag()) {
         return $s . '/>';
     }
-    if ($ns === 'html' && $tag === 'textarea') {
-        // RCDATA: the HTML API reports a textarea as ONE token carrying its text and no
-        // closer token, so the render view writes both. A leading newline is dropped by
-        // the parser, so a text that starts with one gets the serializer's extra newline.
-        $text = $p->get_modifiable_text();
-        return $s . '>' . (str_starts_with($text, "\n") ? "\n" : '')
-            . htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8') . '</textarea>';
-    }
     return $s . '>';
 }
 
 /**
  * E11 on the real named-access surface (pp_content_clobber_table()), judged on the tree:
  *   - a `name` document named access exposes, on the elements it exposes it on;
- *   - an `id` on an <object> (document named access exposes an object by id as well);
- *   - a form control's `name` or `id` while the PARSER says the control has a form owner:
- *     an open <form> among its ancestors, or the parser's form element pointer still set
- *     (an implicitly closed form keeps owning what follows). Both are read from the
- *     processor itself, never modelled from tokens.
+ *   - an `id` on an <object> (document named access exposes an object by id as well).
+ * Form-control named access needs a form, and forms are descoped (Δ5, D5): refused.
  */
 function _pp_content_clobber_losses(WP_HTML_Processor $p, string $tag, array $values, string $where, array &$state): void {
     $clobber = pp_content_clobber_table();
@@ -2154,45 +2098,6 @@ function _pp_content_clobber_losses(WP_HTML_Processor $p, string $tag, array $va
     if ($id !== null && $tag === 'object' && isset($clobber['document'][$id])) {
         $document('id', $id);
     }
-    if (!isset(pp_content_form_associated_elements()[$tag])) {
-        return;
-    }
-    $hits = array_filter(['name' => $name, 'id' => $id], static fn ($v) => $v !== null && isset($clobber['form'][$v]));
-    if ($hits === [] || !_pp_content_has_form_owner($p)) {
-        return;
-    }
-    foreach ($hits as $attr => $v) {
-        $state['losses'][] = _pp_content_loss($attr . '="' . _pp_content_reflect($v, 64) . '" on <' . $tag . '>', $where, 'E11',
-            sprintf('a form control named "%s" shadows its form\'s own %s property (form-control named access)',
-                _pp_content_reflect($v, 64), _pp_content_reflect($v, 64)));
-    }
-}
-
-/**
- * Does the parser give the current element a form owner? An open <form> among its
- * ancestors (the processor's own breadcrumbs), or the processor's form element pointer
- * still set. The pointer is private state of core's WP_HTML_Processor, read in its own
- * class scope; if a future core no longer has it where this reads it, the answer is YES
- * (uncertainty is not admission), and ContentPredicateTest::testE11FollowsTheParsersFormOwner
- * pins that it is readable on each vendored version (the suite runs under both).
- */
-function _pp_content_has_form_owner(WP_HTML_Processor $p): bool {
-    if (in_array('FORM', $p->get_breadcrumbs() ?? [], true)) {
-        return true;
-    }
-    return _pp_content_parser_form_pointer($p) ?? true;
-}
-
-/** The processor's form element pointer: true when set, false when not, null when unreadable. */
-function _pp_content_parser_form_pointer(WP_HTML_Processor $p): ?bool {
-    static $read = null;
-    $read ??= Closure::bind(static function (WP_HTML_Processor $p): ?bool {
-        if (!property_exists($p, 'state') || !is_object($p->state) || !property_exists($p->state, 'form_element')) {
-            return null;
-        }
-        return $p->state->form_element !== null;
-    }, null, WP_HTML_Processor::class);
-    return $read($p);
 }
 
 /**
@@ -2241,21 +2146,6 @@ function _pp_content_html_value_loss(string $tag, string $attr, string $value): 
             ? null
             : ['P-17', 'is must name a valid custom element that does not shadow an HTML, SVG or MathML element'];
     }
-    if ($tag === 'input' && $attr === 'type') {
-        $types = ['text', 'email', 'tel', 'url', 'number', 'search', 'password', 'date', 'time',
-            'datetime-local', 'month', 'week', 'color', 'range', 'checkbox', 'radio', 'hidden', 'submit',
-            'reset', 'button', 'file'];
-        return in_array(strtolower(trim($value)), $types, true) ? null
-            : ['D5', 'input type must be one of: ' . implode(', ', $types)];
-    }
-    if ($tag === 'form' && $attr === 'method') {
-        return in_array(strtolower(trim($value)), ['get', 'post', 'dialog'], true) ? null
-            : ['D5', 'form method must be get, post or dialog (P-24)'];
-    }
-    if ($tag === 'form' && $attr === 'enctype') {
-        return in_array(strtolower(trim($value)), ['application/x-www-form-urlencoded', 'multipart/form-data', 'text/plain'], true)
-            ? null : ['D5', 'form enctype must be application/x-www-form-urlencoded, multipart/form-data or text/plain (P-24)'];
-    }
     if ($tag === 'object' && $attr === 'data') {
         return pp_content_is_same_install_pdf($value) ? null
             : ['E3', 'an <object> is admitted only for a PDF in this site\'s uploads (P-11)'];
@@ -2300,8 +2190,12 @@ function pp_content_is_same_install_pdf(string $url): bool {
             return false;
         }
     } elseif (!in_array($c['kind'], ['absolute', 'network'], true) || !in_array($c['scheme'] ?? 'https', ['http', 'https'], true)
-        || $c['host'] !== $base['host']) {
-        return false; // scheme dropped: http and https both name this install
+        || $c['host'] !== $base['host'] || $c['port'] !== $base['port']) {
+        // The canonical ORIGIN: host and port (each URL's port is explicit or its scheme's
+        // default, so http against an https base differs too). A host the canonicaliser
+        // keeps as written (a non-ASCII spelling a browser would map) never equals the
+        // base's, so it is refused: inequality is refusal.
+        return false;
     }
     $prefix = rtrim($base['path'], '/') . '/';
     if ($prefix === '/' || !str_starts_with($c['path'], $prefix)) {
@@ -2367,7 +2261,9 @@ function _pp_content_resolve_references(array &$state): void {
     $own_ids = array_fill_keys(array_map('strval', $state['ids']), true);
     $maps = array_fill_keys(array_map('strval', $state['map_names']), true);
     $kinds = pp_content_idref_attributes();
-    foreach ($state['refs'] as [$attr, $tag, $value, $where]) {
+    foreach ($state['refs'] as $ref) {
+        [$attr, $tag, $value, $where] = $ref;
+        $shown = $ref[4] ?? $value; // a fragment reference shows the attribute's own value
         if ($attr === 'usemap') {
             // A browser binds `#m` to the FIRST <map> in the document whose name or id is
             // `m`, so the map must be in this band and no other band may carry that name or id.
@@ -2390,7 +2286,7 @@ function _pp_content_resolve_references(array &$state): void {
             // whichever comes first in the document, so the reference may land outside.
             if ($target === '' || !(isset($own_ids[$target]) || isset($ctx['band_ids'][$target]))
                 || _pp_content_in_other($ctx, 'ids', $target)) {
-                $state['losses'][] = _pp_content_loss($label . '="' . _pp_content_reflect($value, 64) . '" on <' . $tag . '>',
+                $state['losses'][] = _pp_content_loss($label . '="' . _pp_content_reflect($shown, 64) . '" on <' . $tag . '>',
                     $where, 'E12', pp_content_clause_text('E12'));
                 break;
             }
@@ -2556,7 +2452,12 @@ function pp_content_band_facts(array $item, array $anchors = [], bool $keep = tr
         array_push($details, ...array_map(static fn ($d) => (string) $d[0], $state['details_names']));
         foreach ($state['refs'] as [$attr, , $v]) {
             if ($attr === 'usemap') {
-                $refs[] = substr((string) $v, 1); // the map name a `#name` binds to
+                // A browser binds a usemap to what follows its FIRST `#` (a stored value
+                // need not start with one); with no `#` it binds to nothing.
+                $hash = strpos((string) $v, '#');
+                if ($hash !== false) {
+                    $refs[] = substr((string) $v, $hash + 1);
+                }
             } elseif (str_starts_with($attr, 'frag:')) {
                 $refs[] = (string) $v;
             } else {
@@ -2808,28 +2709,56 @@ function pp_content_unchanged_keys(array $items, array $stored): array {
             $claim($key, $n);
         }
     }
+    // Passes 2 to 4 look stored bands up in BUCKETS (by id and bytes, by bytes, by shape and
+    // structural key), never pair by pair: their cost is linear in the bands, whatever their
+    // number (pair loops measured 18 s for 12,000 tiny bands).
+    // A bucket is a FIFO list read through a cursor (array_shift would re-index it on every
+    // take, quadratic in a large bucket).
+    $take = static function (array &$bucket) use (&$used): ?int {
+        while ($bucket['at'] < count($bucket['list'])) {
+            $n = $bucket['list'][$bucket['at']++];
+            if (!isset($used[$n])) {
+                return $n;
+            }
+        }
+        return null;
+    };
     // 2. same band id, byte-equal
+    $by_id = [];
+    foreach ($s as $n => $c) {
+        if ($c['id'] !== null) {
+            $by_id[$c['id'] . "\0" . $c['component'] . "\0" . $c['bytes']]['list'][] = $n;
+        }
+    }
+    foreach ($by_id as &$bucket) {
+        $bucket['at'] = 0;
+    }
+    unset($bucket);
     foreach ($in as $key => $b) {
         if (isset($out[$key]) || $b['id'] === null) {
             continue;
         }
-        foreach ($s as $n => $c) {
-            if (!isset($used[$n]) && $c['id'] === $b['id'] && $c['component'] === $b['component'] && $c['bytes'] === $b['bytes']) {
-                $claim($key, $n);
-                break;
-            }
+        $k = $b['id'] . "\0" . $b['component'] . "\0" . $b['bytes'];
+        if (isset($by_id[$k]) && ($n = $take($by_id[$k])) !== null) {
+            $claim($key, $n);
         }
     }
     // 3. any unused stored band, byte-equal
+    $by_bytes = [];
+    foreach ($s as $n => $c) {
+        $by_bytes[$c['component'] . "\0" . $c['bytes']]['list'][] = $n;
+    }
+    foreach ($by_bytes as &$bucket) {
+        $bucket['at'] = 0;
+    }
+    unset($bucket);
     foreach ($in as $key => $b) {
         if (isset($out[$key])) {
             continue;
         }
-        foreach ($s as $n => $c) {
-            if (!isset($used[$n]) && $c['component'] === $b['component'] && $c['bytes'] === $b['bytes']) {
-                $claim($key, $n);
-                break;
-            }
+        $k = $b['component'] . "\0" . $b['bytes'];
+        if (isset($by_bytes[$k]) && ($n = $take($by_bytes[$k])) !== null) {
+            $claim($key, $n);
         }
     }
     // 4. any unused stored band, structurally equal (signatures computed only now). Bounded
@@ -2838,7 +2767,8 @@ function pp_content_unchanged_keys(array $items, array $stored): array {
     // EVERY byte signed, incoming or stored, is charged to ONE budget of the write's byte
     // cap. Once it is spent, signing stops: the remaining incoming bands count as changed,
     // so they are judged like any new content (and count toward the write's own caps).
-    // Never a long write, never an unjudged band.
+    // Each stored band is signed at most once, in order, as incoming bands of its shape need
+    // it, and filed under its signature. Never a long write, never an unjudged band.
     $budget = PP_CONTENT_WRITE_MAX_BYTES;
     $over_cap = static function (array $map): bool {
         foreach ($map as $v) {
@@ -2858,22 +2788,44 @@ function pp_content_unchanged_keys(array $items, array $stored): array {
         }
         return true;
     };
+    $shape = static fn (array $band): string => $band['component'] . "\0" . implode("\0", array_keys($band['map']));
+    $pending = [];   // shape => bucket of stored bands not yet signed, in order
+    $signed = [];    // shape => signature => bucket of stored bands
+    foreach ($s as $n => $c) {
+        if (!isset($used[$n]) && !$over_cap($c['map'])) {
+            $pending[$shape($c)]['list'][] = $n;
+        }
+    }
+    foreach ($pending as &$bucket) {
+        $bucket['at'] = 0;
+    }
+    unset($bucket);
     foreach ($in as $key => $b) {
         if (isset($out[$key]) || $over_cap($b['map'])) {
             continue;
         }
-        foreach ($s as $n => $c) {
-            if (isset($used[$n]) || $c['component'] !== $b['component'] || array_keys($c['map']) !== array_keys($b['map'])
-                || $over_cap($c['map'])) {
-                continue;
-            }
-            if (!$sign($in[$key]) || !$sign($s[$n])) {
+        $g = $shape($b);
+        if (!isset($pending[$g]) && !isset($signed[$g])) {
+            continue;
+        }
+        if (!$sign($in[$key])) {
+            return $out;
+        }
+        $sig = $in[$key]['sig'];
+        $n = isset($signed[$g][$sig]) ? $take($signed[$g][$sig]) : null;
+        while ($n === null && isset($pending[$g]) && ($m = $take($pending[$g])) !== null) {
+            if (!$sign($s[$m])) {
                 return $out;
             }
-            if ($s[$n]['sig'] === $in[$key]['sig']) {
-                $claim($key, $n);
-                break;
+            if ($s[$m]['sig'] === $sig) {
+                $n = $m;
+            } else {
+                $signed[$g][$s[$m]['sig']]['list'][] = $m;
+                $signed[$g][$s[$m]['sig']]['at'] ??= 0;
             }
+        }
+        if ($n !== null) {
+            $claim($key, $n);
         }
     }
     return $out;

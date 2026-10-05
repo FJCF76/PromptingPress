@@ -40,16 +40,6 @@ if (!function_exists('pp_t3a_probe')) {
             }
             return wp_json_encode($out);
         }
-        if ($op === 'form_pointer') {
-            // E11 reads the live processor's private form element pointer: pin that it is
-            // readable on the core this site runs (unreadable would mean "owned" everywhere).
-            $p = WP_HTML_Processor::create_full_parser('<form>');
-            $before = _pp_content_parser_form_pointer($p);
-            while ($p->next_tag()) {
-            }
-            return wp_json_encode(['wp_version' => get_bloginfo('version'), 'before' => $before,
-                'after' => _pp_content_parser_form_pointer($p)]);
-        }
         return wp_json_encode(['error' => 'unknown op']);
     }
 }

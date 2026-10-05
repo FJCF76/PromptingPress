@@ -71,7 +71,8 @@ class ContentWriteGateTest extends TestCase
             'E8 unknown element'        => ['<blink>x</blink>', 'E8'],
             'E9 formaction'             => ['<button formaction="https://evil.example">x</button>', 'E9'],
             'E10 stray closer'          => ['x</div></section><p>outside</p>', 'E10'],
-            'E11 clobbering name'       => ['<form name="querySelector"></form>', 'E11'],
+            'E11 clobbering name'       => ['<object type="application/pdf" data="/wp-content/uploads/a.pdf" id="querySelector"></object>', 'E11'],
+            'D5 forms (descoped)'       => ['<form action="/subscribe" method="post"><input type="email" name="email"></form>', 'D5'],
             'E12 out-of-band reference' => ['<button popovertarget="pp-nav-menu">x</button>', 'E12'],
             'P-16 unsupported markup'   => ['<p><b>Note</p><p>rest</p>', 'P-16'],
             'P-17 nonce'                => ['<span nonce="abc">x</span>', 'P-17'],
@@ -189,7 +190,7 @@ class ContentWriteGateTest extends TestCase
             'Δ1 SVG icon (P-12, P-18)'      => ['<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img"><defs><linearGradient id="g1" href="#g0"><stop offset="0" stop-color="#000"/></linearGradient></defs><path d="M0 0h24v24H0z" fill="url(#g1)" color-interpolation-filters="sRGB" textLength="3"/><text><textPath href="#p1">t</textPath></text><path id="p1" d="M0 0"/><linearGradient id="g0"/></svg>'],
             'Δ2 picture/srcset'             => ['<picture><source srcset="/a.avif 1x, /a@2x.avif 2x" type="image/avif"><img src="/a.jpg" srcset="/a.jpg 1x, https://cdn.example/a2.jpg 2x" alt="a" decoding="async" fetchpriority="high"></picture>'],
             'Δ3 modern style (P-13, P-20)'  => ['<div style="transform: rotate(2deg); color: rgb(0 0 0 / .5); font-family: &quot;Inter&quot;, sans-serif; --accent: #f00; fill: url(#g1)">x</div><svg><linearGradient id="g1"/></svg>'],
-            'Δ5 forms (P-5, P-24)'          => ['<form action="/subscribe" method="post" enctype="multipart/form-data"><label for="e1">Email</label><input id="e1" type="email" name="email" required><input type="file" name="cv"><button type="submit">Go</button></form><dialog id="d1"><form method="dialog"><button>Close</button></form></dialog>'],
+            'invoker commands (P-17)'       => ['<button commandfor="d1" command="show-modal">Open</button><dialog id="d1"><button commandfor="d1" command="close">Close</button></dialog>'],
             'P-10 app link + raster data:'  => ['<a href="whatsapp://send?text=hi">w</a> <img alt="" src="data:image/png;base64,iVBORw0KGgo=">'],
             'P-11 same-install PDF'         => ['<object type="application/pdf" data="http://example.test/wp-content/uploads/2026/10/guide.pdf"></object>'],
             'P-23 custom element'           => ['<my-widget class="w">x</my-widget>'],
@@ -331,7 +332,7 @@ class ContentWriteGateTest extends TestCase
     /** Two bands carrying the same id: a reference in either may bind to the other (E12). */
     public function testADuplicateIdAcrossBandsRefusesTheReference(): void
     {
-        $band = $this->section('<label for="email">Email</label><input id="email" type="email" name="e">');
+        $band = $this->section('<label for="email">Email</label><meter id="email" value="1"></meter>');
         $post_id = $this->page([]);
         $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$band, $band]]);
         $this->assertFalse($result['ok']);
@@ -589,7 +590,7 @@ class ContentWriteGateTest extends TestCase
     {
         $beyond = [
             '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', '<div tabindex="0">t</div>', '<a href="sip:100">call</a>',
-            '<img src="data:image/png;base64,AAAA" alt="">', '<form action="/s"><input type="text" name="q"></form>',
+            '<img src="data:image/png;base64,AAAA" alt="">', '<button commandfor="d" command="show-modal">o</button><dialog id="d">d</dialog>',
             '<my-widget>w</my-widget>', '<p style="display:grid">x</p>', '<p contenteditable="true">x</p>',
         ];
         $parity = '<p class="lead" style="color: red">Hello <a href="/x" title="t">there</a> <strong>s</strong></p>'
@@ -758,6 +759,36 @@ class ContentWriteGateTest extends TestCase
         $stored = [$huge, $this->section('<p class=a>x</p>')];
         $incoming = [$huge, $this->section('<p class="a">x</p>')]; // structurally equal, not byte-equal
         $this->assertSame([0 => true, 1 => true], pp_content_unchanged_keys($incoming, $stored));
+    }
+
+    /**
+     * M-2's passes look stored bands up in buckets, never pair by pair: 12,000 tiny bands that
+     * are structurally equal but not byte-equal (measured 18 s with pair loops) stay fast.
+     *
+     * @group timing
+     */
+    public function testTheMatcherIsLinearInTheBands(): void
+    {
+        $in = $stored = [];
+        for ($i = 0; $i < 12000; $i++) {
+            $in[] = $this->section('<b >x</b>');
+            $stored[] = $this->section('<b>x</b>');
+        }
+        $start = microtime(true);
+        $this->assertCount(12000, pp_content_unchanged_keys($in, $stored));
+        if (!extension_loaded('xdebug') && !extension_loaded('pcov')) {
+            $this->assertLessThan(3.0, microtime(true) - $start, 'bucketed, not quadratic');
+        }
+    }
+
+    /** A stored usemap binds to what follows its FIRST `#`, as a browser reads it. */
+    public function testALegacyUsemapFactIsReadAsTheBrowserReadsIt(): void
+    {
+        $legacy = ['component' => 'section', 'props' => ['title' => 'T', 'body' => '<img alt="" src="/a.png" usemap="x#m">']];
+        $index = pp_content_composition_index([$legacy, $this->section('<p>n</p>')], [1]);
+        $this->assertSame(['m'], $index[0]['refs']);
+        $capture = $this->section('<map name="m"><area shape="default" href="https://evil.test/" alt=""></map>');
+        $this->assertNotSame([], pp_validate_composition_errors([$legacy, $capture], null, null, [$legacy]));
     }
 
     /** The kept walk is what band_losses finishes: a judged value is never walked twice. */
@@ -934,7 +965,7 @@ class ContentWriteGateTest extends TestCase
     {
         $post_id = $this->page([]);
         $items = [$this->section('<p id="pricing">a</p>'),
-            $this->section('<div id="top">x</div><div id="wp">y</div><form name="jQuery" action="/s"></form>')];
+            $this->section('<div id="top">x</div><div id="wp">y</div><p id="jQuery">z</p>')];
         $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => $items]);
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $found = array_values(array_filter(_pp_composition_findings($items), static fn ($f) => $f['type'] === 'content_global_shadow'));
@@ -942,7 +973,7 @@ class ContentWriteGateTest extends TestCase
         $this->assertSame('info', $found[0]['severity']);
         $this->assertSame(1, $found[0]['index']);
         $this->assertStringContainsString('"wp"', $found[0]['message']);
-        $this->assertStringContainsString('"jQuery"', $found[0]['message'], 'a form name pre-empts a global too');
+        $this->assertStringContainsString('"jQuery"', $found[0]['message']);
         $this->assertStringNotContainsString('"top"', $found[0]['message']);
 
         // A name on an element window named access does not expose is no shadow.

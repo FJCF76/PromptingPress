@@ -21,14 +21,12 @@ All notable changes to PromptingPress are documented here.
   and document-level elements, including an in-body `<body onload>` (E4); active SVG and MathML
   (E5); the engine's `data-pp-*` namespace, minted ids, `main`, `pp-nav-menu` and any id equal to
   a band anchor on the page (E6); `url()`, `!important` and the excluded properties in a `style`
-  attribute (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
-  (E9); markup that escapes its container, such as a stray `</div>` or an unclosed `<textarea>`
-  (E10), including a `<form>` left open, which would capture every later form on the page; the
-  `name` of a `<form>`, or the `id` or `name` of an `<object>`, that shadows a built-in `document`
-  property such as `forms` or `cookie` (an image's `name` is not admitted at all, and embedded
-  elements are refused), and the name or id of a control the
-  HTML parser gives a form, including after a `</form>` it ignores or a form it closed implicitly,
-  that shadows the form's own property such as `action` or `submit` (E11; other ids are admitted,
+  attribute (E7), and any CSS function not on the admitted list, such as `-moz-element()` or
+  `paint()` (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
+  (E9); markup that escapes its container, such as a stray `</div>` or an unclosed comment
+  (E10); the `id` or `name` of an `<object>` that shadows a built-in `document` property such as
+  `forms` or `cookie` (an image's `name` is not admitted at all, and embedded elements are
+  refused) (E11; other ids are admitted,
   even `top`, `title` or `forms`, because an id shadows no `window` property and reaches `document`
   only through an `<object>` or a named `<img>`; an id equal to a page-script global such as `wp`
   is disclosed as an info note, `content_global_shadow`); an id or a single-id reference containing whitespace (E12); an id
@@ -37,23 +35,26 @@ All notable changes to PromptingPress are documented here.
   than one write can check (1 MiB), a new id, id reference, details group or band anchor, which
   cannot be verified against them (E12, E6); and markup the HTML parser cannot verify, named
   "unsupported markup" with the element to close first, such as `<p><b>Note</p>`, or an element
-  the parser drops where a browser may still build it, such as one inside `<select>` (P-16).
+  the parser drops where a browser may still build it, such as a table part outside a table (P-16).
 - **What content may carry is wider, per the ratified contract.** The full HTML and ARIA 1.2
   attribute set (microdata, `tabindex`, `translate`, `inert`, `bdi`, `datalist`, and the rest;
   `nonce` is refused because it does nothing outside script and style); inline SVG, spec-derived,
   with same-document `url(#id)` and fragment `href` on `use`, gradients, patterns, filters and
   `textPath`, and editor attributes such as `inkscape:label` under the same value checks as every
-  SVG attribute; `picture`, `source` and `srcset`; forms with a checked `action`, `method="dialog"`
-  and file inputs (a form holding a password field may post only to this site, and no form may
-  post to the site's admin endpoints: `wp-admin/`, `wp-login.php`, `admin-ajax.php`,
-  `admin-post.php`); app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`) in a
+  SVG attribute; `picture`, `source` and `srcset`; app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`) in a
   link's `href` on `a` and `area` only; `autofocus`, `contenteditable` and `is`; base64
-  raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`; hyphenated
+  raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`, served from
+  the same origin as the uploads (host and port); hyphenated
   custom elements (disclosed as `content_plugin_output`, an info note); modern CSS in `style`
   attributes, including your own custom properties (`--pp-*` stays the engine's). INLINE props
   admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`, `mark` and
   `code`; titles and headings admit the same set without `a`; labels, button text and URLs stay
   plain text.
+- **Forms are not admitted yet.** The ratified contract admits forms (P-5, P-24), but the owner
+  descoped them from this release on 2026-10-05: `form`, `input`, `select`, `option`, `optgroup`,
+  `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause Δ5,
+  "descoped by the owner"), and they arrive with the Layer-3 forms contract. `button`, `label`,
+  `meter` and `progress` are admitted: none of them submits anything without a form.
 - **The wider set is for users WordPress trusts with unfiltered HTML.** Everything beyond core's
   own `post` list needs the `unfiltered_html` capability, as in WordPress itself. A user without
   it (a Contributor or Author, or an Editor on multisite) writes what core's `post` list admits:
@@ -68,7 +69,7 @@ All notable changes to PromptingPress are documented here.
   comparison has the same budget as a write, so a large stored page never makes a small edit slow:
   a band it cannot compare within the budget is checked as new content.
 - **Every URL is read the way a browser reads it.** One shared reader judges every URL in content
-  (links, sources, form actions, the PDF `<object>`): it strips the control characters browsers
+  (links, sources, the PDF `<object>`): it strips the control characters browsers
   strip, treats a backslash as a slash, resolves `.` and `..` segments, and reads `https:/path`
   on an https site as the path it is. A URL it cannot read cleanly (a control character inside,
   a malformed host or port, a `file:` URL) is refused (E2).
