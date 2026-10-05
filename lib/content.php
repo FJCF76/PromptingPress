@@ -1383,6 +1383,11 @@ function pp_content_srcset_loss(string $value): ?string {
  */
 function pp_content_style_losses(string $value): array {
     $reasons = [];
+    // A line break ends a CSS string, so a quoted run with one is no string at all (and the
+    // whitespace folding below would otherwise join it back into one).
+    if (preg_match('/"[^"]*[\n\r\f][^"]*"|\'[^\']*[\n\r\f][^\']*\'/', $value)) {
+        return ['a line break inside a quoted string ends the string in CSS, so it is refused as written (Δ3)'];
+    }
     $value = str_replace(["\t", "\r", "\n"], ' ', $value);
     if (strpos($value, '\\') !== false) {
         return ['a CSS escape (backslash) is refused as written (Δ3)'];
@@ -1517,7 +1522,9 @@ function _pp_content_is_text_attribute(string $attr): bool {
  * skipped.
  */
 function _pp_content_unlisted_css_function(string $value): ?string {
-    $value = preg_replace('/"[^"]*"|\'[^\']*\'/', '""', $value) ?? $value;
+    // A CSS string ends at a line break, so a quoted run never spans one: `"a⏎ paint(x) "`
+    // is a broken string followed by a live call, and the call is judged.
+    $value = preg_replace('/"[^"\n\r\f]*"|\'[^\'\n\r\f]*\'/', '""', $value) ?? $value;
     if (preg_match_all('/([a-zA-Z_\\-][a-zA-Z0-9_\\-]*)\s*\(/', $value, $m)) {
         foreach ($m[1] as $name) {
             if (!isset(pp_content_css_functions()[strtolower($name)])) {
@@ -1579,7 +1586,9 @@ function pp_content_svg_value_loss(string $attr, string $value): ?string {
         && preg_match('/^url\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.\-]{0,63}\1\s*\)\z/', trim($value))) {
         return null;
     }
-    if (preg_match('/[\x00-\x1F\x7F<>{};\\\\]/', $value) || strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
+    // Tab, LF, FF and CR are whitespace (multi-line path data, as Illustrator writes it);
+    // every other control character is refused.
+    if (preg_match('/[\x00-\x08\x0B\x0E-\x1F\x7F<>{};\\\\]/', $value) || strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
         return 'SVG attribute values may not contain control characters, < > { } ; \\ or comment delimiters (Δ1)';
     }
     // Every way a value can name an external resource, not only `url(`: the shared CSS
@@ -2186,7 +2195,7 @@ function _pp_content_math_value_loss(string $attr, string $value): ?array {
     }
     // The SVG gate's pre-refusals, so a comment cannot pair the quotes the function check
     // skips (`/*"*/calc(...)/*"*/`) and nothing escapes the value.
-    if (preg_match('/[\x00-\x1F\x7F<>{};\\\\]/', $value) || strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
+    if (preg_match('/[\x00-\x08\x0B\x0E-\x1F\x7F<>{};\\\\]/', $value) || strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
         return ['E5', 'MathML attribute values may not contain control characters, < > { } ; \\ or comment delimiters'];
     }
     // No separate no-URL test: url(), image(), image-set() and src() are not on the

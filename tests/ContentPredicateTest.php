@@ -874,6 +874,30 @@ class ContentPredicateTest extends TestCase
             '<svg lang="en (x)" role="img (z)" data-x="f (x)"><g inkscape:label="Layer (1)"/></svg>'] as $text) {
             $this->assertAdmitted($text);
         }
+        // Whitespace is whitespace (owner ruling, 2026-10-05): tab, LF, FF and CR are admitted in
+        // SVG and MathML values (Illustrator wraps path data); other control characters, a
+        // backslash and comment delimiters are refused before any quote is read.
+        foreach (["<svg><path d=\"M10,10\n\t\tc1,2,3,4,5,6\"/><polygon points=\"0,0 10,0\n\t10,10\"/></svg>",
+            '<math><mi mathcolor="red&#10;">x</mi></math>',
+            "<math><mtable columnalign=\"left\nright\"><mtr><mtd><mi mathvariant=\"bold\t\">x</mi></mtd></mtr></mtable></math>"] as $ws) {
+            $this->assertAdmitted($ws);
+        }
+        // A CSS string ends at a line break: the quote skip never spans one, so a call after a
+        // broken string is a live call and is refused, in both quote kinds and every value.
+        foreach (["<svg><rect fill=\"&quot;a\n paint(x) &quot;\"/></svg>", "<svg><rect fill=\"'a\n paint(x) '\"/></svg>",
+            "<math><mi mathsize=\"&quot;a\r calc(sibling-index() * 300%) &quot;\">x</mi></math>",
+            "<math><mi mathsize=\"'a\f calc(sibling-index() * 300%) '\">x</mi></math>"] as $split) {
+            $this->assertNotSame([], $this->clauses($split), $split);
+        }
+        $this->assertRefused("<p style=\"font-family: &quot;a\n paint(x) &quot;\">x</p>", 'D3');
+        $this->assertRefused("<p style=\"font-family: 'a\n b'\">x</p>", 'D3');
+        // The MathML pre-refusals, each pinned: a backslash (`\\" paint(x) "` would otherwise
+        // hide a call the browser runs) and a control character.
+        $this->assertRefused('<math><mi mathsize=\'\\" paint(x) "\'>x</mi></math>', 'E5');
+        $this->assertRefused("<math><mi mathsize=\"1\x01em\">x</mi></math>", 'E5');
+        $this->assertRefused("<math><mi mathsize=\"1\x0Bem\">x</mi></math>", 'E5');
+        // Every text-list entry: their token values are text.
+        $this->assertAdmitted('<svg xml:lang="en (x)"><a href="/x" hreflang="en (x)" referrerpolicy="no (x)" tabindex="0 (x)"><text>t</text></a></svg>');
         $this->assertTrue(_pp_content_is_text_attribute('inkscape:label'));
         $this->assertFalse(_pp_content_is_text_attribute('xlink:role'), 'xlink: and xml: are not editor namespaces');
         $this->assertFalse(_pp_content_is_text_attribute('xml:base'));
