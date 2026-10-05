@@ -671,6 +671,12 @@ class UdcScopedSheetTest extends TestCase
         $this->assertSame([], $compiled['scoped']);
         $this->assertCount(1, $drops);
         $this->assertStringContainsString('not a list of rules', $drops[0]['reason']);
+        // Value: protects=findings never call a keyed-map sheet the compiler drops whole "emitted as written";
+        // fails_when=the list guard in pp_udc_composition_findings() is removed; why_new=only the write/emit halves
+        // were pinned; seam=none
+        $findings = pp_udc_composition_findings([$this->band(['a' => ['selector' => '.x', 'css' => ['mix-blend-mode' => 'multiply']]])]);
+        $this->assertSame([], array_values(array_filter($findings, static fn(array $f): bool => $f['type'] === 'udc_css_unchecked_property')),
+            'the findings surface agrees with the compiler: a sheet that paints nothing is described as nothing');
     }
 
     /** M-8 at emit: a stored sheet past the bound paints its first 128 rules and says so. */
@@ -1173,6 +1179,52 @@ class UdcScopedSheetTest extends TestCase
         $this->assertArrayNotHasKey('udc_scoped', pp_component_schema_report(pp_udc_chrome_names()[0]), 'chrome takes no scoped sheet');
     }
 
+    /**
+     * A stored condition that is not a string is refused at write and dropped at emit, never a crash.
+     *
+     * Value: protects=a non-string media/supports/container prelude refuses at write and drops (ledgered) at emit;
+     * fails_when=the is_string guard goes, so strlen() on an array throws TypeError on write and on page render;
+     * why_new=the condition matrix only feeds strings; seam=none
+     */
+    public function testANonStringConditionIsRefusedAndNeverCrashesTheRender(): void
+    {
+        foreach (['media', 'supports', 'container'] as $kind) {
+            foreach ([['(hover: hover)'], 7, null] as $prelude) {
+                $error = $this->validate(['selector' => '.x', 'css' => ['color' => '#123'], $kind => $prelude]);
+                $this->assertNotNull($error, json_encode([$kind, $prelude]));
+                $this->assertStringContainsString('must be a string', $error->get_error_message());
+            }
+            $rules = [['selector' => '.bad', 'css' => ['color' => '#ff0000'], $kind => ['(hover: hover)']], ['selector' => '.ok', 'css' => ['color' => '#00ff00']]];
+            $drops = [];
+            $compiled = pp_udc_compile_band($this->band($rules), 'authored', $drops);
+            $this->assertCount(1, $compiled['scoped'], "{$kind}: only the healthy rule compiles");
+            $this->assertStringContainsString('"_scoped"[0] "' . $kind . '"', $drops[0]['where'] ?? '');
+            $css = pp_udc_band_css($this->band($rules));
+            $this->assertStringNotContainsString('#ff0000', $css);
+            $this->assertStringContainsString('.ok{color:#00ff00;}', $css);
+        }
+    }
+
+    /**
+     * What the chat model is taught about `_scoped` is what the gate admits.
+     *
+     * Value: protects=the prompt's `_scoped` example passes the write gate and its stated limits equal the engine constants;
+     * fails_when=the example or a bound changes on one side only, so the model is taught a refused shape or a wrong limit;
+     * why_new=AiContextTest pins only the prompt's size; seam=none
+     */
+    public function testThePromptTeachesAnAdmittedSheetAndTheEnginesLimits(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('SELECTOR RULES (`"_scoped"`)', $prompt, 'the capability is taught, not discovered by refusal');
+        $this->assertSame(1, preg_match('/`"_scoped": (\[.*?\])`/', $prompt, $m), 'premise: the taught example is in the prompt');
+        $example = json_decode($m[1], true);
+        $this->assertIsArray($example, 'the taught example is valid JSON');
+        $this->assertGreaterThanOrEqual(2, count($example));
+        $this->assertNull(pp_udc_validate_map([PP_UDC_SCOPED_KEY => $example], 'section'), 'every taught rule is admitted');
+        $this->assertStringContainsString('At most ' . PP_UDC_SCOPED_MAX_DECLARATIONS . ' declarations per rule and '
+            . (PP_UDC_SCOPED_MAX_SHEET_BYTES / 1024) . ' KiB of sheet per band', $prompt);
+    }
+
     /** One owner for the Layer-3 CSS function list: the content gate reads the scoped sheet's. */
     public function testBothLayerThreeChannelsReadOneFunctionList(): void
     {
@@ -1182,6 +1234,62 @@ class UdcScopedSheetTest extends TestCase
         }
         foreach (['attr', 'anchor', 'anchor-size', 'paint', 'element', '-moz-element', 'url', 'image-set'] as $refused) {
             $this->assertArrayNotHasKey($refused, pp_layer3_css_functions());
+        }
+    }
+
+    /** Adversarial F1 (ruled: P-19's shape is the id): a token reference is refused, never a silent no-paint. */
+    public function testABackgroundImageTakesTheIdNotATokenReference(): void
+    {
+        $tokens = ['_tokens' => ['img' => '42']];
+        $error = $this->validate(['selector' => '.x', 'css' => ['background-image' => '@img']], 'section', $tokens);
+        $this->assertNotNull($error, 'the reproduction: admitted, then painted nothing with no report');
+        $this->assertStringContainsString('attachment id written as a number', $error->get_error_message());
+        $this->assertNull($this->validate(['selector' => '.x', 'css' => ['background-image' => 42]], 'section', $tokens), 'the id itself stays admitted');
+        // Stored past the gate: dropped at emit WITH a ledger row, and the sibling still paints.
+        $rules = [['selector' => '.ref', 'css' => ['background-image' => '@img']], ['selector' => '.ok', 'css' => ['color' => '#00ff00']]];
+        $drops = [];
+        $compiled = pp_udc_compile_band($this->band($rules, 'section', $tokens), 'authored', $drops);
+        $this->assertCount(1, $compiled['scoped']);
+        $this->assertStringContainsString('"_scoped"[0]', $drops[0]['where'] ?? '', 'the drop is ledgered, not silent');
+        $this->assertStringContainsString('.ok{color:#00ff00;}', pp_udc_band_css($this->band($rules, 'section', $tokens)));
+    }
+
+    /** Adversarial F2 (ruled): `content` meets the control-byte rule before its closed grammar. */
+    public function testContentRefusesAControlByteAtEitherEnd(): void
+    {
+        foreach (["\"\"\n", "\0\"\"", "\"\"\x0B", "\tnone", "normal\r"] as $value) {
+            $error = $this->validate(['selector' => 'li', 'css' => ['content' => $value]]);
+            $this->assertNotNull($error, json_encode($value) . ': trim() hid the byte from the grammar and the emitter printed it');
+            $this->assertStringContainsString('control character', $error->get_error_message());
+            $css = pp_udc_band_css($this->band([['selector' => 'li', 'css' => ['content' => $value]]]));
+            $this->assertSame(0, preg_match('/[\x00-\x1F\x7F]/', $css), json_encode($value) . ': no control byte reaches the <style>');
+        }
+        $this->assertNull($this->validate(['selector' => 'li', 'css' => ['content' => ' "" ']]), 'surrounding spaces stay admitted');
+    }
+
+    /** Adversarial F3 (ruled under the text-overflow reasoning): CSS Overflow 4's string-rendering properties. */
+    public function testBlockEllipsisAndLineClampTakeNoString(): void
+    {
+        foreach (['block-ellipsis' => '"BUY NOW"', 'line-clamp' => '2 "BUY NOW"'] as $property => $value) {
+            $error = $this->validate(['selector' => 'p', 'css' => [$property => $value]]);
+            $this->assertNotNull($error, "{$property}: a string renders as text by spec");
+            $this->assertContains($property, pp_layer3_text_bearing_properties());
+            $this->assertNotNull($this->validate(['selector' => 'p', 'css' => [$property => 'inherit']]), "{$property}: no CSS-wide keyword");
+        }
+        $this->assertNull($this->validate(['selector' => 'p', 'css' => ['line-clamp' => '2']]), 'a count stays admitted');
+        $this->assertNull($this->validate(['selector' => 'p', 'css' => ['block-ellipsis' => 'auto']]), 'a keyword stays admitted');
+    }
+
+    /** A condition refusal names its condition once (message nit found by the outside pass). */
+    public function testAConditionRefusalNamesItsConditionOnce(): void
+    {
+        $cases = [
+            ['supports', '(background-image: url(#leak))'], ['media', '(width: 600px)'],
+            ['media', ''], ['supports', ['x']], ['container', str_repeat('a', 300)], ['supports', "(content: \"\"\n)"],
+        ];
+        foreach ($cases as [$kind, $prelude]) {
+            $message = $this->validate(['selector' => '.x', 'css' => ['color' => '#123'], $kind => $prelude])->get_error_message();
+            $this->assertSame(1, substr_count($message, '"' . $kind . '"'), $message);
         }
     }
 }

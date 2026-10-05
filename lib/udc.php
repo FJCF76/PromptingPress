@@ -13381,6 +13381,14 @@ function _pp_udc_scoped_declaration_problem(string $property, $value, array $ban
         $literal = (string) $leaf;
         $ref = pp_udc_parse_reference($literal);
         if ($ref !== null) {
+            // P-19'S RATIFIED SHAPE IS THE ID ITSELF (#1242 T4, adversarial F1, ruled 2026-10-05): a
+            // scoped background takes a Media Library attachment id and the engine builds the URL.
+            // A token reference was never admitted, and the compiler checks the id as written, so
+            // `"background-image": "@img"` passed here and painted nothing, with no report.
+            if (($param['type'] ?? '') === 'attachment_id') {
+                return sprintf('"%s" takes a Media Library attachment id written as a number (for example 42), '
+                    . 'not the reference "@%s"', $property, _pp_udc_reflect($ref));
+            }
             if ($untyped) {
                 return sprintf('"%s" cannot take the reference "@%s": this property has no declared grammar, so '
                     . 'the engine cannot check that a token\'s value is usable here. Write the literal value instead',
@@ -13806,6 +13814,10 @@ function pp_udc_scoped_rule_problem($rule, string $component, array $band_tokens
         if (array_key_exists($kind, $rule)) {
             $problem = pp_udc_scoped_condition_problem($kind, $rule[$kind]);
             if ($problem !== null) {
+                // The location already names the condition; a message that names it too would
+                // read `"supports": "supports": …`.
+                $problem = (string) preg_replace('/\A"' . $kind . '": /', '', $problem);
+                $problem = (string) preg_replace('/\A"' . $kind . '" /', 'the condition ', $problem);
                 return [' "' . $kind . '"', $problem];
             }
         }

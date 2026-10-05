@@ -75,7 +75,10 @@ function pp_layer3_css_functions(): array {
  */
 function pp_layer3_text_bearing_properties(): array {
     return ['quotes', 'list-style-type', 'list-style', 'text-emphasis-style', 'text-emphasis',
-        'hyphenate-character', 'text-overflow'];
+        'hyphenate-character', 'text-overflow',
+        // CSS Overflow 4 renders a string through both (#1242 T4, adversarial F3, ruled under the
+        // text-overflow reasoning): Chromium 147 supports neither today, which is not a guarantee.
+        'block-ellipsis', 'line-clamp'];
 }
 
 /** P-13's fragment-only url(): Δ1's regex, matched anywhere in a value and replaced for the gates. */
@@ -145,7 +148,14 @@ function pp_layer3_counter_value_is_names_only(string $literal): bool {
  * non-empty string is refused (fail-closed) until it is.
  */
 function pp_layer3_content_problem(string $value): ?string {
-    $v = trim($value);
+    // CONTROL BYTES FIRST (#1242 T4, adversarial F2, ruled 2026-10-05): the cycle-1 rule every
+    // other scoped value meets. A default trim() strips \0 \t \n \r \x0B, so `""` + a line
+    // break matched the closed grammar here and the emitter printed the untrimmed bytes into
+    // the <style>. Only spaces are trimmed below.
+    if (preg_match('/[\x00-\x1F\x7F]/', $value)) {
+        return 'content contains a control character (a tab, a line break or another byte below space)';
+    }
+    $v = trim($value, ' ');
     if (in_array($v, ['""', "''", 'none', 'normal'], true)) {
         return null;
     }
