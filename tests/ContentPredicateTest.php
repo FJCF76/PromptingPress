@@ -547,8 +547,13 @@ class ContentPredicateTest extends TestCase
 
     public function testInlineAndHeadingAdmitExactlyTheRuledSet(): void
     {
+        // Titles and headings take the INLINE set without `a` (the Sprint-6 titles ruling:
+        // a template may render a title inside a link, and a link in a link is unparseable).
+        $this->assertAdmitted('<a href="/x" title="t">a</a> <strong>s</strong>', 'inline');
+        $this->assertRefused('<a href="/x">a</a>', 'P-2', 'heading');
+        $this->assertStringContainsString('(no links)', implode(' ', array_column($this->losses('<a href="/x">a</a>', 'heading'), 'message')));
         foreach (['inline', 'heading'] as $sink) {
-            $this->assertAdmitted('<a href="/x" title="t">a</a> <strong>s</strong> <em>e</em><br><span class="c" style="color:red">sp</span> <sup>1</sup><sub>2</sub><small>s</small><mark>m</mark><code>c</code>', $sink);
+            $this->assertAdmitted('<strong>s</strong> <em>e</em><br><span class="c" style="color:red">sp</span> <sup>1</sup><sub>2</sub><small>s</small><mark>m</mark><code>c</code>', $sink);
             foreach (['<b>b</b>', '<i>i</i>', '<img src="/a.png" alt="">', '<a href="/x" target="_blank">a</a>',
                 '<span id="x">s</span>', '<code class="x">c</code>', '<span data-x="1">s</span>', '<svg></svg>',
                 '<div>d</div>', '<details>d</details>'] as $shape) {
@@ -1050,6 +1055,48 @@ class ContentPredicateTest extends TestCase
         }
         $this->assertStringNotContainsString('close <p> before', pp_content_close_first_hint('<div><p>a<p>b</p></div>'),
             'a <p> closes an open <p> sibling by itself');
+    }
+
+    /**
+     * Routed item 9 (ruled for T3a): a form holding a password field posts only to this site,
+     * and no form posts to this site's admin endpoints. Red-proofed both ways.
+     */
+    public function testFormsCredentialGate(): void
+    {
+        $pw = '<input type="password" name="pw">';
+        foreach (['<form action="/login-handler" method="post">' . $pw . '</form>', '<form method="post">' . $pw . '</form>',
+            '<form action="https://example.com/members" method="post">' . $pw . '</form>', '<form action="#x">' . $pw . '</form>',
+            '<form action="https://evil.example/search"><input type="text" name="q"></form>',
+            '<form action="https://evil.example/wp-login.php"><input type="text" name="q"></form>'] as $admitted) {
+            $this->assertAdmitted($admitted);
+        }
+        foreach (['https://evil.example/x', '//evil.example/x', '\\\\evil.example\\x', 'http://example.com/x',
+            'https://example.com:8443/x', 'mailto:a@example.com'] as $action) {
+            $losses = array_filter($this->losses('<form action="' . $action . '" method="post">' . $pw . '</form>'),
+                static fn ($l) => $l['clause'] === 'D5');
+            $this->assertNotSame([], $losses, $action);
+            $this->assertStringContainsString('password field may post only to this site', implode(' ', array_column($losses, 'message')));
+        }
+        // Fail closed on which form owns the field: any off-site form in the prop counts.
+        $this->assertRefused('<form action="https://evil.example/s"></form><form action="/ok">' . $pw . '</form>', 'D5');
+        foreach (['/wp-login.php', '/wp-admin/admin-post.php', 'wp-admin/', '/blog/wp-admin/admin-ajax.php',
+            'https://example.com/wp-login.php', '/wp%2Dadmin/options.php', '/admin-post.php?action=x'] as $action) {
+            $losses = array_filter($this->losses('<form action="' . $action . '"><input type="text" name="q"></form>'),
+                static fn ($l) => $l['clause'] === 'D5');
+            $this->assertStringContainsString('admin endpoints', implode(' ', array_column($losses, 'message')), $action);
+        }
+    }
+
+    /** Item 16 (ruled): app schemes on a link's href only, `a` and `area`; every other URL attribute refuses them. */
+    public function testAppSchemesOnlyOnALinksHref(): void
+    {
+        $this->assertAdmitted('<a href="sip:100">call</a><a href="whatsapp://send?text=x">w</a>');
+        $this->assertAdmitted('<map name="m"><area alt="" href="geo:0,0" shape="rect" coords="0,0,1,1"></map>');
+        $this->assertAdmitted('<svg><a href="facetime:x"><text>f</text></a></svg>', 'rich', [], 'an SVG <a> is a link');
+        foreach (['<form action="sip:100"></form>', '<img src="geo:0,0" alt="">', '<blockquote cite="maps:x">q</blockquote>',
+            '<video poster="signal:x"></video>', '<object type="application/pdf" data="sip:1"></object>'] as $shape) {
+            $this->assertContains('E2', $this->clauses($shape), $shape);
+        }
     }
 
     private function sorted(array $list): array

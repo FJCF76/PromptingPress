@@ -578,6 +578,68 @@ class ContentWriteGateTest extends TestCase
         $this->assertSame([], pp_content_band_losses($items, 0, pp_content_composition_index($items, [0])));
     }
 
+    // ── cycle 8: the trust tier, the forms credential gate, app schemes, M-2 pass-through ──
+
+    /**
+     * Routed item 12 (ruled for T3a): the widened set needs unfiltered_html. A writer
+     * without it gets core parity, refused by name; a writer with it gets the full set.
+     * Through the real write path, both tiers.
+     */
+    public function testTheWidenedSetNeedsUnfilteredHtml(): void
+    {
+        $beyond = [
+            '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>', '<div tabindex="0">t</div>', '<a href="sip:100">call</a>',
+            '<img src="data:image/png;base64,AAAA" alt="">', '<form action="/s"><input type="text" name="q"></form>',
+            '<my-widget>w</my-widget>', '<p style="display:grid">x</p>', '<p contenteditable="true">x</p>',
+        ];
+        $parity = '<p class="lead" style="color: red">Hello <a href="/x" title="t">there</a> <strong>s</strong></p>'
+            . '<ul><li>one</li></ul><img src="/a.png" alt="a" width="10" height="10"><blockquote cite="https://example.com/q">q</blockquote>';
+        $post_id = $this->page([]);
+        $GLOBALS['_pp_test_user_caps'] = ['unfiltered_html' => false];
+        try {
+            $this->assertSame('core', pp_content_write_tier());
+            $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$this->section($parity)]]);
+            $this->assertTrue($result['ok'], $result['error'] ?? '');
+            foreach ($beyond as $body) {
+                $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$this->section($body)]]);
+                $this->assertFalse($result['ok'], $body);
+                $this->assertStringContainsString('unfiltered_html', $result['error'], $body);
+            }
+        } finally {
+            unset($GLOBALS['_pp_test_user_caps']);
+        }
+        $this->assertSame('full', pp_content_write_tier());
+        foreach ($beyond as $body) {
+            $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$this->section($body)]]);
+            $this->assertTrue($result['ok'], $body . ': ' . ($result['error'] ?? ''));
+        }
+        // A stored band beyond core stays, unchanged, under a core-tier edit to another band (§2.6).
+        $GLOBALS['_pp_test_user_caps'] = ['unfiltered_html' => false];
+        try {
+            $stored = $this->stored($post_id);
+            $result = pp_execute_action('update_composition', ['post_id' => $post_id,
+                'composition' => array_merge($stored, [$this->section('<p>added by a contributor</p>')])]);
+            $this->assertTrue($result['ok'], $result['error'] ?? '');
+        } finally {
+            unset($GLOBALS['_pp_test_user_caps']);
+        }
+    }
+
+    /**
+     * Item 18 (ruled): the byte-equal pass-through is exempt from the matcher's budget, so an
+     * untouched stored band never blocks an edit to another band, whatever its size.
+     */
+    public function testAnUntouchedHugeBandNeverBlocksAnEditElsewhere(): void
+    {
+        $huge = $this->section('<p>' . str_repeat('legacy ', 300000) . '</p>'); // ~2 MB, far over every cap
+        $post_id = $this->page([$huge, $this->section('<p>small</p>')]);
+        $stored = $this->stored($post_id);
+        $stored[1]['props']['body'] = '<p>small, edited</p>';
+        $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => $stored]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertSame([0 => true], pp_content_unchanged_keys([$huge], [$huge]), 'matched byte for byte, unbudgeted');
+    }
+
     /** The kept walk is what band_losses finishes: a judged value is never walked twice. */
     public function testBandLossesFinishTheKeptWalk(): void
     {

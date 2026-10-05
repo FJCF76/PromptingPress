@@ -4891,7 +4891,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 // add_component: $items is the ONE band being added (pp_validate_composition_item()),
                 // judged as it will sit appended to the stored page.
                 $content_items = array_merge(array_values($content_page), [$item]);
-                $content_index = pp_content_composition_index($content_items, [count($content_items) - 1]);
+                $content_index = pp_content_composition_index($content_items, [count($content_items) - 1], pp_content_write_tier());
                 $content_counts = pp_content_index_counts($content_index);
                 $content_losses = pp_content_band_losses($content_items, count($content_items) - 1, $content_index, $content_counts);
             } else {
@@ -4904,7 +4904,7 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                             $content_judged[] = $k;
                         }
                     }
-                    $content_index = pp_content_composition_index($items, $content_judged);
+                    $content_index = pp_content_composition_index($items, $content_judged, pp_content_write_tier());
                 }
                 $content_counts ??= pp_content_index_counts($content_index);
                 $content_losses = pp_content_band_losses($items, $i, $content_index, $content_counts);

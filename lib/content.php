@@ -437,8 +437,8 @@ function pp_content_html_table(): array {
 }
 
 /**
- * P-2 B+: the INLINE set, and the same set in titles and headings. Closed by ruling:
- * the ruling names span's attributes and no others.
+ * P-2 B+: the INLINE set. Closed by ruling: the ruling names span's attributes and no
+ * others. Titles and headings take the same set WITHOUT `a` (pp_content_heading_table()).
  */
 function pp_content_inline_table(): array {
     static $cache = null;
@@ -450,6 +450,33 @@ function pp_content_inline_table(): array {
         'span' => ['class' => true, 'style' => true], 'sup' => [], 'sub' => [], 'small' => [],
         'mark' => [], 'code' => [],
     ];
+}
+
+/**
+ * P-2 B+ for titles and headings (the Sprint-6 titles ruling, 2026-10-05): `strong`, `em`,
+ * `br` and the widening set, and NO `a` — a template may render a title inside a link, and
+ * a link inside a link cannot be parsed as written.
+ */
+function pp_content_heading_table(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $table = pp_content_inline_table();
+    unset($table['a']);
+    return $cache = $table;
+}
+
+/** The P-2 table for an inline or heading sink. */
+function _pp_content_p2_table(string $sink): array {
+    return $sink === 'heading' ? pp_content_heading_table() : pp_content_inline_table();
+}
+
+/** The P-2 refusal text for an inline or heading sink. */
+function _pp_content_p2_text(string $sink): string {
+    return $sink === 'heading'
+        ? 'a title or heading admits only strong, em, br, span (class, style), sup, sub, small, mark and code (no links)'
+        : pp_content_clause_text('P-2');
 }
 
 /**
@@ -712,8 +739,117 @@ function pp_content_clause_text(string $clause): string {
         'D3'   => 'the style attribute runs the program\'s CSS gates (Δ3)',
         'D5'   => 'forms (Δ5)',
         'guard' => 'content must be a string',
+        'unfiltered_html' => 'markup beyond what WordPress admits for a user without the unfiltered_html capability (the core `post` set)',
     ];
     return $texts[$clause] ?? $clause;
+}
+
+// ── THE TRUST TIER (routed item 12, ruled for T3a) ─────────────────────────────────────
+//
+// The widened admissions (everything beyond the core `post` kses table: SVG, forms, custom
+// elements, microdata, the argued attributes, app schemes, data: images, modern CSS) are a
+// power WordPress gives only to users with `unfiltered_html`. A writer without it gets core
+// parity: what kses would have admitted, judged by the same walk and refused by name (clause
+// unfiltered_html), never stripped. WP-CLI runs with server-level access, as every other
+// PromptingPress CLI gate treats it (_pp_cli_require_apply_cap()).
+
+/** 'full' when the writing user may write the widened set, else 'core'. */
+function pp_content_write_tier(): string {
+    if (defined('WP_CLI') && WP_CLI) {
+        return 'full';
+    }
+    return function_exists('current_user_can') && current_user_can('unfiltered_html') ? 'full' : 'core';
+}
+
+/** The core `post` kses table this site applies (the live one; the pinned snapshot without WordPress). */
+function pp_content_core_post_table(): array {
+    if (function_exists('wp_kses_allowed_html')) {
+        $live = wp_kses_allowed_html('post');
+        if (is_array($live) && $live !== []) {
+            return array_change_key_case($live, CASE_LOWER);
+        }
+    }
+    return _pp_content_data_table('core-post-wp-7.0.json')['tags'] ?? [];
+}
+
+/**
+ * Core parity for one element (the 'core' tier): the element must be in core `post`, each
+ * attribute in core's list for it, each URL on core's protocol list, and a style attribute
+ * must survive core's own CSS filter unchanged. Losses are added to $state; returns false
+ * when the element itself is beyond core (the caller stops judging it).
+ */
+function _pp_content_core_tier_check(string $ns, string $tag, string $qual, array $values, string $where, array &$state): bool {
+    $core = pp_content_core_post_table();
+    $text = pp_content_clause_text('unfiltered_html');
+    if ($ns === 'svg' || !isset($core[$tag]) || !is_array($core[$tag]) && $core[$tag] !== true) {
+        $state['losses'][] = _pp_content_loss('<' . $qual . '>', $where, 'unfiltered_html', $text);
+        return false;
+    }
+    $allowed = is_array($core[$tag]) ? array_change_key_case($core[$tag], CASE_LOWER) : [];
+    foreach ($values as $attr => $value) {
+        $attr = (string) $attr;
+        $listed = isset($allowed[$attr]) || (isset($allowed['data-*']) && preg_match('/^data-[a-z0-9_.:-]+\z/', $attr));
+        if (!$listed) {
+            $state['losses'][] = _pp_content_loss($attr . ' on <' . $qual . '>', $where, 'unfiltered_html', $text);
+            continue;
+        }
+        if (!is_string($value)) {
+            continue;
+        }
+        if (_pp_content_url_context($tag, $attr) !== null && $attr !== 'srcset'
+            && pp_content_url_loss($value, 'fetch') !== null && pp_content_url_loss($value, 'link') === null
+            || ($attr === 'src' && $tag === 'img' && preg_match('/^\s*data:/i', $value))) {
+            // An app scheme or a data: image: admitted to the full tier only (P-10).
+            $state['losses'][] = _pp_content_loss($attr . '="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
+                $where, 'unfiltered_html', 'this URL scheme is beyond WordPress\'s own protocol list, which a user without unfiltered_html writes');
+            continue;
+        }
+        if ($attr === 'style' && trim($value) !== '') {
+            $filtered = function_exists('safecss_filter_attr') ? (string) safecss_filter_attr($value) : null;
+            if ($filtered === null || count(_pp_content_split_declarations($filtered)) < count(_pp_content_split_declarations($value))) {
+                $state['losses'][] = _pp_content_loss('style="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
+                    $where, 'unfiltered_html', 'a declaration here is beyond WordPress\'s own CSS filter (safecss_filter_attr), which a user without unfiltered_html writes');
+            }
+        }
+    }
+    return true;
+}
+
+// ── FORMS: where a form may post (routed item 9, ruled for T3a) ─────────────────────────
+
+/**
+ * Is this form action same-origin with the site (home_url())? A missing action posts to
+ * the page itself; a relative or #fragment action resolves against it. Classified after
+ * the URL parser's own preprocessing and backslash normalisation (pp_content_url_loss()).
+ */
+function pp_content_action_is_same_origin(string $action): bool {
+    $u = str_replace(["\t", "\n", "\r", '\\'], ['', '', '', '/'], preg_replace('/^[\x00-\x20]+|[\x00-\x20]+\z/', '', $action) ?? '');
+    if ($u === '' || (!str_starts_with($u, '//') && !preg_match('/^[a-zA-Z][a-zA-Z0-9+.\-]*:/', $u))) {
+        return true;
+    }
+    $home = function_exists('home_url') ? (string) home_url('/') : '';
+    $site = parse_url($home);
+    $target = parse_url(str_starts_with($u, '//') ? (($site['scheme'] ?? 'https') . ':' . $u) : $u);
+    if (!is_array($site) || !is_array($target) || !isset($target['host'], $site['host'])) {
+        return false;
+    }
+    $port = static fn (array $p) => $p['port'] ?? (strtolower($p['scheme'] ?? '') === 'http' ? 80 : 443);
+    return strtolower($target['scheme'] ?? '') === strtolower($site['scheme'] ?? '')
+        && strtolower($target['host']) === strtolower($site['host'])
+        && $port($target) === $port($site);
+}
+
+/** Does this same-origin action target a WordPress admin endpoint (by path, any spelling)? */
+function pp_content_action_is_admin_endpoint(string $action): bool {
+    if (!pp_content_action_is_same_origin($action)) {
+        return false;
+    }
+    $u = str_replace(["\t", "\n", "\r", '\\'], ['', '', '', '/'], trim($action));
+    $path = (string) (parse_url(str_starts_with($u, '//') ? 'https:' . $u : $u, PHP_URL_PATH) ?? '');
+    for ($i = 0; $i < 3 && preg_match('/%[0-9a-f]{2}/i', $path); $i++) {
+        $path = rawurldecode($path);
+    }
+    return preg_match('#(^|/)(wp-admin(/|\z)|wp-login\.php\z|admin-ajax\.php\z|admin-post\.php\z)#i', $path) === 1;
 }
 
 // ── THE PREDICATE ─────────────────────────────────────────────────────────────────────
@@ -913,8 +1049,8 @@ function _pp_content_lexical_scan(string $bytes, array &$state): void {
         }
         if (!isset($known[$tag]) && !pp_content_is_valid_custom_element_name($tag) && !str_contains($tag, ':')) {
             $state['losses'][] = _pp_content_unknown_element_loss($tag, '');
-        } elseif ($inline && !isset(pp_content_inline_table()[$tag])) {
-            $state['losses'][] = _pp_content_loss('<' . $tag . '>', '', 'P-2', pp_content_clause_text('P-2'));
+        } elseif ($inline && !isset(_pp_content_p2_table($state['sink'])[$tag])) {
+            $state['losses'][] = _pp_content_loss('<' . $tag . '>', '', 'P-2', _pp_content_p2_text($state['sink']));
         }
         foreach (($p->get_attribute_names_with_prefix('') ?? []) as $attr) {
             $value = $p->get_attribute($attr);
@@ -1482,6 +1618,12 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
         $state['losses'][] = _pp_content_loss('the prop', '', 'E10',
             'the next band would not render intact after it (an unclosed element swallows or re-wraps what follows)');
     }
+    if (isset($state['owned_password'], $state['offsite_form'])) {
+        // Fail closed on which form owns the field: any off-site form in the prop counts.
+        $state['losses'][] = _pp_content_loss('<input type="password">', $state['owned_password'], 'D5',
+            'a form with a password field may post only to this site (browser autofill would hand a visitor\'s saved '
+            . 'credentials to the form\'s target); this prop has a form posting elsewhere: ' . $state['offsite_form']);
+    }
     if (!$form_ok && !_pp_content_has_clause($state['losses'], 'E10')) {
         $state['losses'][] = _pp_content_loss('<form>', '', 'E10',
             'a <form> left open captures every later form on the page; close it with </form>');
@@ -1580,11 +1722,11 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
 
     // Element admission per namespace and sink.
     if ($inline) {
-        $table = pp_content_inline_table();
+        $table = _pp_content_p2_table($state['sink']);
         if ($ns !== 'html' || !isset($table[$tag])) {
             $excl = pp_content_excluded_elements()[$tag] ?? null;
             $clause = $excl ?? 'P-2';
-            $reason = pp_content_clause_text($clause);
+            $reason = $excl !== null ? pp_content_clause_text($clause) : _pp_content_p2_text($state['sink']);
             if (!preg_match('/^[a-z][a-z0-9-]*\z/', $tag)) {
                 $reason .= '; to show a literal "<" write &lt;';
             }
@@ -1642,6 +1784,26 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
     foreach ($attrs as $attr) {
         $values[strtolower((string) $attr)] = $p->get_attribute($attr);
     }
+    // The trust tier: a writer without unfiltered_html writes the core `post` set.
+    if (($state['ctx']['tier'] ?? 'full') === 'core' && !_pp_content_core_tier_check($ns, $tag, $qual, $values, $where, $state)) {
+        return null;
+    }
+    // Where a form may post (routed item 9): never to this site's admin endpoints, and a
+    // form holding a password field only to this site (judged when the walk ends).
+    if ($ns === 'html' && $tag === 'form') {
+        $action = isset($values['action']) && is_string($values['action']) ? $values['action'] : '';
+        if (pp_content_action_is_admin_endpoint($action)) {
+            $state['losses'][] = _pp_content_loss('action="' . _pp_content_reflect($action, 60) . '" on <form>', $where, 'D5',
+                'a form may not post to this site\'s admin endpoints (wp-admin/, wp-login.php, admin-ajax.php, admin-post.php)');
+        }
+        if (!pp_content_action_is_same_origin($action)) {
+            $state['offsite_form'] ??= 'action="' . _pp_content_reflect($action, 60) . '" on <form>';
+        }
+    }
+    if ($ns === 'html' && $tag === 'input' && is_string($values['type'] ?? null)
+        && strtolower(trim($values['type'])) === 'password' && _pp_content_has_form_owner($p)) {
+        $state['owned_password'] ??= $where;
+    }
     foreach ($values as $attr => $value) {
         $qattr = $ns === 'html' ? $attr : (string) $p->get_qualified_attribute_name($attr);
         $construct = $qattr . ' on <' . $qual . '>';
@@ -1697,7 +1859,7 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
                     $state['losses'][] = _pp_content_loss($construct, $where, 'P-17',
                         'nonce only affects script, style and link, which are refused (E4), so here it would do nothing');
                 } elseif ($inline) {
-                    $state['losses'][] = _pp_content_loss($construct, $where, 'P-2', pp_content_clause_text('P-2'));
+                    $state['losses'][] = _pp_content_loss($construct, $where, 'P-2', _pp_content_p2_text($state['sink']));
                 } else {
                     $state['losses'][] = _pp_content_loss($construct, $where, 'P-17', pp_content_clause_text('P-17'));
                 }
@@ -1988,6 +2150,7 @@ function _pp_content_ctx(array $ctx): array {
         ],
         'own'       => ['ids' => [], 'details' => [], 'refs' => []],
         'incomplete' => false,
+        'tier'      => ($ctx['tier'] ?? 'full') === 'core' ? 'core' : 'full',
     ];
 }
 
@@ -2137,9 +2300,10 @@ function pp_content_close_first_hint(string $bytes): string {
  * @param  int|null $budget   Bytes this band may still walk (decremented); null: unbounded.
  *                            A value that does not fit is not walked and the band is
  *                            `incomplete`.
+ * @param  string   $tier     The writer's trust tier for a judged band (pp_content_write_tier()).
  * @return array{values:list<array>, ids:list<string>, maps:list<string>, details:list<string>, refs:list<string>, anchor:string, incomplete:bool, states?:array}
  */
-function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null): array {
+function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null, string $tier = 'full'): array {
     $values = pp_content_band_values($item);
     $anchor = (isset($item['props']['id']) && is_string($item['props']['id'])) ? $item['props']['id'] : '';
     $ids = $maps = $details = $refs = [];
@@ -2161,7 +2325,7 @@ function pp_content_band_facts(array $item, array $anchors = [], bool $keep = tr
         }
         // A band read only for its facts is walked without the anchors: an id equal to an
         // anchor is exactly the fact the anchor-add rule needs (E6 would drop it).
-        $state = _pp_content_check($value, $sink, $keep ? ['anchors' => $anchors] : []);
+        $state = _pp_content_check($value, $sink, $keep ? ['anchors' => $anchors, 'tier' => $tier] : []);
         if ($keep) {
             $states[$n] = $state;
         }
@@ -2193,8 +2357,9 @@ function pp_content_band_facts(array $item, array $anchors = [], bool $keep = tr
  *                            walks kept, their bytes charged to the budget. The other bands
  *                            are walked for facts with what remains of it. Null judges every
  *                            band (unbounded: a direct caller, a test).
+ * @param string     $tier    The writer's trust tier the judged bands are walked under.
  */
-function pp_content_composition_index(array $items, ?array $judged = null): array {
+function pp_content_composition_index(array $items, ?array $judged = null, string $tier = 'full'): array {
     $anchors = [];
     foreach ($items as $item) {
         if (is_array($item) && isset($item['props']['id']) && is_string($item['props']['id']) && $item['props']['id'] !== '') {
@@ -2210,9 +2375,10 @@ function pp_content_composition_index(array $items, ?array $judged = null): arra
     }
     $judged_set = array_fill_keys(array_map('strval', $judged), true);
     $budget = PP_CONTENT_WRITE_MAX_BYTES;
+    $unbounded = null;
     foreach ($items as $key => $item) {
         if (is_array($item) && isset($judged_set[(string) $key])) {
-            $index[$key] = pp_content_band_facts($item, $anchors);
+            $index[$key] = pp_content_band_facts($item, $anchors, true, $unbounded, $tier);
             $budget -= array_sum(array_map(static fn ($v) => strlen($v[3]), $index[$key]['values']));
         }
     }

@@ -23,11 +23,20 @@ if (!function_exists('pp_t3a_probe')) {
         if ($op === 'judge') {
             $out = [];
             foreach ((array) ($payload['inputs'] ?? []) as $input) {
-                $r = pp_content_sanitize((string) $input, (string) ($payload['sink'] ?? 'rich'));
+                $r = pp_content_sanitize((string) $input, (string) ($payload['sink'] ?? 'rich'),
+                    ['tier' => (string) ($payload['tier'] ?? 'full')]);
                 $out[] = [
                     'clauses' => array_values(array_unique(array_column($r['losses'], 'clause'))),
                     'html'    => $r['html'],
                 ];
+            }
+            return wp_json_encode($out);
+        }
+        if ($op === 'safecss') {
+            // The live core CSS filter the 'core' trust tier compares against.
+            $out = [];
+            foreach ((array) ($payload['inputs'] ?? []) as $css) {
+                $out[] = safecss_filter_attr((string) $css);
             }
             return wp_json_encode($out);
         }

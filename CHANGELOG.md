@@ -43,12 +43,23 @@ All notable changes to PromptingPress are documented here.
   with same-document `url(#id)` and fragment `href` on `use`, gradients, patterns, filters and
   `textPath`, and editor attributes such as `inkscape:label` under the same value checks as every
   SVG attribute; `picture`, `source` and `srcset`; forms with a checked `action`, `method="dialog"`
-  and file inputs; app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`); base64
+  and file inputs (a form holding a password field may post only to this site, and no form may
+  post to the site's admin endpoints: `wp-admin/`, `wp-login.php`, `admin-ajax.php`,
+  `admin-post.php`); app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`) in a
+  link's `href` on `a` and `area` only; `autofocus`, `contenteditable` and `is`; base64
   raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`; hyphenated
   custom elements (disclosed as `content_plugin_output`, an info note); modern CSS in `style`
   attributes, including your own custom properties (`--pp-*` stays the engine's). INLINE props
-  and titles admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`,
-  `mark` and `code`; labels, button text and URLs stay plain text.
+  admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`, `mark` and
+  `code`; titles and headings admit the same set without `a`; labels, button text and URLs stay
+  plain text.
+- **The wider set is for users WordPress trusts with unfiltered HTML.** Everything beyond core's
+  own `post` list needs the `unfiltered_html` capability, as in WordPress itself. A user without
+  it (a Contributor or Author, or an Editor on multisite) writes what core's `post` list admits:
+  its elements and attributes, WordPress's own URL protocols, and styles core's CSS filter keeps
+  whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped. A
+  stored band such a user does not change is not re-checked. WP-CLI writes with server-level
+  access.
 - **An old band never blocks an edit to another band.** Content is checked only in the bands a
   write changes, compared by content rather than by band id, so a stored band whose content a
   later rule refuses keeps rendering and does not stop edits elsewhere on the page. Each stored

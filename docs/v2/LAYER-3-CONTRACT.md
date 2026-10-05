@@ -572,9 +572,19 @@ WordPress's editorial `post` list. Core `post` as measured on WordPress 7.0 (124
 `wp_allowed_protocols()` for URLs; the full dump is probe-00) is a subset of it: core omits,
 for example, `tabindex`, `translate`, `inert`, microdata, most of ARIA 1.2, `bdi` and
 `datalist`, and the base admits them. Four attributes, `autofocus`, `contenteditable`, `nonce`
-and `is`, are argued one by one rather than admitted or refused with the set: the outcome and
-the stated reason for each are the implementation's to specify (scheduled: v2.1.0, Sprint 6
-T3a), and the ruling decides none of the four. Until one is argued, it is refused. When core widens its own list, the default is
+and `is`, are argued one by one rather than admitted or refused with the set. The arguments are
+the implementation's (Sprint 6 T3a, `pp_content_html_global_attributes()` in `lib/content.php`)
+and govern (#1242, "Step-11 contract tightenings"):
+
+| Attribute | Outcome | Argument |
+|---|---|---|
+| `autofocus` | **admitted** | It moves focus on load. That executes nothing, fetches nothing and forges nothing. The scroll it can cause is an author-owned outcome of the same class as `position: fixed` (§4, "not on this list"). Its old XSS role needed an event handler, which E1 refuses. |
+| `contenteditable` | **admitted** | It lets a visitor edit the page in their own tab. Nothing is stored or sent and no script runs: an author-owned outcome, like `popover`. |
+| `nonce` | **refused** (clause P-17) | Its only effect is on `<script>`, `<style>` and `<link>`, which E4 already refuses. On every element content may carry, it does nothing. An attribute that validates green and does nothing is the I19 shape, and refusing it names that instead of hiding it. |
+| `is` | **admitted**, value-gated and disclosed | The value must be a valid custom element name that does not shadow an HTML, SVG or MathML element. It upgrades a built-in element only when a page script defines that name: the plugin boundary P-9 states and P-23 applies to custom elements. Disclosed as `content_plugin_output`. |
+
+All four sit beyond core `post`, so a writer without `unfiltered_html` cannot use the three
+admitted ones (routed item 12, ruled). When core widens its own list, the default is
 **admit unless §4**, not a ruling per item.
 
 **The base becomes a PP-owned table, pinned against core** (§12 **M-4**). Today PP's content
@@ -2062,10 +2072,12 @@ mechanism silently:
 9. **What E2 checks for a form `action` (P-5, P-24).** A scheme check admits any `http(s)` host
    and same-site admin endpoints. With a `password` input and a credential `autocomplete` token,
    browser autofill on the site's own origin can hand a visitor's saved credentials to a host the
-   author chose in one click. Autofill does not need an `autocomplete` token, so the
-   fail-closed shape until this is ruled is: any `password` input in a form whose `action` is
-   not same-origin, and any form whose `action` is a same-site admin endpoint (`wp-admin/`,
-   `wp-login.php`, `admin-ajax.php`, `admin-post.php`), is refused.
+   author chose in one click. Autofill does not need an `autocomplete` token. *Ruled 2026-10-05
+   (#1242, "Step-11 contract tightenings"), implemented in T3a (clause Δ5):* a `password` input
+   with a form owner, in a prop that holds a form whose `action` is not same-origin with the site,
+   is refused. So is any form whose `action` is a same-site admin endpoint (`wp-admin/`,
+   `wp-login.php`, `admin-ajax.php`, `admin-post.php`, matched by path in any percent-encoded
+   spelling). An on-origin password form is admitted.
 10. **Island content parsed under its host's ancestors.** An `inline` host inside an authored
     `a` or `button` lets island content restructure the markup; the island's wrapper and the
     composed check both use the host alone.
@@ -2075,8 +2087,12 @@ mechanism silently:
 12. **Who may write the widened set.** Composition writes check `edit_post`; nothing ties the
     Δ admissions to `unfiltered_html`, which WordPress uses to decide who may write beyond core
     `post`. Whether the widened set needs that capability, or the trust tier is stated as
-    "anyone who can edit the page". Fail-closed shape until ruled: a write that uses an
-    admission beyond core `post` by a user without `unfiltered_html` is refused.
+    "anyone who can edit the page". *Ruled 2026-10-05 (#1242, "Step-11 contract tightenings"),
+    implemented in T3a:* the widened admissions require `unfiltered_html`. A writer without it
+    writes the core `post` set the site's kses applies: its elements and their attributes,
+    `wp_allowed_protocols()` URLs, and a `style` that core's `safecss_filter_attr()` leaves
+    whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped.
+    WP-CLI writes with server-level access, as PromptingPress's other CLI gates treat it.
 13. **`title_accent` on a parsed title (P-2).** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):* it
     operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
     bytes (implementation: T3b).

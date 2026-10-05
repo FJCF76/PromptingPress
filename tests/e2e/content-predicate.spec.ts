@@ -197,6 +197,21 @@ test.describe('Layer 3A content predicate — live pins', () => {
     expect(state).toEqual({ target: 'top', topIsWindow: true, titleIsString: true, titleElement: 'H2' });
   });
 
+  test('trust tier: a writer without unfiltered_html gets exactly what live core kses keeps', async () => {
+    const styles = ['color: red', 'color: red; display: grid', 'text-align: center', 'position: fixed', 'cursor: pointer',
+      '--brand: red', 'background-image: url(/a.png)', 'margin: 0 auto; padding: 1em'];
+    const filtered: string[] = probe({ op: 'safecss', inputs: styles });
+    const judged = probe({ op: 'judge', sink: 'rich', tier: 'core', inputs: styles.map((st) => `<p style="${st}">x</p>`) });
+    styles.forEach((st, i) => {
+      const kept = filtered[i].split(';').filter((d) => d.trim() !== '').length;
+      const sent = st.split(';').filter((d) => d.trim() !== '').length;
+      expect(judged[i].clauses.includes('unfiltered_html'), `${st} -> "${filtered[i]}"`).toBe(kept < sent);
+    });
+    const core = probe({ op: 'judge', sink: 'rich', tier: 'core', inputs: ['<svg></svg>', '<p class="a">x <a href="/y">y</a></p>'] });
+    expect(core[0].clauses).toContain('unfiltered_html');
+    expect(core[1].clauses).toEqual([]);
+  });
+
   test('E11: the live HTML processor\'s form element pointer is readable', async () => {
     const live = probe({ op: 'form_pointer' });
     expect({ before: live.before, after: live.after }, `WordPress ${live.wp_version}`).toEqual({ before: false, after: true });

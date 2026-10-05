@@ -2082,6 +2082,25 @@ if (!function_exists('wp_has_noncharacters')) {
         );
     }
 }
+if (!function_exists('safecss_filter_attr')) {
+    // Test stub of core's CSS filter (the trust tier's core parity, #1242 T3a): keeps a
+    // declaration whose property is on a subset of core's safe list and whose value names no
+    // url(); drops the rest, as core does. The live e2e pins the real one.
+    function safecss_filter_attr($css, $deprecated = ''): string {
+        $keep = [];
+        foreach (explode(';', (string) $css) as $decl) {
+            if (trim($decl) === '' || strpos($decl, ':') === false) {
+                continue;
+            }
+            [$prop, $value] = array_map('trim', explode(':', $decl, 2));
+            if (in_array(strtolower($prop), ['color', 'background-color', 'font-weight', 'font-style', 'text-align',
+                'text-decoration', 'margin', 'padding', 'border', 'width', 'height'], true) && stripos($value, 'url(') === false) {
+                $keep[] = $prop . ': ' . $value;
+            }
+        }
+        return implode('; ', $keep);
+    }
+}
 if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false): array {
         $base = $GLOBALS['_pp_test_upload_baseurl'] ?? 'http://example.test/wp-content/uploads';
