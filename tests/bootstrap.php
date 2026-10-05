@@ -84,7 +84,9 @@ if (!function_exists('get_bloginfo')) {
             'description' => 'Test Description',
             'charset'     => 'UTF-8',
         ];
-        return $data[$show] ?? '';
+        // A test may seed ['bloginfo'][$show] to drive a stored site name or tagline (#1242 T2:
+        // the assistant-context framing pins).
+        return $GLOBALS['_pp_test_store']['bloginfo'][$show] ?? $data[$show] ?? '';
     }
 }
 
@@ -743,6 +745,11 @@ if (!function_exists('wp_update_nav_menu_item')) {
             'ID'               => $item_id,
             'title'            => $title,
             'url'              => $url,
+            // Core's three object fields, so a reader can tell a post item from a custom link
+            // (#1242 T2: the chat lists only menu items on posts the user may edit).
+            'type'             => (string) ($menu_item_data['menu-item-type'] ?? 'custom'),
+            'object'           => (string) ($menu_item_data['menu-item-object'] ?? 'custom'),
+            'object_id'        => (string) ($menu_item_data['menu-item-object-id'] ?? $item_id),
             // Recorded so tests can observe the batch-rollback restore's
             // parents-first id remapping (_pp_restore_menu_state()).
             'menu_item_parent' => (int) ($menu_item_data['menu-item-parent-id'] ?? 0),
