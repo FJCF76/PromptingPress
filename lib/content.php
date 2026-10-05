@@ -815,14 +815,14 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
 
 /** The scheme this site's pages are served under (the base of every relative reference). */
 function _pp_content_site_url_parts(): array {
-    static $parts = null;
-    if ($parts !== null) {
-        return $parts;
-    }
+    static $cache = [];
     $home = function_exists('home_url') ? (string) home_url('/') : '';
+    if (isset($cache[$home])) {
+        return $cache[$home];
+    }
     $p = parse_url($home);
     $scheme = is_array($p) && isset($p['scheme']) ? strtolower($p['scheme']) : 'https';
-    return $parts = [
+    return $cache[$home] = [
         'scheme' => $scheme,
         'host'   => is_array($p) && isset($p['host']) ? strtolower($p['host']) : '',
         'port'   => is_array($p) && isset($p['port']) ? (int) $p['port'] : ($scheme === 'http' ? 80 : 443),
@@ -1479,23 +1479,32 @@ function pp_content_css_functions(): array {
         // shapes, grid, timing
         'circle', 'ellipse', 'inset', 'polygon', 'rect', 'xywh', 'repeat', 'minmax', 'fit-content',
         'cubic-bezier', 'steps', 'linear',
+        // path(): pure geometry data (clip-path, offset-path), references nothing (ruled 2026-10-05).
+        'path',
+        // font-variant-alternates: name font-internal features, fetch nothing (ruled 2026-10-05).
+        'stylistic', 'styleset', 'character-variant', 'swash', 'ornaments', 'annotation',
+        // NOT admitted, by ruling (2026-10-05): attr() (reads attributes into CSS, a text-to-style
+        // channel) and the anchor-positioning family (anchor(), anchor-size(): cross-element
+        // positioning, refused until ruled); and every function this list does not name.
     ], true);
 }
 
 /**
- * The SVG attributes whose value is a CSS value (presentation attributes and transforms):
- * the ones a CSS function can appear in, so the only ones the function list judges. Text
- * attributes (aria-label, font-family, title …) are text: `Revenue (2024)` is no call.
+ * The TEXT attributes the CSS function list never judges (orchestrator ruling, 2026-10-05):
+ * deny-by-default sits on the CHECKED set, so every admitted SVG and MathML attribute value
+ * is judged except these, whose value is prose, a token or a name, never CSS:
+ *   - aria-* (labels and descriptions: `aria-label="Revenue (2024)"` is no call);
+ *   - title, alttext (MathML/SVG prose), lang and xml:lang, role, tabindex;
+ *   - editor-namespace attributes (inkscape:label …), inert metadata names.
+ * (SVG <title>/<desc> CONTENT is text, never an attribute value, and is not judged here.)
  */
-function pp_content_svg_css_attributes(): array {
-    static $cache = null;
-    if ($cache !== null) {
-        return $cache;
+function _pp_content_is_text_attribute(string $attr): bool {
+    $attr = strtolower($attr);
+    if (strncmp($attr, 'aria-', 5) === 0 || in_array($attr, ['title', 'alttext', 'lang', 'xml:lang', 'role', 'tabindex'], true)) {
+        return true;
     }
-    return $cache = pp_content_svg_reference_attributes() + array_fill_keys(['transform', 'gradienttransform',
-        'patterntransform', 'color', 'stop-color', 'flood-color', 'lighting-color', 'cursor', 'opacity', 'fill-opacity',
-        'stroke-opacity', 'stop-opacity', 'flood-opacity', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset',
-        'font-size', 'letter-spacing', 'word-spacing', 'display', 'visibility', 'transform-origin'], true);
+    // An editor namespace (prefix:name, not xlink/xml/xmlns).
+    return str_contains($attr, ':') && !preg_match('/^(xlink|xml|xmlns):/', $attr);
 }
 
 /**
@@ -1577,7 +1586,7 @@ function pp_content_svg_value_loss(string $attr, string $value): ?string {
     if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|@import|javascript:/', $unescaped, $m)) {
         return sprintf('"%s" is refused in an SVG attribute value; only a same-document url(#id) on a reference attribute is admitted (Δ1)', $m[0]);
     }
-    $function = isset(pp_content_svg_css_attributes()[$attr]) ? _pp_content_unlisted_css_function(_pp_css_unescape($value)) : null;
+    $function = _pp_content_is_text_attribute($attr) ? null : _pp_content_unlisted_css_function(_pp_css_unescape($value));
     if ($function !== null) {
         return sprintf('%s() is not on the admitted CSS function list (unknown functions are refused) (Δ1)', _pp_content_reflect($function, 40));
     }
@@ -2004,7 +2013,7 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
                 }
                 continue;
             }
-            $reason = _pp_content_html_value_loss($tag, $attr, $string_value);
+            $reason = $ns === 'math' ? _pp_content_math_value_loss($attr, $string_value) : _pp_content_html_value_loss($tag, $attr, $string_value);
             if ($reason !== null) {
                 $state['losses'][] = _pp_content_loss($construct_v($string_value),
                     $where, $reason[0], $reason[1]);
@@ -2157,6 +2166,24 @@ function _pp_content_svg_href_loss(string $tag, string $value): ?array {
             : ['D1', 'only a same-document fragment (#id) is admitted here (P-12)'];
     }
     return ['E5', 'href is refused on this SVG element'];
+}
+
+/**
+ * MathML attribute values (mathsize, mathcolor, mathbackground …) are CSS values to a browser:
+ * the same default-deny function list and the no-URL rule as SVG values, except on text
+ * attributes (orchestrator ruling, 2026-10-05). Returns [clause, reason] or null.
+ */
+function _pp_content_math_value_loss(string $attr, string $value): ?array {
+    if (_pp_content_is_text_attribute($attr) || in_array($attr, ['id', 'class', 'style'], true)) {
+        return null;
+    }
+    $unescaped = strtolower(preg_replace('/\s+/', '', _pp_css_unescape($value)) ?? $value);
+    if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|javascript:/', $unescaped, $m)) {
+        return ['E5', sprintf('"%s" is refused in a MathML attribute value', $m[0])];
+    }
+    $function = _pp_content_unlisted_css_function(_pp_css_unescape($value));
+    return $function === null ? null
+        : ['E5', sprintf('%s() is not on the admitted CSS function list (unknown functions are refused)', _pp_content_reflect($function, 40))];
 }
 
 /** Value gates for an admitted HTML attribute. Returns [clause, reason] or null. */

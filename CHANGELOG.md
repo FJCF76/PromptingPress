@@ -21,9 +21,10 @@ All notable changes to PromptingPress are documented here.
   and document-level elements, including an in-body `<body onload>` (E4); active SVG and MathML
   (E5); the engine's `data-pp-*` namespace, minted ids, `main`, `pp-nav-menu` and any id equal to
   a band anchor on the page (E6); `url()`, `!important` and the excluded properties in a `style`
-  attribute (E7), and any CSS function not on the admitted list in a style declaration or a
-  CSS-valued SVG attribute, such as `-moz-element()` or `paint()` (text, such as a quoted font
-  name or an `aria-label` with parentheses, is not a call) (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
+  attribute (E7), and any CSS function not on the admitted list, such as `-moz-element()`,
+  `paint()`, `attr()` or `anchor()`, in a style declaration or in any SVG or MathML attribute
+  except text attributes such as `aria-label` (a quoted font name or a label with parentheses is
+  text, not a call; `path()` and font-variant functions such as `styleset()` are admitted) (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
   (E9); markup that escapes its container, such as a stray `</div>` or an unclosed comment
   (E10); the `id` or `name` of an `<object>` that shadows a built-in `document` property such as
   `forms` or `cookie` (an image's `name` is not admitted at all, and embedded elements are

@@ -788,6 +788,21 @@ class ContentPredicateTest extends TestCase
             $this->assertFalse(pp_content_is_same_install_pdf($url), $url);
         }
         $this->assertTrue(pp_content_is_same_install_pdf('https://example.com:443/wp-content/uploads/a.pdf'), 'an explicit default port is the same origin');
+        // The SCHEME alone decides (an http site; port 80 on both sides): a root-relative path
+        // and a network-path reference take the site's http, so an https uploads base on port
+        // 80 is another origin, and an http one the same.
+        $GLOBALS['_pp_test_home_url'] = 'http://example.com';
+        try {
+            $GLOBALS['_pp_test_upload_baseurl'] = 'https://example.com:80/wp-content/uploads';
+            $this->assertFalse(pp_content_is_same_install_pdf('/wp-content/uploads/a.pdf'));
+            $this->assertFalse(pp_content_is_same_install_pdf('//example.com:80/wp-content/uploads/a.pdf'));
+            $GLOBALS['_pp_test_upload_baseurl'] = 'http://example.com/wp-content/uploads';
+            $this->assertTrue(pp_content_is_same_install_pdf('/wp-content/uploads/a.pdf'));
+            $this->assertTrue(pp_content_is_same_install_pdf('//example.com/wp-content/uploads/a.pdf'));
+            $this->assertFalse(pp_content_is_same_install_pdf('https://example.com:80/wp-content/uploads/a.pdf'), 'https on port 80 is not http');
+        } finally {
+            unset($GLOBALS['_pp_test_home_url'], $GLOBALS['_pp_test_upload_baseurl']);
+        }
         $this->assertTrue(pp_content_is_same_install_pdf('/wp-content/uploads/a.pdf'));
         foreach (['https://example.com:8443/wp-content/uploads', 'http://example.com/wp-content/uploads',
             'https://cdn.example.com/wp-content/uploads'] as $base) {
@@ -821,7 +836,7 @@ class ContentPredicateTest extends TestCase
         // Text is not a call (owner ruling, 2026-10-05): the check runs on CSS-valued SVG
         // attributes and style declarations only, and skips quoted strings.
         foreach (['<svg aria-label="Revenue (2024)" role="img"><title>Sales (Q1)</title></svg>',
-            '<svg><text font-family="Foo (Pro)" aria-roledescription="a (b)">t</text></svg>',
+            '<svg><text font-family="&#39;Foo (Pro)&#39;" aria-roledescription="a (b)">t</text></svg>',
             '<p style="font-family: &quot;Foo (Pro)&quot;, serif">x</p>', "<p style=\"font-family: 'Bar (Bold)'\">x</p>"] as $text) {
             $this->assertAdmitted($text);
         }
@@ -829,6 +844,31 @@ class ContentPredicateTest extends TestCase
         $this->assertRefused('<div style="font-family: &quot;a (b)&quot;; background: -moz-element(#s)">x</div><p id="s">s</p>', 'D3');
         $this->assertRefused('<svg><rect fill="paint(x)"/></svg>', 'D1');
         $this->assertRefused('<svg><rect stroke-width="unknown-fn(1)"/></svg>', 'D1');
+        // Deny-by-default sits on the CHECKED set (orchestrator ruling): every admitted SVG and
+        // MathML attribute is judged except the text attributes. Geometry, font and colour
+        // attributes the browser computes as CSS are all judged.
+        foreach (['<svg><rect width="attr(data-w px)" height="1"/></svg>', '<svg><rect x="calc(sibling-index() * 10px)" width="1" height="1"/></svg>',
+            '<svg><text font-weight="attr(data-w number)">t</text></svg>', '<svg><text baseline-shift="paint(x)">t</text></svg>',
+            '<svg><circle r="unknown(1)"/></svg>', '<svg><path d="M0 0" clip="element(#a)"/></svg>',
+            '<svg><stop stop-color="paint(x)"/></svg>', '<svg><rect opacity="attr(data-o)"/></svg>',
+            '<svg><linearGradient gradientTransform="frob(1)"/></svg>', '<svg><rect transform-origin="frob(1)"/></svg>',
+            '<svg><text font-family="&#39;a&#39; frob(1) &#39;b&#39;">t</text></svg>'] as $svg) {
+            $this->assertRefused($svg, 'D1');
+        }
+        foreach (['<math><mi mathsize="calc(sibling-index() * 100%)">x</mi></math>', '<math><mi mathcolor="attr(data-c)">x</mi></math>',
+            '<math><mi mathbackground="url(https://evil.example/a.png)">x</mi></math>'] as $math) {
+            $this->assertRefused($math, 'E5');
+        }
+        $this->assertAdmitted('<math><mi mathsize="120%" mathcolor="rgb(0 0 0)" title="Sum (total)">x</mi></math>');
+        // A call BETWEEN two quoted strings is a call: the quote skip is not greedy.
+        $this->assertRefused('<p style="font-family: &quot;a&quot; frob(1), &quot;b&quot;">x</p>', 'D3');
+        $this->assertRefused("<p style=\"font-family: 'a' frob(1), 'b'\">x</p>", 'D3');
+        // The function-family rulings: path() and the font-variant-alternates functions are
+        // admitted; attr() and the anchor-positioning family are refused.
+        $this->assertAdmitted('<div style="clip-path: path(&quot;M0 0 L1 1&quot;); font-variant-alternates: styleset(ss01) character-variant(cv01)">x</div>');
+        foreach (['top: anchor(--a top)', 'width: anchor-size(--a width)', 'width: attr(data-w px)'] as $decl) {
+            $this->assertRefused('<div style="' . $decl . '">x</div>', 'D3');
+        }
     }
 
     // ── review fixes (#1242 T3a /review cycle 3) ──────────────────────────────

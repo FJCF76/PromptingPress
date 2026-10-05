@@ -90,7 +90,8 @@ if (!function_exists('get_bloginfo')) {
 
 if (!function_exists('home_url')) {
     function home_url(string $path = ''): string {
-        return 'https://example.com' . $path;
+        // Overridable per test (the content gate's site origin, #1242 T3a).
+        return ($GLOBALS['_pp_test_home_url'] ?? 'https://example.com') . $path;
     }
 }
 
