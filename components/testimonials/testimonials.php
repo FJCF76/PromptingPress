@@ -74,7 +74,7 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
                     <h2 class="testimonials__heading"><?php echo pp_render_heading_with_accent($title, $title_accent, 'testimonials__heading-accent'); ?></h2>
                 <?php endif; ?>
                 <?php if ($subheading) : ?>
-                    <p class="testimonials__subheading"><?php echo esc_html($subheading); ?></p>
+                    <p class="testimonials__subheading"><?php echo pp_content_prop_html('testimonials', 'subheading', $subheading); ?></p>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -138,9 +138,9 @@ $band_attr = $band_id !== '' ? ' data-pp-band="' . esc_attr($band_id) . '"' : ''
                 ?>
                     <figure class="testimonials__item">
                         <blockquote class="testimonials__quote">
-                            <?php // Inline-HTML supporting-text prop (#439): a/strong/em/br
-                                  // allowed and sanitized; block/script tags stripped. ?>
-                            <p><?php echo pp_kses_inline($quote); ?></p>
+                            <?php // Inline-HTML supporting-text prop (#439): the Layer-3 INLINE
+                                  // contract, rendered from the check's own view (#1242 T3b). ?>
+                            <p><?php echo pp_content_prop_html('testimonials', 'items[].quote', $quote); ?></p>
                         </blockquote>
                         <?php if ($author || $meta || $image_url) : ?>
                             <figcaption class="testimonials__attribution">

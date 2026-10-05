@@ -152,12 +152,17 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
  * (the write envelope, `wp pp check page`, `wp pp validate site`, the chat restore card);
  * only the site gate ignores it.
  *
- * Exactly one type is informational, and the list is deliberately closed:
+ * Four types are informational, and the list is deliberately closed:
  *
- *   udc_token_minted  "you wrote 19px; it is stored as the band token --pp-..." fires once
- *                     per responsive literal. It is the section 3.1 no-coercion disclosure,
- *                     so it must be DELIVERED, but it is not a problem, and while it gated,
- *                     any breakpoint map made a correct site fail the gate (#1194).
+ *   udc_token_minted       "you wrote 19px; it is stored as the band token --pp-..." fires once
+ *                          per responsive literal. It is the section 3.1 no-coercion disclosure,
+ *                          so it must be DELIVERED, but it is not a problem, and while it gated,
+ *                          any breakpoint map made a correct site fail the gate (#1194).
+ *   content_plugin_output  a custom element in content, admitted at the plugin boundary
+ *                          (LAYER-3-CONTRACT P-9/P-23, #1242 T3a).
+ *   content_global_shadow  an id equal to a page-script global, disclosed, never refused (E11).
+ *   content_inline_style   content's own style declarations and popovers, admitted by Δ3 and
+ *                          disclosed for their rank (§5.1, #1242 T3b).
  *
  * Adding a type here takes a finding out of the gate everywhere, so it is a gate decision
  * that needs its own ruling (pinned by InformationalFindingSeverityTest).
@@ -165,7 +170,7 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
  * @return string[]
  */
 function pp_informational_finding_types(): array {
-    return ['udc_token_minted', 'content_plugin_output', 'content_global_shadow'];
+    return ['udc_token_minted', 'content_plugin_output', 'content_global_shadow', 'content_inline_style'];
 }
 
 /**
@@ -7201,7 +7206,7 @@ function _pp_udc_own_fill_note(array $names, array $roles, array $udc): string {
  * @param string|null $why         Set on null: 'size' (the band's own markup bound), 'budget' (the call's) or 'unrenderable'.
  * @return array<string, array{band: bool, items: array<string, bool>}>|null
  */
-function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = PHP_INT_MAX, ?string &$why = null): ?array {
+function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = PHP_INT_MAX, ?string &$why = null, ?array $composition = null, $band_key = null, int $post_id = 0): ?array {
     $why       = 'unrenderable';
     $component = isset($item['component']) && is_scalar($item['component']) ? (string) $item['component'] : '';
     $id        = isset($item['id']) && is_scalar($item['id']) ? (string) $item['id'] : '';
@@ -7226,6 +7231,14 @@ function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = P
     $caught = false;
     ob_start();
     set_error_handler(static fn (): bool => true, E_USER_WARNING | E_USER_NOTICE | E_WARNING | E_NOTICE);
+    // LAYER 3A (#1242 T3b, LAYER-3-CONTRACT.md §2.1): the probe measures the band as the page
+    // renders it, so its content props go through the one predicate with the composition's
+    // cross-band context and its page's vouched tier when the caller has them (the same
+    // render index the page and its findings use, so it is walked once, not twice).
+    if ($composition !== null) {
+        pp_content_render_begin($composition, $post_id);
+        pp_content_render_band($band_key);
+    }
     try {
         pp_get_component($component, $props);
         $html = (string) ob_get_contents();
@@ -7245,6 +7258,9 @@ function _pp_udc_rendered_roles(array $item, array $roles, int &$markup_left = P
             ob_end_clean();
         }
         $shortcode_tags = $saved_shortcodes;
+        if ($composition !== null) {
+            pp_content_render_end();
+        }
     }
     if ($html === null || trim($html) === '') {
         return null;
@@ -9718,7 +9734,12 @@ function _pp_udc_preset_values_shadowed_entries(array $fragment, array $role_def
     return $shadowed;
 }
 
-function pp_udc_composition_findings(array $items): array {
+/**
+ * @param array $items    The composition.
+ * @param int   $post_id  Its page, when known: the presence probe renders content with the
+ *                        page's vouched tier (#1242 T3b); 0 renders every value at core parity.
+ */
+function pp_udc_composition_findings(array $items, int $post_id = 0): array {
     if (!pp_is_list($items)) {
         return [];
     }
@@ -10519,7 +10540,7 @@ function pp_udc_composition_findings(array $items): array {
                             } elseif ($band_cards > $presence_cards_left) {
                                 $presence_reason = $band_cards > PP_UDC_PRESENCE_CARDS ? 'size' : 'budget';
                             } else {
-                                $presence = _pp_udc_rendered_roles($item, $asked, $presence_markup_left, $presence_why);
+                                $presence = _pp_udc_rendered_roles($item, $asked, $presence_markup_left, $presence_why, $items, $i, $post_id);
                                 $presence_renders_left--;
                                 $presence_cards_left -= $band_cards;
                                 $presence_reason = $presence === null ? (string) $presence_why : '';

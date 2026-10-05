@@ -86,8 +86,19 @@
  * status and URL; media file name and URL) plus one byte per escaped quote or backslash and
  * up to 12 per escaped P-15 code point. Measured, not estimated, on this branch over
  * fc815d4: 92711 -> 92970 (+259 bytes).
+ *
+ * RAISED 92970 → 94785 (#1242 T3b, LAYER-3-CONTRACT §10 T-16; measured over main 8568fb4).
+ * The prompt said NOTHING about the content contract while the write gate refused content
+ * by name: the model learned the rules from refusals. One paragraph,
+ * pp_ai_content_contract_summary(), now states it, every list in it read from the
+ * predicate's own tables (I43): which props are rich, inline and headings, the inline and
+ * heading sets, the refused elements and attributes, the size cap, and the content finding
+ * codes with their severities (read from pp_finding_severity()). +1815 bytes for the paragraph
+ * and its line break. The
+ * page-free empty site lists media as before (the upload_files gate adds bytes only for an
+ * account that cannot browse the library, and then removes the list).
  */
-const PP_AI_PROMPT_BUDGET = 92970;
+const PP_AI_PROMPT_BUDGET = 94785;
 
 // ── Stored bytes in the assistant's context: the one sink owner (§8.2, P-15) ──
 //
@@ -515,10 +526,16 @@ function pp_ai_system_prompt(): string {
         }
     }
 
-    // Media library inventory
-    $media = pp_ai_media_inventory();
+    // Media library inventory. Listed only for a user WordPress lets browse the library:
+    // core's own media grid (wp_ajax_query_attachments) requires exactly `upload_files`,
+    // and shows such a user every library image, so this is core parity, not a new rule.
+    // A Contributor (edit_posts without upload_files) gets no file names or alt text.
+    $may_browse_media = current_user_can('upload_files');
+    $media = $may_browse_media ? pp_ai_media_inventory() : [];
     $parts[] = '## Media Library';
-    if ($media) {
+    if (!$may_browse_media) {
+        $parts[] = 'Not listed: this account cannot browse the media library.';
+    } elseif ($media) {
         $parts[] = 'Available images. Copy the exact URL for each image — do not modify filenames, even to fix apparent typos or adjust spacing/hyphenation:';
         // File name, alt text and URL are stored bytes (any author can upload and set an alt),
         // so each is one framed field (#1242 T2); the dimensions are integers from metadata.
@@ -782,6 +799,9 @@ function pp_ai_system_prompt(): string {
     // baked into component CSS.
     $parts[] = 'A DARK BAND, on a v2 component: there is no `theme` prop — say it directly. Set the band\'s own background and then the text roles\' colours, e.g. `"udc": {"_band": {"background": {"fill": "#101828"}}, "card": {"background": {"fill": "#1d2939"}, "border": {"color": "#344054"}}, "quote": {"typography": {"color": "#f7f8fa"}}, "author": {"typography": {"color": "#f7f8fa"}}, "meta": {"typography": {"color": "#c8ccd4"}}}`. `card` IS IN THAT MAP BECAUSE THE TEXT SITS INSIDE IT and it ships its own light fill as a role DEFAULT: darken only `_band` and you get near-white ink on a near-white card, measured 1.01:1, on a write reporting no findings. YOU OWN THE CONTRAST, per ROLE not per band: set a colour on every text role over the new background — quote, author, meta, heading, subheading, eyebrow — and on any link, and check each against THE SURFACE IT ACTUALLY SITS ON, the nearest enclosing role carrying a fill, whether you set it or it came as a default. AA is 4.5:1 body, 3:1 large. One role left un-recoloured renders dark on dark or light on light, the commonest failure. A role that ships its OWN `background.fill` (an eyebrow pill, a `panel`, a card) keeps that surface when you darken the band: set its `background.fill` with its `typography.color`, a fill off the band\'s (like `card` above) so the shape shows. When that role renders its own text (the eyebrow, a `panel`, a hero `surface`) and its default fill still paints under an ink you set on it or on the whole band, the write reports `udc_role_ink_over_own_surface`, naming the card, state or width, which move supplied the ink, and where the fill goes (a state or breakpoint map). Containers whose text roles set their own colour (a card, an FAQ `item`) and text roles INSIDE a filled role (a testimonial `quote` in its `card`) are not reported, so check those yourself. On an image band with an overlay these accent inks default to `@color-accent-on-overlay`: ' . pp_udc_overlay_tier_summary() . '. Your own value still wins, and every other accent ink is still yours (faq `question-open` sits on its item\'s own light fill; a secondary button is one set). The re-light assumes the accent sits on a dark scrim: a light surface you set on the accent itself or on a role that encloses it (the `text` panel around a cta heading, a stats `item` card around a `number`), at rest or on `:hover`, a scrim set only at some widths, a light or unreadable background replacing the image or beside a partial scrim, or a scrim that is light, fades to transparent or cannot be read is reported as `udc_overlay_accent_off_scrim`, and the fix is to set that accent\'s `typography.color` yourself.';
     $parts[] = 'REFUSALS name the exact place: `unknown_udc_role` (with the roles that exist), `unknown_udc_group` (with the groups that role permits), and `invalid_prop_value` naming band, role, group and parameter. Read the role list in the catalog above before proposing a `udc` map; do not invent a role name.';
+    // LAYER 3A (#1242 T3b, LAYER-3-CONTRACT.md §10 T-16): the content contract, DERIVED from
+    // the predicate's own tables (I43), so a row added to them reaches the model the day it lands.
+    $parts[] = pp_ai_content_contract_summary();
     $parts[] = '';
     // THE "### Before proposing a style_component action" PRE-FLIGHT WAS HERE (#1101).
     // Three checks an author was told to run before proposing a slot write. It was gated
@@ -1227,6 +1247,51 @@ function pp_ai_editable_pages(array $pages): array {
 }
 
 // ── Media Inventory ────────────────────────────────────────────────────────
+
+/**
+ * The content contract as the site-builder AI is told it (LAYER-3-CONTRACT.md §2.2, §3.3,
+ * §4; #1242 T3b, test row T-16). EVERY list in it is read from the predicate's own tables in
+ * lib/content.php: which props are rich, inline and headings (pp_content_prop_contracts()),
+ * what the inline and heading sets admit (pp_content_inline_table() /
+ * pp_content_heading_table()), the refused elements and attributes
+ * (pp_content_excluded_elements() / pp_content_excluded_attributes()) and the size cap.
+ */
+function pp_ai_content_contract_summary(): string {
+    $by_sink = ['rich' => [], 'inline' => [], 'heading' => []];
+    foreach (pp_content_prop_contracts() as $component => $paths) {
+        foreach ($paths as $path => $sink) {
+            $sink = $sink === 'rich_cell' ? 'rich' : $sink;
+            if ($path !== 'title_accent' && isset($by_sink[$sink])) {
+                // Headings are named by field (every component's `title` is one); the rich and
+                // inline props by component, because which component carries one matters.
+                $by_sink[$sink][] = $sink === 'heading' ? '`' . $path . '`' : $component . '.' . $path;
+            }
+        }
+    }
+    $tags = static fn (array $table): string => implode(' ', array_keys($table));
+    // The severities are read from the one owner (pp_finding_severity()), never restated.
+    $findings = [
+        'content_stripped_at_render' => 'stored pre-check content the page renders empty, as text or stripped',
+        'content_duplicate_id'       => 'one id in two bands',
+        'content_not_checked'        => 'a page past the per-view check budget',
+        'content_inline_style'       => 'content style declarations',
+        'content_plugin_output'      => 'a custom element',
+        'content_global_shadow'      => 'an id named like a script global',
+    ];
+    return 'CONTENT MARKUP (Layer 3) IS CHECKED WHEN YOU WRITE IT, NEVER STRIPPED. Rich HTML props ('
+        . implode(', ', $by_sink['rich']) . ') take WordPress post HTML plus inline SVG and MathML, `picture` and `srcset`. '
+        . 'Inline props (' . implode(', ', $by_sink['inline']) . ') take only ' . $tags(pp_content_inline_table()) . '. '
+        . 'Titles and headings (every ' . implode(', ', array_values(array_unique($by_sink['heading']))) . ') take only ' . $tags(pp_content_heading_table())
+        . '; write a literal `<` in one as `&lt;`. Every other prop is plain text. '
+        . 'Refused anywhere: the elements ' . implode(', ', array_keys(pp_content_excluded_elements()))
+        . '; event handlers (`on*`), `data-wp-*` and `data-pp-*`; the attributes ' . implode(', ', array_keys(pp_content_excluded_attributes()))
+        . '; `javascript:` and other script URLs; `url()` and `!important` in a `style`; markup that does not close inside its prop. '
+        . 'A write carrying one is refused whole with `content_construct_excluded` (it names the prop, the construct and the rule), '
+        . 'or `content_too_large` past ' . number_format(PP_CONTENT_PROP_MAX_BYTES) . ' bytes per prop: resend without it. '
+        . 'Findings on content (severity in brackets): ' . implode('; ', array_map(
+            static fn (string $code, string $what): string => '`' . $code . '` [' . pp_finding_severity($code) . '] ' . $what,
+            array_keys($findings), $findings)) . '.';
+}
 
 /**
  * Returns recent media attachments for AI context.

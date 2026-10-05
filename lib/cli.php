@@ -61,6 +61,7 @@ const PP_CLI_PAGE_ADDRESSED_COMMANDS = [
     'pp check acknowledge',
     'pp check page',
     'pp check unacknowledge',
+    'pp content census',
     'pp operate composition-history',
     'pp operate inspect-composition',
     'pp operate patch',
@@ -2623,6 +2624,81 @@ class PP_Check_Command extends WP_CLI_Command {
 }
 
 WP_CLI::add_command('pp check', 'PP_Check_Command');
+
+class PP_Content_Command extends WP_CLI_Command {
+
+    /**
+     * Lists every stored content prop the Layer-3 render does not show as stored (P-27).
+     *
+     * READ-ONLY: reads every composition page (every status but the trash) and each page's
+     * verified-heading set, and writes nothing. Each row is one prop, with what it renders
+     * as and the rule that decided it:
+     *
+     *   empty     the prop renders empty: its markup escapes its container (E10), the HTML
+     *             parser cannot verify it ("unsupported markup", P-16), or it is too large
+     *             or too deep (M-8). The admin notice counts these.
+     *   stripped  a construct is removed at render (the clause names which rule).
+     *   text      a title or heading renders as plain text: it fails the check, or it holds
+     *             markup no checked write admitted (clause `unverified`; it renders exactly
+     *             as before Layer 3; EDITING it through the editor or the AI admits it,
+     *             because re-sending unchanged content is not checked again).
+     *
+     * The census judges the stored bytes as stored. Shortcodes are NOT expanded: an embed
+     * band's shortcode output is plugin output (LAYER-3-CONTRACT.md §7.5), outside this check.
+     * Exit code is always 0: this is an inventory, not a gate.
+     *
+     * ## OPTIONS
+     *
+     * [--post_id=<id>]
+     * : Only this page. Numeric only; slugs and URLs are not resolved.
+     *
+     * [--format=<format>]
+     * : table (default), json or csv.
+     *
+     * ## EXAMPLES
+     *
+     *     wp pp content census
+     *     wp pp content census --post_id=42 --format=json
+     *
+     */
+    public function census($args, $assoc_args) {
+        $one = _pp_cli_optional_post_id_arg($assoc_args, 'pp content census');
+        $ids = $one === null ? null : [$one];
+        $rows = _pp_cli_census_rows(pp_content_census($ids));
+        $format = (string) ($assoc_args['format'] ?? 'table');
+        if ($format === 'json') {
+            _pp_cli_emit_json($rows);
+            return;
+        }
+        if ($rows === []) {
+            WP_CLI::success('Every stored content prop renders as stored.');
+            return;
+        }
+        $empty = count(array_filter($rows, static fn ($r) => $r['outcome'] === 'empty'));
+        WP_CLI::warning(sprintf('%d prop(s) render differently from how they are stored; %d render empty.', count($rows), $empty));
+        if ($format === 'csv') {
+            // A page title is author text: a cell starting with a formula character would run
+            // as a formula when the file is opened in a spreadsheet, so it is quoted as text.
+            $rows = array_map(static fn (array $row): array => array_map(
+                static fn ($cell) => is_string($cell) && preg_match('/^[=+\-@\t\r]/', $cell) ? "'" . $cell : $cell, $row), $rows);
+        }
+        WP_CLI\Utils\format_items($format === 'csv' ? 'csv' : 'table', $rows,
+            ['post_id', 'page', 'band', 'component', 'prop', 'outcome', 'clause', 'construct']);
+    }
+}
+
+/** Census rows with every stored string made printable (control and format characters). */
+function _pp_cli_census_rows(array $rows): array {
+    return array_map(static function (array $row): array {
+        foreach (['page', 'component', 'prop', 'construct', 'clause'] as $field) {
+            $row[$field] = _pp_cli_printable((string) $row[$field]);
+        }
+        $row['band'] = _pp_cli_printable((string) $row['band']);
+        return $row;
+    }, $rows);
+}
+
+WP_CLI::add_command('pp content', 'PP_Content_Command');
 
 class PP_Validate_Command extends WP_CLI_Command {
 

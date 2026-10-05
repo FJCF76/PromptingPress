@@ -1078,6 +1078,19 @@
   list-style: decimal;
 }
 
+/* Layer-3 content SVG (#1242 T3b). base.css resets `svg { display: block }` for the theme's
+   own markup (the nav and footer icons). Content may carry inline SVG (LAYER-3-CONTRACT.md
+   Δ1), and an icon written inside a line of text belongs to that line: inside the rich
+   content containers, an svg whose parent is a text-level element flows inline, and one
+   standing on its own (a direct child of the container) keeps the block reset. :where()
+   keeps the reset's own specificity, so a content `style` or a band rule still wins. */
+:where(.section__content, .faq__answer, .table__cell, .embed__content, .hero__proof, .hero__surface)
+  :where(p, li, dd, dt, td, th, figcaption, blockquote, h1, h2, h3, h4, h5, h6, span, a, strong, em, b, i, u, s, small, mark, code, sub, sup, q, cite, abbr, label, button, summary) > svg,
+:where(.table__cell) > svg {
+  display: inline;
+  vertical-align: middle;
+}
+
 .section__content li {
   margin-bottom: var(--space-xs);
 }

@@ -111,6 +111,33 @@ const PP_CONTENT_WRITE_MAX_BYTES = 1048576;
 const PP_CONTENT_WRITE_MAX_VALUES = 4096;
 
 /**
+ * M-8 per RENDER CONTEXT (#1242 T3b, ruling Q2 of 2026-10-05): what one page view, one
+ * findings report, one preview or one census batch walks of a page's stored content. Past
+ * it, the remaining values are not walked: they render through the pre-Layer-3 path, the page
+ * carries a `content_not_checked` finding naming the bands (fail visible, never fail slow),
+ * and cross-band facts against them fail closed, as on the write path. A total, not per write:
+ * several accepted writes can store more than one write may carry.
+ *
+ * MEASURED (2026-10-05, the T-17 rig: PHP 8.3, WordPress 7.0's HTML API, best of two runs;
+ * pp_content_render_composition_index() over section bodies of ~60 KB each):
+ *
+ *     shape                       1 MiB      4 MiB
+ *     plain text                  0.02 s     0.06 s
+ *     nested <div> (8 deep)       3.39 s    13.34 s
+ *     <p> text <strong> <a>       3.56 s    13.69 s
+ *     <b>x</b> repeated           7.17 s    27.71 s
+ *     implied-close <p>          11.00 s    44.49 s
+ *
+ * The ruling named 4 MiB on the premise of "about 13 s worst case"; measured, the worst shape
+ * costs 44 s there (past PHP's 30 s limit), so the bound is the write path's own: 1 MiB and
+ * 4,096 values (worst about 11 s, the same design target as PP_CONTENT_WRITE_MAX_BYTES).
+ * A render cache (contract T-17: an unchanged prop judged once) can raise the effective ceiling
+ * later; it does not own this bound.
+ */
+const PP_CONTENT_RENDER_MAX_BYTES = PP_CONTENT_WRITE_MAX_BYTES;
+const PP_CONTENT_RENDER_MAX_VALUES = PP_CONTENT_WRITE_MAX_VALUES;
+
+/**
  * The M-8 refusals for one changed band, charging its content to the write's budget.
  *
  * @param  array  $item    The band.
@@ -759,11 +786,14 @@ function pp_content_core_post_table(): array {
  * must survive core's own CSS filter unchanged. Losses are added to $state; returns false
  * when the element itself is beyond core (the caller stops judging it).
  */
-function _pp_content_core_tier_check(string $ns, string $tag, string $qual, array $values, string $where, array &$state): bool {
+function _pp_content_core_tier_check(string $ns, string $tag, string $qual, array $values, string $where, array &$state, array &$render = []): bool {
     $core = pp_content_core_post_table();
     $text = pp_content_clause_text('unfiltered_html');
     if ($ns === 'svg' || !isset($core[$tag]) || !is_array($core[$tag]) && $core[$tag] !== true) {
         $state['losses'][] = _pp_content_loss('<' . $qual . '>', $where, 'unfiltered_html', $text);
+        // The render view UNWRAPS it, keeping what is inside, as core kses does with an
+        // element outside its list (the pre-Layer-3 render): core parity, never less.
+        $render['unwrap'] = true;
         return false;
     }
     $allowed = is_array($core[$tag]) ? array_change_key_case($core[$tag], CASE_LOWER) : [];
@@ -773,6 +803,7 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
         $listed = isset($allowed[$attr]) || (isset($allowed['data-*']) && preg_match('/^data-[a-z0-9_-]+\z/', $attr));
         if (!$listed) {
             $state['losses'][] = _pp_content_loss($attr . ' on <' . $qual . '>', $where, 'unfiltered_html', $text);
+            $render['drop'][$attr] = true;
             continue;
         }
         if (!is_string($value)) {
@@ -785,6 +816,7 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
             && !in_array($c['scheme'], array_map('strtolower', wp_allowed_protocols()), true)) {
             $state['losses'][] = _pp_content_loss($attr . '="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
                 $where, 'unfiltered_html', 'this URL scheme is beyond WordPress\'s own protocol list, which a user without unfiltered_html writes');
+            $render['drop'][$attr] = true;
             continue;
         }
         if ($attr === 'style' && trim($value) !== '') {
@@ -794,6 +826,10 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
             if ($filtered === null || _pp_content_normalise_declarations($filtered) !== _pp_content_normalise_declarations($value)) {
                 $state['losses'][] = _pp_content_loss('style="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
                     $where, 'unfiltered_html', 'a declaration here is beyond WordPress\'s own CSS filter (safecss_filter_attr), which a user without unfiltered_html writes');
+                // The render view keeps what core's own filter keeps of it, exactly as the
+                // pre-Layer-3 render (wp_kses_post) showed (#1242 T3b, ruling Q1): core
+                // parity, never less. The write path refuses it whole (above).
+                $render['style'] = $filtered ?? '';
             }
         }
     }
@@ -995,6 +1031,16 @@ function _pp_content_check($bytes, string $sink, array $ctx = []): array {
     if ($bytes === '') {
         return ['final' => ['html' => '', 'losses' => [], 'notes' => [], 'ids' => []]];
     }
+    // M-8's per-prop bound, judged by the predicate itself (#1242 T3b). The write gate
+    // refuses an over-cap prop by size before any parse (`content_too_large`), so only
+    // stored bytes that predate the gate reach this: they are refused WHOLE and never
+    // walked, which keeps a render's cost bounded however large the stored row is. A
+    // whole-prop clause, so the render shows the prop empty and says so (§2.3).
+    if (strlen($bytes) > PP_CONTENT_PROP_MAX_BYTES) {
+        return ['final' => ['html' => '', 'losses' => [_pp_content_loss('the prop', '', 'M-8', sprintf(
+            'it is %s bytes; a content prop may be at most %s bytes',
+            number_format(strlen($bytes)), number_format(PP_CONTENT_PROP_MAX_BYTES)))], 'notes' => [], 'ids' => []]];
+    }
 
     $state = [
         'sink'   => $sink,
@@ -1044,11 +1090,20 @@ function _pp_content_finish(array $state, array $ctx = []): array {
 
     $html = $state['html'];
     $losses = _pp_content_unique_losses($state['losses']);
+    $whole_loss = false;
     foreach ($losses as $loss) {
         if (in_array($loss['clause'], PP_CONTENT_WHOLE_PROP_CLAUSES, true)) {
             $html = '';
+            $whole_loss = true;
             break;
         }
+    }
+    // E12 is resolved here, after the walk serialized the prop, so the attributes it
+    // refuses are still in `html`. The render view drops exactly those (remove-only, #1242
+    // T3b): "a render-time Loss strips the construct" (§2.3) stays true for cross-band
+    // references too. The write path never reads `html`.
+    if (!$whole_loss && $html !== '' && !empty($state['drops'])) {
+        $html = _pp_content_drop_attributes($html, $state['drops']);
     }
     return [
         'html'   => $html,
@@ -1056,6 +1111,42 @@ function _pp_content_finish(array $state, array $ctx = []): array {
         'notes'  => array_values(array_unique($state['notes'])),
         'ids'    => array_values(array_unique($state['ids'])),
     ];
+}
+
+/**
+ * Removes the attributes E12 refused from the walk's serialized `html` (render view only).
+ *
+ * `html` is the walk's own canonical serialization: every text run and attribute value is
+ * entity-encoded, so a tag processor reads it exactly as the walk wrote it. Each drop is
+ * [element (qualified name, '' = any), attribute, decoded value, fragment target|null]. A
+ * reference's verdict is a function of its attribute, its value and the band's context, so
+ * every element carrying the same (element, attribute, value) shares it: matching on those
+ * three is exact. A fragment reference inside a longer value (`fill="url(#g) red"`, a
+ * style) matches on the attribute carrying `#target` as a whole id. Remove-only: nothing is added.
+ *
+ * @param list<array{0:string,1:string,2:string,3:?string}> $drops
+ */
+function _pp_content_drop_attributes(string $html, array $drops): string {
+    $p = new WP_HTML_Tag_Processor($html);
+    while ($p->next_tag()) {
+        $tag = strtolower((string) $p->get_tag());
+        foreach ($drops as [$want_tag, $attr, $value, $target]) {
+            if ($want_tag !== '' && strtolower($want_tag) !== $tag) {
+                continue;
+            }
+            $have = $p->get_attribute($attr);
+            if (!is_string($have)) {
+                continue;
+            }
+            // A fragment reference matches only as a WHOLE id: `#g` inside `#gallery` is
+            // another id (the id grammar continues with letters, digits, `_`, `.`, `-`).
+            if ($have === $value || ($target !== null
+                && preg_match('/(?<![^\s(\'"])#' . preg_quote($target, '/') . '(?![A-Za-z0-9_.\-])/', $have) === 1)) {
+                $p->remove_attribute($attr);
+            }
+        }
+    }
+    return $p->get_updated_html();
 }
 
 /** Builds one Loss: a fact, not advice (§2.1). */
@@ -1666,6 +1757,7 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
     // elements yield none and are never pushed). Depth comes from get_current_depth(), so
     // no per-token breadcrumb copy: deeply nested content stays linear.
     $stack = [];
+    $emitted = [];              // per open element: did the render view emit its start tag
     $state['open'] = [];
     $tree_starts = [];
 
@@ -1706,6 +1798,7 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
             if ($type === '#tag') {
                 if ($p->is_tag_closer()) {
                     $popped = array_pop($stack);
+                    $was_emitted = array_pop($emitted) ?? true;
                     if ($popped !== null) {
                         $state['open'][$popped]--;
                     }
@@ -1715,7 +1808,9 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
                         }
                         continue;
                     }
-                    $html .= _pp_content_serialize_closer($p);
+                    if ($was_emitted) {
+                        $html .= _pp_content_serialize_closer($p);
+                    }
                     continue;
                 }
                 // M-8, on the parser's OWN stack depth: what it keeps open (a self-closed
@@ -1739,16 +1834,26 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
                     $start_key = _pp_content_start_key($p, $tag);
                     $tree_starts[$start_key] = ($tree_starts[$start_key] ?? 0) + 1;
                 }
+                $state['unwrap'] = false;
                 $admitted = _pp_content_judge_element($p, $stack, $state, $inline);
+                // An element refused ONLY by the trust tier is unwrapped in the render view
+                // (its tag left out, its content kept and judged), as core kses does (#1242
+                // T3b, ruling Q1: core parity at render). Every other refusal drops the subtree.
+                $unwrap = $admitted === null && $state['unwrap'];
                 if ($p->expects_closer() === true) {
                     $stack[] = $tag;
+                    $emitted[] = $admitted !== null;
                     $state['open'][$tag] = ($state['open'][$tag] ?? 0) + 1;
                 }
-                if ($skip_depth === null) {
+                if ($skip_depth === null && !$unwrap) {
                     if ($admitted === null) {
                         // A refused element emits nothing in the render view, and nor does
-                        // its subtree.
-                        if (!_pp_content_is_void_token($p)) {
+                        // its subtree. Only an element the parser keeps OPEN has a subtree to
+                        // skip: a void element, a self-closed foreign one and an atomic one
+                        // (script, style, xmp, textarea: one token carrying its text) yield
+                        // no closer, so skipping from them would swallow the rest of the
+                        // prop (#1242 T3b, found by the render pins).
+                        if ($p->expects_closer() === true) {
                             $skip_depth = $rel;
                         }
                     } else {
@@ -1759,7 +1864,12 @@ function _pp_content_tree_walk(string $bytes, array &$state): string {
             }
             if ($type === '#text' || $type === '#cdata-section') {
                 if ($skip_depth === null) {
-                    $html .= htmlspecialchars($p->get_modifiable_text(), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+                    // Text is encoded for TEXT: `&`, `<` and `>` only. A quote in a text node is
+                    // inert, and leaving it literal keeps what the author wrote for the readers
+                    // after the predicate: an embed band's shortcode attributes
+                    // (`[form id="1" title='Contact']`), which do_shortcode() parses from
+                    // this view, broke when quotes became entities (#1242 T3b, red team).
+                    $html .= htmlspecialchars($p->get_modifiable_text(), ENT_NOQUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
                 }
                 continue;
             }
@@ -1850,13 +1960,6 @@ function _pp_content_has_clause(array $losses, string $clause): bool {
         }
     }
     return false;
-}
-
-function _pp_content_is_void_token(WP_HTML_Processor $p): bool {
-    if ($p->get_namespace() !== 'html') {
-        return $p->has_self_closing_flag();
-    }
-    return WP_HTML_Processor::is_void((string) $p->get_tag());
 }
 
 function _pp_content_serialize_closer(WP_HTML_Processor $p): string {
@@ -1959,7 +2062,9 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         $values[strtolower((string) $attr)] = $p->get_attribute($attr);
     }
     // The trust tier: a writer without unfiltered_html writes the core `post` set.
-    if (($state['ctx']['tier'] ?? 'full') === 'core' && !_pp_content_core_tier_check($ns, $tag, $qual, $values, $where, $state)) {
+    $core_render = [];
+    if (($state['ctx']['tier'] ?? 'full') === 'core' && !_pp_content_core_tier_check($ns, $tag, $qual, $values, $where, $state, $core_render)) {
+        $state['unwrap'] = !empty($core_render['unwrap']);
         return null;
     }
     foreach ($values as $attr => $value) {
@@ -2104,6 +2209,21 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         $rel = isset($out_attrs['rel']) && is_string($out_attrs['rel']) ? $out_attrs['rel'] : '';
         if (!in_array('noopener', _pp_content_split_ws(strtolower($rel)), true)) {
             $out_attrs['rel'] = trim($rel . ' noopener');
+        }
+    }
+
+    // The trust tier's render view (#1242 T3b, ruling Q1): what core's `post` list does not
+    // admit is left out, and a style keeps exactly what core's CSS filter keeps of it. The
+    // render then shows stored content a trusted, checked write did not vouch for at core
+    // parity: the pre-Layer-3 render, never more.
+    foreach (array_keys($core_render['drop'] ?? []) as $dropped) {
+        unset($out_attrs[$dropped]);
+    }
+    if (isset($core_render['style']) && array_key_exists('style', $out_attrs)) {
+        if (trim((string) $core_render['style']) === '') {
+            unset($out_attrs['style']);
+        } else {
+            $out_attrs['style'] = $core_render['style'];
         }
     }
 
@@ -2346,6 +2466,7 @@ function _pp_content_resolve_references(array &$state): void {
                 || _pp_content_in_other($ctx, 'maps', $name) || _pp_content_in_other($ctx, 'ids', $name)) {
                 $state['losses'][] = _pp_content_loss('usemap="' . _pp_content_reflect($value, 64) . '" on <' . $tag . '>',
                     $where, 'E12', 'usemap must name a <map name> inside the same band, and no other band may carry that name or id');
+                $state['drops'][] = [$tag, 'usemap', $value, null];
             }
             continue;
         }
@@ -2362,6 +2483,10 @@ function _pp_content_resolve_references(array &$state): void {
                 || _pp_content_in_other($ctx, 'ids', $target)) {
                 $state['losses'][] = _pp_content_loss($label . '="' . _pp_content_reflect($shown, 64) . '" on <' . $tag . '>',
                     $where, 'E12', pp_content_clause_text('E12'));
+                // The attribute as the walk serialized it: `for:one`/`for:many` is `for`, a
+                // fragment reference is the attribute that carries it (href, style, fill, ...).
+                $state['drops'][] = [$tag, str_starts_with($attr, 'frag:') ? substr($attr, 5) : (str_starts_with($attr, 'for:') ? 'for' : $attr),
+                    (string) $shown, str_starts_with($attr, 'frag:') ? (string) $target : null];
                 break;
             }
         }
@@ -2373,18 +2498,21 @@ function _pp_content_resolve_references(array &$state): void {
         if (_pp_content_in_other($ctx, 'refs', (string) $id)) {
             $state['losses'][] = _pp_content_loss('id="' . _pp_content_reflect((string) $id, 64) . '"', '', 'E12',
                 'another band refers to this id, so its control would bind to this element');
+            $state['drops'][] = ['', 'id', (string) $id, null];
         }
     }
     foreach (array_keys($maps) as $name) {
         if (_pp_content_in_other($ctx, 'refs', (string) $name)) {
             $state['losses'][] = _pp_content_loss('name="' . _pp_content_reflect((string) $name, 64) . '" on <map>', '', 'E12',
                 'another band\'s usemap names this map, so its image would bind to this map');
+            $state['drops'][] = ['map', 'name', (string) $name, null];
         }
     }
     foreach ($state['details_names'] as [$name, $where]) {
         if (_pp_content_in_other($ctx, 'details', (string) $name)) {
             $state['losses'][] = _pp_content_loss('name="' . _pp_content_reflect($name, 64) . '" on <details>',
                 $where, 'E12', 'a details name group may not join details in another band');
+            $state['drops'][] = ['details', 'name', (string) $name, null];
         }
     }
     // Uncertainty is not admission: when another band's facts could not be read within the
@@ -2483,11 +2611,16 @@ function pp_content_close_first_hint(string $bytes): string {
  * @param  int|null $budget   Bytes this band may still walk (decremented); null: unbounded.
  *                            A value that does not fit is not walked and the band is
  *                            `incomplete`.
- * @param  string   $tier     The writer's trust tier for a judged band (pp_content_write_tier()).
+ * @param  string   $tier     The writer's trust tier for a judged band (pp_content_write_tier()),
+ *                            or `vouched`: the render's per-value tier (#1242 T3b, ruling Q1):
+ *                            a value walks at the full tier only when its exact bytes are in
+ *                            $vouched (a full-tier gated write admitted them) or it holds no
+ *                            markup at all; every other value walks at core parity.
  * @param  int|null $walks    Values this band may still walk (decremented), with $budget.
+ * @param  array    $vouched  For the `vouched` tier: the set of full-tier value hashes.
  * @return array{values:list<array>, ids:list<string>, maps:list<string>, details:list<string>, refs:list<string>, anchor:string, incomplete:bool, states?:array}
  */
-function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null, string $tier = 'full', ?int &$walks = null): array {
+function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null, string $tier = 'full', ?int &$walks = null, array $vouched = []): array {
     $values = pp_content_band_values($item);
     $anchor = (isset($item['props']['id']) && is_string($item['props']['id'])) ? $item['props']['id'] : '';
     $ids = $maps = $details = $refs = [];
@@ -2514,7 +2647,9 @@ function pp_content_band_facts(array $item, array $anchors = [], bool $keep = tr
         }
         // A band read only for its facts is walked without the anchors: an id equal to an
         // anchor is exactly the fact the anchor-add rule needs (E6 would drop it).
-        $state = _pp_content_check($value, $sink, $keep ? ['anchors' => $anchors, 'tier' => $tier] : []);
+        $value_tier = $tier !== 'vouched' ? $tier
+            : ((strpos($value, '<') === false || isset($vouched[pp_content_value_hash($value)])) ? 'full' : 'core');
+        $state = _pp_content_check($value, $sink, $keep ? ['anchors' => $anchors, 'tier' => $value_tier] : []);
         if ($keep) {
             $states[$n] = $state;
         }
@@ -2597,6 +2732,40 @@ function pp_content_composition_index(array $items, ?array $judged = null, strin
         $ordered[$key] = $index[$key];
     }
     return $ordered;
+}
+
+/**
+ * THE RENDER'S INDEX (#1242 T3b; rulings Q1 and Q2 of 2026-10-05). Every band of a stored
+ * composition walked once, its walk states kept for the render to finish, with two rules the
+ * write path's index does not need:
+ *
+ *   - THE TIER IS PER VALUE ("vouched"): stored bytes render with the widened (unfiltered_html)
+ *     set only when a full-tier gated write admitted them on this page; every other value
+ *     renders at core `post` parity, exactly what the pre-Layer-3 render (wp_kses_post) showed.
+ *   - THE WALK IS BUDGETED (PP_CONTENT_RENDER_MAX_BYTES / _VALUES): a value past the budget is
+ *     not walked. Its band is `incomplete` (cross-band facts in the rest of the page fail
+ *     closed, as on the write path), and the render shows that value through the legacy path,
+ *     with a `content_not_checked` finding naming the band: fail visible, never fail slow.
+ *
+ * @param array $items    The composition.
+ * @param array $vouched  Hashes of the values a full-tier gated write admitted (a set).
+ * @param array $left     Set to [bytes, values] of the budget the walk left (by reference).
+ */
+function pp_content_render_composition_index(array $items, array $vouched, array &$left = []): array {
+    $anchors = [];
+    foreach ($items as $item) {
+        if (is_array($item) && isset($item['props']['id']) && is_string($item['props']['id']) && $item['props']['id'] !== '') {
+            $anchors[] = $item['props']['id'];
+        }
+    }
+    $budget = PP_CONTENT_RENDER_MAX_BYTES;
+    $walks = PP_CONTENT_RENDER_MAX_VALUES;
+    $index = [];
+    foreach ($items as $key => $item) {
+        $index[$key] = is_array($item) ? pp_content_band_facts($item, $anchors, true, $budget, 'vouched', $walks, $vouched) : null;
+    }
+    $left = [max(0, (int) $budget), max(0, (int) $walks)];
+    return $index;
 }
 
 /**

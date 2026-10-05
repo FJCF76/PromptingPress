@@ -61,178 +61,196 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
     // count reconciliation below doesn't double-report them as missing output.
     $skipped_chrome = 0;
 
-    // 2. Render each component and inspect.
-    foreach ($composition as $index => $item) {
-        $name  = isset($item['component']) ? (string) $item['component'] : '';
-        $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
-        // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
-        // MEASURED DEAD before deleting: `__pp_style` has zero READ sites in the tree, so
-        // this wrote a key nothing consumed. See the identical note in the other band
-        // loops (pp_render_composition_bands() in lib/wp.php, the preview in lib/admin.php).
+    // 2. Render each component and inspect. Content props render through the one Layer-3
+    // predicate in this composition's context, exactly as the page does (#1242 T3b,
+    // LAYER-3-CONTRACT.md §2.1: the post-apply validator measures the render visitors get).
+    pp_content_render_begin($composition, $post_id);
+    try {
+        foreach ($composition as $index => $item) {
+            $name  = isset($item['component']) ? (string) $item['component'] : '';
+            // Stored text quoted back into a message is FRAMED as data (#1242 T3b; the T2
+            // helper, lib/ai-context.php): JSON-quoted, P-15 code points neutralized. These
+            // messages reach the CLI, the chat card, and the chat conversation itself.
+            $shown = pp_ai_context_value($name, PP_AI_CONTEXT_NAME_MAX);
+            $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
+            // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
+            // MEASURED DEAD before deleting: `__pp_style` has zero READ sites in the tree, so
+            // this wrote a key nothing consumed. See the identical note in the other band
+            // loops (pp_render_composition_bands() in lib/wp.php, the preview in lib/admin.php).
 
-        if ($name === '') {
-            $errors[] = [
-                'check'           => 'empty_component_name',
-                'component_index' => $index,
-                'message'         => "Component #{$index}: empty component name.",
-            ];
-            continue;
-        }
-
-        // Site chrome in a composition renders the header/footer twice. This is
-        // an error, not a warning: rendered validation previously certified such
-        // a page as correct, which is the worse half of issue #223. Skip the
-        // render — the duplicate is the finding, and its DOM adds nothing.
-        if (pp_is_template_owned_component($name)) {
-            $errors[] = [
-                'check'           => 'template_owned_component',
-                'component_index' => $index,
-                'message'         => "Component #{$index} ({$name}): " . pp_template_owned_component_message($name),
-            ];
-            // Counts toward the composition total: this item was deliberately not
-            // rendered, so it must not also be reported as a component that failed
-            // to produce output (component_count_mismatch below). One defect, one
-            // error — an agent in a fix loop should not chase a phantom render bug.
-            $skipped_chrome++;
-            continue;
-        }
-
-        // Render in output buffer.
-        $html = '';
-        try {
-            ob_start();
-            pp_get_component($name, $props);
-            $html = ob_get_clean();
-        } catch (\Throwable $e) {
-            if (ob_get_level()) {
-                ob_end_clean();
-            }
-            $errors[] = [
-                'check'           => 'render_exception',
-                'component_index' => $index,
-                'message'         => "Component #{$index} ({$name}): render threw " . $e->getMessage(),
-            ];
-            continue;
-        }
-
-        // Check for empty render output.
-        if (trim($html) === '') {
-            $errors[] = [
-                'check'           => 'empty_render',
-                'component_index' => $index,
-                'message'         => "Component #{$index} ({$name}): rendered empty output.",
-            ];
-            continue;
-        }
-
-        $rendered_count++;
-
-        // 3. DOM inspection.
-        // Without an encoding hint, DOMDocument::loadHTML() assumes
-        // ISO-8859-1 and mis-decodes UTF-8 bytes — e.g. "café.jpg" reads
-        // back as "cafÃ©.jpg", which then fails the media lookup below
-        // for any real, correctly-uploaded file with a multibyte name.
-        // Strip any <meta> tags from the rendered fragment first: an
-        // in-content <meta charset="..."> takes priority over the
-        // document-level XML encoding hint in libxml's HTML sniffing, so
-        // a component whose output happens to carry one (e.g. embed's
-        // shortcode-rendered content) could silently defeat the fix and
-        // reintroduce the mis-decode. This validator has no legitimate
-        // use for a <meta> tag inside a component fragment anyway.
-        $doc = new DOMDocument();
-        $doc->loadHTML(
-            '<?xml encoding="utf-8"?><!DOCTYPE html><html><body>' . preg_replace('/<meta\b[^>]*>/i', '', $html) . '</body></html>',
-            LIBXML_NOERROR | LIBXML_NOWARNING
-        );
-
-        $body = $doc->getElementsByTagName('body')->item(0);
-        if (!$body) {
-            continue;
-        }
-
-        // 3a. <img> elements — check src.
-        $imgs = $body->getElementsByTagName('img');
-        for ($i = 0; $i < $imgs->length; $i++) {
-            $img = $imgs->item($i);
-            $src = $img->getAttribute('src');
-
-            if ($src === '') {
+            if ($name === '') {
                 $errors[] = [
-                    'check'           => 'empty_img_src',
+                    'check'           => 'empty_component_name',
                     'component_index' => $index,
-                    'element'         => 'img',
-                    'message'         => "Component #{$index} ({$name}): image has empty src attribute.",
+                    'message'         => "Component #{$index}: empty component name.",
                 ];
                 continue;
             }
 
-            // Classify as same-site media to verify. An exact byte-prefix match
-            // against the uploads baseurl is too brittle: a same-site URL whose
-            // scheme/host/port differs byte-for-byte (http vs https, :443, a
-            // site-relative or protocol-relative path) gets misclassified as
-            // external and skipped, so missing_local_media never fires for it
-            // (#83 — same defect class as #153 in the action-param validator).
-            // Reuse #153's origin-aware classifier (lib/actions.php) to derive
-            // the stored _wp_attached_file relative path; null => genuinely
-            // external (CDN/offloaded) and skipped.
-            $relative = _pp_uploads_relative_path($src, $uploads_baseurl);
-            if ($relative !== null) {
-                $local_urls_to_verify[$src] = [
+            // Site chrome in a composition renders the header/footer twice. This is
+            // an error, not a warning: rendered validation previously certified such
+            // a page as correct, which is the worse half of issue #223. Skip the
+            // render — the duplicate is the finding, and its DOM adds nothing.
+            if (pp_is_template_owned_component($name)) {
+                $errors[] = [
+                    'check'           => 'template_owned_component',
                     'component_index' => $index,
-                    'component_name'  => $name,
-                    'element'         => 'img',
-                    'relative'        => $relative,
+                    'message'         => "Component #{$index} ({$shown}): " . pp_template_owned_component_message($name),
                 ];
+                // Counts toward the composition total: this item was deliberately not
+                // rendered, so it must not also be reported as a component that failed
+                // to produce output (component_count_mismatch below). One defect, one
+                // error — an agent in a fix loop should not chase a phantom render bug.
+                $skipped_chrome++;
+                continue;
             }
-        }
 
-        // 3b. Inline CSS background-image:url(...) references.
-        $xpath    = new DOMXPath($doc);
-        $styled   = $xpath->query('//*[@style]');
-        for ($i = 0; $i < $styled->length; $i++) {
-            $el        = $styled->item($i);
-            $style_val = $el->getAttribute('style');
-            if (preg_match_all('/background-image\s*:\s*url\(\s*[\'"]?([^\'")]*)[\'"]?\s*\)/i', $style_val, $matches)) {
-                foreach ($matches[1] as $bg_url) {
-                    $bg_url = trim($bg_url);
-                    if ($bg_url === '') {
-                        $errors[] = [
-                            'check'           => 'empty_background_image',
-                            'component_index' => $index,
-                            'element'         => 'style',
-                            'message'         => "Component #{$index} ({$name}): background-image has empty url().",
-                        ];
-                        continue;
-                    }
+            // Render in output buffer.
+            $html = '';
+            try {
+                ob_start();
+                pp_content_render_band($index);
+                pp_get_component($name, $props);
+                $html = ob_get_clean();
+            } catch (\Throwable $e) {
+                if (ob_get_level()) {
+                    ob_end_clean();
+                }
+                $errors[] = [
+                    'check'           => 'render_exception',
+                    'component_index' => $index,
+                    'message'         => "Component #{$index} ({$shown}): render threw " . pp_ai_context_value($e->getMessage(), PP_AI_CONTEXT_TEXT_MAX),
+                ];
+                continue;
+            } finally {
+                // §2.4 (#730 inherited): this catch carries on to the next component, so a throw
+                // from inside wp_kses() must not leave `pre_kses` unhooked for the rest of the run.
+                pp_content_rehook_pre_kses();
+            }
 
-                    // Same origin-aware classification as the img src scan (#83).
-                    $relative = _pp_uploads_relative_path($bg_url, $uploads_baseurl);
-                    if ($relative !== null) {
-                        $local_urls_to_verify[$bg_url] = [
-                            'component_index' => $index,
-                            'component_name'  => $name,
-                            'element'         => 'background-image',
-                            'relative'        => $relative,
-                        ];
+            // Check for empty render output.
+            if (trim($html) === '') {
+                $errors[] = [
+                    'check'           => 'empty_render',
+                    'component_index' => $index,
+                    'message'         => "Component #{$index} ({$shown}): rendered empty output.",
+                ];
+                continue;
+            }
+
+            $rendered_count++;
+
+            // 3. DOM inspection.
+            // Without an encoding hint, DOMDocument::loadHTML() assumes
+            // ISO-8859-1 and mis-decodes UTF-8 bytes — e.g. "café.jpg" reads
+            // back as "cafÃ©.jpg", which then fails the media lookup below
+            // for any real, correctly-uploaded file with a multibyte name.
+            // Strip any <meta> tags from the rendered fragment first: an
+            // in-content <meta charset="..."> takes priority over the
+            // document-level XML encoding hint in libxml's HTML sniffing, so
+            // a component whose output happens to carry one (e.g. embed's
+            // shortcode-rendered content) could silently defeat the fix and
+            // reintroduce the mis-decode. This validator has no legitimate
+            // use for a <meta> tag inside a component fragment anyway.
+            $doc = new DOMDocument();
+            $doc->loadHTML(
+                '<?xml encoding="utf-8"?><!DOCTYPE html><html><body>' . preg_replace('/<meta\b[^>]*>/i', '', $html) . '</body></html>',
+                LIBXML_NOERROR | LIBXML_NOWARNING
+            );
+
+            $body = $doc->getElementsByTagName('body')->item(0);
+            if (!$body) {
+                continue;
+            }
+
+            // 3a. <img> elements — check src.
+            $imgs = $body->getElementsByTagName('img');
+            for ($i = 0; $i < $imgs->length; $i++) {
+                $img = $imgs->item($i);
+                $src = $img->getAttribute('src');
+
+                if ($src === '') {
+                    $errors[] = [
+                        'check'           => 'empty_img_src',
+                        'component_index' => $index,
+                        'element'         => 'img',
+                        'message'         => "Component #{$index} ({$shown}): image has empty src attribute.",
+                    ];
+                    continue;
+                }
+
+                // Classify as same-site media to verify. An exact byte-prefix match
+                // against the uploads baseurl is too brittle: a same-site URL whose
+                // scheme/host/port differs byte-for-byte (http vs https, :443, a
+                // site-relative or protocol-relative path) gets misclassified as
+                // external and skipped, so missing_local_media never fires for it
+                // (#83 — same defect class as #153 in the action-param validator).
+                // Reuse #153's origin-aware classifier (lib/actions.php) to derive
+                // the stored _wp_attached_file relative path; null => genuinely
+                // external (CDN/offloaded) and skipped.
+                $relative = _pp_uploads_relative_path($src, $uploads_baseurl);
+                if ($relative !== null) {
+                    $local_urls_to_verify[$src] = [
+                        'component_index' => $index,
+                        'component_name'  => $name,
+                        'element'         => 'img',
+                        'relative'        => $relative,
+                    ];
+                }
+            }
+
+            // 3b. Inline CSS background-image:url(...) references.
+            $xpath    = new DOMXPath($doc);
+            $styled   = $xpath->query('//*[@style]');
+            for ($i = 0; $i < $styled->length; $i++) {
+                $el        = $styled->item($i);
+                $style_val = $el->getAttribute('style');
+                if (preg_match_all('/background-image\s*:\s*url\(\s*[\'"]?([^\'")]*)[\'"]?\s*\)/i', $style_val, $matches)) {
+                    foreach ($matches[1] as $bg_url) {
+                        $bg_url = trim($bg_url);
+                        if ($bg_url === '') {
+                            $errors[] = [
+                                'check'           => 'empty_background_image',
+                                'component_index' => $index,
+                                'element'         => 'style',
+                                'message'         => "Component #{$index} ({$shown}): background-image has empty url().",
+                            ];
+                            continue;
+                        }
+
+                        // Same origin-aware classification as the img src scan (#83).
+                        $relative = _pp_uploads_relative_path($bg_url, $uploads_baseurl);
+                        if ($relative !== null) {
+                            $local_urls_to_verify[$bg_url] = [
+                                'component_index' => $index,
+                                'component_name'  => $name,
+                                'element'         => 'background-image',
+                                'relative'        => $relative,
+                            ];
+                        }
                     }
                 }
             }
-        }
 
-        // 3c. <a> elements — check href.
-        $links = $body->getElementsByTagName('a');
-        for ($i = 0; $i < $links->length; $i++) {
-            $a    = $links->item($i);
-            $href = $a->getAttribute('href');
+            // 3c. <a> elements — check href.
+            $links = $body->getElementsByTagName('a');
+            for ($i = 0; $i < $links->length; $i++) {
+                $a    = $links->item($i);
+                $href = $a->getAttribute('href');
 
-            if ($href === '' || $href === '#') {
-                $warnings[] = [
-                    'check'           => 'empty_link_href',
-                    'component_index' => $index,
-                    'message'         => "Component #{$index} ({$name}): link has " . ($href === '#' ? 'bare # href' : 'empty href') . '.',
-                ];
+                if ($href === '' || $href === '#') {
+                    $warnings[] = [
+                        'check'           => 'empty_link_href',
+                        'component_index' => $index,
+                        'message'         => "Component #{$index} ({$shown}): link has " . ($href === '#' ? 'bare # href' : 'empty href') . '.',
+                    ];
+                }
             }
         }
+    } finally {
+        // The context closes however the loop ends (#1242 T3b): a later render in this
+        // request must never inherit this composition's bands.
+        pp_content_render_end();
     }
 
     // 4. Composition-level checks.
@@ -256,7 +274,7 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                 $warnings[] = [
                     'check'           => 'duplicate_component_id',
                     'component_index' => $index,
-                    'message'         => "Component #{$index}: duplicate ID '{$id}' (also at #{$ids[$id]}).",
+                    'message'         => "Component #{$index}: duplicate ID " . pp_ai_context_value($id, PP_AI_CONTEXT_KEY_MAX) . " (also at #{$ids[$id]}).",
                 ];
             } else {
                 $ids[$id] = $index;
@@ -356,7 +374,7 @@ function pp_post_apply_validate(int $post_id, ?array $target = null): array {
                     'component_index' => $info['component_index'],
                     'element'         => $info['element'],
                     'detail'          => $relative,
-                    'message'         => "Component #{$info['component_index']} ({$info['component_name']}): {$info['element']} references missing media ({$relative} not in Media Library).",
+                    'message'         => "Component #{$info['component_index']} (" . pp_ai_context_value($info['component_name'], PP_AI_CONTEXT_NAME_MAX) . "): {$info['element']} references missing media (" . pp_ai_context_value($relative, PP_AI_CONTEXT_URL_MAX) . " not in Media Library).",
                 ];
             }
         }

@@ -320,12 +320,12 @@ if (!empty($body_items)) {
                             <h2 class="section__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'section__title-accent'); ?></h2>
                         <?php endif; ?>
                         <?php if ($subheading) : ?>
-                            <p class="section__subheading"><?php echo esc_html($subheading); ?></p>
+                            <p class="section__subheading"><?php echo pp_content_prop_html('section', 'subheading', $subheading); ?></p>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
                 <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
-                    <?php echo wp_kses_post($body); ?>
+                    <?php echo pp_content_prop_html('section', 'body', $body); ?>
                 </div>
                 <?php echo $inline_items_html; ?>
             </div>
@@ -343,19 +343,19 @@ if (!empty($body_items)) {
                                 <h2 class="section__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'section__title-accent'); ?></h2>
                             <?php endif; ?>
                             <?php if ($subheading) : ?>
-                                <p class="section__subheading"><?php echo esc_html($subheading); ?></p>
+                                <p class="section__subheading"><?php echo pp_content_prop_html('section', 'subheading', $subheading); ?></p>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
-                        <?php echo wp_kses_post($body); ?>
+                        <?php echo pp_content_prop_html('section', 'body', $body); ?>
                     </div>
                     <?php echo $inline_items_html; ?>
                 </div>
 
                 <div class="section__panel">
                     <?php if ($panel_heading) : ?>
-                        <h3 class="section__panel-heading"><?php echo esc_html($panel_heading); ?></h3>
+                        <h3 class="section__panel-heading"><?php echo pp_content_prop_html('section', 'panel_heading', $panel_heading); ?></h3>
                     <?php endif; ?>
                     <?php if ($panel_body) : ?>
                         <p class="section__panel-body"><?php echo esc_html($panel_body); ?></p>
@@ -410,12 +410,12 @@ if (!empty($body_items)) {
                                 <h2 class="section__title"><?php echo pp_render_heading_with_accent($title, $title_accent, 'section__title-accent'); ?></h2>
                             <?php endif; ?>
                             <?php if ($subheading) : ?>
-                                <p class="section__subheading"><?php echo esc_html($subheading); ?></p>
+                                <p class="section__subheading"><?php echo pp_content_prop_html('section', 'subheading', $subheading); ?></p>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     <div class="section__content<?php echo esc_attr($content_marker_class); ?>">
-                        <?php echo wp_kses_post($body); ?>
+                        <?php echo pp_content_prop_html('section', 'body', $body); ?>
                     </div>
                     <?php echo $inline_items_html; ?>
                 </div>

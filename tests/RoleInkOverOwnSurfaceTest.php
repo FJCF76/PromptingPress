@@ -868,7 +868,10 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
      */
     public function testADeeplyNestedBodyIsUnknownNotSilence(): void
     {
-        $body = str_repeat('<div>', 300) . 'deep' . str_repeat('</div>', 300);
+        // 250 deep: within the Layer-3 render's M-8 nesting cap (256, #1242 T3b; a deeper stored
+        // body renders EMPTY at render and never reaches this probe), and past libxml's 256 once
+        // the template's own elements are counted.
+        $body = str_repeat('<div>', 250) . 'deep' . str_repeat('</div>', 250);
         $found = $this->only(pp_udc_composition_findings([['component' => 'section', 'id' => 'pp-a1b2c3d4',
             'props' => ['title' => 'T', 'body' => $body, 'layout' => 'text-panel', 'panel_body' => 'Panel text'],
             'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'panel' => ['typography' => ['color' => '#ffffff']]]]]));
@@ -1310,7 +1313,9 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
     public function testABandPastTheMarkupSizeBoundIsUnknownAndSaysSo(): void
     {
         $band = static fn (string $body): array => ['component' => 'section', 'id' => 'pp-a1b2c3d4',
-            'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => '<p>' . $body . '</p>'],
+            // The bulk rides a PLAIN prop: a content prop over 64 KiB renders empty at render
+            // (M-8, #1242 T3b), so only escaped text can make one band this large.
+            'props' => ['eyebrow' => 'E', 'title' => 'T', 'layout' => 'text-panel', 'body' => '<p>b</p>', 'panel_body' => $body],
             'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
         $found = $this->only(pp_udc_composition_findings([$band(str_repeat('x', 600000))]));
         $this->assertCount(1, $found);
@@ -1426,7 +1431,8 @@ final class RoleInkOverOwnSurfaceTest extends TestCase
         $bands = [];
         for ($b = 0; $b < 6; $b++) {
             $bands[] = ['component' => 'section', 'id' => sprintf('pp-%08x', $b + 1),
-                'props' => ['eyebrow' => 'E', 'title' => 'T', 'body' => '<p>' . str_repeat('x', 400000) . '</p>'],
+                // PLAIN bulk: a content prop over 64 KiB renders empty (M-8, #1242 T3b).
+                'props' => ['eyebrow' => 'E', 'title' => 'T', 'layout' => 'text-panel', 'body' => '<p>b</p>', 'panel_body' => str_repeat('x', 400000)],
                 'udc' => ['_band' => ['background' => ['fill' => '#101828']], 'eyebrow' => ['typography' => ['color' => '#ffffff']]]];
         }
         $start = hrtime(true);

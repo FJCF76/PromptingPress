@@ -2754,6 +2754,14 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
     $content_size_errors = null;
     $content_counts = null;
     $content_index = null;
+    $content_stored_values = null; // the stored page's content values (the marker's new-bytes rule)
+    $content_vouches = [];         // what this write's admitted bands vouch for (#1242 T3b)
+    // Only the LAST gated validation's notes may reach the next commit (#1242 T3b): a
+    // validation that passed for an action that then refused before writing must not vouch
+    // for a later write in the same request (a batch step, a rollback's restore).
+    if ($content_baseline !== false) {
+        pp_content_reset_vouches();
+    }
 
     foreach ($items as $i => $item) {
         // Authored locations inside THIS item that already carry a finding (#621).
@@ -4937,6 +4945,18 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 $content_counts ??= pp_content_index_counts($content_index);
                 $content_losses = pp_content_band_losses($items, $i, $content_index, $content_counts);
             }
+            // THE STORED-INTENT MARKER (#1242 T3b: routed item 17, ruling Q1): a band this gate
+            // judged and admitted vouches for what it SENDS AS NEW BYTES (bytes no stored
+            // content value on the page already holds: untouched legacy content in an edited
+            // band keeps rendering as it did). A markup heading is vouched as markup; any new
+            // value written at the full tier is vouched for the widened set. Noted only if the
+            // whole validation passes (below); recorded only when the write commits
+            // (pp_content_record_verified(), called by the one `_pp_composition` writer).
+            if ($content_losses === []) {
+                $content_stored_values ??= pp_content_stored_value_set(
+                    $content_page !== null ? $content_page : (is_array($content_baseline) ? $content_baseline : []));
+                $content_vouches[] = pp_content_band_vouches($item, $content_stored_values, pp_content_write_tier());
+            }
             $by_prop = [];
             foreach ($content_losses as $entry) {
                 $by_prop[$entry['prop']][] = $entry['loss'];
@@ -5053,6 +5073,16 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
     $duplicate_listing = ($sink['budget'] !== null && $errors !== []) ? null : pp_duplicate_listing_band_error($items);
     if ($duplicate_listing !== null) {
         $errors[] = $duplicate_listing;
+    }
+
+    // A refused write vouches for nothing: what this gate admitted is noted for the commit
+    // only when the whole write is accepted (#1242 T3b).
+    if ($errors === [] && $content_vouches !== []) {
+        $scope = pp_content_composition_scope($content_page !== null
+            ? array_merge(array_values($content_page), array_values($items)) : $items);
+        foreach ($content_vouches as $vouches) {
+            pp_content_note_vouches($vouches, $scope);
+        }
     }
 
     return $errors;
@@ -6080,11 +6110,18 @@ add_action('wp_ajax_pp_preview_composition', function () {
 
     $dir_uri = get_template_directory_uri();
 
+    // LAYER 3A (#1242 T3b): the preview renders content as the page will once saved. The
+    // bands this save would judge (§2.6, the same one-to-one matching) vouch for their
+    // markup headings exactly as the write gate would (the stored-intent rule), and every
+    // content prop renders through the one predicate in this composition's context.
+    pp_content_note_judged_bands($composition, pp_content_stored_baseline($post_id));
+    pp_content_render_begin($composition, $post_id);
+
     ob_start();
     try {
         pp_get_component('nav', ['location' => 'primary']);
         echo '<main id="main">';
-        foreach ($composition as $item) {
+        foreach ($composition as $band_key => $item) {
             $name  = isset($item['component']) ? (string) $item['component'] : '';
             $props = isset($item['props']) && is_array($item['props']) ? $item['props'] : [];
             // THE `items[].style` -> `__pp_style` PROMOTION STOOD HERE AND WENT AT #1101.
@@ -6100,9 +6137,12 @@ add_action('wp_ajax_pp_preview_composition', function () {
             // named in the refusal (_pp_validate_style_slot_map, lib/admin.php).
             $props = pp_udc_promote_band_identity($item, $props);
             if ($name !== '') {
+                pp_content_render_band($band_key);
                 pp_get_component($name, $props);
             }
         }
+        // The chrome after the bands is not stored band content: no band is selected.
+        pp_content_render_band(null);
         echo '</main>';
         pp_get_component('footer', ['location' => 'footer']);
     } catch (Throwable $e) {
@@ -6118,6 +6158,12 @@ add_action('wp_ajax_pp_preview_composition', function () {
             wp_send_json_error(_pp_clean_reflected_text('Render failed: ' . $e->getMessage(), PP_REFLECTED_ERROR_MAX));
         }
         wp_send_json_error('Render failed.');
+    } finally {
+        // §2.4 (#730 inherited): a catch that can enclose a component render re-adds core's
+        // `pre_kses` filter, because a throw from inside wp_kses() (a template's legacy
+        // path, a shortcode) can leave it unhooked for the rest of the request.
+        pp_content_render_end();
+        pp_content_rehook_pre_kses();
     }
 
     $body = ob_get_clean();

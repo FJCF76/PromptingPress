@@ -146,10 +146,13 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         'hero.button2_url'       => ['hero',    'esc_url',      '$button2_url'],
         'section.panel_cta_url'  => ['section', 'esc_url',      '$panel_cta_url'],
         'grid.items[].link_url'  => ['grid',    'esc_url',      '$link_url'],
-        'section.body'           => ['section', 'wp_kses_post', '$body'],
-        'faq.items[].answer'     => ['faq',     'wp_kses_post', '$answer'],
-        'table.rows[][]'         => ['table',   'wp_kses_post', '$cell'],
-        'embed.content'          => ['embed',   'wp_kses_post', '$content'],
+        // The rich content sinks render through the Layer-3 render side since #1242 T3b
+        // (pp_content_prop_html(), lib/content-render.php), which takes any value and never
+        // hands a non-string to a typed call; the template-level guard stays.
+        'section.body'           => ['section', 'pp_content_prop_html', '$body'],
+        'faq.items[].answer'     => ['faq',     'pp_content_prop_html', '$answer'],
+        'table.rows[][]'         => ['table',   'pp_content_prop_html', '$cell'],
+        'embed.content'          => ['embed',   'pp_content_prop_html', '$content'],
     ];
 
     /**
@@ -170,11 +173,6 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         // footer's social decode loop skips non-array entries and (string)-casts the url
         // before the escaper sees it.
         "footer|esc_url|\$social_item['url']",
-        // DELIBERATELY UNGUARDED: hero's $proof_markup is `trim((string) $proof)`, so the
-        // value arriving at the escaper is ALREADY a string and this site cannot fatal.
-        // That prop's fatal is upstream at the cast and object-only — a language
-        // construct, not a core escaper. Belongs to the open #721.
-        'hero|wp_kses_post|$proof_markup',
     ];
 
     protected function setUp(): void
@@ -422,6 +420,14 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         // inventory this file sweeps and the inventory it enforces cannot drift apart.
         $expected = self::EXEMPT_CALL_SITES;
         foreach (self::GUARDED_SURFACES as [$component, $sink, $arg]) {
+            if ($sink === 'pp_content_prop_html') {
+                // Not a core escaper: the guarded local must still be what the render-side
+                // call receives (its LAST argument), so the guard keeps guarding.
+                $source = $this->stripComments(file_get_contents(dirname(__DIR__) . '/components/' . $component . '/' . $component . '.php'));
+                $this->assertMatchesRegularExpression('/\bpp_content_prop_html\(\s*\'' . $component . '\',\s*\'[^\']+\',\s*' . preg_quote($arg, '/') . '\s*\)/', $source,
+                    $component . ' renders its guarded local ' . $arg . ' through pp_content_prop_html()');
+                continue;
+            }
             $expected[] = $component . '|' . $sink . '|' . $arg;
         }
 
@@ -446,8 +452,9 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
         );
 
         // Non-vacuity: if this ever finds nothing, the comparison above is trivial.
+        // 11 since #1242 T3b moved the four rich-content sites to pp_content_prop_html().
         $this->assertGreaterThanOrEqual(
-            13,
+            11,
             count($found),
             'the escaper call-site scan found almost nothing — the checker has drifted'
         );
@@ -1449,14 +1456,15 @@ class StoredLinkAndRichTextRenderGuardTest extends TestCase
      */
     public function testTheRemainingCastBoundariesAreStillOpen(): void
     {
-        // hero.proof — array half: no fatal, but the literal word Array reaches the page.
+        // hero.proof — array half. Since #1242 T3b the template hands the STORED value to
+        // pp_content_prop_html(), which renders a non-scalar as nothing, so the literal word
+        // Array no longer reaches the page (the visible half of #721 is closed). The cast
+        // used for the layout check (hero.php `trim((string) $proof)`) is still there, and
+        // still warns: #721's other half.
         $heroArray = $this->renderJson('hero', ['title' => 'T', 'proof' => ['x']]);
-        $this->assertStringContainsString(
-            'Array',
-            $heroArray,
-            '#721: an array hero.proof still paints the literal word Array. If this ever'
-            . ' stops being true, #721 was fixed — update this pin rather than deleting it.'
-        );
+        $this->assertStringNotContainsString('Array', $heroArray,
+            '#721 (visible half, closed by #1242 T3b): an array hero.proof paints nothing');
+        $this->assertStringContainsString('<div class="hero__proof"></div>', $heroArray);
 
         // hero.proof — object half: still a whole-page fatal, at the cast.
         $this->expectException(Error::class);

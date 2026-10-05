@@ -646,6 +646,9 @@ function _pp_resolve_attachment_id_by_url(string $url): int {
  */
 function pp_preview_action(string $name, array $params) {
     $validation = pp_validate_action($name, $params);
+    // A preview never writes, so its validation's vouch notes are spent at once (the
+    // stored-intent marker's lifecycle, lib/content-render.php).
+    pp_content_end_vouch_action();
     if (is_wp_error($validation)) {
         return $validation;
     }
@@ -731,13 +734,26 @@ function _pp_action_validation_error_envelope(string $name, WP_Error $validation
  *                past it: it must not be the entry a truncation drops.
  */
 function pp_execute_action(string $name, array $params): array {
+    // The stored-intent marker's lifecycle starts clean for every action: the only vouch
+    // notes that can reach this action's commit are the ones its own validation makes.
+    pp_content_end_vouch_action();
     $validation = pp_validate_action($name, $params);
     if (is_wp_error($validation)) {
+        // The stored-intent marker's lifecycle (lib/content-render.php): a refused action's
+        // vouch notes are spent here, never carried into a later write in this request.
+        pp_content_end_vouch_action();
         return _pp_action_validation_error_envelope($name, $validation);
     }
 
     $action = pp_get_action($name);
-    $result = call_user_func($action['execute'], $params);
+    // Bound to the page this action writes; create_page binds the page it creates.
+    pp_content_bind_vouch_target(isset($params['post_id']) && is_numeric($params['post_id']) ? (int) $params['post_id'] : null);
+    try {
+        $result = call_user_func($action['execute'], $params);
+    } finally {
+        // Spent on every exit of execute: written, refused before the writer, or thrown.
+        pp_content_end_vouch_action();
+    }
 
     // Promote an 'auto-draft' page to a real 'draft' on its first meaningful
     // mutation (#121), here rather than in a per-caller AJAX handler so
@@ -2575,6 +2591,8 @@ function _pp_rollback_project(array $entries, string $key, string $fallback): ar
  *                           menu is invisible here. Named at _pp_restore_menu_state().
  */
 function _pp_restore_batch_snapshot_report(array $snapshot): array {
+    // A rollback restores; it never records a vouch (the marker's lifecycle, step 3).
+    pp_content_end_vouch_action();
     $entries = [];
     // Pages whose composition restore was WITHHELD below (#749/#756/#833). Those pages keep
     // the composition THIS BATCH wrote, so the attachment cleanup at the end cannot assume
@@ -4328,6 +4346,10 @@ pp_register_action('create_page', [
         $status = $params['status'] ?? 'draft';
         $slug   = $params['slug'] ?? '';
         $post_id = pp_create_page($params['title'], $status, $slug);
+        // The vouch notes of this action's validation belong to the page it just created.
+        if (is_int($post_id) && $post_id > 0) {
+            pp_content_bind_vouch_target($post_id);
+        }
 
         if (is_wp_error($post_id)) {
             return _pp_action_error('create_page', 'site', $post_id->get_error_message());
@@ -5529,7 +5551,7 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
             unset($udc_items[$key]['props']['items_source']);
         }
     }
-    foreach (pp_udc_composition_findings($udc_items) as $disclosure) {
+    foreach (pp_udc_composition_findings($udc_items, (int) $post_id) as $disclosure) {
         $findings[] = [
             'type'     => $disclosure['type'],
             // INFORMATIONAL DISCLOSURES DO NOT GATE (#1194, ruling D1 = A). See
@@ -5545,6 +5567,21 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
     // that uses a custom element or a customized built-in is admitted, and said so. Info:
     // it asks for nothing.
     foreach (pp_content_composition_disclosures($items) as $disclosure) {
+        $findings[] = [
+            'type'     => $disclosure['type'],
+            'severity' => pp_finding_severity($disclosure['type']),
+            'message'  => $disclosure['message'],
+            'index'    => is_int($disclosure['index']) ? $disclosure['index'] : null,
+        ];
+    }
+
+    // THE RENDER SIDE'S FINDINGS (LAYER-3-CONTRACT.md §2.3, §5.1, Δ1; #1242 T3b): what the
+    // render does to STORED content, read from the one predicate run exactly as the render
+    // runs it (lib/content-census.php). A stored prop the render strips, empties or escapes
+    // is `content_stripped_at_render` (warning); an id authored in two bands is
+    // `content_duplicate_id` (warning); content's own style declarations and popovers are
+    // `content_inline_style` (info).
+    foreach (pp_content_render_findings($items, (int) $post_id) as $disclosure) {
         $findings[] = [
             'type'     => $disclosure['type'],
             'severity' => pp_finding_severity($disclosure['type']),

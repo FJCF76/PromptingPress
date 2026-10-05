@@ -1448,7 +1448,7 @@ class ReflectedTextInventoryTest extends TestCase
         $this->assertTrue($resp['ok'], 'premise: the action succeeded, so this is the success payload');
         $duplicate = $this->firstReportMessageContaining($resp['data']['validation']['warnings'], 'duplicate ID');
         $this->assertDefanged($duplicate, 'execute success payload validation report');
-        $this->assertStringContainsString("duplicate ID 'aa", $duplicate, 'and the stored id is still named');
+        $this->assertStringContainsString('duplicate ID "aa', $duplicate, 'and the stored id is still named, framed as quoted data (#1242 T3b)');
     }
 
     /**
@@ -1535,7 +1535,7 @@ class ReflectedTextInventoryTest extends TestCase
                 'duplicate ID'
             );
             $this->assertDefanged($duplicate, 'batch step nested validation report');
-            $this->assertStringContainsString("duplicate ID 'aa", $duplicate, 'and the stored id is still named');
+            $this->assertStringContainsString('duplicate ID "aa', $duplicate, 'and the stored id is still named, framed as quoted data (#1242 T3b)');
         } finally {
             unset($GLOBALS['wpdb']);
         }

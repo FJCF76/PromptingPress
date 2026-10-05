@@ -103,7 +103,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
     <div class="container">
 
         <?php if ($title) : ?>
-            <h2 class="table-section__heading"><?php echo esc_html($title); ?></h2>
+            <h2 class="table-section__heading"><?php echo pp_content_prop_html('table', 'title', $title); ?></h2>
         <?php endif; ?>
 
         <?php if (!empty($headers) && !empty($rows)) : ?>
@@ -129,7 +129,7 @@ $overlay_attr = !empty($props['__pp_udc_overlay']) ? ' data-pp-band-overlay' : '
                                     $cell = is_scalar($raw_cell) ? (string) $raw_cell : '';
                                 ?>
                                     <td class="table__cell">
-                                        <?php echo wp_kses_post($cell); ?>
+                                        <?php echo pp_content_prop_html('table', 'rows[][]', $cell); ?>
                                     </td>
                                 <?php endforeach; ?>
                             </tr>
