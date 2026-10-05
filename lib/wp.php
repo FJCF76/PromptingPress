@@ -3238,7 +3238,9 @@ function _pp_udc_background_image_row(string $scope_format, string $name, string
         'where'         => 'role "' . $role . '"',
         // CLEANED — what reaches the operator.
         'scope_display' => sprintf($scope_format, _pp_udc_reflect($name)),
-        'where_display' => 'role "' . _pp_udc_reflect($role) . '"',
+        // A scoped-sheet row carries a rule locator, not a role (Layer 3B).
+        'where_display' => (strncmp($role, PP_UDC_SCOPED_KEY . '[', strlen(PP_UDC_SCOPED_KEY) + 1) === 0 ? 'rule "' : 'role "')
+            . _pp_udc_reflect($role) . '"',
         'id'            => $id,
     ];
 }
@@ -3246,7 +3248,9 @@ function _pp_udc_background_image_row(string $scope_format, string $name, string
 /**
  * Every `background.image` in one `udc` map whose attachment no longer paints.
  *
- * Returns a LIST of `['role' => <stored role key, raw>, 'id' => <attachment id>]`.
+ * Returns a LIST of `['role' => <stored role key, raw>, 'id' => <attachment id>]`. A row from
+ * the scoped sheet (Layer 3B) carries the rule locator `_scoped[<index>]` in `role`, and is
+ * displayed as a rule, not a role.
  *
  * IT RETURNS THE BARE ROLE, NOT A FORMATTED LOCATOR, and it returns a LIST rather
  * than a map keyed by that locator (#1004). Both halves of that shape are load-bearing:
@@ -3262,7 +3266,7 @@ function _pp_udc_background_image_row(string $scope_format, string $name, string
  *     lib/udc.php never had this exposure because it appends to a list; this one is a
  *     list now for the same reason.
  *
- * ONE IMAGE PER ROLE IS ALL THERE CAN BE, so a flat walk of the roles is complete
+ * ONE IMAGE PER ROLE (AND PER SCOPED RULE) IS ALL THERE CAN BE, so a flat walk of the roles and the rules is complete
  * rather than a shortcut. `background.image` is declared `single_valued`, which
  * refuses a breakpoint map and a state sub-map at the write gate AND drops both at
  * emit — so there is no nested position for a second image to hide in. If that
@@ -3287,6 +3291,22 @@ function _pp_udc_dangling_background_images(array $udc): array {
         }
         if (pp_udc_background_image_url($id) === null) {
             $out[] = ['role' => (string) $role, 'id' => (int) $id];
+        }
+    }
+    // THE SCOPED SHEET CARRIES THE SAME PARAMETER (Layer 3B, P-19): `"background-image": <id>`
+    // in a rule's `css` is the typed `background.image` grammar, single-valued, so one image
+    // per rule is all there can be. This check owns the deleted-attachment report for it, as
+    // it does for roles (the compiler drops the declaration and leaves the report here).
+    $scoped = $udc[PP_UDC_SCOPED_KEY] ?? null;
+    if (is_array($scoped)) {
+        foreach ($scoped as $index => $rule) {
+            $id = is_array($rule) && isset($rule['css']) && is_array($rule['css']) ? ($rule['css']['background-image'] ?? null) : null;
+            if ($id === null || !is_scalar($id) || is_bool($id) || !preg_match('/\A[0-9]+\z/', trim((string) $id))) {
+                continue;
+            }
+            if (pp_udc_background_image_url($id) === null) {
+                $out[] = ['role' => PP_UDC_SCOPED_KEY . '[' . (int) $index . ']', 'id' => (int) $id];
+            }
         }
     }
     return $out;
