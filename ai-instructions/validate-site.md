@@ -117,8 +117,10 @@ This checks:
      the element.
    - `udc_token_minted` — INFORMATIONAL (`severity: info`, #1194): you wrote a literal and
      it was stored as a band token (`--pp-<name>`) because you set it per breakpoint. Nothing
-     to fix; it explains a name you will see in the emitted CSS. It is the one finding that
-     does NOT fail this command: `validate site` and `check page` still print it, under
+     to fix; it explains a name you will see in the emitted CSS. It is one of the four
+     informational findings that do NOT fail this command (with the Layer-3 notes
+     `content_inline_style`, `content_plugin_output` and `content_global_shadow`):
+     `validate site` and `check page` still print them, under
      "informational note(s), which never fail `wp pp validate site`", so a correct responsive
      site exits 0.
    - `udc_unused_band_token` — the band declares a token nothing references, so it has
@@ -130,8 +132,20 @@ This checks:
      until you have fixed enough of the listed ones to see the rest: a page whose warnings
      were cut off is not a verified-clean page (#1194).
 
+   - `content_stripped_at_render` — LAYER 3 (#1242): stored content from before the content
+     check that the page renders differently from how it is stored. The message names the
+     band, the prop, the construct and the rule, and what renders: the prop EMPTY (markup that
+     escapes its container, markup the parser cannot verify, a prop over the size cap), the
+     prop without the refused construct, or a title as plain text. Edit the prop to remove
+     what it names (re-sending it unchanged is not checked again). `wp pp content census` lists every such prop on the site.
+   - `content_duplicate_id` — LAYER 3: one id authored in the content of two bands; links and
+     references bind to the first. Give each band its own id.
+   - `content_not_checked` — LAYER 3: the page holds more stored content than one page view
+     checks (1 MiB or 4,096 values); the named bands render the rest through WordPress's own
+     sanitizer. Split the page or move content to another page.
+
    Like every advisory here these are accepted writes, and every one of them except the
-   informational `udc_token_minted` still makes `wp pp validate site` exit non-zero, unless it
+   informational notes still makes `wp pp validate site` exit non-zero, unless it
    is one of the judgment calls you have verified and acknowledged (below).
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
 6. **Header and footer styling** (#1204) — the `pp_site_udc` findings, printed second, under `--- Site chrome (header and footer) ---`. It is the same list a chrome write returns in its `findings` (`update_site_option` on `pp_site_udc`), read from the stored map, so a header or footer advisory you did not fix at write time is still caught here. It checks the header and footer for these findings only; unlike item 5 for a page, it does not re-check the stored map against the write rules. Every warning fails this command (`udc_unused_band_token`, `udc_css_unchecked_property`, `udc_findings_capped` and every other item-4 warning a header or footer can raise), a `severity: info` note (`udc_token_minted`) is printed and never fails, and a report that could not be built at all (`findings_skipped`) fails rather than reading as clean (a single check inside the engine that fails is logged and its findings are missing without a row; tracked in #1222). Lines carry no `index` (a header or footer is not a band on a page); the message names the component. These findings cannot be acknowledged yet (#1220): fix the value with `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with `save_preset`. Fix them BEFORE you acknowledge page judgment calls: every `pp_site_udc` write changes the site context each page acknowledgement fingerprints, so it re-opens all of them (see below). A chrome write whose `findings` list was cut at 100 names this command for the rest.

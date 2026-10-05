@@ -92,6 +92,13 @@ $link     = is_scalar($raw_link) ? (string) $raw_link : '';
 - Use `esc_url()` for all URLs
 - Use `esc_attr()` for all HTML attributes
 - Use `wp_kses_post()` for rich HTML content (the main prose surface: body/answer)
+- **A prop that has a Layer-3 content contract** (listed per component in
+  `pp_content_prop_contracts()`, `lib/content.php`: rich, inline, titles and headings)
+  renders through `pp_content_prop_html('<component>', '<prop path>', $value)` instead of
+  the escapers above (#1242 T3b). Inside a composition it renders the content check's own
+  view of the stored bytes, in the page's context (LAYER-3-CONTRACT.md §2.3); outside one (a
+  template passing WordPress data) it falls back to exactly the escaper above. Add the prop
+  to `pp_content_prop_contracts()` in the same change, or the write gate never checks it.
 - **Guard every prop that reaches `esc_url()` or `wp_kses_post()` at the read** with
   `is_scalar($raw_x) ? (string) $raw_x : ''` (#730), and every array-contract prop with
   `is_array($raw_x) ? $raw_x : []` (#708/#739). Both core escapers are untyped but still
@@ -760,7 +767,7 @@ Add a row to the Component index table in `AI_CONTEXT.md`:
 - [ ] CSS section added to `assets/css/components.css`
 - [ ] No raw hex values in the new CSS section
 - [ ] No direct WordPress function calls in the PHP file
-- [ ] All text output uses `esc_html()` (plain), `pp_kses_inline()` (inline subset), or `wp_kses_post()` (rich), per the prop's documented contract
+- [ ] All text output uses `esc_html()` (plain), `pp_kses_inline()` (inline subset), or `wp_kses_post()` (rich), per the prop's documented contract — and a prop listed in `pp_content_prop_contracts()` uses `pp_content_prop_html()` (#1242 T3b; `ContentRenderSurfacesTest` fails until it does)
 - [ ] Every prop reaching `esc_url()` or `wp_kses_post()` is guarded at the read with
       `is_scalar($raw_x) ? (string) $raw_x : ''`, and every array-contract prop with
       `is_array($raw_x) ? $raw_x : []` — each raw prop read exactly once (#730/#708/#739).
