@@ -891,6 +891,14 @@ class ContentPredicateTest extends TestCase
         }
         $this->assertRefused("<p style=\"font-family: &quot;a\n paint(x) &quot;\">x</p>", 'D3');
         $this->assertRefused("<p style=\"font-family: 'a\n b'\">x</p>", 'D3');
+        // CR and FF break a CSS string too (CSS reads CR as a line feed).
+        $this->assertRefused('<p style="font-family: &quot;a&#13; paint(x) &quot;">x</p>', 'D3');
+        $this->assertRefused('<p style="font-family: &quot;a&#12; paint(x) &quot;">x</p>', 'D3');
+        // Control characters other than tab/LF/FF/CR stay refused in both namespaces.
+        foreach (["\x01", "\x0B", "\x0E", "\x1F", "\x7F"] as $c) {
+            $this->assertRefused("<svg><rect fill=\"red{$c}\"/></svg>", 'D1');
+            $this->assertRefused("<math><mi mathsize=\"1{$c}em\">x</mi></math>", 'E5');
+        }
         // The MathML pre-refusals, each pinned: a backslash (`\\" paint(x) "` would otherwise
         // hide a call the browser runs) and a control character.
         $this->assertRefused('<math><mi mathsize=\'\\" paint(x) "\'>x</mi></math>', 'E5');
