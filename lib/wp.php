@@ -300,6 +300,26 @@ function pp_posts_page_id(): int {
 }
 
 /**
+ * The page chosen as the static front page (Settings -> Reading), or 0 when there is none.
+ *
+ * THE ONE ANSWER TO "IS THERE A STATIC FRONT PAGE, AND WHICH" (#1173). The root
+ * front-page.php renders the posts index when it is 0, and pp_resolve_front_page_render()
+ * seeds no page but this one. Before it, the template read the current post: with "Your
+ * latest posts" core still loads front-page.php, and the current post there is the
+ * NEWEST BLOG POST, so the template seeded the default homepage onto it while the head
+ * printed no CSS for it. Core ignores page_on_front unless show_on_front is `page`, and
+ * so does this.
+ *
+ * Not what a front-page request RENDERS: that is the queried page, which core's own
+ * routing chose and checked (see pp_resolve_front_page_render()).
+ *
+ * @return int
+ */
+function pp_front_page_id(): int {
+    return get_option('show_on_front') === 'page' ? (int) get_option('page_on_front') : 0;
+}
+
+/**
  * The composition the posts index renders, or [] for today's bands.
  *
  * [] off the posts index, and [] for an absent, empty or corrupt stored composition.
@@ -403,6 +423,30 @@ function pp_composition_locked_page(int $owner_page_id = 0): ?WP_Post {
 }
 
 /**
+ * What a composed page that still needs its password renders: its title and core's
+ * password form, and none of its bands.
+ *
+ * The band loop prints it for a locked page, and templates/front-page.php prints it
+ * BEFORE resolving the front page at all (#1173): resolving may seed an absent
+ * composition, and a visitor without the password must cause no write.
+ *
+ * The form is echoed as core returns it, never handed to a component: a rich-text prop
+ * goes through wp_kses_post(), which keeps neither <form> nor <input>.
+ *
+ * @param WP_Post $page The page pp_composition_locked_page() answered.
+ */
+function pp_render_locked_page(WP_Post $page): void {
+    // The theme's content gutter and a band's vertical rhythm, inline as the
+    // front page's admin notices are, so the form needs no stylesheet of its own.
+    // The page keeps a heading: the hero that carries it is one of the bands held
+    // back, and core's title ("Protected: …") is public, as on a default page.
+    echo '<div class="container" style="padding-block: var(--pp-band-padding);">'
+       . '<h1 style="margin-block-end: var(--space-lg);">' . esc_html(get_the_title($page->ID)) . '</h1>'
+       . get_the_password_form($page)
+       . '</div>';
+}
+
+/**
  * Renders a composition's bands in order: THE band loop for every request route
  * (#1181, D1 — composition.php, front-page.php and home.php share it).
  *
@@ -435,9 +479,7 @@ function pp_composition_locked_page(int $owner_page_id = 0): ?WP_Post {
  * when it did not exist.
  *
  * A PAGE THAT STILL NEEDS ITS PASSWORD RENDERS ITS TITLE, CORE'S PASSWORD FORM AND NO
- * BANDS (pp_composition_locked_page()). The form is echoed as core returns it, never
- * handed to a component: a rich-text prop goes through wp_kses_post(), which keeps
- * neither <form> nor <input>.
+ * BANDS (pp_composition_locked_page(), printed by pp_render_locked_page()).
  *
  * @param array $items          A composition, as stored.
  * @param int   $owner_page_id  The page the bands belong to when it is not already the
@@ -446,14 +488,7 @@ function pp_composition_locked_page(int $owner_page_id = 0): ?WP_Post {
 function pp_render_composition_bands(array $items, int $owner_page_id = 0): void {
     $locked = pp_composition_locked_page($owner_page_id);
     if ($locked !== null) {
-        // The theme's content gutter and a band's vertical rhythm, inline as the
-        // front page's admin notices are, so the form needs no stylesheet of its own.
-        // The page keeps a heading: the hero that carries it is one of the bands held
-        // back, and core's title ("Protected: …") is public, as on a default page.
-        echo '<div class="container" style="padding-block: var(--pp-band-padding);">'
-           . '<h1 style="margin-block-end: var(--space-lg);">' . esc_html(get_the_title($locked->ID)) . '</h1>'
-           . get_the_password_form($locked)
-           . '</div>';
+        pp_render_locked_page($locked);
         return;
     }
     $owner = $owner_page_id > 0 ? get_post($owner_page_id) : null;
@@ -616,6 +651,7 @@ function pp_composition(): array {
  * the decode error) and render (shows healthy defaults) disagree (#302). This
  * classifies before seeding.
  *
+ *   $post_id <= 0 ─► mode 'no_front' — READ NOTHING, WRITE NOTHING.
  *   pp_get_composition_result($post_id)
  *      │
  *      ├─ ok === false (decode_error / unexpected_shape)
@@ -623,13 +659,31 @@ function pp_composition(): array {
  *      │                            bytes stay intact; inspect remains honest.
  *      │
  *      ├─ raw === null && composition === []   (genuinely absent meta)
- *      │      ├─ $post_id <= 0 ─► mode 'no_front'  — no static front page is set.
- *      │      └─ else ─────────► seed pp_default_homepage_composition() through the
- *      │                          VERSIONED writer pp_update_composition() (version
- *      │                          marker + history ring), exactly like
- *      │                          pp_setup_homepage(); then fall through to render.
+ *      │      ├─ $post_id === pp_front_page_id() ─► seed pp_default_homepage_composition()
+ *      │      │      through the VERSIONED writer pp_update_composition() (version
+ *      │      │      marker + history ring), exactly like pp_setup_homepage(); then
+ *      │      │      fall through to render.
+ *      │      └─ any other post ─► mode 'render', [] — WRITE NOTHING (#1173).
  *      │
  *      └─ otherwise ─────────► mode 'render' — a present (or just-seeded) list.
+ *
+ * ONLY THE CONFIGURED STATIC FRONT PAGE IS EVER SEEDED (#1173). The seed used to trust
+ * its caller's id. With Settings -> Reading "Your latest posts" core still loads
+ * front-page.php, the template passed the current post (the newest blog post), and a
+ * visitor GET wrote the default homepage onto that post. Now the root front-page.php
+ * sends a latest-posts front page to the posts index, and this function seeds only the
+ * page Settings -> Reading names, whoever calls.
+ *
+ * THE POST RESOLVED IS THE QUERIED PAGE, as core's own template loader decided it (both
+ * callers pass get_queried_object_id(), and both ask pp_composition_locked_page() about
+ * that same page first). Never page_on_front read on its own: core's is_page() matches
+ * a page's TITLE as well as its id, so a page titled with the front page's id is a
+ * front page to core, and resolving page_on_front there would paint (or seed) a page
+ * the visitor did not request, past its own password and status checks (/review).
+ *
+ * A PASSWORD-PROTECTED FRONT PAGE IS NEVER RESOLVED FOR A VISITOR WITHOUT THE PASSWORD:
+ * the template and the head both ask pp_composition_locked_page() first (#1173, ruling
+ * 1), so an absent composition behind a password is not seeded by a visitor's request.
  *
  * The 'render' composition is returned as read, reproducing pp_composition()'s render
  * output byte-for-byte. The pp_normalize_legacy_props() pass that used to run here is
@@ -645,10 +699,15 @@ function pp_composition(): array {
  * ignored here — a failed seed leaves the meta absent and the next render retries,
  * never a partial or lost write. This matches pp_setup_homepage()'s posture.
  *
- * @param int $post_id  The front-page post ID (0 when no static front page is set).
+ * @param int $post_id  The queried page (0 when nothing is queried). Only the page
+ *                      pp_front_page_id() names is ever seeded.
  * @return array{mode: string, composition: array}  mode ∈ {render, corrupt, no_front}.
  */
 function pp_resolve_front_page_render(int $post_id): array {
+    if ($post_id <= 0) {
+        return ['mode' => 'no_front', 'composition' => []];
+    }
+
     $result = pp_get_composition_result($post_id);
 
     // Corrupt / wrong-shape stored composition: never overwrite it. The raw bytes
@@ -661,8 +720,9 @@ function pp_resolve_front_page_render(int $post_id): array {
 
     // Genuinely-absent meta: no stored bytes AND no decoded items.
     if ($result['raw'] === null && $items === []) {
-        if ($post_id <= 0) {
-            return ['mode' => 'no_front', 'composition' => []];
+        // Not the configured static front page: nothing stored, nothing written (#1173).
+        if ($post_id !== pp_front_page_id()) {
+            return ['mode' => 'render', 'composition' => []];
         }
         // Seed once, through the versioned writer (never a raw update_post_meta),
         // then render those same defaults regardless of the write's outcome. A

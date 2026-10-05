@@ -335,7 +335,7 @@ Stored `--font-*` overrides — like every design-token override — are re-vali
 
 | Template file              | Root loader         | WP Admin template name | Composition-aware? |
 |----------------------------|---------------------|------------------------|--------------------|
-| templates/front-page.php   | front-page.php      | (set as front page)    | ✅ Yes             |
+| templates/front-page.php   | front-page.php      | (set as front page; a "Your latest posts" front page renders templates/home.php) | ✅ Yes |
 | templates/composition.php  | composition.php     | Composition            | ✅ Yes             |
 | templates/page.php         | page.php            | Default Template       | No                 |
 | templates/single.php       | single.php          | (automatic for posts)  | No                 |
@@ -375,10 +375,21 @@ page (#1181). That loop skips a band whose `component` is not a string (#1189); 
 is left as it is and the findings still report it. No page using these templates has hardcoded component structure.
 A page that needs its post password shows its title and core's password form instead of its bands,
 and the head emits none of its band CSS, until the visitor enters the password
-(`pp_composition_locked_page()`, asked by both the band loop and `pp_udc_current_composition()`).
+(`pp_composition_locked_page()`, asked by both the band loop and `pp_udc_current_composition()`;
+the title and form are printed by `pp_render_locked_page()`, which `templates/front-page.php` also
+calls before it resolves anything).
 
 The homepage has no special editing paradigm — it uses the same JSON composition system
 as any other page. Its initial composition is seeded in `_pp_composition` (post ID 4).
+
+**The front page is the page Settings → Reading names (#1173).** `pp_front_page_id()` answers
+which page that is (`page_on_front` when `show_on_front` is `page`, otherwise 0). With "Your
+latest posts" WordPress still loads `front-page.php`, which then renders the posts index
+(`templates/home.php`: the post listing with its role defaults) rather than a composition. A
+static front page renders the page WordPress queried, gated first by `pp_composition_locked_page()`:
+a password-protected front page shows its title and the password form, and nothing is resolved
+or seeded behind it. A front-page view seeds the default homepage composition only onto the page
+`pp_front_page_id()` names, and only when it has none stored; it never writes onto any other post.
 
 ---
 

@@ -198,8 +198,8 @@ add_action('wp_enqueue_scripts', function () {
     // composition when the visitor may see it (and declares nothing), and otherwise
     // templates/home.php's fallback declares ['hero', 'grid', 'section'].
     // The AUTHORED tier stays composition-only: a template band has no band id.
-    // Known gap outside this: a "latest posts" FRONT page renders through
-    // front-page.php while this resolver answers [] for it (#1173).
+    // A "Your latest posts" FRONT page is the posts index too: the root front-page.php
+    // renders it through templates/home.php, whose fallback declares its bands (#1173).
     $pp_udc_composition = pp_udc_current_composition();
 
     $pp_udc_defaults = pp_udc_page_defaults_css(pp_udc_request_defaults_items($pp_udc_composition));

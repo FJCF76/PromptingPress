@@ -8796,10 +8796,16 @@ function pp_udc_current_composition(): array {
         return [];
     }
     if (function_exists('is_front_page') && is_front_page()) {
-        // The front page has its own classification arm (no_front / corrupt),
-        // and both of those render an admin notice INSTEAD of the bands. Emitting
-        // CSS for bands the template is not going to paint would be CSS with no
-        // markup, so the emitter honours the same three-way result.
+        // The front page has its own classification arm: a corrupt composition renders
+        // an admin notice INSTEAD of the bands. Emitting CSS for bands the template is
+        // not going to paint would be CSS with no markup, so the emitter honours the
+        // same result.
+        //
+        // The page is the queried page, as templates/front-page.php resolves it (#1173).
+        // A "Your latest posts" front page never reaches here (it is not singular, so the
+        // return above answers []; its template, home.php, declares its bands for the
+        // defaults tier). Reached only once the locked-page gate at the top has passed,
+        // so a front page behind a password is never resolved, nor seeded.
         $render = pp_resolve_front_page_render((int) $post_id);
         if (($render['mode'] ?? '') !== 'render') {
             return [];

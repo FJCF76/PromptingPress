@@ -68,6 +68,13 @@ class ComposedPagePasswordTest extends TestCase
         ]];
     }
 
+    /** Settings -> Reading: this page is the static front page (pp_front_page_id(), #1173). */
+    private function configureAsFrontPage(): void
+    {
+        $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'page';
+        $GLOBALS['_pp_test_store']['options']['page_on_front'] = $this->pageId;
+    }
+
     private function protect(int $postId): void
     {
         $GLOBALS['_pp_test_store']['posts'][$postId]['post_password'] = 'opensesame';
@@ -192,6 +199,7 @@ class ComposedPagePasswordTest extends TestCase
     public function testAProtectedFrontPageHeadEmitsNoBandCssAndDoesNotSeed(): void
     {
         $GLOBALS['_pp_test_store']['is_front_page'] = true;
+        $this->configureAsFrontPage();
         $this->protect($this->pageId);
         $this->assertSame([], pp_udc_current_composition(), 'stored composition: no band CSS');
 
@@ -203,18 +211,19 @@ class ComposedPagePasswordTest extends TestCase
 
     public function testAProtectedFrontPageBodyShowsThePasswordForm(): void
     {
-        // What templates/front-page.php does: resolve the front page, then the band loop.
-        // (Whether the resolver may seed an ABSENT composition on a render is #1173's
-        // subject, not this file's: only the form and the absence of bands are pinned.)
+        // The band loop's own gate, for a protected front page's composition. The
+        // template asks the same predicate BEFORE it resolves anything, so an absent
+        // composition is not seeded behind a password (#1173): pinned through the real
+        // templates/front-page.php in tests/FrontPageRouteTest.php.
         $GLOBALS['_pp_test_store']['is_front_page'] = true;
+        $this->configureAsFrontPage();
         $this->protect($this->pageId);
         foreach (['stored' => false, 'absent' => true] as $case => $absent) {
             if ($absent) {
                 unset($GLOBALS['_pp_test_store']['post_meta'][$this->pageId]['_pp_composition']);
             }
-            $render = pp_resolve_front_page_render($this->pageId);
             ob_start();
-            pp_render_composition_bands($render['composition']);
+            pp_render_composition_bands(pp_get_composition($this->pageId));
             $html = (string) ob_get_clean();
             $this->assertStringContainsString('data-test-post="' . $this->pageId . '"', $html, $case);
             $this->assertStringNotContainsString('data-pp-component', $html, $case);
@@ -224,6 +233,7 @@ class ComposedPagePasswordTest extends TestCase
     public function testAProtectedFrontPageResolvesOnceThePasswordIsEntered(): void
     {
         $GLOBALS['_pp_test_store']['is_front_page'] = true;
+        $this->configureAsFrontPage();
         $this->protect($this->pageId);
         $GLOBALS['_pp_test_password_entered'] = true;
         $this->assertSame(pp_get_composition($this->pageId), pp_udc_current_composition());
