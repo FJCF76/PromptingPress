@@ -308,6 +308,55 @@ an attachment id on `background.image`, and the Media Library is the only source
 assets. `!important` is refused — this engine keeps specificity flat, and your value already wins
 on cascade position.
 
+### Selector rules (`_scoped`): CSS with selectors, confined to one band
+
+When roles cannot address what you need (an element inside the band's content, every other list
+item, a `::before`), write rules in the band's `"_scoped"` list, at the top of its `udc` map beside
+`_tokens`:
+
+```json
+{
+  "component": "section",
+  "udc": { "_scoped": [
+    { "selector": ".section__content ul", "css": { "list-style": "square", "padding-left": { "d": "2.5rem", "p": "1.25rem" } } },
+    { "selector": ".section__content li:nth-child(odd)", "css": { "background-color": "#fff4e5" } },
+    { "selector": "::before", "css": { "content": "\"\"", "display": "block", "height": "6px", "background": "#FF5C2E" } },
+    { "selector": ":hover .section__title", "css": { "color": "@color-accent" }, "media": "(hover: hover)" }
+  ] }
+}
+```
+
+- **Where a selector matches.** Every rule is emitted as `[data-pp-band="<id>"]<selector>`. One that
+  starts with `:` or `::` is a condition on the band itself (`:hover .x`, `::before`); anything else
+  selects inside the band. To put a pseudo-class on an inner element, start with `*`
+  (`*:is(.a, .b)`). A rule never reaches another band, the header, the footer or the admin.
+- **Refused:** a comma at the top level (write one rule per selector; commas inside `:is()`,
+  `:where()`, `:not()` and `:has()` are fine), a leading `+` or `~`, and `+` or `~` after a
+  band-root condition (they would select the next band). Also `html`, `head`, `body`, `:root`,
+  `:scope` and unknown or vendor-prefixed pseudo-classes, more than one pseudo-element, functional
+  pseudo-classes nested deeper than 3, and selectors over 256 bytes. On an `embed` band no
+  `[attribute]` selector is accepted, and nowhere may an attribute test pair with a combinator
+  inside `:is()`/`:where()`/`:not()`: those would read markup outside the band.
+- **The `css` map** is `_css`'s grammar with these differences: no `":hover"` keys (states go in
+  the selector); your own custom properties (`--brandColor`, case-sensitive) are allowed, but not
+  `--pp-*` or a site token name, never with a string value, and never on a rule that starts with
+  `:`; `content` takes only `""`, `none` or `normal`; `counter-*` take counter names only; only
+  known CSS functions, and `url()` only as `url(#id)` on `filter`, `clip-path`, `mask`, `marker`,
+  `fill` or `stroke`. A background image is `"background-image": <attachment id>`, as on a role.
+- **Conditions:** `"media"` takes non-width features (`(prefers-color-scheme: dark)`, `print`);
+  widths stay breakpoint maps (`{"d": …, "p": …}`). `"supports"` and `"container"` take their own
+  conditions. No other at-rule, `@keyframes` included.
+- **Bounds:** 128 rules per band, 64 declarations per rule, 64 KiB of compiled sheet per band.
+- **Cascade:** later rules win ties, and a rule beats a role rule of equal specificity. Against a
+  more specific role selector, raise your selector's specificity. A write replaces the whole list,
+  so send every rule you keep.
+- **You own their contrast:** the contrast findings do not read these rules.
+- **Disclosure:** a rule that shows or hides an external image on a condition (`:hover`,
+  `:checked`, a media feature) tells that image's host when the condition holds.
+
+`wp pp schema <component>` prints the live limits and the pinned pseudo-class list as `udc_scoped`.
+The contract is `docs/v2/LAYER-3-CONTRACT.md` §6.
+
 ---
 
 ## What the component tells you to pair
