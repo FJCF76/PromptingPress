@@ -1087,7 +1087,7 @@ class AiContextTest extends TestCase
 
         $prompt = pp_ai_system_prompt();
         // Stubs return: filename = "image-51.jpg", url = "https://example.com/wp-content/uploads/image-51.jpg", dims = 1200x800
-        $this->assertStringContainsString('`image-51.jpg`', $prompt);
+        $this->assertStringContainsString('- "image-51.jpg" (1200x800), URL "https://example.com/wp-content/uploads/image-51.jpg"', $prompt);
         $this->assertStringContainsString('https://example.com/wp-content/uploads/image-51.jpg', $prompt);
         $this->assertStringContainsString('(1200x800)', $prompt);
     }
@@ -1267,7 +1267,7 @@ class AiContextTest extends TestCase
         $item = ['component' => 'grid', 'props' => ['title' => 'Welcome', 'layout' => 'steps', 'theme' => 'muted']];
         $result = _pp_summarize_component($item);
         $this->assertStringContainsString('grid', $result);
-        $this->assertStringContainsString('layout: steps', $result);
+        $this->assertStringContainsString('layout: "steps"', $result);
         $this->assertStringNotContainsString('theme', $result);
         $this->assertStringNotContainsString('muted', $result);
         $this->assertStringNotContainsString('variant', $result);
@@ -1279,7 +1279,7 @@ class AiContextTest extends TestCase
         $item = ['component' => 'section', 'props' => ['title' => 'About', 'layout' => 'image-left']];
         $result = _pp_summarize_component($item);
         $this->assertStringContainsString('section', $result);
-        $this->assertStringContainsString('layout: image-left', $result);
+        $this->assertStringContainsString('layout: "image-left"', $result);
     }
 
     public function testSummarizeComponentIncludesImageFilename(): void
@@ -1298,7 +1298,7 @@ class AiContextTest extends TestCase
             'title' => 'This is a very long title that should be truncated at forty characters',
         ]];
         $result = _pp_summarize_component($item);
-        $this->assertStringContainsString('...', $result);
+        $this->assertStringContainsString(' (truncated)', $result);
         // Full title should not appear
         $this->assertStringNotContainsString('forty characters', $result);
     }
@@ -1496,7 +1496,7 @@ class AiContextTest extends TestCase
         // Filed as a follow-up: the model can be told a write was refused for a stale key
         // it cannot see in its own page context. Pinned here so the asymmetry is a known
         // fact with a test behind it rather than a surprise in a chat transcript.
-        $this->assertStringContainsString('recipe: dark-bold', $system);
+        $this->assertStringContainsString('recipe: "dark-bold"', $system);
         $this->assertStringNotContainsString('--grid-bg: #0d1117', $system);
         $this->assertStringContainsString('Editable:', $system);
         $this->assertStringContainsString('title (string)', $system);
@@ -1601,7 +1601,7 @@ class AiContextTest extends TestCase
 
         // Exact wording snapshot (guards against silent drift from the #377 vocabulary).
         $this->assertStringContainsString(
-            '[0] section and [1] stats share background #092082 (adjacent — facing paddings/margins control the visible seam)',
+            '[0] section and [1] stats share background "#092082" (adjacent — facing paddings/margins control the visible seam)',
             $system
         );
         $this->assertStringContainsString('Adjacent bands sharing a background', $system);
@@ -1716,7 +1716,7 @@ class AiContextTest extends TestCase
         ]);
 
         $this->assertStringContainsString(
-            '[1] section and [2] cta share background #092082 (adjacent — facing paddings/margins control the visible seam)',
+            '[1] section and [2] cta share background "#092082" (adjacent — facing paddings/margins control the visible seam)',
             $system
         );
         $this->assertStringNotContainsString('[0] section', $this->onlyAdjacencyLines($system));
@@ -1747,8 +1747,9 @@ class AiContextTest extends TestCase
             ['component' => 'stats', 'props' => ['title' => 'B', 'body' => 'Body text'], 'style' => ['--stats-bg' => $long]],
         ]);
 
-        // Displayed value capped at 37 chars + '...'; the full value never appears.
-        $this->assertStringContainsString(mb_substr($long, 0, 37) . '...', $system);
+        // Displayed value framed and capped at 40 chars, the marker outside the quotes (#1242 T2);
+        // the full value never appears.
+        $this->assertStringContainsString('"' . mb_substr($long, 0, 40) . '" (truncated)', $system);
         $this->assertStringNotContainsString($long . ' (adjacent', $system);
     }
 

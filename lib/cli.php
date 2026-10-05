@@ -1917,18 +1917,19 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * @param  array    $composition  Decoded composition array.
  * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
  *                                findings (#1181); null reports page-blind.
- * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[]}
+ * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[], unsigned: array[]}
  *         With a $post_id, `smells` excludes the page's acknowledged advisories (moved to
  *         `acknowledged`), and `stale` / `orphaned` list acknowledgements that no longer match
- *         (#1194 A2); `unnoted` lists stored rows without a note, which acknowledge nothing.
- *         Page-blind, the four acknowledgement buckets are empty.
+ *         (#1194 A2); `unnoted` lists stored rows without a note, and `unsigned` stored rows
+ *         whose signature is missing or does not verify (#1214), which acknowledge nothing.
+ *         Page-blind, the five acknowledgement buckets are empty.
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
     $buckets = _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id));
     // ACKNOWLEDGED ADVISORIES STOP GATING (#1194 A2). Only a page-aware call can read a page's
     // acknowledgements; a page-blind one reports them as absent, so it can only be stricter.
     $acks = $post_id === null
-        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => []]
+        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => [], 'unsigned' => []]
         : pp_partition_acknowledged_advisories($post_id, $composition, $buckets['smells']);
     return [
         'errors'       => $buckets['errors'],
@@ -1939,6 +1940,7 @@ function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): arr
         'stale'        => $acks['stale'],
         'orphaned'     => $acks['orphaned'],
         'unnoted'      => $acks['unnoted'],
+        'unsigned'     => $acks['unsigned'],
     ];
 }
 
@@ -2115,7 +2117,8 @@ function _pp_cli_print_acknowledge_hint(int $post_id, array $smells): void {
 /**
  * A page's acknowledged, stale and orphaned acknowledgements (#1194 A2). Acknowledged ones pass
  * the gate and are listed with their note; a stale one's finding is back in the smells above
- * (what was judged changed); an orphaned one is inert and can be removed.
+ * (what was judged changed); an orphaned one is inert and can be removed. Stored rows that
+ * acknowledge nothing (no note, or no valid signature, #1214) are listed as ignored.
  */
 function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void {
     $acked = $diagnostics['acknowledged'] ?? [];
@@ -2144,6 +2147,46 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
             . ': it carries no note, so it acknowledges nothing (it was written around `wp pp check acknowledge`, '
             . 'which requires one). Remove it with wp pp check unacknowledge --post_id=' . $post_id . ' --key='
             . _pp_cli_printable((string) $row['ack_key']));
+    }
+    foreach ($diagnostics['unsigned'] ?? [] as $row) {
+        // SAID, NOT SILENT (#1214): a row the gate ignores is named, with why, and with a route
+        // only where following it cannot destroy a row that is valid in another context.
+        if (($row['ack_ignored'] ?? '') === 'malformed' || !pp_advisory_key_is_well_formed((string) $row['ack_key'])) {
+            // UNTRUSTED BYTES: the key is not one this version mints, so they may be a writer's
+            // payload. Never echoed; the removal route needs no key (7A ruling 2026-10-05).
+            WP_CLI::line('  - ignored acknowledgement with a malformed key (' . strlen((string) $row['ack_key'])
+                . ' bytes, not shown: not a key this version of the theme mints): it acknowledges nothing. Do not '
+                . 'copy its stored bytes into a command; remove every such row on this page with '
+                . 'wp pp check unacknowledge --post_id=' . $post_id . ' --malformed');
+            continue;
+        }
+        $key = _pp_cli_printable((string) $row['ack_key']);
+        switch ($row['ack_ignored'] ?? '') {
+            case 'unsigned':
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': it carries no signature, so it acknowledges '
+                    . 'nothing (it was written before acknowledgements were signed, or around '
+                    . '`wp pp check acknowledge`). If the state is still intentional, '
+                    . 'acknowledge it again with wp pp check acknowledge and the key `wp pp check page` prints now; '
+                    . 'otherwise remove it with wp pp check unacknowledge --post_id=' . $post_id . ' --key=' . $key);
+                break;
+            case 'unverifiable':
+                // NO ROUTE: re-acknowledging is refused in this state, and removing the row would
+                // destroy an acknowledgement that verifies again once signatures work.
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': this site cannot check its signature '
+                    . '(wp_hash() gives no salted sha256 signature here, which `wp pp check acknowledge` also refuses '
+                    . 'on), so it acknowledges nothing until that is fixed. Fix wp_hash(); do not remove this row: it '
+                    . 'may be a valid acknowledgement that verifies again once signatures work.');
+                break;
+            default:
+                // NO ROUTE EITHER: a row signed under other salts or another wp_hash() (another
+                // environment, a run with --skip-plugins) is valid there; check before acting.
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': its signature does not verify on this site, so '
+                    . 'it acknowledges nothing (it was changed after it was written or copied from another page or '
+                    . 'site, the site\'s salts changed, the database was copied from an environment with other salts, '
+                    . 'or a plugin that replaces wp_hash() differs between where it was signed and this run). Before '
+                    . 'acting, rule out a salt or plugin difference: such a row is valid where it was signed. Only if it '
+                    . 'is not a valid row is it removed with `wp pp check unacknowledge` and its key.');
+        }
     }
 }
 
@@ -2451,6 +2494,8 @@ class PP_Check_Command extends WP_CLI_Command {
      * The key is the one `wp pp check page` prints beside the finding, and it names that exact state:
      * a key for anything that has changed since is refused. The acknowledgement dies when the band, a
      * design token, the site udc map, the Additional CSS, the front-page settings or the theme version changes (#1194).
+     * The stored row is signed with the site's salts, so a row written into post meta around this command acknowledges
+     * nothing; rotating the salts (AUTH_KEY, AUTH_SALT) ignores every acknowledgement until it is made again (#1214).
      *
      * ## OPTIONS
      *
@@ -2484,23 +2529,50 @@ class PP_Check_Command extends WP_CLI_Command {
     }
 
     /**
-     * Removes an advisory acknowledgement (active, stale or orphaned), so the finding gates again if present.
+     * Removes an advisory acknowledgement (active, stale or orphaned, or one listed as ignored with a key shown), so the finding gates again if present.
+     *
+     * With --malformed instead of --key it removes every row of the page whose key is not one this
+     * version mints (listed by length only, "malformed key"), and nothing else (#1214).
      *
      * ## OPTIONS
      *
      * --post_id=<id>
      * : WordPress page post ID. Numeric only; slugs and URLs are not resolved.
      *
-     * --key=<key>
-     * : The acknowledgement key, as `wp pp check page` lists it.
+     * [--key=<key>]
+     * : The acknowledgement key, as `wp pp check page` lists it. Required unless --malformed is given.
+     *
+     * [--malformed]
+     * : Remove every row whose key is malformed (never shown, so it cannot be typed back). Rows with a
+     * well-formed key, signed or not, are left alone.
      *
      * ## EXAMPLES
      *
      *     wp pp check unacknowledge --post_id=42 --key=consecutive_text_sections:about:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
+     *     wp pp check unacknowledge --post_id=42 --malformed
      *
      */
     public function unacknowledge($args, $assoc_args) {
         $post_id = _pp_cli_require_post_id_arg($assoc_args, 'pp check unacknowledge');
+        if (array_key_exists('malformed', $assoc_args)) {
+            // The bare flag only: WP-CLI passes `--malformed=false` as the string "false", and a
+            // removal must never run on a value that reads as "off" (#1214).
+            if ($assoc_args['malformed'] !== true) {
+                WP_CLI::error('--malformed takes no value; nothing was removed. Pass the bare flag: --malformed.');
+            }
+            if (array_key_exists('key', $assoc_args)) {
+                WP_CLI::error('`wp pp check unacknowledge` takes --key=<key> or --malformed, not both.');
+            }
+            $removed = pp_unacknowledge_malformed_advisories($post_id);
+            if (is_wp_error($removed)) {
+                WP_CLI::error(_pp_cli_printable($removed->get_error_message()));
+            }
+            WP_CLI::success($removed === 0
+                ? 'Page ' . $post_id . ' has no acknowledgement with a malformed key; nothing changed.'
+                : 'Removed ' . $removed . ' acknowledgement row(s) with a malformed key from page ' . $post_id
+                    . '. Rows with a well-formed key were left as they were.');
+            return;
+        }
         $key     = _pp_cli_require_ack_key_arg($assoc_args, 'pp check unacknowledge');
 
         $result = pp_unacknowledge_advisory($post_id, $key);

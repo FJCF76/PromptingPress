@@ -321,10 +321,27 @@ const PP_ROLE_NAME_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
  * SCOPED TO THE FIELDS THIS GATE ADDED (`why`, `with`). The pre-existing
  * `conditionality_note` and `values` checks use the narrow form; widening those changes what
  * the schema surface has accepted since #575/#630, so it is filed rather than folded in.
+ *
+ * FAILS CLOSED ON INVALID UTF-8 (#1200). preg_match() answers false, not 0, when the `/u`
+ * pattern meets invalid UTF-8, and `!false` read that as "single line". Only an explicit 0
+ * (no match on a valid subject) passes. Unreachable through json_decode()'d schemas today,
+ * which refuse invalid UTF-8; the check no longer depends on that.
  */
 function pp_udc_is_single_line(string $value): bool {
-    return !preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value);
+    return preg_match('/[\p{Cc}\p{Zl}\p{Zp}]/u', $value) === 0;
 }
+
+/**
+ * Longest string a role `defaults` / `overlay_defaults` value may be, in BYTES (#1200).
+ *
+ * Measured, not guessed: the longest shipped value is 35 bytes (grid `card`'s
+ * `0 10px 24px rgba(15, 23, 42, 0.055)`), so 256 bounds a mistyped or hostile schema without
+ * touching a real value (SchemaSinkBoundsTest pins both). Without it a 200 KB value under a
+ * valid parameter passed the gate, was printed whole by `wp pp schema` and was scanned on every
+ * chat prompt build (the gate runs about 286 times per build). Checked with strlen() BEFORE any
+ * regex, so the bound also bounds the scan.
+ */
+const PP_ROLE_DEFAULT_VALUE_MAX_BYTES = 256;
 
 /**
  * Is `$value` the SHAPE of one role-default parameter value? (#1144, shared with #1192)
@@ -336,12 +353,24 @@ function pp_udc_is_single_line(string $value): bool {
  * A NUMBER TOO (/ship pass 3 red team, ruling A): `typography.weight: 700` compiles, and a checker
  * stricter than the compiler would report a role the engine renders as unreportable. A boolean is
  * not a number here. SHAPE ONLY: each parameter's grammar is not checked.
+ *
+ * BOUNDED AND P-15-CLEAN (#1200, #1242 T2). A string leaf is at most
+ * PP_ROLE_DEFAULT_VALUE_MAX_BYTES bytes and carries none of the P-15 set
+ * (PP_NEUTRALIZED_FORMAT_PATTERN: bidi overrides and isolates, the tag block). This replaces
+ * the recorded "option b" posture (schema bytes rest on theme-root integrity) for the VALUES
+ * of these two maps: `wp pp schema` prints only roles that pass this gate
+ * (pp_component_schema_report()), so a refused value never reaches its raw-unicode sink.
+ * (Group and parameter KEYS are checked against the registry by the definition gate, not here.) The set is P-15's, not `\p{Cf}`: ZWJ,
+ * ZWNJ and the directional marks stay admitted, as in content.
  */
 function _pp_role_default_value_shape_ok($value): bool {
     $leaves   = is_array($value) ? $value : [$value];
     $shape_ok = $leaves !== [] && (!is_array($value) || array_diff_key($value, pp_udc_breakpoints()) === []);
     foreach ($leaves as $leaf) {
-        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== '' && pp_udc_is_single_line($leaf))
+        $shape_ok = $shape_ok && ((is_string($leaf) && $leaf !== ''
+                && strlen($leaf) <= PP_ROLE_DEFAULT_VALUE_MAX_BYTES
+                && pp_udc_is_single_line($leaf)
+                && preg_match(PP_NEUTRALIZED_FORMAT_PATTERN, $leaf) === 0)
             || is_int($leaf) || (is_float($leaf) && is_finite($leaf)));
     }
     return $shape_ok;
@@ -901,7 +930,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                             if (!isset($group_params[$state_key])) {
                                 $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` has no parameter `{$state_key}`.";
                             } elseif (!_pp_role_default_value_shape_ok($state_value)) {
-                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` parameter `{$state_key}` must be a single-line string or a number, or a breakpoint map of them.";
+                                $errors[] = "{$label}: `defaults` group `{$group}` state `{$key}` parameter `{$state_key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                             }
                         }
                         continue;
@@ -911,7 +940,7 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                         continue;
                     }
                     if (!_pp_role_default_value_shape_ok($value)) {
-                        $errors[] = "{$label}: `defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                        $errors[] = "{$label}: `defaults` group `{$group}` parameter `{$key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                     }
                 }
             }
@@ -957,16 +986,15 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
                     }
                     // THE VALUES TOO (PR-2 review, security): printed whole by `wp pp schema` through its raw-unicode
                     // sink, so a value is a single-line string or a number (what the engine compiles), or a breakpoint map of them.
-                    // The SAME standard as `selector` and `description`, deliberately: pp_udc_is_single_line() refuses
-                    // line-breaking controls, not format characters (\p{Cf}, e.g. bidi overrides). Schema files live
-                    // under the theme root, so what else they carry rests on theme-root integrity, not on this check
-                    // (PR-2 review cycle 2, security; option b).
+                    // Since #1200 the string is also BOUNDED (PP_ROLE_DEFAULT_VALUE_MAX_BYTES) and carries none of the
+                    // P-15 set (bidi overrides and isolates, the tag block); other format characters stay admitted. This
+                    // replaces the earlier "option b" posture (theme-root integrity alone) for `defaults` and here.
                     // SHAPE ONLY (see _pp_role_default_value_shape_ok()): a value of the right shape the parameter
                     // refuses is dropped when the overlay tier compiles, and that path keeps no ledger, so the drop
                     // is silent: check overlay values against the group grammar yourself (follow-up filed; final
                     // scoped red team).
                     if (!_pp_role_default_value_shape_ok($value)) {
-                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string or a number, or a breakpoint map of them.";
+                        $errors[] = "{$label}: `overlay_defaults` group `{$group}` parameter `{$key}` must be a single-line string (at most " . PP_ROLE_DEFAULT_VALUE_MAX_BYTES . " bytes, no bidi or tag characters) or a number, or a breakpoint map of them.";
                     }
                 }
             }

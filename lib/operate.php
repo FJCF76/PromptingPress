@@ -2913,10 +2913,10 @@ function pp_component_schema_report(string $component): array|WP_Error {
             // compiled CSS); the gate checks SHAPE, not grammar, so a third-party default the engine cannot place
             // (an unresolvable `@reference`, a value its parameter refuses, a role whose selector the emitter
             // skips) is still printed. Safe for the raw-unicode sink because the gate above shape-checks every
-            // key and value of it (pp_schema_definition_errors), to the standard recorded for `overlay_defaults`
-            // ("option b"): a value is refused for control and line-breaking characters, while format characters
-            // (`\p{Cf}`) and length rest on theme-root integrity, like the rest of schema.json (#1200 tracks that
-            // posture). Values stay as written, `@token` references
+            // key and value of it (pp_schema_definition_errors): a value is refused for control and line-breaking
+            // characters, for the P-15 set (bidi overrides and isolates, the tag block) and over
+            // PP_ROLE_DEFAULT_VALUE_MAX_BYTES (#1200); other format characters stay admitted, as in content.
+            // Values stay as written, `@token` references
             // included; a few name engine tokens (`@pp-band-padding`) that only a default may reference.
             // An EMPTY group or state map (`"typography": {}`, `":hover": {}`) compiles to nothing and would print as a
             // JSON LIST (`[]`, since json_decode makes `{}` a PHP []), which is not the shape an authored map takes, so
@@ -3460,12 +3460,41 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
 //          operator can only acknowledge the exact state `check page` just showed. That proves
 //          currency, not inspection; the required `--note` records the intent, and a stored
 //          row without one (written around the command) acknowledges nothing.
+//   SIGNED (#1214) The key is deterministic and printed by `check page`, so the command also
+//          signs each row: wp_hash(sha256) under the site's auth salts, over the row's note and
+//          timestamp and the site, page and key it is stored under. The signature is verified
+//          at READ time in _pp_classify_acknowledged_advisories(), the one reader of the store
+//          that the gate (pp_partition_acknowledged_advisories) and the verified-rows accessor
+//          (pp_acknowledged_advisories) both go through. A row with no
+//          signature, or one that does not verify, is treated exactly like a missing
+//          acknowledgement (its finding keeps gating) and is listed as ignored, never as an
+//          error and never as STALE or ORPHANED. Rows written before #1214 carry no
+//          signature and are NOT signed on upgrade: signing whatever the database holds once
+//          would turn every row planted before the upgrade into a valid one. They are
+//          re-acknowledged. Rotating the salts (AUTH_KEY / AUTH_SALT), or copying the database
+//          to an environment with other salts (a staging push, a dev pull, a CI snapshot),
+//          invalidates every signature the same way: fail closed, re-acknowledge. Rolling back
+//          to a theme without signing and writing any acknowledgement there drops every
+//          signature; rows read as unsigned after rolling forward again.
 //   LIMITS The theme version is the boundary for code: a development build between releases,
 //          a child theme's stylesheet or a plugin's late CSS can change what paints without
 //          changing any key. A raw `_css` property can reach past its band, which is keyed
 //          alone. Both are disclosed, not fingerprinted. A finding's message is part of what it
 //          judged, so a message that names a render budget can re-open a later band's
 //          acknowledgement when earlier bands change: stricter, never looser (disclosed).
+//          The signature defends against a writer of post meta who cannot run PHP on the site
+//          or read its salts (a plugin's meta write, an import, a database write). Anyone who
+//          can run code here can sign. Where the salts are not defined in wp-config.php,
+//          WordPress keeps them in the options table, so a database writer can read them. A
+//          signature cannot tell a replay: a row removed by `unacknowledge` and written back
+//          byte for byte verifies again, but only for the exact state an operator once
+//          acknowledged (the key binds it). Salts that WordPress cannot keep (none in
+//          wp-config.php and an options table it cannot write) change per process: the command
+//          then reports success, but every later read lists the row as ignored. The readiness
+//          acknowledgements (option `pp_acknowledged_findings`, #496) are a separate store and
+//          are not signed. wp_hash() is pluggable: an override is held to the sha256 shape and
+//          refused when it returns the unsalted digest, but one that keeps the shape and
+//          ignores the salt makes every row forgeable, and nothing here can tell.
 
 /** The post meta key holding a page's acknowledged advisories. */
 const PP_ADVISORY_ACK_META = '_pp_acknowledged_advisories';
@@ -3757,6 +3786,20 @@ function _pp_advisory_key_or_reason(int $post_id, array $composition, array $fin
     return ['key' => $type . ':' . $band['id'] . ':' . substr(hash('sha256', $json), 0, PP_ADVISORY_KEY_HEX), 'reason' => null];
 }
 
+/**
+ * Whether a stored key has the shape this version's pp_advisory_finding_key() mints (#1214):
+ * `<acknowledgeable type>:<band id>:<32 hex>`. Any other key is ignored by the classifier
+ * before its signature is checked (a raw meta write, or a type no longer acknowledgeable).
+ * Every character of a well-formed key is shell- and terminal-safe, which is what lets the CLI
+ * print it inside a runnable command; a malformed one is never echoed.
+ */
+function pp_advisory_key_is_well_formed(string $key): bool {
+    if (!preg_match('/\A([a-z_]+):[A-Za-z0-9_-]{1,64}:[0-9a-f]{' . PP_ADVISORY_KEY_HEX . '}\z/', $key, $m)) {
+        return false;
+    }
+    return in_array($m[1], pp_acknowledgeable_finding_types(), true);
+}
+
 /** Digest of a whole composition for the page-scoped types, or '' when it cannot be encoded. */
 function pp_advisory_page_digest(array $composition): string {
     $json = _pp_advisory_json($composition);
@@ -3765,18 +3808,146 @@ function pp_advisory_page_digest(array $composition): string {
 
 
 /**
- * A page's stored acknowledgements: key => ['acknowledged_at' => ISO8601, 'note' => string].
- * Read-only. A corrupt row reads as none, so it can only make the gate stricter.
+ * A page's VERIFIED acknowledgements (#1214): key => ['acknowledged_at' => ISO8601, 'note' =>
+ * string, 'sig' => hex]. The `trusted` rows of _pp_classify_acknowledged_advisories(), the one
+ * verifying reader the gate also uses: only a row whose signature verifies and that carries a
+ * note is returned. Read-only. A corrupt, unsigned, tampered or unnoted row reads as none, so
+ * it can only make the gate stricter.
  */
 function pp_acknowledged_advisories(int $post_id): array {
+    return _pp_classify_acknowledged_advisories($post_id)['trusted'];
+}
+
+/**
+ * A page's STORED acknowledgement rows, unverified (#1214): what the meta holds, well-formed
+ * rows only. Never a gate input on its own; _pp_classify_acknowledged_advisories() verifies.
+ */
+function _pp_stored_acknowledged_advisories(int $post_id): array {
     return _pp_normalize_acknowledged_advisories(get_post_meta($post_id, PP_ADVISORY_ACK_META, true));
+}
+
+/** Version of what an acknowledgement signature covers; a change to the envelope bumps it. */
+const PP_ADVISORY_ACK_SIG_VERSION = 1;
+
+/** The site an acknowledgement belongs to (#1214): the blog id (1 on a single site), 0 outside WordPress. */
+function _pp_advisory_ack_site(): int {
+    return function_exists('get_current_blog_id') ? (int) get_current_blog_id() : 0;
+}
+
+/**
+ * The exact bytes an acknowledgement signature covers (#1214), or null when they cannot be
+ * encoded exactly (invalid UTF-8 from a raw write): such a row can never verify.
+ *
+ * The row's note and timestamp and the site, page and key it is stored under, so no field can
+ * be swapped after the command wrote it, and a row cannot be moved to another key, page or
+ * site of a multisite network (which shares one set of salts). A purpose tag and envelope
+ * version lead it. Exact JSON (_pp_advisory_json), never a lossy encoding.
+ */
+function _pp_advisory_row_envelope(int $post_id, string $key, string $note, string $acknowledged_at): ?string {
+    return _pp_advisory_json([
+        'purpose' => 'pp-advisory-ack',
+        'v'       => PP_ADVISORY_ACK_SIG_VERSION,
+        'site'    => _pp_advisory_ack_site(),
+        'post'    => $post_id,
+        'key'     => $key,
+        'note'    => $note,
+        'at'      => $acknowledged_at,
+    ]);
+}
+
+/**
+ * The site's signature over an envelope (#1214), or null when this site cannot make one.
+ *
+ * wp_hash() with sha256 under the `auth` scheme: an HMAC keyed on WordPress's own AUTH_KEY and
+ * AUTH_SALT, so there is no new secret to manage. wp_hash() is pluggable, so its answer is
+ * held to the shape a salted sha256 HMAC has (64 lowercase hex), and an answer equal to the
+ * UNSALTED sha256 of the envelope is refused: anyone could compute that offline. Null when
+ * wp_hash() throws, returns anything else, or is missing. Fail closed: the command refuses and
+ * every row reads as unverifiable. An override that keeps the shape but ignores the salt
+ * cannot be detected here (disclosed in LIMITS).
+ */
+function _pp_advisory_hmac(string $envelope): ?string {
+    if (!function_exists('wp_hash')) {
+        return null;
+    }
+    try {
+        $sig = wp_hash($envelope, 'auth', 'sha256');
+    } catch (\Throwable $e) {
+        return null;
+    }
+    if (!is_string($sig) || !preg_match('/\A[0-9a-f]{64}\z/', $sig) || hash_equals(hash('sha256', $envelope), $sig)) {
+        return null;
+    }
+    return $sig;
+}
+
+/** The signature the command writes for one row (#1214), or null when none can be made. */
+function _pp_advisory_row_signature(int $post_id, string $key, string $note, string $acknowledged_at): ?string {
+    $envelope = _pp_advisory_row_envelope($post_id, $key, $note, $acknowledged_at);
+    return $envelope === null ? null : _pp_advisory_hmac($envelope);
+}
+
+/**
+ * Reads a page's stored rows and sorts them by what they may do (#1214): THE verifying reader
+ * of the store, which the gate and pp_acknowledged_advisories() both go through. In order:
+ *   - `unsigned`: a key this version never mints (`ack_ignored` = 'malformed', whatever its
+ *     signature; see pp_advisory_key_is_well_formed()), no signature (`ack_ignored` = 'unsigned': written before #1214 or around the
+ *     command), one this site cannot check (`unverifiable`: wp_hash() gives no usable sha256
+ *     signature here, the cause the acknowledge refusal names), or one that does not verify
+ *     (`invalid`: changed after it was written, bytes that cannot be encoded exactly, copied
+ *     from another page, key or site, or signed under other salts). Treated as missing.
+ *   - `unnoted`: signed, but with no note (cycle-3 ruling B). Treated as missing.
+ *   - `trusted`: everything else, and only these can acknowledge a finding.
+ *
+ * @param  int $post_id  The page (signed into each row).
+ * @return array{trusted: array, unsigned: array, unnoted: array}  key => row; an ignored row
+ *                                                                  carries `ack_ignored`.
+ */
+function _pp_classify_acknowledged_advisories(int $post_id): array {
+    $out = ['trusted' => [], 'unsigned' => [], 'unnoted' => []];
+    foreach (_pp_stored_acknowledged_advisories($post_id) as $key => $entry) {
+        $key = (string) $key;
+        // SHAPE FIRST: a key this version never mints is ignored whatever its signature, so no
+        // bucket the CLI prints (stale, orphaned, unnoted) can ever hold one, even if salts a
+        // database writer could read were used to sign it. Its bytes are never echoed.
+        if (!pp_advisory_key_is_well_formed($key)) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'malformed'];
+            continue;
+        }
+        if ($entry['sig'] === '') {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'unsigned'];
+            continue;
+        }
+        // Bytes that cannot be encoded exactly were never signed by the command: tampering.
+        $envelope = _pp_advisory_row_envelope($post_id, $key, $entry['note'], $entry['acknowledged_at']);
+        if ($envelope === null) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'invalid'];
+            continue;
+        }
+        $expected = _pp_advisory_hmac($envelope);
+        if ($expected === null) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'unverifiable'];
+            continue;
+        }
+        if (!hash_equals($expected, $entry['sig'])) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'invalid'];
+            continue;
+        }
+        if (!_pp_advisory_row_is_noted($entry)) {
+            $out['unnoted'][$key] = $entry;
+            continue;
+        }
+        $out['trusted'][$key] = $entry;
+    }
+    return $out;
 }
 
 /**
  * Whether a stored row counts as an acknowledgement (cycle-3 ruling B): only with a note. The
  * command refuses an empty note, but the key is deterministic and printed by `check page`, so a
  * raw meta write could plant a row without one. Read-time enforcement makes such a row
- * acknowledge nothing; it is reported as `unnoted` so it can be removed.
+ * acknowledge nothing; it is reported as `unnoted` so it can be removed. Since #1214 a planted
+ * row fails its signature first; this arm still holds for a signed row.
  */
 function _pp_advisory_row_is_noted(array $entry): bool {
     return _pp_advisory_note((string) ($entry['note'] ?? '')) !== '';
@@ -3788,11 +3959,15 @@ function _pp_advisory_row_is_noted(array $entry): bool {
  * read-modify-write after it would then erase that one. Null when the read FAILED (#212): an
  * unreadable store is not an empty one, and writing over it would drop every acknowledgement
  * on the page. With no database handle (unit context) it is the cached read.
+ *
+ * UNVERIFIED BY DESIGN (#1214): this is the write path's read-modify-write reader, so it keeps
+ * every stored row as it is. A row the gate ignores is neither dropped by a later acknowledge
+ * (the operator is told to remove it) nor re-signed by one (that would launder it).
  */
 function _pp_read_acknowledged_advisories_locked(int $post_id): ?array {
     $wpdb = pp_composition_db_handle();
     if ($wpdb === null) {
-        return pp_acknowledged_advisories($post_id);
+        return _pp_stored_acknowledged_advisories($post_id);
     }
     $raw = $wpdb->get_var($wpdb->prepare(
         "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 1",
@@ -3828,6 +4003,8 @@ function _pp_normalize_acknowledged_advisories($stored): array {
             $out[$key] = [
                 'acknowledged_at' => is_string($entry['acknowledged_at'] ?? null) ? $entry['acknowledged_at'] : '',
                 'note'            => is_string($entry['note'] ?? null) ? $entry['note'] : '',
+                // '' is "no signature" (#1214); a non-string one is no signature either.
+                'sig'             => is_string($entry['sig'] ?? null) ? $entry['sig'] : '',
             ];
         }
     }
@@ -3854,22 +4031,27 @@ function _pp_advisory_key_head(string $key): string {
  * present finding is STALE when a finding it could have judged is present and gating: the same
  * type on the same band (on the page, for a run smell), or a keyless finding of that type there.
  * It is ORPHANED otherwise (the finding is gone; inert). A stored row with no note acknowledges
- * nothing and is listed as `unnoted`.
+ * nothing and is listed as `unnoted`. A row whose signature is missing or does not verify
+ * (#1214) acknowledges nothing either, is never STALE or ORPHANED, and is listed as `unsigned`
+ * with `ack_ignored` naming which.
  *
  * @param  int     $post_id      The page.
  * @param  array   $composition  Its stored composition.
  * @param  array[] $smells       The warning findings.
- * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[]}
+ * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[], unsigned: array[]}
  */
 function pp_partition_acknowledged_advisories(int $post_id, array $composition, array $smells): array {
-    $unnoted = [];
-    $stored  = [];
-    foreach (pp_acknowledged_advisories($post_id) as $key => $entry) {
-        if (_pp_advisory_row_is_noted($entry)) {
-            $stored[$key] = $entry;
-        } else {
-            $unnoted[] = ['ack_key' => $key, 'ack_note' => '', 'ack_at' => $entry['acknowledged_at']];
-        }
+    // ONE CLASSIFIER (#1214): the same one pp_acknowledged_advisories() returns the trusted rows
+    // of, so the gate and the accessor cannot disagree about which rows count.
+    $rows     = _pp_classify_acknowledged_advisories($post_id);
+    $stored   = $rows['trusted'];
+    $unnoted  = [];
+    $unsigned = [];
+    foreach ($rows['unnoted'] as $key => $entry) {
+        $unnoted[] = ['ack_key' => (string) $key, 'ack_note' => '', 'ack_at' => $entry['acknowledged_at']];
+    }
+    foreach ($rows['unsigned'] as $key => $entry) {
+        $unsigned[] = ['ack_key' => (string) $key, 'ack_ignored' => $entry['ack_ignored'], 'ack_at' => $entry['acknowledged_at']];
     }
     $context = pp_advisory_ack_context();
     $digest  = pp_advisory_page_digest($composition);
@@ -3920,7 +4102,7 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
             $orphaned[] = $row;
         }
     }
-    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned, 'unnoted' => $unnoted];
+    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned, 'unnoted' => $unnoted, 'unsigned' => $unsigned];
 }
 
 /**
@@ -3965,9 +4147,20 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note) {
                         'The stored acknowledgements of page %d could not be read, so nothing was written '
                         . '(writing now could erase them). Retry.', $post_id));
                 }
+                // SIGNED (#1214): the only writer of a row that counts. The other rows are kept as
+                // the locked reader normalized them, signed or not; this write never signs them.
+                $at  = gmdate('c');
+                $sig = _pp_advisory_row_signature($post_id, $key, $note, $at);
+                if ($sig === null) {
+                    return new WP_Error('acknowledgement_unsignable', sprintf(
+                        'The acknowledgement could not be signed with this site\'s salts (wp_hash() gave no '
+                        . 'salted sha256 signature), so nothing was written on page %d: an unsigned row would '
+                        . 'acknowledge nothing. Check that wp_hash() is not overridden, then retry.', $post_id));
+                }
                 $stored[$key] = [
-                    'acknowledged_at' => gmdate('c'),
+                    'acknowledged_at' => $at,
                     'note'            => $note,
+                    'sig'             => $sig,
                 ];
                 return _pp_write_acknowledged_advisories($post_id, $stored)
                     ? true
@@ -3983,7 +4176,44 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note) {
 }
 
 /**
- * Removes one acknowledgement (#1194 A2): an active, stale or orphaned one alike.
+ * Removes every stored row of a page whose KEY is not one this version mints (#1214, 7A
+ * ruling 2026-10-05): the key-independent cleanup route for planted garbage, whose bytes are
+ * never shown and so cannot be typed back. Scoped to the key-shape check ONLY: an unsigned,
+ * unverifiable or invalid row with a well-formed key may be a legitimate row read in a broken
+ * context, and is never removed here. Without this route the only cleanup for such rows would
+ * be a raw meta edit, the very operation the signature distrusts. Serialized with the page's
+ * composition writes; the other rows are kept exactly as the locked reader read them.
+ *
+ * @return int|WP_Error  How many rows were removed (0 when there were none).
+ */
+function pp_unacknowledge_malformed_advisories(int $post_id) {
+    return _pp_with_composition_lock($post_id, static function () use ($post_id) {
+        $stored = _pp_read_acknowledged_advisories_locked($post_id);
+        if ($stored === null) {
+            return new WP_Error('acknowledgements_unreadable', sprintf(
+                'The stored acknowledgements of page %d could not be read, so nothing was changed. Retry.', $post_id));
+        }
+        $kept = [];
+        foreach ($stored as $key => $entry) {
+            if (pp_advisory_key_is_well_formed((string) $key)) {
+                $kept[$key] = $entry;
+            }
+        }
+        $removed = count($stored) - count($kept);
+        if ($removed === 0) {
+            return 0;
+        }
+        return _pp_write_acknowledged_advisories($post_id, $kept)
+            ? $removed
+            : new WP_Error('acknowledgement_not_written', sprintf(
+                'The malformed rows could not be removed from page %d; they still stand. Retry.', $post_id));
+    }, new WP_Error('composition_lock_failed', 'Could not take the page lock; nothing was written. Retry.'));
+}
+
+/**
+ * Removes one acknowledgement (#1194 A2): an active, stale or orphaned one alike, or a stored
+ * row the gate ignores (no note, or no valid signature, #1214), which it reads unverified. A row
+ * whose key is malformed is removed with pp_unacknowledge_malformed_advisories() instead.
  *
  * @return true|WP_Error
  */

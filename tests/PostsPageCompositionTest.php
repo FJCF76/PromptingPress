@@ -943,8 +943,8 @@ class PostsPageCompositionTest extends TestCase
     public function testThePagesListMarksThePostsPage(): void
     {
         $line = static fn (int $id): string => pp_ai_page_inventory_line(['id' => $id, 'title' => 'T', 'status' => 'publish', 'url' => 'https://example.com/t/']);
-        $this->assertSame('- T (ID: ' . $this->postsPage . ', status: publish, URL: https://example.com/t/, posts page)', $line($this->postsPage));
-        $this->assertSame('- T (ID: 7, status: publish, URL: https://example.com/t/)', $line(7), 'only the posts page is marked');
+        $this->assertSame('- "T" (ID: ' . $this->postsPage . ', status: "publish", URL: "https://example.com/t/", posts page)', $line($this->postsPage));
+        $this->assertSame('- "T" (ID: 7, status: "publish", URL: "https://example.com/t/")', $line(7), 'only the posts page is marked');
         $GLOBALS['_pp_test_store']['options']['show_on_front'] = 'posts';
         $this->assertStringNotContainsString('posts page', $line($this->postsPage), 'no posts page, no mark');
     }

@@ -58,7 +58,7 @@ One contract, all nine of them, for the same reason as the JSON above: you shoul
 |---|---|
 | `wp pp check page` | required |
 | `wp pp check acknowledge` | required (the finding is `--key=<key>`, never a positional) |
-| `wp pp check unacknowledge` | required (`--key=<key>`) |
+| `wp pp check unacknowledge` | required (`--key=<key>`, or `--malformed` to remove the page's rows with a malformed key, #1214) |
 | `wp pp validate page` | required |
 | `wp pp operate inspect-composition` | required |
 | `wp pp operate patch` | required |
@@ -864,7 +864,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
 | `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
-Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`).
+Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`). Those page acknowledgements are signed with the site's salts and verified on every read (#1214); the readiness acknowledgements below are a separate store and are not signed.
 
 ### `wp pp readiness status` (read-only)
 

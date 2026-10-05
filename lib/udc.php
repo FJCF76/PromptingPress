@@ -518,13 +518,21 @@ function pp_udc_valid_preset_name(string $name): bool {
  * Reads the KEYS, so it is safe on a registry assembled from a stored row.
  */
 function pp_udc_preset_names_for_message(array $presets): string {
+    // COUNT-BOUNDED LIKE EVERY SIBLING LIST SINK (#1122). The write verbs cap the store at
+    // PP_SITE_PRESETS_MAX, but a row assembled outside them (a raw option write, an import, a
+    // restore) is not capped, and this list reaches refusal messages and the runtime system
+    // prompt on every chat turn. THE BOUND IS THE STORE'S OWN CAP plus the theme's presets, not
+    // a smaller sample: every store the write verbs can produce is listed whole, because the
+    // prompt calls this list "the presets that exist" and the at-cap refusal ("Delete one before
+    // adding another") must be able to name every one. Only an out-of-band row is cut, with
+    // the exact remainder.
     $names = array_map(
         static function ($name): string {
             return _pp_udc_reflect((string) $name);
         },
         array_keys($presets)
     );
-    return implode(', ', $names);
+    return pp_udc_bounded_list($names, PP_SITE_PRESETS_MAX + count(pp_udc_system_presets()), count($names));
 }
 
 /**

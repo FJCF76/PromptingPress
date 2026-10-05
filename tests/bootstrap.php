@@ -84,7 +84,9 @@ if (!function_exists('get_bloginfo')) {
             'description' => 'Test Description',
             'charset'     => 'UTF-8',
         ];
-        return $data[$show] ?? '';
+        // A test may seed ['bloginfo'][$show] to drive a stored site name or tagline (#1242 T2:
+        // the assistant-context framing pins).
+        return $GLOBALS['_pp_test_store']['bloginfo'][$show] ?? $data[$show] ?? '';
     }
 }
 
@@ -744,6 +746,11 @@ if (!function_exists('wp_update_nav_menu_item')) {
             'ID'               => $item_id,
             'title'            => $title,
             'url'              => $url,
+            // Core's three object fields, so a reader can tell a post item from a custom link
+            // (#1242 T2: the chat lists only menu items on posts the user may edit).
+            'type'             => (string) ($menu_item_data['menu-item-type'] ?? 'custom'),
+            'object'           => (string) ($menu_item_data['menu-item-object'] ?? 'custom'),
+            'object_id'        => (string) ($menu_item_data['menu-item-object-id'] ?? $item_id),
             // Recorded so tests can observe the batch-rollback restore's
             // parents-first id remapping (_pp_restore_menu_state()).
             'menu_item_parent' => (int) ($menu_item_data['menu-item-parent-id'] ?? 0),
@@ -988,6 +995,35 @@ if (!function_exists('wp_unslash')) {
             return array_map('wp_unslash', $value);
         }
         return is_string($value) ? stripslashes($value) : $value;
+    }
+}
+
+if (!function_exists('wp_hash')) {
+    // WordPress 7.0's wp_hash() (pluggable.php): hash_hmac($algo, $data, wp_salt($scheme)), and an
+    // InvalidArgumentException for an algorithm hash_hmac() does not support (#1214). The salt is
+    // test-controlled so a test can rotate it: $GLOBALS['_pp_test_salts'][$scheme]. Set
+    // $GLOBALS['_pp_test_wp_hash_throws'] = true to model an override that throws.
+    function wp_hash($data, $scheme = 'auth', $algo = 'md5') {
+        if (!empty($GLOBALS['_pp_test_wp_hash_throws']) || !in_array($algo, hash_hmac_algos(), true)) {
+            throw new InvalidArgumentException('Unsupported hashing algorithm: ' . $algo);
+        }
+        if (isset($GLOBALS['_pp_test_wp_hash_override']) && is_callable($GLOBALS['_pp_test_wp_hash_override'])) {
+            return ($GLOBALS['_pp_test_wp_hash_override'])((string) $data); // a pluggable replacement
+        }
+        if (array_key_exists('_pp_test_wp_hash_returns', $GLOBALS)) {
+            return $GLOBALS['_pp_test_wp_hash_returns']; // an override that returns nothing usable
+        }
+        $salt = $GLOBALS['_pp_test_salts'][$scheme] ?? ('pp-test-salt-' . $scheme);
+        return hash_hmac($algo, (string) $data, (string) $salt);
+    }
+}
+
+if (!function_exists('get_current_blog_id')) {
+    // 0 unless a test sets $GLOBALS['_pp_test_blog_id']: the same value every caller computed
+    // when this function did not exist (`function_exists(...) ? ... : 0`), so defining it
+    // changes nothing for them. A test sets it to model another site of a network (#1214).
+    function get_current_blog_id(): int {
+        return (int) ($GLOBALS['_pp_test_blog_id'] ?? 0);
     }
 }
 
