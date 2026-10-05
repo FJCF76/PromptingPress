@@ -133,7 +133,9 @@ All notable changes to PromptingPress are documented here.
   Each case is reported as `content_stripped_at_render` (a warning in `wp pp check page`, the
   write's `findings` and the chat's report), naming the band, the prop, the construct and the
   rule. Edit the prop to remove what it names, and save. A cross-band id reference the check refuses is
-  dropped from the rendered markup too.
+  dropped from the rendered markup too. The custom band (below) renders the same way: its markup and
+  islands are judged in their page's context and at the level their saves vouched for, and the
+  census and findings list them.
 - **Stored content keeps rendering at WordPress's own level until a trusted, checked write
   saves it.** The wider set Layer 3 admits (inline SVG, MathML, `data:` images, custom elements
   and the rest beyond core's `post` list) renders only for content a user with the

@@ -501,7 +501,10 @@ comparison, run in evidence on WordPress 7.0 (probe-07).
   44 s on the worst shape, past PHP's 30 s limit; the correction confirmed by the orchestrator,
   2026-10-05);
   past it the rest renders through the pre-Layer-3 path and the page reports
-  `content_not_checked`. **Titles and headings are the exception to render-empty:** a stored one that fails
+  `content_not_checked`. The custom band (§7) renders through the same render context: its
+  markup and islands take the page's cross-band context and their vouched tier, an E12 drop in
+  the markup keeps the island host offsets, and the census and findings report them (T3b, over
+  T5's composer). **Titles and headings are the exception to render-empty:** a stored one that fails
   the predicate renders fully escaped and is census-listed (§3.3; orchestrator ruling,
   2026-10-05).
 - **Where the finding surfaces:** everywhere findings already do. That is `wp pp check page`,
