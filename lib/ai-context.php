@@ -964,7 +964,8 @@ function pp_ai_page_context(int $post_id): array {
  * id that does not exist is refused exactly like one the user may not edit (core maps both to
  * `do_not_allow`), so this check's answer does not say whether a page exists.
  *
- * One owner for ai-stream.php, the non-streaming fallback and pp_ai_page_context() itself.
+ * One owner for ai-stream.php, the non-streaming fallback, pp_ai_page_context() itself and
+ * pp_ai_editable_pages(), which applies it to every page list the chat shows or gives the model.
  * Lives here, not in lib/ai-chat.php, because ai-stream.php runs outside wp-admin, where
  * lib/ai-chat.php is not loaded.
  *

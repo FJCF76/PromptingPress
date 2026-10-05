@@ -213,6 +213,7 @@ function pp_ai_chat_page(): void {
  */
 function pp_ai_chat_page_select_options(array $pages): string {
     if (!$pages) {
+        // Core's text domain on purpose: these are core's own words and translation.
         return '<option value="">' . esc_html__('No pages found.') . '</option>';
     }
     $html = '<option value="">' . esc_html__('— Select a page —', 'promptingpress') . '</option>';
