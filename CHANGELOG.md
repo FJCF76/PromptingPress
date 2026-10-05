@@ -8,6 +8,16 @@ All notable changes to PromptingPress are documented here.
 
 ### Fixed
 
+- **Editor: the live preview renders content in an isolated origin.** The composition editor's
+  preview frame now shares no origin with the admin screen (LAYER-3-CONTRACT §8.3), and the
+  preview document carries its own content policy: script in it cannot use the request APIs or
+  submit forms. Each refresh rebuilds the whole preview, so a style change now shows on the next
+  refresh instead of after a reload, and the preview reopens where you were scrolled. Preview
+  limitations, none of which affect the published page: every image in the preview loads on each
+  refresh; a self-hosted webfont shows in the preview only if its font files are served with an
+  `Access-Control-Allow-Origin` header; and if the admin screen sends a Content-Security-Policy
+  that forbids inline script, the preview opens at the top on each refresh.
+
 - **Chat: page context honours per-page permissions.** The AI chat places a page in its context
   only for a user who can edit that page, on both the streaming and the non-streaming path. For
   any other page the request gets the chat's usual permission refusal, right after the chat's
@@ -21,8 +31,21 @@ All notable changes to PromptingPress are documented here.
   site with none). Reading a page's current version answers a page that does not exist the same
   way as one the user may not edit. Nothing changes for an editor or administrator.
 
+### Docs
+
+- `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
+  the §8.3 precondition as met.
+
 ### Tests
 
+- `PreviewFrameIsolationTest` pins the preview frame's sandbox (exactly `allow-scripts`) and the
+  preview document's content policy (exact directives, first in the head).
+  `pp-editor-preview-isolation.test.js` pins the scroll-message schema, the sender check, the
+  scroll bridge's run-time behaviour and that only the latest preview request paints.
+  `preview-isolation.spec.ts` checks in a real browser that the preview's origin is opaque, that a
+  connection from inside it is refused, that an edit rebuilds it with current styles, and that the
+  scroll position survives refreshes, including with lazy unsized images and after a jump to the
+  end of the page.
 - `ChatPageContextPermissionTest` pins the per-page check at the context reader, the
   non-streaming handler and the stream entry point, and that the refusal matches the existing
   one. The test bootstrap's capability stub accepts a per-object grant.
