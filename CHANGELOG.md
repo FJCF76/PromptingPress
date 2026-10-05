@@ -16,7 +16,7 @@ exactly what WordPress's own `post` rules allow. Content stored before this rele
 as it did, except a prop whose markup is broken or oversized, which now renders empty and is listed
 by `wp pp content census`. Every band can now carry a scoped style sheet, and a new `custom` band holds your own HTML
 with named text islands. Run `wp pp content census` after upgrading: it lists any stored content that
-now renders differently. Forms are not part of this release. Like every theme update, this one
+renders differently from how it is stored. Forms are not part of this release. Like every theme update, this one
 re-opens your acknowledged judgment calls, and this time the old acknowledgement rows must be redone,
 because they are now signed.
 
@@ -89,7 +89,9 @@ because they are now signed.
 - **Pages report new findings.** `content_stripped_at_render` and `content_not_checked` (a page with
   more than 1 MiB or 4,096 values of stored content: the rest renders through WordPress's sanitizer
   as before) and `content_duplicate_id` are warnings, so `wp pp validate site` can fail a page that
-  passed on 2.0.2. `custom_island_empty` (a custom band naming an island with no content) is a
+  passed on 2.0.2. These cannot be acknowledged, so a page whose stored content WordPress's
+  sanitizer already filtered (an old event handler, say) fails `wp pp validate site` until the prop
+  is edited. `custom_island_empty` (a custom band naming an island with no content) is a
   warning too. `content_inline_style`, `content_plugin_output`, `content_global_shadow` and
   `custom_band_unverified` are informational.
 - **Upgrading re-opens every acknowledgement, and the old rows must be redone.** An acknowledgement
@@ -116,8 +118,10 @@ seconds of server time, and the same whole-site run repeats after edits until th
 lists are fixed, so fix those first; such a site may prefer a real system cron. A scheduled batch
 that hits the server's time limit leaves that page out of the admin notice: `wp pp content census`
 in WP-CLI, which has no web time limit, is the full list.
-1. If you use `wp pp readiness`, run `wp pp readiness status` after replacing the theme files. When
-   the only drift it reports is the 2.1.0 files, run `wp pp readiness rebaseline`.
+1. Run `wp pp integrity check` after replacing the theme files; it compares them with the release's
+   own manifest and must report them safe. If you use `wp pp readiness`, run
+   `wp pp readiness status`, and only once the integrity check is safe run
+   `wp pp readiness rebaseline` (it records whatever is on disk as the new baseline).
 2. Run `wp pp content census`. It writes nothing. For each prop it lists as `empty` or `stripped`,
    and each title listed as `text` with a rule other than `unverified`, edit the prop to remove what
    it names, and save. A title listed as `text` with clause `unverified` renders exactly as before;
@@ -127,9 +131,13 @@ in WP-CLI, which has no web time limit, is the full list.
 3. Run `wp pp validate site`. Fix any `content_stripped_at_render` warning it reports the same way.
 4. Re-acknowledge your judgment calls. For each page you had acknowledged, run
    `wp pp check page --post_id=<id>`, and for each advisory you still judge intentional run
-   `wp pp check acknowledge` with the key it prints now and a note. Then remove the old unsigned rows
-   with `wp pp check unacknowledge --post_id=<id> --key=<key>` (and `--malformed` for rows `check page`
-   lists as malformed). If you might roll back to 2.0.2, keep the old rows until you are sure.
+   `wp pp check acknowledge` with the key it prints now and a note. Then remove each old row with the
+   command printed on its own "ignored acknowledgement … carries no signature" line,
+   `wp pp check unacknowledge --post_id=<id> --key=<that row's key>` (never the new key you just
+   acknowledged with), and `--malformed` for rows `check page` lists as malformed. If you might roll
+   back to 2.0.2, keep the old rows until you are sure. Acknowledgements are signed with the site's
+   salts: rotating `AUTH_KEY` / `AUTH_SALT`, or copying the database to an environment with other
+   salts, makes every one read as not verifying, and they must be redone there.
 5. If an agent or script writes content, let it read the refusals: each names the prop, the
    construct and the rule. The in-admin assistant is told the content rules up front.
 
@@ -139,7 +147,11 @@ Content a trusted writer saved on 2.1.0 with constructs beyond core's `post` lis
 their tags as text. 2.0.2 does not know the `custom` band or `udc._scoped`: custom bands render
 nothing, scoped sheets are not emitted, and 2.0.2 refuses writes that carry them, so remove them
 before rolling back. Acknowledgements signed on 2.1.0 are stale on 2.0.2; the old 2.0.2 rows apply
-again if you kept them. `wp pp readiness` reports the theme files as changed until you rebaseline.
+again if you kept them and nothing they judged has changed (a prop you edited in steps 2 and 3 makes
+its band's rows, and the page's run-smell rows, stale). Any `wp pp check acknowledge` or `unacknowledge` run on 2.0.2 drops the
+signature from every 2.1.0 row on that page, so after rolling forward again those rows must be redone;
+run `wp pp content census` after rolling forward too, because the return to 2.1.0 does not schedule
+one. `wp pp readiness` reports the theme files as changed until you rebaseline.
 
 ### Named deviations from the ratified Layer-3 contract
 
