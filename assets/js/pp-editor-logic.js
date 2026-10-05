@@ -277,7 +277,12 @@ function buildAccordionData(jsonString, componentRegistry) {
                 var hasValue = key in props;
                 var field = {
                     name: key,
-                    type: spec.type === 'enum' ? 'enum' : (spec.type === 'array' ? 'array' : 'string'),
+                    // `object` props are name -> string MAPS (#1242 T5: custom.islands) and get
+                    // one text box per key; a `structural_only` prop (P-7: custom.markup) is
+                    // shown without a control, because only a structural write edits it.
+                    type: spec.type === 'enum' ? 'enum'
+                        : (spec.type === 'array' ? 'array' : (spec.type === 'object' ? 'map' : 'string')),
+                    structural: spec.structural_only === true,
                     required: !!spec.required,
                     value: hasValue ? props[key] : (spec.default !== undefined ? spec.default : ''),
                     description: spec.description || '',
@@ -936,6 +941,7 @@ function checkSerializationInvariant(jsonString, componentRegistry) {
     diffs = diffs.concat(unadvertisedEnumDiffs(jsonString, componentRegistry));
     diffs = diffs.concat(nonStringValueDiffs(jsonString, componentRegistry));
     diffs = diffs.concat(nonContainerValueDiffs(jsonString, componentRegistry));
+    diffs = diffs.concat(nonStringMapValueDiffs(jsonString, componentRegistry));
 
     if (diffs.length === 0) {
         return { safe: true };
@@ -1297,6 +1303,85 @@ function nonContainerValueDiffs(jsonString, componentRegistry) {
 }
 
 /**
+ * The island names a custom band's markup declares (LAYER-3-CONTRACT.md §7.2), in document
+ * order, for the accordion's island list. A display helper only: the server's predicate is
+ * the authority on which elements are islands, and a name it would refuse is filtered by the
+ * same name grammar here so the list never offers a box the write would reject.
+ *
+ * @param {*} markup  The stored markup (anything that is not a string has no islands).
+ * @returns {string[]}
+ */
+function islandNamesInMarkup(markup) {
+    if (typeof markup !== 'string') return [];
+    var out = [];
+    // In a browser, read the elements the way the browser parses them (an inert DOMParser
+    // document runs no script and loads nothing), so a name inside a comment, attribute text
+    // or SVG/MathML is not offered. Without a DOM (Node), the attribute scan below.
+    if (typeof DOMParser !== 'undefined') {
+        var doc = new DOMParser().parseFromString('<!DOCTYPE html><body>' + markup, 'text/html');
+        Array.prototype.forEach.call(doc.body.querySelectorAll('[data-pp-island]'), function (el) {
+            var name = el.getAttribute('data-pp-island');
+            if (el.closest('svg, math') || !/^[a-z][a-z0-9_-]{0,63}$/.test(name) || out.indexOf(name) !== -1) return;
+            out.push(name);
+        });
+        return out;
+    }
+    var re = /\sdata-pp-island\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+    var m;
+    while ((m = re.exec(markup)) !== null) {
+        var name = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+        if (/^[a-z][a-z0-9_-]{0,63}$/.test(name) && out.indexOf(name) === -1) out.push(name);
+    }
+    return out;
+}
+
+/**
+ * Merges what the island text boxes read back into the stored map (#1242 T5). The same
+ * merge-by-key doctrine as update_component: a key read back replaces that key, a key with
+ * no box keeps its stored value, and an empty box for a key that was never stored adds
+ * nothing (an untouched empty box is not an edit).
+ *
+ * @param {*}      stored  The stored map (a non-object reads as empty).
+ * @param {Object} read    key -> text read from the boxes.
+ * @returns {Object}
+ */
+function mergeMapRead(stored, read) {
+    var out = {};
+    var base = (stored && typeof stored === 'object' && !Array.isArray(stored)) ? stored : {};
+    Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    Object.keys(read).forEach(function (k) {
+        if (read[k] === '' && !Object.prototype.hasOwnProperty.call(base, k)) return;
+        out[k] = read[k];
+    });
+    return out;
+}
+
+/**
+ * Stored values a map's text boxes cannot represent, under a top-level `object` prop
+ * (#1242 T5): the map itself must be a JSON object, and each member a string. Anything
+ * else routes the composition to JSON-only mode, the #745/#805 refusal family, so the
+ * author sees the real value instead of a box that would rewrite it.
+ *
+ * @param {string} jsonString        Raw composition JSON.
+ * @param {Array}  componentRegistry Component schemas.
+ * @returns {Array} deepDiff-shaped entries, empty when nothing would drift.
+ */
+function nonStringMapValueDiffs(jsonString, componentRegistry) {
+    var out = [];
+    forEachDeclaredProp(jsonString, componentRegistry, function (def, stored, path) {
+        if (def.type !== 'object' || stored === null || stored === '') return;
+        if (typeof stored !== 'object' || Array.isArray(stored)) {
+            if (!(Array.isArray(stored) && stored.length === 0)) out.push(textFormDiff(path, stored));
+            return;
+        }
+        Object.keys(stored).forEach(function (k) {
+            if (typeof stored[k] !== 'string') out.push(textFormDiff(path + '.' + k, stored[k]));
+        });
+    });
+    return out;
+}
+
+/**
  * Format serialization diffs as a GitHub issue markdown report.
  *
  * @param {Array}  diffs      Array of diff objects from deepDiff
@@ -1571,6 +1656,9 @@ var _logic = {
     unadvertisedEnumDiffs:          unadvertisedEnumDiffs,
     nonStringValueDiffs:            nonStringValueDiffs,
     nonContainerValueDiffs:         nonContainerValueDiffs,
+    nonStringMapValueDiffs:         nonStringMapValueDiffs,
+    islandNamesInMarkup:            islandNamesInMarkup,
+    mergeMapRead:                   mergeMapRead,
     formatDiffsForIssue:            formatDiffsForIssue,
     getCollapsedRowPreview:         getCollapsedRowPreview,
     isPreviewScrollMessage:         isPreviewScrollMessage,
