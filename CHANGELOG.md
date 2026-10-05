@@ -59,8 +59,8 @@ All notable changes to PromptingPress are documented here.
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
   the §8.3 precondition as met.
-- `ai-instructions/validate-site.md` explains signed acknowledgements: what is signed, the four
-  ignored reasons and what each line offers, the upgrade, salt rotation and copying the database,
+- `ai-instructions/validate-site.md` explains signed acknowledgements: what is signed, each
+  reason a row is ignored and what its line offers, the upgrade, salt rotation and copying the database,
   and the limits (anyone who can run PHP can sign; salts kept in the database are readable there;
   a removed row written back byte for byte verifies again; the readiness acknowledgements are not
   signed, #1249). `AI_CONTEXT.md`, `docs/reference-apply-cli.md` and `operating-loop.md` carry the
