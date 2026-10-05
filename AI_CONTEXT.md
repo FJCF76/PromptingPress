@@ -97,6 +97,7 @@ site-customization permission.
 | /lib/screenshot.php      | Screenshot capture (browser integration) | Extend for new capture modes   |
 | /lib/post-apply-validate.php | Post-apply DOM validation       | Extend for new checks              |
 | /lib/ai-chat.php         | AI chat page + AJAX handlers      | Yes                                |
+| /lib/content.php         | Layer-3 content predicate and write gate (`pp_content_sanitize()`, the one owner of content admission; tables in `lib/content-tables/`) | Only per LAYER-3-CONTRACT rulings |
 | /ai-stream.php           | SSE streaming endpoint            | Thin transport only                |
 | /assets/js/pp-ai-chat.js | AI chat UI (streaming, proposals) | Yes                                |
 | /assets/css/pp-ai-chat.css | AI chat styles                  | Yes                                |
@@ -508,6 +509,7 @@ Pages using the **Composition** template store their layout in `_pp_composition`
 - `component` must match a registered component name (a folder in `components/`)
 - `props` must satisfy required props from the component's `schema.json`
 - Invalid compositions are rejected by the WRITE PATH — the `update_composition` / `create_page` actions. There is no save handler guarding the meta: its `sanitize_callback` asks only whether the value parses as JSON
+- Content props (band bodies, FAQ answers, table cells, embed content, hero proof, INLINE props, titles and headings) run the Layer-3 content check on that same write path (`lib/content.php`, LAYER-3-CONTRACT §2.2): content holding an excluded construct is refused whole with `content_construct_excluded` (or `content_too_large` past the M-8 caps), never stripped. Bands a write does not change are not re-checked (M-2). The editor preview and the findings report never refuse on content
 - A direct `_pp_composition` write (WP CLI or REST) uses the same FORMAT but is not an authoring path — see below
 
 **To read the composition in PHP:** use `pp_composition()` (no args — reads the current loop post) or `pp_get_composition($post_id)` (any post by ID) from `lib/wp.php`. Both return `[]` when meta is absent or invalid JSON. Off the main loop, always pass an explicit `$post_id` via `pp_get_composition()`. To tell an *absent* page apart from a *corrupted* one (undecodable JSON or a non-list shape), read through `pp_get_composition_result($post_id)` instead — the render path stays defensive (degrades to empty, never fatal), but inspect/check/validate act on its `error` (issue 144).

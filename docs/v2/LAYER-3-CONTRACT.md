@@ -571,10 +571,21 @@ That is every static HTML element and global attribute and the ARIA 1.2 attribut
 WordPress's editorial `post` list. Core `post` as measured on WordPress 7.0 (124 elements,
 `wp_allowed_protocols()` for URLs; the full dump is probe-00) is a subset of it: core omits,
 for example, `tabindex`, `translate`, `inert`, microdata, most of ARIA 1.2, `bdi` and
-`datalist`, and the base admits them. Four attributes, `autofocus`, `contenteditable`, `nonce`
-and `is`, are argued one by one rather than admitted or refused with the set: the outcome and
-the stated reason for each are the implementation's to specify (scheduled: v2.1.0, Sprint 6
-T3a), and the ruling decides none of the four. Until one is argued, it is refused. When core widens its own list, the default is
+`datalist`, and the base admits them (`datalist` is refused in this release with the rest of
+the descoped forms, Δ5). Four attributes, `autofocus`, `contenteditable`, `nonce`
+and `is`, are argued one by one rather than admitted or refused with the set. The arguments are
+the implementation's (Sprint 6 T3a, `pp_content_html_global_attributes()` in `lib/content.php`)
+and govern (#1242, "Step-11 contract tightenings"):
+
+| Attribute | Outcome | Argument |
+|---|---|---|
+| `autofocus` | **admitted** | It moves focus on load. That executes nothing, fetches nothing and forges nothing. The scroll it can cause is an author-owned outcome of the same class as `position: fixed` (§4, "not on this list"). Its old XSS role needed an event handler, which E1 refuses. |
+| `contenteditable` | **admitted** | It lets a visitor edit the page in their own tab. Nothing is stored or sent and no script runs: an author-owned outcome, like `popover`. |
+| `nonce` | **refused** (clause P-17) | Its only effect is on `<script>`, `<style>` and `<link>`, which E4 already refuses. On every element content may carry, it does nothing. An attribute that validates green and does nothing is the I19 shape, and refusing it names that instead of hiding it. |
+| `is` | **admitted**, value-gated and disclosed | The value must be a valid custom element name that does not shadow an HTML, SVG or MathML element. It upgrades a built-in element only when a page script defines that name: the plugin boundary P-9 states and P-23 applies to custom elements. Disclosed as `content_plugin_output`. |
+
+All four sit beyond core `post`, so a writer without `unfiltered_html` cannot use the three
+admitted ones (routed item 12, ruled). When core widens its own list, the default is
 **admit unless §4**, not a ruling per item.
 
 **The base becomes a PP-owned table, pinned against core** (§12 **M-4**). Today PP's content
@@ -737,7 +748,8 @@ and a value the gate does not admit is refused, never passed through.
 
 **Δ4 — a link that opens another browsing context carries `rel="noopener"`.**
 
-- **Rule:** on `a`, `area`, SVG `a` and `form` (admitted by P-5), the predicate adds
+- **Rule:** on `a`, `area` and SVG `a` (and on `form` once the forms contract admits it; Δ5 is
+  descoped), the predicate adds
   `noopener` to `rel` whenever `target` is anything other than `_self`, `_parent` or `_top`
   and `rel` lacks it. Browsers imply `noopener` only for `_blank`; a named target
   (`target="x"`) keeps `window.opener`. The author's other `rel` tokens are kept.
@@ -745,7 +757,19 @@ and a value the gate does not admit is refused, never passed through.
   restore puts back the author's own admitted value). It is disclosed as normalisation, not as
   a loss (**M-10**).
 
-**Δ5 — forms (admitted: P-5 and P-24, ratified 2026-10-04).**
+**Δ5 — forms (admitted: P-5 and P-24, ratified 2026-10-04). DESCOPED BY OWNER 2026-10-05.**
+
+> **Descoped.** The owner removed the forms admission from this contract's first release on
+> 2026-10-05 (#1242, "OWNER RULING (second 7A)"): `form`, `input`, `select`, `option`, `optgroup`,
+> `selectedcontent`, `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at
+> write, clause Δ5, with a message naming the descope. `button`, `label`, `meter` and `progress`
+> stay admitted: without a form (and with `form=` refused, E9) none of them submits anything.
+> **Guaranteed destination (P-26):** the P-5 and P-24 admissions move, as ratified, to the
+> **Layer-3 forms contract**, a scheduled follow-up contract of its own. It must specify what this
+> release could not converge on: where a form may post (credential fields and same-site admin
+> endpoints, judged on a host canonicalisation that matches the browser's IDNA mapping), form
+> ownership as the parser holds it (routed item 1), and cross-band form groups (radio `name`
+> groups). The rows below are kept as the ratified starting point for that contract.
 
 - `form` (`action`, `method` ∈ `get|post|dialog`, `enctype`, `name`, `autocomplete`,
   `novalidate`). `method="dialog"` closes an admitted `dialog` with no script (P-24).
@@ -828,10 +852,10 @@ finding.
 | **E4** | **Script, style and document-level elements:** `script`, `style`, `noscript`, `template`, `base`, `meta`, `link`, `title`, `html`, `head`, `body`, `slot`, and the legacy raw-text elements `xmp`, `noembed`, `noframes`, `plaintext`, `listing`. | executes (`script`); unscoped page-global CSS that bypasses 3B's scoping (`style`); parse differentials that feed mutation-XSS (`noscript`, `template`, and the raw-text elements, whose contents one parser reads as text and another as markup); document state (`base`, `meta` refresh, `link`, the HTML `title`, which sets the page title); an in-body `html`/`body` start tag merges its attributes onto the page's real element; `slot` is inert without shadow DOM, the I19 shape. **CSS belongs in the scoped sheet (3B), which is scoped and gated.** | each refused at write; at render the **content** of a refused `script`/`style` is removed with it, never left as visible text (the §1.3 leak pinned closed) |
 | **E5** | **SVG and MathML active and cross-namespace content:** `animate`, `animateColor`, `animateMotion`, `animateTransform`, `set`, `discard`, MathML `annotation-xml`, `mglyph`, `malignmark`, `maction`, `foreignObject`, `image`, `feImage`, `script`, `style` (inside SVG), and any `href`/`xlink:href` on SVG elements other than Δ1's rules (`use`, `a`, and the gradients, `pattern`, `filter` and `textPath`, which take a same-document fragment only: **P-12**, ratified 2026-10-04). | `animate`/`set` can rewrite an attribute such as `href` to a script URL after sanitization. `foreignObject` re-enters the HTML namespace (a mutation-XSS source). `image`/`feImage` fetch. | the classic animation-rewrites-`href` shapes; a `foreignObject` round trip; parse-serialize-reparse idempotence (T-9) |
 | **E6** | **The engine-owned namespace:** any attribute named `data-pp-*`, with **one carve-out**: `data-pp-island` and `data-pp-island-kind` are admitted **only** in `custom.markup` (§7.2), and refused everywhere else, including inside island content; any `id` of the form the engine mints (`^pp-[0-9a-f]{8}\z`, the band-id and anchor mint, `lib/wp.php:6567`; `^it-[0-9a-f]{8}\z`, the item id); the page-reserved ids `main` and `pp-nav-menu`; and any `id` equal to a band anchor (`props.id`) in the same composition. Band ids themselves are emitted only as `data-pp-band` (so the `data-pp-*` rule covers them); the id reservation protects the **anchors**. When a write adds a `props.id` that equals an `id` already inside another band's stored content, **the write that adds the anchor is the one refused**, naming the band that holds the collision (the #1007 rule of §2.6 applied: the refusal lands on the band being changed). `add_component` validates only the new item today (`lib/actions.php:5266`), so it must run the cross-band E6 checks against the stored page with the new item merged in, as `pp_validate_composition_band` does for cross-item rules; T-6 carries an `add_component` row. | forging the engine's identity (§1.4, measured). The content-side twin of the promote step's props rule (§5.3). | one row per marker in §1.4's table, asserting the forged scope does **not** paint (computed style from the rendered page, not the stored map) |
-| **E7** | **Style-attribute exclusions** (Δ3): LAYER-2 §6.0's set, except an author's own custom properties (only Δ3's engine-owned custom properties stay refused: **P-20**, ratified 2026-10-04; routed items 5 and 6 under the §12 table are open); any value the security gates refuse, including `url()` of every kind (A2) except the fragment-only `url(#id)` (**P-13**, ratified 2026-10-04); and `!important`. | the same reasons LAYER-2 gives, with one addition: **the no-external-resource rule is load-bearing for 3B's attribute selectors** (§6.7). | the LAYER-2 §6.0 matrix, re-run through a `style` attribute; the `image-set()` bare-string case that LAYER-2 §6.0 records as once missed; `url(#g)` admitted and `url(https://…)` refused (P-13); an author custom property admitted and `--pp-*` refused (P-20) |
+| **E7** | **Style-attribute exclusions** (Δ3): LAYER-2 §6.0's set, except an author's own custom properties (only Δ3's engine-owned custom properties stay refused: **P-20**, ratified 2026-10-04; routed items 5 and 6 under the §12 table are open); any value the security gates refuse, including `url()` of every kind (A2) except the fragment-only `url(#id)` (**P-13**, ratified 2026-10-04); every CSS function not on the admitted list, default-deny (I19; ruled 2026-10-05: `-moz-element()`, `element()`, `paint()`, `attr()`, the anchor-positioning family and any unknown function are refused, `path()` and the font-variant-alternates functions admitted; the list is `pp_content_css_functions()`), judged in style declarations and in every SVG and MathML attribute value except the named text attributes (`aria-*`, `title`, `alttext`, `lang`, `role`, `tabindex`, a link's `download`/`target`/`rel`/`hreflang`/`referrerpolicy`, MathML `encoding`, editor-namespace attributes; and `id`, `class`, `data-*`), with quoted strings read as text and comment delimiters, control characters and `; { } < > \` refused in SVG and MathML values; and `!important`. | the same reasons LAYER-2 gives, with one addition: **the no-external-resource rule is load-bearing for 3B's attribute selectors** (§6.7). | the LAYER-2 §6.0 matrix, re-run through a `style` attribute; the `image-set()` bare-string case that LAYER-2 §6.0 records as once missed; `url(#g)` admitted and `url(https://…)` refused (P-13); an author custom property admitted and `--pp-*` refused (P-20) |
 | **E8** | **Unknown elements** (any tag not in §3.1 + §3.2) **that are not a valid custom-element name.** **Narrowed by P-23 (ratified 2026-10-04):** a hyphenated name in the valid custom-element grammar is admitted, and disclosed under the plugin boundary (§7.5); a name that shadows an HTML, SVG or MathML element stays refused. | an unknown element without script is an inert span that validates green and paints nothing special: the I19 shape. A styled custom element paints through its class, `style` and the scoped sheet, and where a page script defines it (a plugin's `customElements.define`) it is the plugin boundary P-9 discloses rather than refuses. Listed so that freedom-first does not read as "anything with angle brackets". | an unknown-tag matrix refused, with a message naming the element; valid hyphenated custom-element names admitted and disclosed; shadowing names refused |
 | **E9** | **Submission and navigation redirectors:** `formaction`, `formtarget`, `formmethod`, `formenctype`, `ping`, `http-equiv`, and the `form` attribute (`form="<id>"`, which enrolls a control in any form on the page: theme, plugin or comments). | they move where a click or submit goes, or where a request is sent, outside the reviewed `action`/`href`. | each refused on every element |
-| **E10** | **Markup that escapes its container**, defined by **containment** (§2.1 step 5), not by a list of tags: the prop fails E10 when, parsed inside its real template wrapper, any node it produced lands outside the sink container, the next band's sentinel is not intact, or a formatting element it opened is still active when the container closes. Known shapes: a stray `</div>`/`</section>`/`</p>`; `</td>`, `</tr>`, `</table>` in a cell; an unclosed `<textarea>` (swallows the next band); an unclosed `<a>`/`<b>` (rebuilt inside the next band); a start tag that closes the host (`<td>` in a cell, `<li>` in an `li` host, `<a>` in an `a` host). | in the page the browser uses the stray closer to close the **template's** container, and in a table cell the table itself, so everything after it renders outside the band: outside `data-pp-band` scoping, the scoped sheet and every finding. A fragment parse ignores the closer, which is why the predicate must parse in context. Measured: `wp_kses_post('a</div></section><p>outside</p>')` passes the closers verbatim, and none of the five RICH sinks balances tags. Refused, never balanced: rendering a re-balanced tree would make the stored bytes stop being what renders (I36), and I34 is reject-never-coerce. | the known-shape matrix above, per sink wrapper (RICH, `<td>`, each island host kind); the assertion is **the next band's sentinel is intact, outside this band, with its own text and no inherited formatting**, read from the rendered page in Chromium. A "band contains every content node" check alone passes vacuously for a swallowed or re-wrapped next band. |
+| **E10** | **Markup that escapes its container**, defined by **containment** (§2.1 step 5), not by a list of tags: the prop fails E10 when, parsed inside its real template wrapper, any node it produced lands outside the sink container, the next band's sentinel is not intact, or a formatting element it opened is still active when the container closes. Known shapes: a stray `</div>`/`</section>`/`</p>`; `</td>`, `</tr>`, `</table>` in a cell; an unclosed `<textarea>` (swallows the next band; refused as Δ5 while forms are descoped); an unclosed `<a>`/`<b>` (rebuilt inside the next band); a start tag that closes the host (`<td>` in a cell, `<li>` in an `li` host, `<a>` in an `a` host). | in the page the browser uses the stray closer to close the **template's** container, and in a table cell the table itself, so everything after it renders outside the band: outside `data-pp-band` scoping, the scoped sheet and every finding. A fragment parse ignores the closer, which is why the predicate must parse in context. Measured: `wp_kses_post('a</div></section><p>outside</p>')` passes the closers verbatim, and none of the five RICH sinks balances tags. Refused, never balanced: rendering a re-balanced tree would make the stored bytes stop being what renders (I36), and I34 is reject-never-coerce. | the known-shape matrix above, per sink wrapper (RICH, `<td>`, each island host kind); the assertion is **the next band's sentinel is intact, outside this band, with its own text and no inherited formatting**, read from the rendered page in Chromium. A "band contains every content node" check alone passes vacuously for a swallowed or re-wrapped next band. |
 | **E11** | **DOM clobbering, at named-access reach** (narrowed in Sprint 6 on browser-probe evidence; orchestrator ruling, record: the "Sprint-6 mechanics rulings record" in #1242's body): a document built-in name (an own property of `window` or `document` per the living standard, for example `getElementById`, `querySelector`, `location`, `cookie`, `forms`, `body`) is refused only where the browser exposes it by name: as `name` on `embed`, `form`, `iframe`, `img` or `object`; as a form-control name inside a real form (per the parser's form state); and as the `id` of an `object`. Ordinary ids are admitted; a page-global shadow is disclosed as information (`content_global_shadow`). | the browser exposes named elements as properties of `document` and `window`, so `<form name="querySelector">` shadows `document.querySelector` and breaks the theme's `assets/js/main.js` and every plugin script on the page; measured, `<a name="getElementById">` passes `wp_kses_post` today. That is authored bytes steering script, which §0.3 rules out. | the property list is **read from a browser probe** (enumerate the own properties of `window` and `document` in the pinned Chromium) and stored as a snapshot the test compares against a fresh probe, never a hand-written array (the drift lesson of T-1); each probed name refused at every named-access reach the row lists, and admitted as an ordinary `id` elsewhere with the `content_global_shadow` disclosure. Whether `img` `id`+`name` and form-control `id`s inside a form are further named-access reaches is open (routed item 2 under the §12 table) (scheduled: v2.1.0) |
 | **E12** | **References that leave the band:** an id-reference attribute whose target is not an id inside the same band: `popovertarget`, `for` (on `label`/`output`), `usemap`/`map name`, `aria-controls`, `aria-describedby`, `aria-labelledby`, `aria-details`, `headers`, `list`, and `details name` (a name group joins every `details` on the page). Checked in step 5 against the band's own ids. Whether the list is closed or defined by type (every IDREF/IDREFS attribute of the P-17 base) is open (routed item 2 under the §12 table). | the same reason E9 refuses `form=`: a control in one band would act on another band or on the theme (measured passing kses today: `popovertarget="pp-nav-menu"`, `label for="pp-ai-input"`, `details name`, `usemap`). | each attribute with an in-band target admitted and an out-of-band target refused, in Chromium: the out-of-band target's state is unchanged after the control is activated |
 
@@ -839,8 +863,9 @@ finding.
 **the exclusion wins.** Core's `post` context admits `object` and `title`, and E3/E4 exclude
 them (except Δ2's same-install PDF `object` row, P-11); the M-4 table is the base **minus**
 §4. E4's `title` is the HTML `title` element; SVG's `title` (Δ1) is a different element in a
-different namespace and stays admitted. The base's `textarea` and `button` stay admitted;
-P-5 (ratified 2026-10-04: admit) decided the Δ5 additions.
+different namespace and stays admitted. The base's `button` stays admitted; its `textarea`
+(with `fieldset` and `legend`) is refused while Δ5 is descoped. P-5 (ratified 2026-10-04: admit)
+decided the Δ5 additions, descoped by the owner 2026-10-05 to the Layer-3 forms contract.
 
 **What is NOT on this list, deliberately:**
 
@@ -1725,6 +1750,8 @@ no `formaction` family?
   the theme cannot inspect (§7.5). A reviewed `action` is safer than an unreviewed plugin.
 - **RATIFIED 2026-10-04 (#1167):** **admit** `form` and its controls, `action` under E2, no
   `formaction` family. Folded into Δ5, Δ4, §2.1 and §4.
+- **DESCOPED BY OWNER 2026-10-05 (#1242):** not admitted in this release; the admission moves,
+  as ratified, to the Layer-3 forms contract (Δ5).
 
 **P-6. Engine-built embeds.** Author-written iframes stay hard-excluded (E3). Should the
 **engine** build iframes, for a named provider allowlist (video, maps), from a URL the author
@@ -1791,6 +1818,11 @@ the owner rules to refuse it.
 - **RATIFIED 2026-10-04 (#1167):** **admit** `<object type="application/pdf">` with a
   same-install uploads `data`, as a named Δ2 exception row. Folded into Δ2, E3, §4's precedence
   note and the STATUS block.
+- **Implemented (T3a, 2026-10-05 ruling):** "this install's uploads" is compared on the canonical
+  origin, scheme, host and port (each URL's port explicit or its scheme's default; http against an
+  https base is refused as mixed content; a root-relative path is judged on the site's origin), with the path's dot
+  segments resolved by the shared URL canonicaliser; a host spelled in characters a browser would
+  map (full-width, an ideographic full stop) is never equal to the uploads host, so it is refused.
 
 **P-12. Static SVG references and `textPath`.** E5 refuses same-document `href` on gradients,
 patterns and filters (gradient inheritance) and refuses `textPath`.
@@ -1934,6 +1966,7 @@ reason, and omits `method="dialog"`, which closes an admitted `dialog` with no s
 - **RATIFIED 2026-10-04 (#1167):** **admit** `method="dialog"`; **admit** `type=file` with
   `enctype` gated to the three standard values, under the same E2-gated `action`. Folded into Δ5
   and §6.2 rule 5.
+- **DESCOPED BY OWNER 2026-10-05 (#1242):** goes with Δ5 to the Layer-3 forms contract.
 
 **P-25. What a human can edit in a custom band.** Plain islands exclude `a` and `button` hosts,
 so a link or button label cannot be edited without a structural write. There are no attribute
@@ -2045,7 +2078,8 @@ shape the item names (for example, it refuses a `form` still open when its conta
 and records the item as a named deviation under #1242's acceptance, rather than choosing a
 mechanism silently:
 
-1. **An unclosed `form` (P-5).** The parser's form-element pointer can outlive the sink
+1. **An unclosed `form` (P-5).** *Moot in this release: forms are descoped (Δ5); carried to the
+   Layer-3 forms contract.* The parser's form-element pointer can outlive the sink
    container, so a later form's controls on the page join the author's form; E10's sentinel
    does not see it. Candidate: no `form` open when the container closes, judged on the parser's
    own form-element pointer (a lexical pointer is cleared by a `</form>` the parser ignores,
@@ -2055,7 +2089,14 @@ mechanism silently:
    `itemref` are not on it. Candidate: define E12 by type (every IDREF/IDREFS attribute). The
    same question applies to E2's URL-attribute list and E9's redirector list (for example
    `referrerpolicy`), and to E11's reach (`img` `id`+`name`, form-control `id`s inside a form);
-   and P-18's "editor namespace attributes" needs a grammar and a value gate.
+   and P-18's "editor namespace attributes" needs a grammar and a value gate. *Ruled 2026-10-05
+   (#1242, cycle-9 ruling), implemented in T3a:* same-document SVG fragment references
+   (`<use href="#x">` and the other fragment-`href` elements, `url(#x)` in an SVG reference
+   attribute or any `style` attribute) are E12 references, symmetric with ids: the target is in
+   the same band and no other band carries that id. A `usemap="#m"` binds to the first `<map>`
+   named or id'd `m` in the document, so no other band may carry that name or id either. E12's
+   list carries `commandfor`, `aria-owns`, `aria-activedescendant`, `aria-errormessage`,
+   `aria-flowto` and `itemref`; editor-namespace attributes run Δ1's value gate.
 3. **The P-11 `<object>` row's exact attributes and `data` resolution.** `name` makes a
    navigable target, browsers render by Content-Type rather than `type`, and core's
    same-install PDF check is looser than "this install's uploads".
@@ -2076,13 +2117,17 @@ mechanism silently:
    `:checked`, the P-4 note as presented listed `:hover`, `:focus`, `:checked` and `:target`
    (T-10 exempts those four until ruled), and other admitted conditions (`:active`,
    `:focus-within`, `:open`, `:popover-open`, `:modal`) are not yet classed.
-9. **What E2 checks for a form `action` (P-5, P-24).** A scheme check admits any `http(s)` host
+9. **What E2 checks for a form `action` (P-5, P-24).** *Moot in this release: forms are descoped
+   (Δ5); the ruled gate below, and the host canonicalisation it needs, go to the Layer-3 forms
+   contract.* A scheme check admits any `http(s)` host
    and same-site admin endpoints. With a `password` input and a credential `autocomplete` token,
    browser autofill on the site's own origin can hand a visitor's saved credentials to a host the
-   author chose in one click. Autofill does not need an `autocomplete` token, so the
-   fail-closed shape until this is ruled is: any `password` input in a form whose `action` is
-   not same-origin, and any form whose `action` is a same-site admin endpoint (`wp-admin/`,
-   `wp-login.php`, `admin-ajax.php`, `admin-post.php`), is refused.
+   author chose in one click. Autofill does not need an `autocomplete` token. *Ruled 2026-10-05
+   (#1242, "Step-11 contract tightenings"), implemented in T3a (clause Δ5):* a `password` input
+   with a form owner, in a prop that holds a form whose `action` is not same-origin with the site,
+   is refused. So is any form whose `action` is a same-site admin endpoint (`wp-admin/`,
+   `wp-login.php`, `admin-ajax.php`, `admin-post.php`, matched by path in any percent-encoded
+   spelling). An on-origin password form is admitted.
 10. **Island content parsed under its host's ancestors.** An `inline` host inside an authored
     `a` or `button` lets island content restructure the markup; the island's wrapper and the
     composed check both use the host alone.
@@ -2092,8 +2137,12 @@ mechanism silently:
 12. **Who may write the widened set.** Composition writes check `edit_post`; nothing ties the
     Δ admissions to `unfiltered_html`, which WordPress uses to decide who may write beyond core
     `post`. Whether the widened set needs that capability, or the trust tier is stated as
-    "anyone who can edit the page". Fail-closed shape until ruled: a write that uses an
-    admission beyond core `post` by a user without `unfiltered_html` is refused.
+    "anyone who can edit the page". *Ruled 2026-10-05 (#1242, "Step-11 contract tightenings"),
+    implemented in T3a:* the widened admissions require `unfiltered_html`. A writer without it
+    writes the core `post` set the site's kses applies: its elements and their attributes,
+    `wp_allowed_protocols()` URLs, and a `style` that core's `safecss_filter_attr()` leaves
+    whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped.
+    WP-CLI writes with server-level access, as PromptingPress's other CLI gates treat it.
 13. **`title_accent` on a parsed title (P-2).** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):* it
     operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
     bytes (implementation: T3b).

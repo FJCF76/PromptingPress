@@ -71,12 +71,13 @@ next. The rule (#439):
 | Contract | Props | What you may write |
 |----------|-------|--------------------|
 | **Rich HTML** (`wp_kses_post`) | `section.body`, `faq.items[].answer`, `table.rows[][]` cells, `embed.content`, `hero.proof` | Block markup: paragraphs, lists, headings, links, `strong`/`em`. `section.body` and `faq.items[].answer` are the main prose surfaces; a `table` **cell** takes the same contract (its `headers` and `caption` do not — those are plain text); `embed.content` is additionally passed through `do_shortcode()` after sanitizing, which is why shortcode brackets survive; `hero.proof` is a free-form trust-signal panel. |
-| **Inline HTML** (`a, strong, em, br`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements — `<p>`, `<ul>`, `<h2>` are stripped. |
+| **Inline HTML** (`a, strong, em, br`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote` | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements: a write with `<p>`, `<ul>` or `<h2>` here is refused. |
 | **Plain text** (escaped) | Titles, eyebrows, subheadings, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].title`, `grid.items[].bullets[]`, `testimonials.items[].author`, `faq.items[].question`, `table.headers[]`, `table.caption`, `logos.items[].label`, `section.body_items[]`, `section.panel_body`, `section.panel_items[]`, and all URLs | Text only. Any `<...>` renders as visible characters, not markup. Note `table` splits its contract: **cells** are rich, **headers and caption** are plain. |
 
-Both HTML contracts are allowlist-sanitized: `script`, `style`, `iframe`, event
-handlers (`onclick`), and `javascript:` URLs are always stripped, whoever authored
-the content. A link in a supporting-text prop is normal marketing copy — write it
+Both HTML contracts are checked at write: content with `script`, `style`, `iframe`,
+a form, event handlers (`onclick`) or a `javascript:` URL is refused whole with
+`content_construct_excluded`, naming the construct; nothing is stripped or stored.
+In a title or other plain-text prop, write a literal `<` as `&lt;`. A link in a supporting-text prop is normal marketing copy — write it
 as real HTML (`<a href="...">`), not as escaped source, and never put a link in a
 plain-text prop (it will show as literal `<a href=...>` text on the page).
 

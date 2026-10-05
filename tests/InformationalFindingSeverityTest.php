@@ -404,11 +404,18 @@ final class InformationalFindingSeverityTest extends TestCase
         $this->assertSame(0, _pp_count_info_findings([['severity' => 'warning'], 'x', null]));
     }
 
-    public function testOnlyTheMintIsInformational(): void
+    public function testOnlyTheMintAndThePluginBoundaryDisclosureAreInformational(): void
     {
-        // The informational set is exactly one type. A second entry is a gate decision
-        // and must come with its own ruling, so widening it has to fail here first.
-        $this->assertSame(['udc_token_minted'], pp_informational_finding_types());
+        // The informational set is exactly these types. Each entry is a gate decision and
+        // must come with its own ruling, so widening it has to fail here first:
+        //   udc_token_minted       #1194, ruling D1 = A
+        //   content_plugin_output  #1167 ratification, P-23 + P-9: a custom element is
+        //                          ADMITTED and disclosed under the plugin boundary, so the
+        //                          disclosure asks for nothing; as a warning it would fail
+        //                          `wp pp validate site` on content the ruling admits.
+        //   content_global_shadow  2026-10-05 ruling on T3a 7A question 4: an id equal to a
+        //                          page-script global is disclosed, never refused.
+        $this->assertSame(['udc_token_minted', 'content_plugin_output', 'content_global_shadow'], pp_informational_finding_types());
     }
 
     public function testTheDiagnosticsBucketsPartitionTheFindingsBySeverity(): void

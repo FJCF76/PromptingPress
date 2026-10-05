@@ -165,7 +165,7 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
  * @return string[]
  */
 function pp_informational_finding_types(): array {
-    return ['udc_token_minted'];
+    return ['udc_token_minted', 'content_plugin_output', 'content_global_shadow'];
 }
 
 /**

@@ -92,7 +92,8 @@ if (!function_exists('get_bloginfo')) {
 
 if (!function_exists('home_url')) {
     function home_url(string $path = ''): string {
-        return 'https://example.com' . $path;
+        // Overridable per test (the content gate's site origin, #1242 T3a).
+        return ($GLOBALS['_pp_test_home_url'] ?? 'https://example.com') . $path;
     }
 }
 
@@ -2087,19 +2088,104 @@ if (!function_exists('wp_clear_scheduled_hook')) {
     }
 }
 
-// Load the theme library files.
-require_once dirname(__DIR__) . '/lib/wp.php';
-require_once dirname(__DIR__) . '/lib/helpers.php';
-require_once dirname(__DIR__) . '/lib/components.php';
-require_once dirname(__DIR__) . '/lib/admin.php';
-require_once dirname(__DIR__) . '/lib/guardrails.php';
-require_once dirname(__DIR__) . '/lib/actions.php';
-require_once dirname(__DIR__) . '/lib/apply.php';
-require_once dirname(__DIR__) . '/lib/udc.php';
-require_once dirname(__DIR__) . '/lib/operate.php';
-require_once dirname(__DIR__) . '/lib/screenshot.php';
-require_once dirname(__DIR__) . '/lib/ai-context.php';
-require_once dirname(__DIR__) . '/lib/ai-provider.php';
-require_once dirname(__DIR__) . '/lib/ai-chat.php';
-require_once dirname(__DIR__) . '/lib/post-apply-validate.php';
-require_once dirname(__DIR__) . '/lib/setup.php';
+// ── WordPress HTML API (Layer 3A, #1242 T3a) ─────────────────────────────────
+// lib/content.php walks content with core's WP_HTML_Processor / WP_HTML_Tag_Processor,
+// the real WordPress 7.0 classes, vendored test-only into tests/fixtures/wp-html-api-7.0
+// (see its README). A stub here would test the stub: the predicate's security depends on
+// the tree builder's exact HTML5 behaviour (integration points, implied end tags, the
+// bail set P-16 pins). ContentTableDriftTest pins the fixture's version against
+// .wp-env.json, and the E2E suite re-runs the bail set against live core.
+if (!function_exists('__')) {
+    function __($text, $domain = 'default') { return $text; }
+}
+if (!function_exists('_doing_it_wrong')) {
+    function _doing_it_wrong($function_name, $message, $version): void {}
+}
+if (!function_exists('wp_trigger_error')) {
+    function wp_trigger_error($function_name, $message, $error_level = E_USER_NOTICE): void {}
+}
+if (!function_exists('wp_kses_uri_attributes')) {
+    function wp_kses_uri_attributes(): array {
+        return ['action', 'archive', 'background', 'cite', 'classid', 'codebase', 'data', 'formaction',
+            'href', 'icon', 'longdesc', 'manifest', 'poster', 'profile', 'src', 'usemap', 'xmlns'];
+    }
+}
+if (!function_exists('wp_has_noncharacters')) {
+    // Core's PCRE branch (wp-includes/utf8.php, WordPress 7.0), verbatim pattern.
+    function wp_has_noncharacters(string $text): bool {
+        return 1 === preg_match(
+            '/[\x{FDD0}-\x{FDEF}\x{FFFE}\x{FFFF}\x{1FFFE}\x{1FFFF}\x{2FFFE}\x{2FFFF}\x{3FFFE}\x{3FFFF}\x{4FFFE}\x{4FFFF}\x{5FFFE}\x{5FFFF}\x{6FFFE}\x{6FFFF}\x{7FFFE}\x{7FFFF}\x{8FFFE}\x{8FFFF}\x{9FFFE}\x{9FFFF}\x{AFFFE}\x{AFFFF}\x{BFFFE}\x{BFFFF}\x{CFFFE}\x{CFFFF}\x{DFFFE}\x{DFFFF}\x{EFFFE}\x{EFFFF}\x{FFFFE}\x{FFFFF}\x{10FFFE}\x{10FFFF}]/u',
+            $text
+        );
+    }
+}
+if (!function_exists('safecss_filter_attr')) {
+    // Test stub of core's CSS filter (the trust tier's core parity, #1242 T3a): keeps a
+    // declaration whose property is on a subset of core's safe list and whose value names no
+    // url(); drops the rest, as core does. The live e2e pins the real one.
+    function safecss_filter_attr($css, $deprecated = ''): string {
+        $keep = [];
+        foreach (explode(';', (string) $css) as $decl) {
+            if (trim($decl) === '' || strpos($decl, ':') === false) {
+                continue;
+            }
+            [$prop, $value] = array_map('trim', explode(':', $decl, 2));
+            if (in_array(strtolower($prop), ['color', 'background-color', 'font-weight', 'font-style', 'text-align',
+                'text-decoration', 'margin', 'padding', 'border', 'width', 'height'], true) && stripos($value, 'url(') === false) {
+                $keep[] = $prop . ': ' . $value;
+            }
+        }
+        return implode('; ', $keep);
+    }
+}
+if (!function_exists('wp_upload_dir')) {
+    function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false): array {
+        $base = $GLOBALS['_pp_test_upload_baseurl'] ?? 'https://example.com/wp-content/uploads';
+        return ['baseurl' => $base, 'url' => $base, 'basedir' => '/tmp/uploads', 'path' => '/tmp/uploads', 'subdir' => '', 'error' => false];
+    }
+}
+if (!function_exists('wp_scrub_utf8')) {
+    // WordPress 7.1's HTML API calls it; core's contract: invalid UTF-8 becomes U+FFFD.
+    function wp_scrub_utf8($text): string {
+        return mb_scrub((string) $text, 'UTF-8');
+    }
+}
+if (!class_exists('WP_HTML_Processor')) {
+    // PP_TEST_HTML_API picks the vendored core version (default 7.0, the version .wp-env.json
+    // pins); tests/fixtures/content/bail-set-runner.php runs the P-16 pin under 7.1.2 too,
+    // the version production runs, in a separate process.
+    $_pp_html_api_version = getenv('PP_TEST_HTML_API') ?: '7.0';
+    if (!preg_match('/^[0-9.]+\z/', $_pp_html_api_version) || !is_dir(__DIR__ . '/fixtures/wp-html-api-' . $_pp_html_api_version)) {
+        throw new RuntimeException('PP_TEST_HTML_API names no vendored HTML API: ' . $_pp_html_api_version);
+    }
+    $_pp_html_api = __DIR__ . '/fixtures/wp-html-api-' . $_pp_html_api_version . '/';
+    foreach (['class-wp-token-map', 'class-wp-html-attribute-token', 'class-wp-html-span',
+        'class-wp-html-text-replacement', 'class-wp-html-decoder', 'class-wp-html-tag-processor',
+        'class-wp-html-unsupported-exception', 'class-wp-html-active-formatting-elements',
+        'class-wp-html-open-elements', 'class-wp-html-token', 'class-wp-html-stack-event',
+        'class-wp-html-processor-state', 'class-wp-html-doctype-info', 'class-wp-html-processor',
+        'html5-named-character-references'] as $_pp_file) {
+        require_once $_pp_html_api . $_pp_file . '.php';
+    }
+    unset($_pp_html_api, $_pp_file, $_pp_html_api_version);
+}
+
+// Load the theme library files. PP_TEST_LIB_DIR points at a copy of lib/ (the content
+// gate's fail-closed test empties that copy's content-tables/ in a separate process).
+$_pp_lib = getenv('PP_TEST_LIB_DIR') ?: dirname(__DIR__) . '/lib';
+require_once $_pp_lib . '/wp.php';
+require_once $_pp_lib . '/helpers.php';
+require_once $_pp_lib . '/components.php';
+require_once $_pp_lib . '/admin.php';
+require_once $_pp_lib . '/guardrails.php';
+require_once $_pp_lib . '/actions.php';
+require_once $_pp_lib . '/apply.php';
+require_once $_pp_lib . '/udc.php';
+require_once $_pp_lib . '/operate.php';
+require_once $_pp_lib . '/screenshot.php';
+require_once $_pp_lib . '/ai-context.php';
+require_once $_pp_lib . '/ai-provider.php';
+require_once $_pp_lib . '/ai-chat.php';
+require_once $_pp_lib . '/post-apply-validate.php';
+require_once $_pp_lib . '/setup.php';
+require_once $_pp_lib . '/content.php';
