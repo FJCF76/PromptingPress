@@ -2,7 +2,7 @@
 Contributors: fjcf76
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,6 +19,10 @@ An AI-first WordPress theme built for clarity. PromptingPress uses a component-b
 4. Activate the theme.
 
 == Changelog ==
+
+= 2.0.2 =
+* The 2.0.2 trust & confidentiality fix cycle: a "Your latest posts" homepage shows the styled post listing and a visit no longer writes a page composition onto the newest blog post; composed pages honour post passwords; `wp pp validate site` checks the header and footer and fails on their advisories; a grid `update_component` items patch that would drop a stored card design is refused (`item_design_would_be_lost`) and a write no longer re-mints or deletes item ids on bands it did not validate (some carry cases remain, #1234); a stored title or image that is a list or an object no longer breaks the chat context, and a non-string stored component no longer warns on render; the docs say exactly what `wp pp operate inspect` writes
+* Verified by full PHP/JS/E2E suites per issue and independent adversarial reviews. Like every theme update, it re-opens acknowledged judgment calls; re-acknowledge them with `wp pp check acknowledge`
 
 = 2.0.1 =
 * The 2.0.1 fix cycle, seeded by rebuilding a real site on 2.0.0: a responsive value no longer fails `wp pp validate site`; a verified judgment-call advisory can be acknowledged with a required note (`wp pp check acknowledge`), and the acknowledgement re-opens when what was judged changes; `clamp()`/`calc()` lengths work in every length list; `wp pp schema` shows role defaults; the grid docs match the schema; card checklists sit under their text in a stretched row
