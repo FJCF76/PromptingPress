@@ -1596,6 +1596,14 @@ function _pp_ai_chat_fallback_response(array $post): array {
         return ['ok' => false, 'data' => 'Permission denied.'];
     }
 
+    // Per-page permission, before anything else is read or assembled: the page this turn
+    // names goes into the model context, so the user must be able to edit it. Same refusal
+    // as the capability check above; a page that does not exist gets the same answer.
+    $page_id = isset($post['page_id']) ? (int) $post['page_id'] : null;
+    if (!pp_ai_page_context_permitted($page_id)) {
+        return ['ok' => false, 'data' => 'Permission denied.'];
+    }
+
     if (!pp_ai_is_configured()) {
         return ['ok' => false, 'data' => 'AI provider not configured. Check Settings > Connectors.'];
     }
@@ -1606,7 +1614,6 @@ function _pp_ai_chat_fallback_response(array $post): array {
     // quote/backslash in the conversation must be unslashed before it
     // reaches the provider.
     $conversation = isset($post['messages']) ? wp_unslash((array) $post['messages']) : [];
-    $page_id      = isset($post['page_id']) ? (int) $post['page_id'] : null;
 
     if (empty($conversation)) {
         return ['ok' => false, 'data' => 'No messages provided.'];
@@ -1629,7 +1636,8 @@ function _pp_ai_chat_fallback_response(array $post): array {
 
     // Composition CAS baseline (#404): the SSE path ships this in its done event; the
     // fallback must too, or a proposal generated here would reach execute with no baseline
-    // and be rejected by the fail-closed mandate. Captured at the same read the model saw.
+    // and be rejected by the fail-closed mandate. Captured at the same read the model saw
+    // (a page the user may not edit was refused at the top, before anything was read).
     if ($page_id && get_post($page_id)) {
         $data['page_baseline'] = [
             'post_id' => $page_id,

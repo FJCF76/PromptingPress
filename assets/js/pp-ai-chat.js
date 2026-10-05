@@ -5126,6 +5126,26 @@ function ppChatAppendValidationItems(container, items, className) {
             signal: controller.signal
         })
         .then(function (response) {
+            // A 403 marked X-PP-Refusal is ai-stream.php refusing this request (the
+            // nonce, the capability, or the selected page's permission), not a
+            // transport failure. The fallback endpoint would refuse it too, or answer
+            // without the page, so show the refusal and stop here instead of falling
+            // back. An unmarked 403 came from something in front of WordPress (a WAF,
+            // a CDN) and takes the ordinary fallback path below.
+            if (response.status === 403 && response.headers &&
+                    typeof response.headers.get === 'function' &&
+                    response.headers.get('X-PP-Refusal') === '1') {
+                clearTimeout(watchdogTimer);
+                activeStopHandler = null;
+                return response.text().then(function (text) {
+                    return (text || '').trim() || 'Permission denied.';
+                }, function () {
+                    return 'Permission denied.';
+                }).then(function (message) {
+                    if (myRequestId !== currentRequestId) return; // abandoned (New Chat)
+                    handleStreamError(msgBody, message);
+                });
+            }
             if (!response.ok) {
                 throw new Error('HTTP ' + response.status);
             }

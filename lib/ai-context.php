@@ -902,17 +902,26 @@ function pp_ai_format_params(array $params): string {
  * the row and fails closed with no handle, because it decides whether a write may proceed.
  * A cached classification that has gone stale mid-request describes the page one moment out
  * of date, which is the honest cost of a context block; a GATE resting on one is the
- * vulnerability #833 recorded. Nothing here gates anything, so the staleness is disclosed
+ * vulnerability #833 recorded. Nothing here gates a write (the one check this reader makes
+ * is the per-page permission below, which reads no composition), so the staleness is disclosed
  * and accepted rather than paid for with a per-request query.
  *
  * @param int $post_id  WordPress post ID.
- * @return array  [] when the post does not exist — the caller's `if ($page_ctx)` guard is
- *                what that shape is for, and `composition_error` is absent from it, not
+ * @return array  [] when the post does not exist or the current user may not edit it
+ *                (pp_ai_page_context_permitted(); the two look the same on purpose) —
+ *                the caller's `if ($page_ctx)` guard is what that shape is for, and
+ *                `composition_error` is absent from it, not
  *                null. Otherwise ['id' => int, 'title' => string, 'status' => string,
  *                'composition' => array, 'composition_error' => ?string,
  *                'composition_version' => int].
  */
 function pp_ai_page_context(int $post_id): array {
+    // Per-page permission (see pp_ai_page_context_permitted()). The chat entry points refuse
+    // first; this keeps the reader itself from handing a page to a caller that skipped them.
+    // Answers exactly like a missing page.
+    if (!pp_ai_page_context_permitted($post_id)) {
+        return [];
+    }
     $post = get_post($post_id);
     if (!$post) {
         return [];
@@ -928,6 +937,34 @@ function pp_ai_page_context(int $post_id): array {
         'composition_error'   => $stored['error'],
         'composition_version' => pp_get_composition_marker($post_id)['version'],
     ];
+}
+
+/**
+ * Whether the current user may have this page's composition placed in the chat context.
+ *
+ * The chat surface is an editing surface: what the model reads, it proposes changes to, and
+ * every page-scoped chat action already requires `edit_post` on its target
+ * (_pp_required_caps_for(), lib/ai-chat.php). The context read uses the same bar, so the
+ * assistant never sees a page its user could not open in the editor. `edit_post` rather than
+ * `read_post`: core maps `read_post` on a published page to plain `read` without consulting
+ * a post password, so it would not honour a protected page.
+ *
+ * No page in scope (null or 0) is permitted: there is nothing page-specific to load. A page
+ * id that does not exist is refused exactly like one the user may not edit (core maps both to
+ * `do_not_allow`), so this check's answer does not say whether a page exists.
+ *
+ * One owner for ai-stream.php, the non-streaming fallback and pp_ai_page_context() itself.
+ * Lives here, not in lib/ai-chat.php, because ai-stream.php runs outside wp-admin, where
+ * lib/ai-chat.php is not loaded.
+ *
+ * @param int|null $page_id  The page the chat request names, already cast to int.
+ * @return bool
+ */
+function pp_ai_page_context_permitted(?int $page_id): bool {
+    if (!$page_id) {
+        return true;
+    }
+    return current_user_can('edit_post', $page_id);
 }
 
 // ── Media Inventory ────────────────────────────────────────────────────────
