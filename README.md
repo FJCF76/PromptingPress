@@ -121,6 +121,9 @@ wp pp apply preview update_design_token \
 
 # Check theme file integrity after deployment
 wp pp integrity check
+
+# After an update: list stored content that renders differently from how it is stored (read-only)
+wp pp content census
 ```
 
 ---
