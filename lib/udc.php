@@ -152,12 +152,16 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
  * (the write envelope, `wp pp check page`, `wp pp validate site`, the chat restore card);
  * only the site gate ignores it.
  *
- * Exactly one type is informational, and the list is deliberately closed:
+ * The list is deliberately closed. Its first member:
  *
  *   udc_token_minted  "you wrote 19px; it is stored as the band token --pp-..." fires once
  *                     per responsive literal. It is the section 3.1 no-coercion disclosure,
  *                     so it must be DELIVERED, but it is not a problem, and while it gated,
  *                     any breakpoint map made a correct site fail the gate (#1194).
+ *
+ * The Layer-3 disclosures joined it, each under its ruling: content_plugin_output (P-23/P-9),
+ * content_global_shadow (E11, 2026-10-05) and custom_band_unverified (ruling Q2 = A on #1242 T5,
+ * §7.4: a construct the contract admits must not fail the gate by its mere presence).
  *
  * Adding a type here takes a finding out of the gate everywhere, so it is a gate decision
  * that needs its own ruling (pinned by InformationalFindingSeverityTest).
@@ -165,7 +169,7 @@ const PP_UDC_MAX_EMIT_DROPS = 200;
  * @return string[]
  */
 function pp_informational_finding_types(): array {
-    return ['udc_token_minted', 'content_plugin_output', 'content_global_shadow'];
+    return ['udc_token_minted', 'content_plugin_output', 'content_global_shadow', 'custom_band_unverified'];
 }
 
 /**

@@ -371,6 +371,13 @@ class MeasureSurfaceTest extends TestCase
                 continue;
             }
             $roles = json_decode((string) file_get_contents($file), true)['roles'] ?? [];
+            // The custom band (#1242 T5, LAYER-3-CONTRACT.md §7) renders no template heading:
+            // its headings are the author's markup, measured through its scoped sheet, and it
+            // declares `_band` only. Stated, not skipped silently.
+            if ($component === 'custom') {
+                $this->assertSame(['_band'], array_keys($roles), 'custom declares the band role only');
+                continue;
+            }
 
             // The role that actually declares the cap, not the one whose name suggests it.
             $role = null;

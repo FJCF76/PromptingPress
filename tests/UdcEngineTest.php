@@ -1773,6 +1773,11 @@ final class UdcEngineTest extends TestCase
                 'title'   => 'Book a call',
                 'content' => '<p>Pick a slot. <a href="/contact">Contact us</a> if none fit.</p>',
             ],
+            // custom (#1242 T5) declares `_band` only; its selector is the band root.
+            'custom' => [
+                'markup'  => '<div><h2 data-pp-island="title"></h2></div>',
+                'islands' => ['title' => 'A custom band'],
+            ],
             // stats needs ONE fixture: every role renders together (heading, accented
             // substring, list, item, figure, caption). logos needs TWO, for the reason
             // section does — `item-labeled` and `image-labeled` only exist on an item that

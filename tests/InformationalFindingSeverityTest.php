@@ -415,7 +415,11 @@ final class InformationalFindingSeverityTest extends TestCase
         //                          `wp pp validate site` on content the ruling admits.
         //   content_global_shadow  2026-10-05 ruling on T3a 7A question 4: an id equal to a
         //                          page-script global is disclosed, never refused.
-        $this->assertSame(['udc_token_minted', 'content_plugin_output', 'content_global_shadow'], pp_informational_finding_types());
+        //   custom_band_unverified orchestrator ruling Q2 = A on #1242 T5 (2026-10-05), under
+        //                          LAYER-3-CONTRACT.md §7.4: a construct the contract admits
+        //                          must not fail the gate by its mere presence; the disclosure's
+        //                          job is visibility (every custom band carries it).
+        $this->assertSame(['udc_token_minted', 'content_plugin_output', 'content_global_shadow', 'custom_band_unverified'], pp_informational_finding_types());
     }
 
     public function testTheDiagnosticsBucketsPartitionTheFindingsBySeverity(): void

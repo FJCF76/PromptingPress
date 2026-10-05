@@ -4,8 +4,8 @@ Styling one band on one page. Two systems exist, they do not overlap, and the fi
 establish is which one the component you are looking at is on.
 
 **Almost everything is on the Universal Design Contract (v2).** You style it by putting a `udc`
-map on the band, beside `props`. Ten composable components and both chrome components work this
-way: `cta`, `embed`, `faq`, `grid`, `hero`, `logos`, `section`, `stats`, `table`, `testimonials`,
+map on the band, beside `props`. Eleven composable components and both chrome components work this
+way: `cta`, `custom`, `embed`, `faq`, `grid`, `hero`, `logos`, `section`, `stats`, `table`, `testimonials`,
 plus `nav` and `footer`.
 
 **NO component is on style slots any more (#1101).** `grid` was the last one; the v1 paragraphs below describe `style_component`
@@ -533,6 +533,7 @@ exists to look a name up on.
 | component | recipe |
 |---|---|
 | cta | — |
+| custom | — |
 | embed | — |
 | faq | — |
 | grid | — |

@@ -199,6 +199,7 @@ function pp_prop_definition_keys(): array {
         'item_type', 'items', 'min', 'max', 'max_items', 'item_max_length',
         'applies_when',         // #575
         'conditionality_note',  // #575
+        'structural_only',      // #1242 T5, LAYER-3-CONTRACT P-7: edited only by structural writes
     ];
 }
 
@@ -749,6 +750,14 @@ function pp_schema_definition_errors(array $definition, string $kind, string $la
         if (!in_array($key, $allowed, true)) {
             $errors[] = "{$label}: unknown {$kind} definition key `{$key}`.";
         }
+    }
+
+    // P-7 (#1242 T5): `structural_only: true` marks a prop that only structural writes edit
+    // (update_component / update_composition, i.e. the AI and the JSON editor). The per-field
+    // human surfaces read it: `wp pp operate patch` refuses the field, and the accordion
+    // editor shows it without a control. A bounded boolean, and only `true` means anything.
+    if (array_key_exists('structural_only', $definition) && $definition['structural_only'] !== true) {
+        $errors[] = "{$label}: `structural_only` must be `true` when declared (omit it otherwise).";
     }
 
     if (array_key_exists('applies_when', $definition)) {

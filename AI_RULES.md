@@ -79,7 +79,7 @@ Rules for editing `assets/css/`:
   border and shadow is in a role's `defaults` in its `schema.json`. The structural-CSS
   lint enforces this per component and is fail-closed on a property it does not
   recognise, so a property in neither classification has no legal home until it is
-  classified. As of #1101 that covers testimonials, hero, section, cta, faq, table, embed, stats, logos, grid, nav and footer.
+  classified. As of #1242 that covers testimonials, hero, section, cta, faq, table, embed, stats, logos, grid, custom, nav and footer.
   **One narrow amendment, #1084:** six layout properties (`grid-template-columns`,
   `flex-direction`, `flex-wrap`, `justify-content`, `align-items`, `align-self`) stay in
   the stylesheet AND are owned by the `layout` group / `sizing.align-self`. The rule the

@@ -2307,6 +2307,18 @@ function pp_parse_composition_selector(string $selector_string) {
         $rest = substr($rest, 1);
     }
 
+    // ── A custom band's island: islands.<name> (LAYER-3-CONTRACT.md §7.2, #1242 T5) ──
+    // The island name grammar is the predicate's (lib/content.php). Not after an items[]
+    // match: islands are a band-level prop.
+    if (!isset($result['nested_match_field']) && str_starts_with($rest, 'islands.')) {
+        if (!preg_match('/^islands\.([a-z][a-z0-9_-]{0,63})$/', $rest, $m)) {
+            return new WP_Error('invalid_selector', sprintf('Invalid selector: an island is islands.<name>, where <name> is a lowercase letter followed by up to 63 lowercase letters, digits, "_" or "-", in "%s".', $selector));
+        }
+        $result['target_field'] = 'islands';
+        $result['island'] = $m[1];
+        return $result;
+    }
+
     // ── Parse target field ──
     if (!preg_match('/^([a-z][a-z0-9_]*)$/', $rest, $m)) {
         return new WP_Error('invalid_selector', sprintf('Invalid selector: cannot parse target field from "%s".', $selector));
@@ -2470,6 +2482,16 @@ function pp_get_component_fields(string $component_type): array {
 
     $fields = [];
     foreach ($props as $prop_name => $prop_def) {
+        // P-7 (#1242 T5): a `structural_only` prop is edited by structural writes only
+        // (update_component / update_composition), never as a single patched field.
+        if (is_array($prop_def) && ($prop_def['structural_only'] ?? false) === true) {
+            continue;
+        }
+        // §7.2: a custom band's islands are patched one at a time, as islands.<name>.
+        if ($component_type === 'custom' && $prop_name === 'islands') {
+            $fields[] = ['name' => 'islands.<name>', 'type' => 'string'];
+            continue;
+        }
         $scalar_type = pp_component_scalar_type($prop_def);
         if ($scalar_type !== null) {
             $field = ['name' => $prop_name, 'type' => $scalar_type];
@@ -3107,6 +3129,25 @@ function pp_inspect_composition(int $post_id): array|WP_Error {
             // enforces on a patch (#506/#507/#509). Null when the prop has none.
             $field_format = $fdef['format'] ?? null;
 
+            // A custom band's islands (§7.2): one field per island its markup names, plus any
+            // stored entry, each patchable as islands.<name>. Qualified by the band id when it
+            // has one (a custom band has no title to match on).
+            if ($field_name === 'islands.<name>') {
+                $stored = is_array($props['islands'] ?? null) ? $props['islands'] : [];
+                $names = array_keys(pp_content_custom_host_kinds(is_string($props['markup'] ?? null) ? $props['markup'] : ''));
+                foreach (array_unique(array_merge($names, array_map('strval', array_keys($stored)))) as $island) {
+                    $fields[] = [
+                        'selector'      => is_string($component_id) && $component_id !== ''
+                            ? sprintf('%s[id="%s"].islands.%s', $type, str_replace(['\\', '"'], ['\\\\', '\\"'], $component_id), $island)
+                            : sprintf('%s.islands.%s', $type, $island),
+                        'field'         => 'islands.' . $island,
+                        'field_type'    => $field_type,
+                        'field_format'  => null,
+                        'current_value' => $stored[$island] ?? null,
+                    ];
+                }
+                continue;
+            }
             // Nested items field (e.g. items[].title)
             if (str_starts_with($field_name, 'items[].')) {
                 $nested_field = substr($field_name, 8); // strip 'items[].'
@@ -3355,8 +3396,22 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
     $fields_def = pp_get_component_fields($component_type);
     if ($is_nested) {
         $field_key = 'items[].' . $target_field;
+    } elseif (isset($parsed['island'])) {
+        $field_key = 'islands.<name>';
     } else {
         $field_key = $target_field;
+    }
+    // P-7 (LAYER-3-CONTRACT.md, ratified 2026-10-04): a structural prop is refused here BY
+    // NAME, so the refusal says where the edit belongs rather than listing other fields.
+    $prop_def = (function_exists('pp_get_registered_components') ? pp_get_registered_components() : [])[$component_type]['props'][$field_key] ?? null;
+    if (!$is_nested && is_array($prop_def) && ($prop_def['structural_only'] ?? false) === true) {
+        return new WP_Error(
+            'field_not_editable',
+            sprintf('Field "%s" on "%s" is structural (LAYER-3-CONTRACT.md P-7): it is edited only by a structural write, '
+                . 'update_component or update_composition (the assistant and the JSON editor), never as a patched field. '
+                . 'Nothing was changed. Edit the text inside it through its islands: %s.islands.<name>.',
+                $field_key, $component_type, $component_type)
+        );
     }
     $field_found = false;
     foreach ($fields_def as $fdef) {
@@ -3407,6 +3462,13 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
             'post_id'         => $post_id,
             'component_index' => $component_index,
             'props'           => ['items' => $items],
+        ];
+    } elseif (isset($parsed['island'])) {
+        // One island, merged by key (update_component, §7.2): its siblings are kept as stored.
+        $action_params = [
+            'post_id'         => $post_id,
+            'component_index' => $component_index,
+            'props'           => ['islands' => [$parsed['island'] => $value]],
         ];
     } else {
         // Top-level field

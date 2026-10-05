@@ -132,17 +132,17 @@ class ModelFacingRosterTest extends TestCase
             [
                 'AI_CONTEXT.md\'s styling route',
                 $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's styling route"),
-                '/For the TEN v2 components \(([^)\n]{0,200})\)/',
+                '/For the ELEVEN v2 components \(([^)\n]{0,200})\)/',
             ],
             [
                 'AI_CONTEXT.md\'s style-slot exclusion',
                 $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's style-slot exclusion"),
-                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all ten of ([^:\n]{0,200}):/',
+                '/NONE OF THIS APPLIES TO A v2 COMPONENT — all eleven of ([^:\n]{0,200}):/',
             ],
             [
                 'AI_CONTEXT.md\'s band-background roster',
                 $this->anchorSource('AI_CONTEXT.md', "AI_CONTEXT.md's band-background roster"),
-                '/Every v2 component is different, and better:\*\* on all ten of ([^\n]{0,200}?) the band background/',
+                '/Every v2 component is different, and better:\*\* on all eleven of ([^\n]{0,200}?) the band background/',
             ],
             [
                 // THE FILE EVERY OTHER FILE POINTS AT for styling, and the only complete
@@ -150,17 +150,17 @@ class ModelFacingRosterTest extends TestCase
                 // precisely because they needed the authoritative list.
                 'style-component.md\'s opening roster',
                 $this->anchorSource('ai-instructions/style-component.md', "style-component.md's opening roster"),
-                '/Ten composable components and both chrome components work this\s+way: ([^.]{0,200}?),\s+plus/s',
+                '/Eleven composable components and both chrome components work this\s+way: ([^.]{0,200}?),\s+plus/s',
             ],
             [
                 'retheme.md\'s rhythm tier split',
                 $this->anchorSource('ai-instructions/retheme.md', "retheme.md's rhythm tier split"),
-                '/\*\*The ten v2 components\*\* \(([^)]{0,200})\)/s',
+                '/\*\*The eleven v2 components\*\* \(([^)]{0,200})\)/s',
             ],
             [
                 'retheme.md\'s dark-band trap',
                 $this->anchorSource('ai-instructions/retheme.md', "retheme.md's dark-band trap"),
-                '/All TEN v2 components — (.{0,200}?) — have no `theme` prop/s',
+                '/All ELEVEN v2 components — (.{0,200}?) — have no `theme` prop/s',
             ],
         ];
 

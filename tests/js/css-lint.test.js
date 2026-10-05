@@ -2892,7 +2892,7 @@ const NEGATIVE_PULL = /^(-[\d.]|calc\(\s*-\s*[\d.]+\s*\*)/;
     // are named here, and a named one is asserted to have EXACTLY zero rules while every
     // other v2 component keeps the original floor. A rule creeping back into embed's block
     // fails; a slicer that stops finding any block fails for every other component.
-    const INTENTIONALLY_RULE_FREE = ['embed'];
+    const INTENTIONALLY_RULE_FREE = ['embed', 'custom'];
 
     v2Components.forEach(component => {
         test(`${component}'s CSS block declares only structure`, () => {
@@ -4615,6 +4615,9 @@ describe('CSS lint: the Layout group is exposed by box fact, not by judgement', 
         grid: ['card', 'card-body', 'card-bullets', 'card-link', 'list'],
         testimonials: ['list', 'card', 'attribution'],
         embed: [],
+        // #1242 T5: the custom band switches no box of its own (its insides are the
+        // author's markup), so nothing here exposes the Layout group.
+        custom: [],
     };
 
     const derive = (component) => {
