@@ -47,9 +47,10 @@ re-check them after upgrading.
 ### ⚠️ Behaviour changes
 
 - **`wp pp validate site` can now fail a site that passed under 2.0.1**, on a header or footer
-  advisory. Header and footer findings cannot be acknowledged yet (#1220), so fix the value. An
-  intentional raw `_css` property on the header or footer keeps failing the gate until you remove it
-  or #1220 lands, so a deploy pipeline that gates on this command will block on it.
+  advisory. Header and footer findings cannot be acknowledged yet (#1220), so fix the value. A raw
+  `_css` property outside the design vocabulary (`udc_css_unchecked_property`) on the header or
+  footer keeps failing the gate until you remove it or #1220 lands, so a deploy pipeline that gates
+  on this command will block on it.
 - **Three grid `items` patches that used to succeed are now refused** with
   `item_design_would_be_lost`: a patch that adds or removes a card without re-sending the `id` of
   every styled card it keeps; a same-length patch that names a card by `id` at a position where a
@@ -68,8 +69,8 @@ re-check them after upgrading.
 
 This is a theme-only update. It changes nothing stored and needs no migration; step 4 is an optional
 cleanup for sites that ever ran a "Your latest posts" homepage.
-1. If you use `wp pp readiness`, run `wp pp readiness rebaseline` after replacing the theme files, so
-   the new files are not reported as changed since 2.0.1.
+1. If you use `wp pp readiness`, run `wp pp readiness status` after replacing the theme files. When
+   the only drift it reports is the 2.0.2 files, run `wp pp readiness rebaseline`.
 2. Run `wp pp validate site`. If the new header and footer section fails, fix the value with
    `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with
    `save_preset`. Do this before you acknowledge page judgment calls: every `pp_site_udc` or preset
@@ -90,6 +91,11 @@ cleanup for sites that ever ran a "Your latest posts" homepage.
 5. If an agent or script patches grid `items`, have it re-send the `id` of every styled card it keeps
    (read them with `wp post meta get <post_id> _pp_composition`). To delete a styled card, first send
    `"udc": {}` on it in a patch that keeps the same number of cards, then remove it in a second write.
+
+**Rolling back to 2.0.1** brings the fixed behaviour back: a password-protected composed page shows
+its bands to visitors without the password again (set such pages to private or draft first), a
+"Your latest posts" homepage writes onto blog posts again (use a static front page, or repeat step 4
+afterwards), and `wp pp readiness` reports the theme files as changed until you rebaseline again.
 
 ### Known issues (rolled up)
 
@@ -189,7 +195,7 @@ who has not entered its password.
 
 #### Fixed
 - **"Your latest posts" homepage.** Renders the post listing with its default styles instead of an
-  unstyled default homepage, and no longer writes a page composition onto the newest blog post.
+  unstyled default homepage, and no longer writes a page composition onto a blog post.
 - **A password-protected newest post on a "latest posts" homepage.** Its stored composition is not
   shown there; the listing shows it the way WordPress shows any protected post.
 - **A password-protected static front page with no composition yet.** A visitor without the
