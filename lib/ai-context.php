@@ -110,8 +110,8 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
-    // Page inventory
-    $pages = pp_composition_pages();
+    // Page inventory: the pages this user can work on (pp_ai_editable_pages()).
+    $pages = pp_ai_editable_pages(pp_composition_pages());
     if ($pages) {
         $parts[] = '## Pages';
         foreach ($pages as $page) {
@@ -119,12 +119,23 @@ function pp_ai_system_prompt(): string {
         }
         $parts[] = 'To change a page\'s URL, use the update_page_slug action (post_id + slug) — never guess or construct a URL, and never propose a slug change without confirming the current URL above first.';
     } else {
+        // "No pages exist yet." only when it is true AND the user may already know it: the
+        // unfiltered list is empty and the user can open the Pages screen (edit_pages) and see
+        // private pages there (read_private_pages), the two capabilities under which core lists
+        // every page title to them (administrators and editors). Everyone else is told the list
+        // is empty for them, which is true whether or not other pages exist, so the line says
+        // nothing about pages this user cannot see. It is no longer than the first sentence, so
+        // the budget pin's empty-site figure covers both.
         $parts[] = '## Pages';
-        $parts[] = 'No pages exist yet.';
+        $parts[] = current_user_can('edit_pages') && current_user_can('read_private_pages') && pp_composition_pages() === []
+            ? 'No pages exist yet.'
+            : 'None you can edit.';
     }
     // THE POSTS PAGE AS A COMPOSITION (#1181). Stated once, outside the page list, so it
-    // reaches the model on every site (the list only prints when pages exist, and marks the
-    // posts page when there is one). The catalog line already carries
+    // reaches the model on every site (the list only prints when this user has pages they can
+    // edit, and marks the posts page only when it is one of them, so for a user who cannot edit
+    // the posts page "none marked" reads as "none set": accepted, the sentence is shared by
+    // every user and the prompt budget has no room for the longer wording). The catalog line already carries
     // `items_source?: "posts"`; this is the part the enum cannot say.
     $parts[] = 'POSTS PAGE: the page marked "posts page" above (set in Settings -> Reading; none marked, none set) renders its own composition when it has one. Its post listing is a grid band with `"items_source": "posts"` and `"items": []`, accepted only there (one per page, no per-card udc).';
     $parts[] = '';
@@ -967,6 +978,35 @@ function pp_ai_page_context_permitted(?int $page_id): bool {
     return current_user_can('edit_post', $page_id);
 }
 
+/**
+ * The pages from a page list that the current user can work on in the chat.
+ *
+ * Every page list the chat shows or tells the model about goes through here: the system
+ * prompt's page inventory, the page dropdown (server-rendered and the copy handed to the
+ * script) and pp_ai_site_context(). A page is kept when pp_ai_page_context_permitted()
+ * admits it, the same check every chat turn makes on the page it names, so a listed page
+ * is always one the chat will accept. With the stock roles, an administrator or editor
+ * keeps every page, and an author or contributor (no page capabilities) keeps none.
+ *
+ * A row without a positive id is dropped: the permission check answers "permitted" for
+ * "no page", which is right for a turn with no page in scope and wrong for a list entry.
+ *
+ * @param  array<int, array{id: int, title: string, status: string, url: string}> $pages
+ *         Usually pp_composition_pages().
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ *         The kept rows, in their original order, re-indexed from 0.
+ */
+function pp_ai_editable_pages(array $pages): array {
+    $kept = [];
+    foreach ($pages as $page) {
+        $id = (int) ($page['id'] ?? 0);
+        if ($id > 0 && pp_ai_page_context_permitted($id)) {
+            $kept[] = $page;
+        }
+    }
+    return $kept;
+}
+
 // ── Media Inventory ────────────────────────────────────────────────────────
 
 /**
@@ -1026,7 +1066,7 @@ function pp_ai_site_context(): array {
             'description' => pp_site_description(),
             'url'         => pp_site_url(),
         ],
-        'pages'      => pp_composition_pages(),
+        'pages'      => pp_ai_editable_pages(pp_composition_pages()),
         'menus'      => pp_get_menus(),
         'components' => array_keys(pp_composable_components()),
         'actions'    => array_keys(pp_get_registered_actions()),
