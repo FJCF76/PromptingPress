@@ -4066,8 +4066,18 @@ function ppChatAppendValidationItems(container, items, className) {
      * Blocks sending: no page is selected. Directs the user to the selector
      * instead of proceeding with page_id: null (issue 136). If detection
      * found a candidate, names it as a hint — it is never auto-selected.
+     *
+     * With no pages to choose from (the page list holds only the pages this user can
+     * work on, and it can be empty), there is nothing to select: say so plainly, as a
+     * status line rather than an error pointing at an empty dropdown. The text is the
+     * English "No pages found." like every other string in this file; the dropdown's
+     * empty option is WordPress's translated copy of the same words.
      */
     function showPageSelectionPrompt(detectedPageId, pages) {
+        if (!pages || pages.length === 0) {
+            addStatusMessage('No pages found.', false);
+            return;
+        }
         var detectedPage = ppChatFindPageById(detectedPageId, pages);
         var text = detectedPage
             ? 'Select a page before sending — did you mean "' + detectedPage.title + '"? Choose it from the page dropdown above.'

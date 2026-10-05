@@ -414,6 +414,19 @@ if (!function_exists('esc_attr')) {
     }
 }
 
+// Translation: no locale is loaded here, so core returns the text unchanged.
+if (!function_exists('__')) {
+    function __($text, $domain = 'default'): string {
+        return (string) $text;
+    }
+}
+
+if (!function_exists('esc_html__')) {
+    function esc_html__($text, $domain = 'default'): string {
+        return esc_html(__($text, $domain));
+    }
+}
+
 if (!function_exists('esc_url')) {
     function esc_url($url): string {
         // The early return mirrors core's shape (core returns $url untouched before

@@ -515,7 +515,7 @@ The page chosen as the **posts page** (Settings → Reading, "Posts page", with 
 - No per-card `udc`: the cards are not stored. Style every card at once through the band's roles (`card`, `card-title`, `card-text`, …).
 - Findings, not refusals, for drift: `listing_band_off_posts_page` (a listing band left on a page that is no longer the posts page — it renders empty) and `posts_page_without_listing` (the posts page's composition has no listing, so it shows no posts).
 - An empty posts-page composition renders the theme's default posts page, unchanged. So does a posts page the visitor may not see (draft, pending, private or password-protected): its composition is shown only to viewers who may read the page.
-- In the assistant's page list the posts page is marked `posts page`; with none marked the site has no posts page, and no page accepts a listing band.
+- In the assistant's page list (the pages the signed-in user can edit) the posts page is marked `posts page`; with none marked, no listed page is the posts page, so none of them accepts a listing band.
 
 ### grid.image_treatment — RETIRED (#1101)
 

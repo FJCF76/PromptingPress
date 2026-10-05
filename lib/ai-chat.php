@@ -65,8 +65,8 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         true
     );
 
-    // Pass config to JS
-    $pages = pp_composition_pages();
+    // Pass config to JS. Only the pages this user can work on (pp_ai_editable_pages()).
+    $pages = pp_ai_editable_pages(pp_composition_pages());
 
     $ai_config  = pp_ai_get_config();
     $configured = pp_ai_get_configured_connectors();
@@ -156,17 +156,12 @@ function pp_ai_chat_page(): void {
                     }
                 }
                 ?>
-                <?php $pp_ai_chat_pages = pp_composition_pages(); ?>
+                <?php $pp_ai_chat_pages = pp_ai_editable_pages(pp_composition_pages()); ?>
                 <div class="pp-ai-chat-header">
                     <h2>AI Chat</h2>
                     <label for="pp-ai-page-select" class="screen-reader-text"><?php esc_html_e('Target Page', 'promptingpress'); ?></label>
                     <select id="pp-ai-page-select" class="pp-ai-chat-selector" title="<?php esc_attr_e('Which page this conversation edits', 'promptingpress'); ?>">
-                        <option value=""><?php esc_html_e('— Select a page —', 'promptingpress'); ?></option>
-                        <?php foreach ($pp_ai_chat_pages as $pp_ai_chat_page_item): ?>
-                            <option value="<?php echo esc_attr($pp_ai_chat_page_item['id']); ?>">
-                                <?php echo esc_html($pp_ai_chat_page_item['title'] !== '' ? $pp_ai_chat_page_item['title'] : '(untitled)'); ?>
-                            </option>
-                        <?php endforeach; ?>
+                        <?php echo pp_ai_chat_page_select_options($pp_ai_chat_pages); // Escaped inside. ?>
                     </select>
                     <?php if ($is_multi_provider): ?>
                         <label for="pp-ai-provider-select" class="screen-reader-text"><?php esc_html_e('AI Provider', 'promptingpress'); ?></label>
@@ -201,6 +196,34 @@ function pp_ai_chat_page(): void {
         </div>
     </div>
     <?php
+}
+
+/**
+ * The page dropdown's options for a list of pages the user can work on.
+ *
+ * With pages: the "Select a page" placeholder, then one option per page. With none: a single
+ * empty-valued option reading WordPress's own "No pages found." (core's text domain, so it is
+ * core's translation), the same words a page list shows when it has nothing for this user.
+ * Its value is empty, so it is never a target: sending with it selected shows a plain status
+ * line instead and sends nothing (showPageSelectionPrompt() in assets/js/pp-ai-chat.js, whose
+ * English text is not translated, unlike this option).
+ *
+ * @param  array<int, array{id: int, title: string}> $pages  From pp_ai_editable_pages().
+ * @return string  Escaped <option> markup.
+ */
+function pp_ai_chat_page_select_options(array $pages): string {
+    if (!$pages) {
+        // Core's text domain on purpose: these are core's own words and translation.
+        return '<option value="">' . esc_html__('No pages found.') . '</option>';
+    }
+    $html = '<option value="">' . esc_html__('— Select a page —', 'promptingpress') . '</option>';
+    foreach ($pages as $page) {
+        $title = (string) ($page['title'] ?? '');
+        $html .= '<option value="' . esc_attr((string) $page['id']) . '">'
+            . esc_html($title !== '' ? $title : '(untitled)')
+            . '</option>';
+    }
+    return $html;
 }
 
 // ── Provider/Model Switch AJAX ────────────────────────────────────────────
@@ -1550,10 +1573,12 @@ function _pp_ai_page_baseline_response(array $post): array {
         return ['ok' => false, 'data' => 'Permission denied.'];
     }
     $post_id = isset($post['post_id']) && is_numeric($post['post_id']) ? (int) $post['post_id'] : 0;
-    if ($post_id <= 0 || !get_post($post_id)) {
+    if ($post_id <= 0) {
         return ['ok' => false, 'data' => 'Invalid page.'];
     }
-    if (!current_user_can('edit_post', $post_id)) {
+    // A page that does not exist gets the same answer as one the user may not edit, so this
+    // read does not say whether a page exists (the chat's other page checks answer the same way).
+    if (!get_post($post_id) || !current_user_can('edit_post', $post_id)) {
         return ['ok' => false, 'data' => 'Permission denied.'];
     }
     return ['ok' => true, 'data' => [
