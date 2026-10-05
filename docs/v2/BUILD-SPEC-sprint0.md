@@ -98,7 +98,9 @@ Layer 2 (breakpoint-keyed declaration lists, PP-owned property/function ALLOWLIS
 
 **RULING MARKER (owner, 2026-09-24, Sprint-3 revision session):** #909 IS IN Sprint 3 (paired with #1094 in the T1 trust cluster — the capacity clause is resolved). **Layer 3 is CONTRACT REVIEW ONLY in Sprint 3**; implementation moves post-2.0.0 (purely additive — no compat debt accrues by deferring) unless the brand-site reconstruction hits content the current sanitizer refuses, in which case that specific need re-enters as a ruled fix. Layer 2 shipped in Sprint 2 as the standing freedom guarantee (broad-by-default `_css`; see docs/v2/LAYER-2-CONTRACT.md — the allowlist wording above predates the owner's freedom ruling).
 
-**Pointer (#1167):** Layer 3's contract review is `docs/v2/LAYER-3-CONTRACT.md` — a ratifiable DRAFT; nothing in it is implemented.
+**Pointer (#1167):** Layer 3's contract is `docs/v2/LAYER-3-CONTRACT.md`.
+
+**RULING MARKER (owner, 2026-10-04, Layer-3 ratification session; folded in Sprint 6):** `docs/v2/LAYER-3-CONTRACT.md` is RATIFIED — all 27 owner-posture questions (P-1..P-27) ruled, each adopting the contract's recommendation; the binding record is the RATIFICATION section of #1167's body. Implementation is Sprint 6 (#1242): every §3 admission is bound to v2.1.0 (P-26); the §11 deferred items are guaranteed destinations with owning contracts; the questions routed under the contract's §12 table are open; and the §8.3 preview-isolation precondition is met (Sprint 6 T1a, PR #1246). This supersedes two phrases of the 2026-09-24 marker above: Layer 3 is no longer "post-2.0.0 unless the reconstruction fires" (P-26 binds its §3 admissions to v2.1.0 whether or not §9 fired), and it is not "purely additive" (the contract's STATUS block names where it is narrower than today). P-1 also supersedes the design doc's demand gate ("gated on Layer-2 escape telemetry").
 
 ---
 
