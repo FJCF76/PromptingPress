@@ -34,10 +34,37 @@ All notable changes to PromptingPress are documented here.
   in WordPress (for an editor that leaves out the privacy policy page, which WordPress reserves
   for administrators).
 
+- **Acknowledgements: a row written straight into post meta no longer acknowledges anything.**
+  `wp pp check acknowledge` now signs the row it stores with the site's own salts (`wp_hash()`,
+  sha256), over the note, the timestamp and the site, page and key it belongs to. `check page` and
+  `validate site` check that signature every time they read the row. Before this, the key that
+  `check page` prints could be copied into a hand-written row to silence a gating finding without
+  the command (#1214). A row that fails the check acknowledges nothing: its finding keeps failing
+  the gate exactly as if the row were absent, and `check page` lists it as an ignored
+  acknowledgement with the reason. It offers a route only where following it cannot destroy a
+  row that is valid somewhere else:
+  - **no signature:** acknowledge again, or remove;
+  - **signature does not verify:** no route; rule out a salt or plugin difference first;
+  - **this site cannot check signatures:** no route; fix `wp_hash()` and do not remove;
+  - **malformed key:** never shown; remove with the new
+    `wp pp check unacknowledge --post_id=<id> --malformed`, which removes only those rows.
+
+  **Upgrading:** acknowledgements made before this change carry no signature. They are not signed
+  on upgrade, because that would also bless any row planted before it, so they read as ignored.
+  Re-acknowledge the judgment calls that are still intentional, and remove the old rows with
+  `unacknowledge`. Rotating `AUTH_KEY` / `AUTH_SALT`, or copying the database to an environment
+  with other salts, ignores every acknowledgement the same way: fail closed, then re-acknowledge.
+
 ### Docs
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
   the §8.3 precondition as met.
+- `ai-instructions/validate-site.md` explains signed acknowledgements: what is signed, the four
+  ignored reasons and what each line offers, the upgrade, salt rotation and copying the database,
+  and the limits (anyone who can run PHP can sign; salts kept in the database are readable there;
+  a removed row written back byte for byte verifies again; the readiness acknowledgements are not
+  signed, #1249). `AI_CONTEXT.md`, `docs/reference-apply-cli.md` and `operating-loop.md` carry the
+  same facts and the `--malformed` route.
 
 ### Tests
 
@@ -61,6 +88,22 @@ All notable changes to PromptingPress are documented here.
   the AI context goes through the filter, and the version read's single answer for missing and
   forbidden pages. `pp-ai-chat-page-list-empty.test.js` pins the empty-list message. The test
   bootstrap gains `__()` / `esc_html__()` stubs.
+- `AdvisoryAcknowledgementSignatureTest` covers:
+  - the gap #1214 names (a hand-planted row with a note was trusted before this change);
+  - the signed round trip through `check page` and `validate site`;
+  - every covered field tampered, each with its reason;
+  - moving a row to another key, page or network site;
+  - stale and orphaned still working for signed rows;
+  - salt rotation, and every unusable `wp_hash()` answer;
+  - legacy rows, and a write that keeps an ignored neighbour as it was;
+  - malformed keys, unsigned and forged-signed, never echoed;
+  - the route each ignored line offers, and `--malformed` removing only malformed rows.
+
+  The test bootstrap gained a `wp_hash()` stub with a rotatable salt and override seams, and a
+  `get_current_blog_id()` stub.
+- `tests/e2e/ack-signing.spec.ts` runs the round trip on real WordPress with the real `wp_hash()`:
+  acknowledge, the stored row's signature, the page released, then a raw tamper that makes the row
+  ignored and named.
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
