@@ -1229,12 +1229,40 @@ selectors, so the scoped sheet is how its insides are styled.
     structural write. Plain content is escaped text, so an `a` host cannot receive a nested
     link.
   Never a void element, an RCDATA element (`textarea`, HTML `title`), a table-structure
-  element other than a cell, or anything in the SVG or MathML namespace. A wrong host is
-  refused (`custom_island_host`). How a host's own ancestors in `markup` affect parsing is open
-  (routed item 10 under the §12 table).
+  element other than a cell, or anything in the SVG or MathML namespace (read as: a host inside
+  an SVG or MathML subtree is refused too). A wrong host is refused (`custom_island_host`,
+  reported as `content_construct_excluded` naming the §7.2 clause: M-21 governs, see routed item
+  14). How a host's own ancestors in `markup` affect parsing is **ruled** (routed item 10, by
+  principle: island content is verified under its full ancestor chain); the mechanism is the
+  next bullet.
 - **The composed band is verified as a whole** (§2.1): markup and islands are sanitized
   separately, then the rendered composition is re-parsed once, in the band-root context, and
   the §4 check runs on that.
+- **Island content is verified in its host's full ancestor chain** (routed item 10, ruled by
+  principle 2026-10-05; mechanism ratified at T5's plan-eng-review). The band's render view is
+  re-parsed with each island substituted into its host and compared with the same band with the
+  islands empty, both in the full parser, with comment markers (a per-call nonce) bracketing
+  each island inside its host. An island is verified when the token stream outside every marker
+  pair is identical in both parses, its end marker's breadcrumbs equal its start marker's, and no
+  token between them sits below the host's depth. Because the parser yields a token for every
+  element it pushes or pops (reconstructed formatting elements included), that means the
+  island's subtree is exactly the host's children. Content that fails is refused at write,
+  naming the island (an inline island's `<a>` under an authored `<a>`, a `<button>` in a
+  `<button>`, `<li>` in an `li` host, a cell in a cell host); a stored island that fails renders
+  empty. A context-aware fragment parse was the rejected alternative: `create_fragment()` takes
+  only the `<body>` context in WordPress 7.0 (above), and a synthetic ancestor wrapper would
+  re-derive parser state the full parser already has.
+- **The emission belt (E6).** The custom band's emitted bytes pass a last pass that removes
+  every `data-pp-*` attribute (the island attributes too: nothing on the page reads them) and
+  every id of the minted or reserved form, independent of the predicate's tables. The predicate
+  refuses engine identity at write; the belt keeps it off the page even for bytes that reached
+  render around the gate. The template writes the band root's own `data-pp-band` and
+  `data-pp-component` outside those bytes.
+- **Bounds (M-8 as refined in Sprint 6).** `markup` takes the measured per-prop cap (64 KiB;
+  M-8's printed 128 KiB figure predates the measurement that put a 128 KiB value over the
+  one-second line), each island 16 KiB, at most 64 islands, and the band's markup and islands
+  together 128 KiB, because the composed band is parsed again as a whole. Measured worst case
+  for a maximal band: write 2.2 s, render 2.4 s, uncached (T-17; the render cache is #1089).
 - **Attribute islands** (`href`, `src`, `alt`) and **repeatable islands** are not in this
   release's island set; they are guaranteed destinations of this contract (P-25, P-26; §11).
 
@@ -1285,6 +1313,19 @@ The readability, presence and overlay findings reason about **declared roles**. 
 declares none. So those findings run on `_band` only, and the band carries one disclosure,
 `custom_band_unverified`. It states that the insides were checked for **safety** (§3–§4) and
 not for **readability**.
+
+Stated plainly (as implemented in T5):
+
+- **What the engine verifies inside custom markup:** everything §3-§4 verifies for rich content
+  (the exclusions, E10 containment, E12 references inside the band, the M-8 caps), the island
+  rules of §7.2, each island in its own sink, island content in its host's full ancestor chain,
+  and the composed band once more as a whole.
+- **What it does not:** contrast, legibility, the presence of a heading, overlay legibility on a
+  background image, or how the markup lays out at any width. It cannot see a role in the markup
+  because the markup declares none. A class borrowed from the theme renders with that class's
+  styling and is not a contract (§5.4).
+- `custom_band_unverified` is information (it asks for nothing); a warning on every custom band
+  would fail `wp pp validate site` on every admitted custom band.
 
 This is the design doc's *"reduced verifiability disclosed via the same findings check
 code"*, made specific.
@@ -2128,9 +2169,12 @@ mechanism silently:
    is refused. So is any form whose `action` is a same-site admin endpoint (`wp-admin/`,
    `wp-login.php`, `admin-ajax.php`, `admin-post.php`, matched by path in any percent-encoded
    spelling). An on-origin password form is admitted.
-10. **Island content parsed under its host's ancestors.** An `inline` host inside an authored
-    `a` or `button` lets island content restructure the markup; the island's wrapper and the
-    composed check both use the host alone.
+10. **Island content parsed under its host's ancestors.** *Ruled 2026-10-05 by principle (#1242
+    T5 brief): island content is verified under its FULL ancestor chain, and content that would
+    restructure the markup in that context is refused fail-closed. Mechanism (T5 plan-eng-review):
+    the band re-parsed with each island substituted vs empty (§7.2).* An `inline` host inside an
+    authored `a` or `button` lets island content restructure the markup; the island's wrapper and
+    the composed check both used the host alone.
 11. **Titles and headings under P-2.** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):*
     `strong`, `em`, `br` and the widening set, no `a`; a raw `<` refused at write; a stored
     failing title renders fully escaped and is census-listed.
@@ -2147,7 +2191,10 @@ mechanism silently:
     operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
     bytes (implementation: T3b).
 14. **M-17, M-20 and M-21 against §6.2 and §7.2.** Non-ASCII selector bytes, the top-level
-    comma, and the island refusal codes: which text governs.
+    comma, and the island refusal codes: which text governs. *The island codes: the mechanics
+    table governs (M-21, #1242 T5 brief): `custom_island_unknown` and `custom_island_host` are
+    reported as `content_construct_excluded` naming the §7.2 clause, and the dedicated codes are
+    findings only (`custom_island_empty`, `custom_band_unverified`).*
 15. **M-3 and custom-property case.** M-3 refuses an uppercase property and suggests the
     lowercase form; for an author custom property that suggestion names a different property.
 16. **App schemes outside link `href` (P-10).** Whether the named app schemes reach a form

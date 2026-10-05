@@ -84,6 +84,30 @@ All notable changes to PromptingPress are documented here.
   preview and the findings report never refuse on content. A write that adds a band anchor equal
   to an id already inside another band's content is refused on the band being changed.
 
+- **Layer 3C: the custom band and content islands (#1242 T5).** A new component, `custom`,
+  is a band whose inside is your own HTML (`markup`), with named **islands** for the text people
+  edit. An island is an empty element in the markup carrying `data-pp-island="<name>"`; its
+  content lives in `islands.<name>` and renders into that element, as escaped text (`plain`, the
+  default), the INLINE set (`inline`) or rich content (`rich`), chosen with
+  `data-pp-island-kind`. Each kind has its own host elements (a link or button label is a plain
+  island). The markup is checked as rich content, each island in its own contract, and the band
+  once more as a whole; island content that would restructure the markup around its host (a
+  link inside an island whose host sits in a link, a button in a button, a list item in a
+  list-item host) is refused, naming the island. Refused with `content_construct_excluded`
+  (clause `§7.2`): a wrong host, a bad or duplicate name, a 65th island, an island element with
+  content in the markup, and an `islands` entry with no element in the markup. An island the
+  markup names with no content renders empty with a `custom_island_empty` warning; every custom
+  band carries a `custom_band_unverified` note (information) saying its insides were checked for
+  safety, not readability. `markup` is edited only by a structural write (`update_component`,
+  `update_composition`, the JSON editor); `update_component` merges `islands` by key (a sent
+  island replaces that island, `null` removes it, unsent islands are kept) and reports an island
+  edit as the one field `props.islands.<name>`; `wp pp operate patch` takes
+  `custom.islands.<name>` and refuses `custom.markup` by name. The accordion editor shows the
+  markup without a control and lists one text box per island. Custom markup is never passed
+  through `do_shortcode()`, and the band's inner bytes carry no `data-pp-*` attribute and no
+  engine-shaped id when they reach the page. Limits: markup 64 KiB, an island 16 KiB, markup and
+  islands together 128 KiB.
+
 ### Known limits until the rest of Sprint 6 lands
 
 - The render still uses WordPress's own sanitizer and the templates' own escaping, so a construct
@@ -94,6 +118,9 @@ All notable changes to PromptingPress are documented here.
   through the same check, with a finding for anything stripped, and the census of stored content
   are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
   contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
+- A custom band is composed and verified on every render, with no cache yet: a maximal band
+  (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig, an ordinary
+  one a few milliseconds. The render cache is #1089's.
 
 ### Fixed
 
@@ -199,8 +226,26 @@ All notable changes to PromptingPress are documented here.
   tests that pin it. `AI_CONTEXT.md` lists the sink owner and the menu filter among the context
   functions, and `ai-instructions/add-component.md` states the role-default value limits.
 
+- The custom band is documented in `components/custom/README.md`, `ai-instructions/composition.md`
+  (the component table, the content-model table and a section of its own), `AI_CONTEXT.md`,
+  `README.md` and `docs/reference-apply-cli.md`; the Layer-3 contract records routed item 10 as
+  ruled with its mechanism, the M-21 reading of the island refusal codes, the emission belt, the
+  bounds and what the engine can and cannot verify inside custom markup (§7.4). The v2 rosters
+  name eleven components.
+
 ### Tests
 
+- `CustomBandIslandsTest` (T-13 and routed item 10): the host matrix per kind, the name,
+  kind, count and emptiness rules, the unknown and non-string island refusals, the island
+  attributes refused outside custom markup and inside island content, island content judged in
+  its kind's contract, E12 across markup and islands, five restructuring shapes refused with their
+  positive controls, the bounds, merge by key with a planted sibling kept byte for byte, `null`
+  removing one island, the one-field diff, CAS and undo per island write, `operate patch` on an
+  island and its P-7 refusal of `markup`, fail-closed render, no shortcode expansion, the E6
+  emission belt (direct and through a raw-meta forged band), both findings, and a maximal band's
+  write and render cost (T-17). `pp-editor-islands.test.js` boots the real editor with the shipped
+  schema: markup shown without a control, island boxes, merge by key, JSON-only mode for a
+  non-string island.
 - `PreviewFrameIsolationTest` pins the preview frame's sandbox (exactly `allow-scripts`) and the
   preview document's content policy (exact directives, first in the head).
   `pp-editor-preview-isolation.test.js` pins the scroll-message schema, the sender check, the
