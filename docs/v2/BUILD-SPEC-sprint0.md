@@ -195,7 +195,7 @@ The roles an item map may address are the SAME roles the component declares — 
 - shape `it-<hex8>`, distinct prefix from a band's `pp-<hex8>` so the two can never be confused in a selector, a message, or a test;
 - **minted on WRITE only** — a read never mutates, matching §3.1 and the existing `pp_udc_compile_band()` "MINT-ON-WRITE ONLY" rule;
 - an authored or already-minted valid id is honoured, never overwritten;
-- carried forward on full-array re-apply by **index + component match**, minted fresh on ambiguity — the band rule, one level down;
+- carried forward on full-array re-apply by **index + component match**, minted fresh on ambiguity — the band rule, one level down (as shipped since #1119: only on the bands the write validated, never from a stored band an insert or a reorder moved away from that index when its band id is re-sent, and never onto a band `add_component` creates; the residual carries are recorded in #1234);
 - uniqueness is enforced **within the band**, not globally: two bands may each hold `it-…` ids without collision because the emitted selector is always band-scoped (B3). A duplicate within one band refuses at write, mirroring `duplicate_component_id`;
 - minted only for components that declare item-addressable roles (B5), so a legacy component's stored shape is not changed for no reader — the same boundary `pp_udc_assign_band_ids()` draws with `pp_udc_is_v2_component()`.
 

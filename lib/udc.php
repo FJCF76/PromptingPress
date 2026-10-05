@@ -8961,8 +8961,33 @@ function _pp_find_duplicate_band_ids(array $composition): array {
  * no operator can predict — `false` and `null` auto-vivify into an array and
  * fabricate a band, while a string, int, float or `true` throws. So the test
  * here is "is this an array", and absent/null is the unset sentinel.
+ *
+ * THE ITEM-ID PASS IS SCOPED TO WHAT THE WRITE VALIDATED (#1119). `$item_scope` lists
+ * the INCOMING indexes whose items this write may mint, carry or clear; null means
+ * every band, which is right for a write that validated every band (update_composition,
+ * create_page) and is the default so every replay path keeps its behaviour. A
+ * band-scoped action passes its own scope: since #1007 update_component validates only
+ * the band it targets, and before this an edit to band 0 re-minted a malformed stored
+ * item id and deleted a map-less one on band 1 with `findings: []` — on a band the
+ * write never judged and the author never addressed. A band outside the scope keeps
+ * its stored item bytes exactly. BAND ids (the first pass) are not scoped here: that
+ * tier's churn is #1097.
+ *
+ * AN ITEM ID NEVER CARRIES FROM A MOVED OR NEW BAND (#1119). An item id carries by
+ * index from the stored band at that index, except when the write just created the band
+ * there ($new_bands, add_component) or the stored band's id now sits at another incoming
+ * index (an insert or a reorder moved it). That is all this guarantees. KNOWN RESIDUAL,
+ * designed in #1234: a band the write DELETED at that index, a stored band with no id, and
+ * band ids the band pass itself carried by index when none were sent (#1097) still hand
+ * their item ids on. Comparing band ids for equality is not the fix: band ids are
+ * authorable, so a renamed band is still the same band (#1234 records that lesson).
+ *
+ * @param int[]|null $item_scope Incoming indexes the item-id pass may touch; null = all.
+ * @param int[]      $new_bands  Incoming indexes holding a band this write creates.
  */
-function pp_udc_assign_band_ids(array $incoming, array $stored = []): array {
+function pp_udc_assign_band_ids(array $incoming, array $stored = [], ?array $item_scope = null, array $new_bands = []): array {
+    $new_band_set   = array_fill_keys(array_map('intval', $new_bands), true);
+    $item_scope_set = $item_scope === null ? null : array_fill_keys(array_map('intval', $item_scope), true);
     $claimed = [];
     foreach ($incoming as $item) {
         if (is_array($item) && isset($item['id']) && is_scalar($item['id'])) {
@@ -9025,9 +9050,25 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = []): array {
     // lifecycles are independent: an item id is scoped to its band, so it does
     // not care which id its band ended up with, and interleaving them would
     // make that independence hard to see.
+    //
+    // ONE THING IT DOES READ FROM THE BAND PASS: where each settled band id now
+    // sits. A stored band whose id is now at a DIFFERENT incoming index is not the
+    // band at this index — an insert or a reorder moved it — so its item ids are
+    // not this band's to inherit (#1119). Without this, add_component at
+    // position 0 copied the displaced band's item ids onto the new band. A band
+    // the write DELETED leaves no such trace and is not caught here (#1234).
+    $band_at = [];
+    foreach ($incoming as $j => $band) {
+        if (is_array($band) && isset($band['id']) && is_scalar($band['id']) && (string) $band['id'] !== '') {
+            $band_at[(string) $band['id']] = $j;
+        }
+    }
     foreach ($incoming as $i => $item) {
         if (!is_array($item)) {
             continue;
+        }
+        if ($item_scope_set !== null && !isset($item_scope_set[$i])) {
+            continue; // Not a band this write validated (#1119): its items stay as stored.
         }
         $component = isset($item['component']) && is_scalar($item['component'])
             ? (string) $item['component']
@@ -9063,7 +9104,10 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = []): array {
         }
 
         $stored_entries = [];
-        if (isset($stored[$i]) && is_array($stored[$i])
+        $stored_band_id = isset($stored[$i]['id']) && is_scalar($stored[$i]['id']) ? (string) $stored[$i]['id'] : '';
+        $moved_away     = isset($new_band_set[$i])
+            || ($stored_band_id !== '' && isset($band_at[$stored_band_id]) && $band_at[$stored_band_id] !== $i);
+        if (!$moved_away && isset($stored[$i]) && is_array($stored[$i])
             && isset($stored[$i]['component']) && is_scalar($stored[$i]['component'])
             && (string) $stored[$i]['component'] === $component
             && isset($stored[$i]['props'][$prop]) && is_array($stored[$i]['props'][$prop])) {
@@ -9100,8 +9144,9 @@ function pp_udc_assign_band_ids(array $incoming, array $stored = []): array {
 
             // Carried forward by INDEX, the band rule one level down. The
             // component match the band rule also demands is already satisfied:
-            // this loop only runs when the stored band at this index is the
-            // same component.
+            // $stored_entries is non-empty only when the stored band at this index
+            // is the same component, was not created by this write, and has not moved to
+            // another index (a band deleted at this index is not detected: #1234).
             $carried_item = '';
             if (isset($stored_entries[$k]) && is_array($stored_entries[$k])
                 && isset($stored_entries[$k][PP_UDC_ITEM_ID_KEY])
