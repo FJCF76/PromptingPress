@@ -161,7 +161,7 @@ class ChatPageListPermissionTest extends TestCase
 
         $block = self::pagesBlock(pp_ai_system_prompt());
 
-        $this->assertStringContainsString('- Team page (ID: ' . self::OWN_PAGE . ', status: draft,', $block);
+        $this->assertStringContainsString('- "Team page" (ID: ' . self::OWN_PAGE . ', status: "draft",', $block);
         $this->assertStringNotContainsString('Unannounced launch', $block);
         $this->assertStringNotContainsString('(ID: ' . self::OTHER_DRAFT . ',', $block);
         $this->assertStringNotContainsString('(ID: ' . self::OTHER_PUBLIC . ',', $block);

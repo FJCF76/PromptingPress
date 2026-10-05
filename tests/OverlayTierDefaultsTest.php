@@ -380,7 +380,7 @@ final class OverlayTierDefaultsTest extends TestCase
         $this->assertSame([], pp_schema_definition_errors(['selector' => '.x', 'groups' => ['typography'],
             'overlay_defaults' => ['typography' => ['weight' => ['d' => 700, 'p' => 600]]]], 'role', 'c role r'), 'a numeric breakpoint map');
         foreach ([['deep' => ['x' => 1]], "two\nlines", true, '', [':hover' => '#fff'], ['d' => '#000', 'hover' => '#fff']] as $bad) {
-            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string or a number, or a breakpoint map of them.',
+            $this->assertContains('c role r: `overlay_defaults` group `typography` parameter `color` must be a single-line string (at most 256 bytes, no bidi or tag characters) or a number, or a breakpoint map of them.',
                 pp_schema_definition_errors($role($bad), 'role', 'c role r'), var_export($bad, true));
         }
     }

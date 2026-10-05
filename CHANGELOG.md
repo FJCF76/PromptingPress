@@ -55,6 +55,42 @@ All notable changes to PromptingPress are documented here.
   `unacknowledge`. Rotating `AUTH_KEY` / `AUTH_SALT`, or copying the database to an environment
   with other salts, ignores every acknowledgement the same way: fail closed, then re-acknowledge.
 
+- **Chat: site content reaches the AI as quoted data.** Every stored value the AI chat is given
+  (the site name, URL and tagline, page titles, statuses and URLs, menu names and items,
+  design-token values, Custom CSS selectors, media file names, alt text and URLs, the current
+  page and its component index) now arrives as one quoted JSON string, cut to a stated length
+  with `(truncated)` after it when it is longer. The page's composition was already JSON and
+  stays so. A title, alt text or block of content can no longer start a line of the AI's
+  instructions, end the value it sits in, or close the composition block, whatever characters it
+  holds; the AI is told the format once. Bidirectional-override and invisible "tag" characters
+  (U+202A–U+202E, U+2066–U+2069, U+E0000–U+E007F) are shown to the AI as `\u` escapes, so
+  they cannot reorder or hide text from it, and so are the C1 control characters, one of which
+  is a line break; nothing stored changes. Every other character, the
+  Persian and Indic zero-width non-joiner, the emoji zero-width joiner and the right-to-left marks
+  included, reaches the AI exactly as written (LAYER-3-CONTRACT §8.2, ruling P-15).
+
+- **Chat: the AI's menu list follows what WordPress shows you.** A user who can edit menus
+  (Appearance > Menus) is shown every menu item, as WordPress shows them. For anyone else, who
+  cannot change menus, the menus the AI is told about now leave out items that link to a page or
+  post they cannot edit, the same check as the page list; a menu with nothing left reads "(none
+  you can edit)". Custom links and category or tag items are unchanged, and a menu's theme
+  location is quoted like every other stored value.
+
+- **Chat: the posts-page line is true for every user.** An unmarked page list now tells the AI
+  that either no posts page is set or it is not one this user can edit, instead of only the
+  first.
+
+- **Schemas: a role's `defaults` and `overlay_defaults` values are bounded.** A string value is
+  at most 256 bytes and cannot contain a bidirectional-override or tag character (#1200). Every
+  shipped value is far inside the limit (the longest is 35 bytes); a hand-edited schema that
+  breaks it is reported by the schema check and its role is left out of `wp pp schema` and the
+  AI's catalog, as for any malformed role. The single-line check now also refuses invalid UTF-8.
+
+- **Presets: the list of preset names in messages and in the AI's context is bounded** at the
+  most a site can store through `save_preset` (64, plus the theme's three), with the exact
+  remainder ("and N more") after it, like every other list the engine prints (#1122). Every
+  preset a site saved normally is still listed; only a store written around those limits is cut.
+
 ### Docs
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
@@ -70,6 +106,9 @@ All notable changes to PromptingPress are documented here.
   a removed row written back byte for byte verifies again; the readiness acknowledgements are not
   signed, #1249). `AI_CONTEXT.md`, `docs/reference-apply-cli.md` and `operating-loop.md` carry the
   same facts and the `--malformed` route.
+- The Layer-3 contract marks §8.2 (the assistant's context) as met, with the sink owner and the
+  tests that pin it. `AI_CONTEXT.md` lists the sink owner and the menu filter among the context
+  functions, and `ai-instructions/add-component.md` states the role-default value limits.
 
 ### Tests
 
@@ -109,6 +148,17 @@ All notable changes to PromptingPress are documented here.
 - `tests/e2e/ack-signing.spec.ts` runs the round trip on real WordPress with the real `wp_hash()`:
   acknowledge, the stored row's signature, the page released, then a raw tamper that makes the row
   ignored and named.
+- `AssistantContextFramingTest` pins the sink owner (each of the P-15 code points escaped and
+  decoding back, the Persian ZWNJ word and the ZWJ emoji byte-identical, format characters
+  outside the set untouched, the byte and character bounds, invalid UTF-8) and every sink: an
+  instruction-shaped value in a page title, the site name, a menu, a media alt, a design-token
+  value, a Custom CSS selector, the current page and the component index starts no prompt line,
+  and the composition block keeps exactly one fence and decodes to the stored composition. It
+  also pins the menu filter (by `edit_theme_options` and per post) and the posts-page sentence. `SchemaSinkBoundsTest` pins the
+  role-default byte cap at its boundary, the P-15 refusal and its limits, invalid UTF-8, the
+  bounded preset-name list and a full legitimate store listed whole. `pp-ai-chat-content-as-text.test.js` pins that a content value
+  carrying `<img onerror>` renders as text in both approval-card diff views (§8.1). The prompt
+  byte budget is 92,970 (measured; was 92,713).
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
