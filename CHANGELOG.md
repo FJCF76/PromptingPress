@@ -14,7 +14,7 @@ advisory instead of passing without looking. A grid `update_component` patch tha
 styled card's design is refused with a message naming the card, instead of succeeding silently. A
 band whose stored title or image is a list or an object no longer stops the AI chat, and a band whose
 stored component is not a string no longer makes every render log a PHP warning. The update changes
-no content or design. Like every theme update, it re-opens your acknowledged judgment calls, so
+nothing stored. Like every theme update, it re-opens your acknowledged judgment calls, so
 re-check them after upgrading.
 
 ### Highlights
@@ -24,7 +24,8 @@ re-check them after upgrading.
   bands, and no band styles in the head. After the password it renders exactly as before (#1219).
 - **A "latest posts" homepage is your post listing.** With Settings → Reading → "Your latest posts",
   `/` renders the posts index with its default styles. It used to paint an unstyled default homepage
-  and write that composition onto your newest blog post on the first visit; if that post had a
+  and write that composition onto a blog post on the first visit (the first post that view showed,
+  usually the newest or a sticky one, and on each page of a paginated listing); if that post had a
   password, its page content could show on the homepage. A visit now writes nothing (#1173).
 - **`wp pp validate site` checks the header and footer.** A new `--- Site chrome (header and
   footer) ---` section lists the findings a header or footer write returns, and the command exits 1
@@ -46,7 +47,9 @@ re-check them after upgrading.
 ### ⚠️ Behaviour changes
 
 - **`wp pp validate site` can now fail a site that passed under 2.0.1**, on a header or footer
-  advisory. Header and footer findings cannot be acknowledged yet (#1220), so fix the value.
+  advisory. Header and footer findings cannot be acknowledged yet (#1220), so fix the value. An
+  intentional raw `_css` property on the header or footer keeps failing the gate until you remove it
+  or #1220 lands, so a deploy pipeline that gates on this command will block on it.
 - **Three grid `items` patches that used to succeed are now refused** with
   `item_design_would_be_lost`: a patch that adds or removes a card without re-sending the `id` of
   every styled card it keeps; a same-length patch that names a card by `id` at a position where a
@@ -57,25 +60,34 @@ re-check them after upgrading.
 - **A password-protected composed page no longer shows its bands to visitors** without the password.
   If you relied on a password page rendering openly, remove the password.
 - **A "Your latest posts" homepage renders the post listing**, not the default homepage composition.
-- **Upgrading re-opens every acknowledgement.** An acknowledgement records the theme version, so each
-  one you made on 2.0.1 goes stale with this update and its advisory fails `wp pp validate site`
+- **Upgrading re-opens every `wp pp check acknowledge` acknowledgement.** An acknowledgement records
+  the theme version, so each one you made on 2.0.1 goes stale with this update and its advisory fails `wp pp validate site`
   again until you re-acknowledge it. This is by design: an upgrade can change what paints.
 
 ### Upgrading
 
-This is a theme-only update. It changes no content or design and needs no migration; step 3 is an
-optional cleanup for sites that ever ran a "Your latest posts" homepage.
-1. Run `wp pp validate site`. If the new header and footer section fails, fix the value with
-   `update_site_option` on `pp_site_udc` (or the preset the finding names). Do this before you
-   acknowledge page judgment calls: every `pp_site_udc` write re-opens them.
-2. Re-acknowledge your judgment calls. The update re-opened every acknowledgement made on 2.0.1. For
+This is a theme-only update. It changes nothing stored and needs no migration; step 4 is an optional
+cleanup for sites that ever ran a "Your latest posts" homepage.
+1. If you use `wp pp readiness`, run `wp pp readiness rebaseline` after replacing the theme files, so
+   the new files are not reported as changed since 2.0.1.
+2. Run `wp pp validate site`. If the new header and footer section fails, fix the value with
+   `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with
+   `save_preset`. Do this before you acknowledge page judgment calls: every `pp_site_udc` or preset
+   write re-opens them.
+3. Re-acknowledge your judgment calls. The update re-opened every acknowledgement made on 2.0.1. For
    each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
    still judge intentional, run `wp pp check acknowledge` again with the key it prints now and a note.
-3. If the site ever ran with "Your latest posts" before 2.0.2, a visit may have written a page
-   composition onto a blog post. Find such posts with
-   `wp post list --post_type=post --meta_key=_pp_composition` and remove a stray one with
-   `wp post meta delete <id> _pp_composition`. A finding that names them is planned (#1240).
-4. If an agent or script patches grid `items`, have it re-send the `id` of every styled card it keeps
+   `check page` then reports the 2.0.1 rows as orphaned. If you might roll back to 2.0.1, keep them
+   until you are sure: they apply again on 2.0.1 when nothing else on the site has changed.
+4. If the site ever ran with "Your latest posts" before 2.0.2, a visit may have written a page
+   composition onto one or more blog posts. Find them with
+   `wp post list --post_type=post --meta_key=_pp_composition` (add any custom post type your home
+   listing shows). The theme writes compositions to pages only, so on a post one came from this bug
+   or from a raw meta write you made yourself; check it with `wp post meta get <id> _pp_composition`
+   first. Remove a stray one with `wp post meta delete <id> _pp_composition`, then the same command
+   for `_pp_composition_hash` and `_pp_composition_version`. A finding that names them is planned
+   (#1240).
+5. If an agent or script patches grid `items`, have it re-send the `id` of every styled card it keeps
    (read them with `wp post meta get <post_id> _pp_composition`). To delete a styled card, first send
    `"udc": {}` on it in a patch that keeps the same number of cards, then remove it in a second write.
 
@@ -161,8 +173,8 @@ unchanged and still writes nothing.
 
 **With Settings → Reading → "Your latest posts", the homepage now shows your posts, styled, and
 viewing it changes nothing.** Before, that homepage painted the theme's default homepage with no
-styles at all, and the first visit wrote that default homepage onto your newest blog post. If the
-newest post had a password, its own page content could appear on the homepage to anyone. Now the
+styles at all, and the first visit wrote that default homepage onto a blog post (the first one the
+view showed, usually the newest). If that post had a password, its own page content could appear on the homepage to anyone. Now the
 homepage is the posts listing (the same page `home.php` renders for a posts index), with its
 default styles, and a visit writes nothing.
 
@@ -185,8 +197,10 @@ who has not entered its password.
 
 **Upgrading.** A site that was set to "Your latest posts" before this release may have had a page
 composition written onto a blog post by a visit. It is left as it is (nothing stored is ever removed
-by a render). To find such posts: `wp post list --post_type=post --meta_key=_pp_composition`; a
-stray composition on a post can be removed with `wp post meta delete <id> _pp_composition`. Until
+by a render). To find such posts: `wp post list --post_type=post --meta_key=_pp_composition`. The
+theme writes compositions to pages only, so check one with `wp post meta get` before removing it
+(`wp post meta delete <id>` for `_pp_composition`, `_pp_composition_hash` and
+`_pp_composition_version`). Until
 it is, that post's single page prints band CSS with no matching markup; a `wp pp validate site`
 finding that names such posts is tracked in #1240.
 
@@ -364,7 +378,8 @@ warning past the 100-entry cut. A cut list now names `wp pp validate site` for t
 #### What changes for you
 
 - A site with a header or footer advisory now exits 1 from `wp pp validate site`. Fix the value with
-  `update_site_option` on `pp_site_udc` (or the preset the finding names) and run it again.
+  `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with
+  `save_preset`, and run it again.
 - Header and footer findings cannot be acknowledged yet (#1220). A judgment call there, such as an
   unchecked `_css` property, is printed with `[no key: ...]` saying so, and keeps failing until the
   value changes.
