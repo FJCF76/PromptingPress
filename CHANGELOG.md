@@ -119,8 +119,8 @@ All notable changes to PromptingPress are documented here.
   are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
   contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
 - A custom band is composed and verified on every render, with no cache yet: a maximal band
-  (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig, an ordinary
-  one a few milliseconds. The render cache is #1089's.
+  (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig and about
+  five times that on a shared CI runner; an ordinary one takes a few milliseconds. The render cache is #1089's.
 
 ### Fixed
 

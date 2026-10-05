@@ -648,9 +648,13 @@ class CustomBandIslandsTest extends TestCase
         $this->assertSame(64 * intdiv($each, 8), substr_count($html, '<b>x</b>'), 'every island rendered');
         // Measured on the T-17 rig (PHP 8.3, WordPress 7.0's HTML API, 2026-10-05, best of
         // two): write 2.2 s, render 2.4 s for this worst shape (64 rich islands of `<b>x</b>`
-        // at the 128 KiB composed cap). The render path has no cache yet; the first lever is
-        // the render cache T-17 names (#1089). The bound is the write path's ~10 s target.
-        $this->assertLessThan(10.0, $write, sprintf('write took %.2f s', $write));
-        $this->assertLessThan(10.0, $render, sprintf('render took %.2f s', $render));
+        // at the 128 KiB composed cap); a shared GitHub Actions runner measured the write at
+        // 11.3 s (about five times slower). The render path has no cache yet; the first lever
+        // is the render cache T-17 names (#1089). The bound below is not the design target,
+        // which is hardware-relative: it is PHP's default 30 s execution limit, the line past
+        // which a write times out instead of answering, so the pin catches cost that stops
+        // being bounded (a quadratic walk, an uncapped band) without failing on a slow host.
+        $this->assertLessThan(30.0, $write, sprintf('write took %.2f s', $write));
+        $this->assertLessThan(30.0, $render, sprintf('render took %.2f s', $render));
     }
 }

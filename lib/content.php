@@ -116,7 +116,8 @@ const PP_CONTENT_WRITE_MAX_VALUES = 4096;
  * line (see PP_CONTENT_PROP_MAX_BYTES). Each island takes M-8's 16 KiB, at most 64 islands per band.
  * The COMPOSED band (markup with every island rendered in) is parsed again as a whole, so the
  * band's markup and islands together take M-8's 128 KiB custom figure. Measured worst case for a
- * maximal band (write 2.2 s, render 2.4 s, uncached) is recorded in
+ * maximal band (write 2.2 s, render 2.4 s, uncached; about five times that on a shared CI
+ * runner) is recorded in
  * tests/CustomBandIslandsTest.php (T-17 row).
  */
 const PP_CONTENT_ISLAND_MAX_BYTES = 16384;
