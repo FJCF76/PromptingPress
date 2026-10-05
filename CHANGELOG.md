@@ -32,7 +32,8 @@ All notable changes to PromptingPress are documented here.
   even `top`, `title` or `forms`, because an id shadows no `window` property and reaches `document`
   only through an `<object>` or a named `<img>`; an id equal to a page-script global such as `wp`
   is disclosed as an info note, `content_global_shadow`); an id or a single-id reference containing whitespace (E12); an id
-  reference to an element outside the band (E12), and, on a page whose other bands hold more
+  reference to an element outside the band, including an SVG `<use href="#x">` or `url(#x)` and
+  an image map's `usemap`, which bind to the first match anywhere on the page (E12), and, on a page whose other bands hold more
   than one write can check (1 MiB), a new id, id reference, details group or band anchor, which
   cannot be verified against them (E12, E6); and markup the HTML parser cannot verify, named
   "unsupported markup" with the element to close first, such as `<p><b>Note</p>`, or an element
@@ -66,6 +67,11 @@ All notable changes to PromptingPress are documented here.
   band vouches for one band only: a copy of a stored band is new content and is checked. The
   comparison has the same budget as a write, so a large stored page never makes a small edit slow:
   a band it cannot compare within the budget is checked as new content.
+- **Every URL is read the way a browser reads it.** One shared reader judges every URL in content
+  (links, sources, form actions, the PDF `<object>`): it strips the control characters browsers
+  strip, treats a backslash as a slash, resolves `.` and `..` segments, and reads `https:/path`
+  on an https site as the path it is. A URL it cannot read cleanly (a control character inside,
+  a malformed host or port, a `file:` URL) is refused (E2).
 - **Content has a size limit.** A content prop may be at most 64 KiB, and one write may carry at
   most 1 MiB and 4,096 values of changed content. Larger content is refused with
   `content_too_large`, naming the prop and its size, never truncated. A content prop may nest

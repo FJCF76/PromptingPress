@@ -196,7 +196,7 @@ class ContentPredicateTest extends TestCase
 
     public function testDelta1StaticSvgBothDirections(): void
     {
-        $this->assertAdmitted('<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" focusable="false" xml:space="preserve"><title>Icon</title><desc>d</desc><g transform="translate(1 1)"><path d="M0 0L1 1" fill="url(#_g-1)" stroke="currentColor" stroke-width="2"/><circle cx="1" cy="1" r="1" clip-path="url( \'#c\' )"/></g></svg>');
+        $this->assertAdmitted('<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" focusable="false" xml:space="preserve"><title>Icon</title><desc>d</desc><defs><linearGradient id="_g-1"/><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><g transform="translate(1 1)"><path d="M0 0L1 1" fill="url(#_g-1)" stroke="currentColor" stroke-width="2"/><circle cx="1" cy="1" r="1" clip-path="url( \'#c\' )"/></g></svg>');
         // P-12: fragment href on gradients/patterns/filters/textPath/use.
         $this->assertAdmitted('<svg><defs><linearGradient id="a"/><radialGradient id="b" href="#a"/><pattern id="p" xlink:href="#a"/><filter id="f" href="#a"><feGaussianBlur stdDeviation="2"/></filter><path id="t" d="M0 0"/></defs><use href="#t"/><text><textPath href="#t">x</textPath></text></svg>');
         // Each refused row names its own clause AND its own reason, so a planted defect in
@@ -271,8 +271,10 @@ class ContentPredicateTest extends TestCase
             'fill: url(#grad)', 'list-style-type: disc', 'text-overflow: ellipsis', 'quotes: auto',
             '-webkit-line-clamp: 3', 'unknown-but-valid-name: 1',
         ] as $decl) {
-            $this->assertAdmitted('<div style="' . $decl . '">x</div>');
+            // A url(#id) reference is E12's: its target sits in the same band.
+            $this->assertAdmitted('<div style="' . $decl . '">x</div><svg><linearGradient id="grad"/></svg>');
         }
+        $this->assertRefused('<div style="fill: url(#grad)">x</div>', 'E12');
         foreach ([
             'background: url(https://x/a.png)', 'background-image: image-set("a.png" 1x)', 'color: red !important',
             'color: red ! important', 'all: unset', 'content: "x"', 'behavior: url(x.htc)', '-moz-binding: url(x)',
@@ -339,6 +341,10 @@ class ContentPredicateTest extends TestCase
      *      remaining ones (and the form sentinel) see; removing any ONE alone turns nothing
      *      red. They are kept because each is the exact statement of "the template's next
      *      band renders where the template put it", and a future parser may separate them.
+     *   7-9. Since the walk ends at the first E10 (cycle 8): the container closer's depth
+     *      test, and continuing an early close or a tail escape as the tail phase, are
+     *      equivalent to returning (the refusal is already recorded; nothing after it is
+     *      read).
      *
      * Removing the tail check, the <p> sentinel AND the form sentinel together turns this
      * test red; so does removing the form sentinel alone (the unclosed-form test below).
@@ -642,10 +648,15 @@ class ContentPredicateTest extends TestCase
         foreach (['http://example.test/wp-content/uploads/%2e%2e/%2e%2e/x.pdf',
             'http://example.test/wp-content/uploads/%252e%252e/x.pdf',
             'http://example.test/wp-content/uploads/a/..\\..\\x.pdf',
-            '//example.test/wp-content/uploads/./x.pdf',
-            "http://example.test/wp-content/uploads/.\t./x.pdf"] as $url) {
+            "http://example.test/wp-content/uploads/.\t./x.pdf", 'http://example.test/wp-content/uploads/a:1/../../x.pdf',
+            'wp-content/uploads/a.pdf'] as $url) {
             $this->assertFalse(pp_content_is_same_install_pdf($url), $url);
         }
+        // Read by the shared canonicaliser: a `.` segment that stays inside uploads resolves
+        // to the same file a browser fetches.
+        $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/./x.pdf'));
+        // The page's own scheme with one slash is a root-relative path (https site).
+        $this->assertTrue(pp_content_is_same_install_pdf('https:/wp-content/uploads/a.pdf'));
         $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/2026/10/a.pdf'));
     }
 
@@ -979,7 +990,9 @@ class ContentPredicateTest extends TestCase
     /** A prop refused whole is not also reported for references its partial walk could not resolve. */
     public function testAWholePropRefusalIsNotPaddedWithPartialReferences(): void
     {
-        $this->assertSame(['M-8'], $this->clauses(str_repeat('<b>', 257) . '<p aria-labelledby="gone">x</p>'));
+        // The reference comes BEFORE the cut, so the walk records it; the whole-prop M-8
+        // refusal is then not padded with an E12 for it.
+        $this->assertSame(['M-8'], $this->clauses('<p aria-labelledby="gone">x</p>' . str_repeat('<b>', 257) . 'x'));
     }
 
     /**
@@ -1048,10 +1061,14 @@ class ContentPredicateTest extends TestCase
         $this->assertStringContainsString('rel="noopener"', pp_content_sanitize('<map name="m"><area alt="" href="/x" target="_blank" shape="rect" coords="0,0,1,1"></map>', 'rich')['html']);
         $this->assertStringContainsString('rel="noopener"', pp_content_sanitize('<form action="/s" target="_blank"></form>', 'rich')['html']);
         $this->assertStringContainsString('>hi</textarea>', pp_content_sanitize('<textarea name="t">hi</textarea>', 'rich')['html']);
-        $losses = $this->losses("<p onclick=\"a\x01b\">x</p><span onmouseover=\"c\">y</span>");
+        $losses = $this->losses("<p onclick=\"a\">x</p><span onmouseover=\"c\">y</span>");
         $this->assertCount(2, array_filter($losses, static fn ($l) => $l['clause'] === 'E1'), 'one Loss per construct, not per clause');
+        // A reflected VALUE carries no control character into the message.
+        $losses = $this->losses("<a href=\"bad\x01url\">x</a>");
+        $this->assertNotSame([], $losses);
         foreach ($losses as $l) {
             $this->assertDoesNotMatchRegularExpression('/[\x00-\x1F]/', $l['message']);
+            $this->assertStringContainsString('bad', $l['message'], 'the value is reflected, cleaned');
         }
         $this->assertStringNotContainsString('close <p> before', pp_content_close_first_hint('<div><p>a<p>b</p></div>'),
             'a <p> closes an open <p> sibling by itself');
@@ -1097,6 +1114,112 @@ class ContentPredicateTest extends TestCase
             '<video poster="signal:x"></video>', '<object type="application/pdf" data="sip:1"></object>'] as $shape) {
             $this->assertContains('E2', $this->clauses($shape), $shape);
         }
+    }
+
+    /**
+     * THE URL CANONICALISER (cycle 9): one parse, browser semantics, fail closed. The four
+     * admin-endpoint bypass shapes of cycle 8 are refused; a fuzz set pins the parse.
+     */
+    public function testTheUrlCanonicaliserFollowsTheBrowser(): void
+    {
+        $form = static fn (string $action) => '<form action="' . $action . '"><input type="text" name="q"></form>';
+        foreach (['/a:1/../wp-login.php', '&#x01;wp-login.php', '&#12;wp-admin/', 'https:/wp-login.php', 'HTTPS:/wp-admin/admin-post.php',
+            '/wp-login.php/x', '/admin-ajax.php', '\\wp-admin\\x', '/WP-LOGIN.PHP', '/%2577p-admin/', '//example.com/wp-login.php',
+            "/wp-\tadmin/", '/wp-admin', '/x/%2e%2e/wp-login.php', 'https://example.com:443/wp-login.php',
+            'https://EXAMPLE.com/wp-admin/', 'https:wp-login.php'] as $action) {
+            $this->assertStringContainsString('admin endpoints', implode(' ', array_column($this->losses($form($action)), 'message')), $action);
+        }
+        foreach (['/wp-login.php.html', '/my-wp-admin/', 'https://evil.example/wp-login.php', '/blog/'] as $action) {
+            $this->assertStringNotContainsString('admin endpoints', implode(' ', array_column($this->losses($form($action)), 'message')), $action);
+        }
+        // The parse itself (kind, scheme, host, port, resolved path); null = refused.
+        foreach ([
+            ['https://example.com/x', ['absolute', 'https', 'example.com', 443, '/x']],
+            ['https:/x/./y/../z', ['relative', null, null, null, '/x/z']],
+            ['http:/evil.example/x', ['absolute', 'http', 'evil.example', 80, '/x']],
+            ['\\\\evil.example\\p', ['network', null, 'evil.example', 443, '/p']],
+            [" \x01 //EVIL.example:8080/a/../b \x1F", ['network', null, 'evil.example', 8080, '/b']],
+            ["ja\tva\nscript:x", ['opaque', 'javascript', null, null, 'x']],
+            ['/a/%2E%2e/b', ['relative', null, null, null, '/b']],
+            ['../../x', ['relative', null, null, null, '../../x']],
+            ['#frag', ['relative', null, null, null, '']],
+            ['', ['relative', null, null, null, '']],
+            ['mailto:a@example.com', ['opaque', 'mailto', null, null, 'a@example.com']],
+            ['https://user:pw@example.com:8443', ['absolute', 'https', 'example.com', 8443, '/']],
+        ] as [$url, $want]) {
+            $c = pp_content_url_parse($url);
+            $this->assertNotNull($c, $url);
+            $this->assertSame($want, [$c['kind'], $c['scheme'], $c['host'], $c['port'], $c['path']], $url);
+        }
+        foreach (["/a\x01b", 'http://exa mple.com/', 'https://example.com:99999/', 'http://[zz/', 'https://', '//',
+            'file:///etc/passwd', 'http://a%41.example/', "http://example.com\x7F/"] as $bad) {
+            $this->assertNull(pp_content_url_parse($bad), $bad);
+            $this->assertNotNull(pp_content_url_loss($bad, 'link'), 'an unparseable URL is refused: ' . $bad);
+        }
+        // Fuzz: random URL-shaped strings never throw, and a URL is either parsed or refused.
+        mt_srand(1242);
+        $alphabet = ['h', 't', 'p', 's', ':', '/', '\\', '.', '%2e', '#', '?', '@', 'a', 'w', '-', "\t", "\x01", ' ', '..', '[', ']', '1'];
+        for ($i = 0; $i < 400; $i++) {
+            $u = '';
+            for ($k = mt_rand(1, 14); $k > 0; $k--) {
+                $u .= $alphabet[mt_rand(0, count($alphabet) - 1)];
+            }
+            $c = pp_content_url_parse($u);
+            $this->assertTrue($c === null || is_array($c), $u);
+            if ($c === null) {
+                $this->assertNotNull(pp_content_url_loss($u, 'link'), $u);
+            }
+        }
+    }
+
+    /** The forms gate's remaining spellings, both directions (cycle-8 mutation review). */
+    public function testFormsCredentialGateSpellings(): void
+    {
+        $pw = static fn (string $type = 'password') => '<input type="' . $type . '" name="pw">';
+        foreach (['https://example.com:443/x', 'https://EXAMPLE.com/x', 'https:/x'] as $same) {
+            $this->assertAdmitted('<form action="' . $same . '" method="post">' . $pw() . '</form>');
+        }
+        foreach (['PASSWORD', ' password '] as $type) {
+            $this->assertRefused('<form action="https://evil.example/x">' . $pw($type) . '</form>', 'D5');
+        }
+        foreach ([' https://evil.example/x', "ht\ttps://evil.example/x", 'http:/evil.example/x'] as $off) {
+            $this->assertRefused('<form action="' . $off . '">' . $pw() . '</form>', 'D5');
+        }
+        // A password field no form owns is not posted by a form: admitted beside an off-site form.
+        $this->assertAdmitted($pw() . '<form action="https://evil.example/s"><input type="text" name="q"></form>');
+    }
+
+    /** Remaining edges from the cycle-8 mutation review. */
+    public function testCycleEightMutationEdges(): void
+    {
+        $this->assertRefused('<button popovertarget="">b</button>', 'E12');
+        $this->assertAdmitted('<svg><a xlink:href="sip:100"><text>t</text></a></svg>', 'rich', [], 'an SVG <a> is a link');
+        $html = pp_content_sanitize("<a href=\"/x\" target=\"_blank\" rel=\"nofollow\x0Bnoopener\">a</a>", 'rich')['html'];
+        $this->assertStringContainsString(' noopener"', $html, 'a vertical tab does not separate rel tokens (HTML whitespace only)');
+        $this->assertSame([], pp_content_composition_index([['component' => 'section',
+            'props' => ['title' => 'T', 'body' => '<p id="">y</p>']]])[0]['ids'], 'an empty id is no fact');
+    }
+
+    /** The trust tier's remaining edges: a value other than 'full' is core parity; core's own grammars. */
+    public function testTheTrustTierEdges(): void
+    {
+        $core = static fn (string $v, string $tier = 'core') => array_column(pp_content_sanitize($v, 'rich', ['tier' => $tier])['losses'], 'clause');
+        $this->assertContains('unfiltered_html', $core('<svg></svg>', 'bogus'), 'fail closed: an unknown tier is core');
+        $this->assertSame([], $core('<p data-x_y="1" data-z-9="2">x</p>'), 'core kses admits data-[a-z0-9_-]+');
+        foreach (['data-a.b', 'data-x:y'] as $attr) {
+            $this->assertContains('unfiltered_html', $core('<p ' . $attr . '="1">x</p>'), $attr);
+        }
+        foreach (['da&#x09;ta:image/png;base64,AAAA', ' data:image/png;base64,AAAA', "&#1;data:image/png;base64,AAAA"] as $src) {
+            $this->assertNotSame([], $core('<img alt="" src="' . $src . '">'), $src);
+        }
+        $this->assertContains('unfiltered_html', $core('<a href="SIP:100">c</a>'));
+        $beyond = array_values(array_diff(array_keys(pp_content_math_elements()), array_keys(pp_content_core_post_table())));
+        $this->assertNotSame([], $beyond);
+        $this->assertContains('unfiltered_html', $core('<math><' . $beyond[0] . '></' . $beyond[0] . '></math>'), $beyond[0]);
+        $this->assertSame([], $core('<math><mrow><mi>x</mi></mrow></math>'), 'MathML in core post stays admitted');
+        // Kept WHOLE: a declaration core's filter rewrites (here: drops) is refused.
+        $this->assertContains('unfiltered_html', $core('<p style="color: red; display: grid">x</p>'));
+        $this->assertSame([], $core('<p style="color:red;text-align : center">x</p>'), 'whitespace is normalised');
     }
 
     private function sorted(array $list): array

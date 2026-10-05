@@ -186,9 +186,9 @@ class ContentWriteGateTest extends TestCase
     {
         return [
             'P-17 microdata + ARIA 1.2'     => ['<div itemscope itemtype="https://schema.org/Thing"><span itemprop="name" aria-level="2" tabindex="0" translate="no">x</span><bdi>y</bdi></div>'],
-            'Δ1 SVG icon (P-12, P-18)'      => ['<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img"><defs><linearGradient id="g1" href="#g0"><stop offset="0" stop-color="#000"/></linearGradient></defs><path d="M0 0h24v24H0z" fill="url(#g1)" color-interpolation-filters="sRGB" textLength="3"/><text><textPath href="#p1">t</textPath></text></svg>'],
+            'Δ1 SVG icon (P-12, P-18)'      => ['<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img"><defs><linearGradient id="g1" href="#g0"><stop offset="0" stop-color="#000"/></linearGradient></defs><path d="M0 0h24v24H0z" fill="url(#g1)" color-interpolation-filters="sRGB" textLength="3"/><text><textPath href="#p1">t</textPath></text><path id="p1" d="M0 0"/><linearGradient id="g0"/></svg>'],
             'Δ2 picture/srcset'             => ['<picture><source srcset="/a.avif 1x, /a@2x.avif 2x" type="image/avif"><img src="/a.jpg" srcset="/a.jpg 1x, https://cdn.example/a2.jpg 2x" alt="a" decoding="async" fetchpriority="high"></picture>'],
-            'Δ3 modern style (P-13, P-20)'  => ['<div style="transform: rotate(2deg); color: rgb(0 0 0 / .5); font-family: &quot;Inter&quot;, sans-serif; --accent: #f00; fill: url(#g1)">x</div>'],
+            'Δ3 modern style (P-13, P-20)'  => ['<div style="transform: rotate(2deg); color: rgb(0 0 0 / .5); font-family: &quot;Inter&quot;, sans-serif; --accent: #f00; fill: url(#g1)">x</div><svg><linearGradient id="g1"/></svg>'],
             'Δ5 forms (P-5, P-24)'          => ['<form action="/subscribe" method="post" enctype="multipart/form-data"><label for="e1">Email</label><input id="e1" type="email" name="email" required><input type="file" name="cv"><button type="submit">Go</button></form><dialog id="d1"><form method="dialog"><button>Close</button></form></dialog>'],
             'P-10 app link + raster data:'  => ['<a href="whatsapp://send?text=hi">w</a> <img alt="" src="data:image/png;base64,iVBORw0KGgo=">'],
             'P-11 same-install PDF'         => ['<object type="application/pdf" data="http://example.test/wp-content/uploads/2026/10/guide.pdf"></object>'],
@@ -640,6 +640,126 @@ class ContentWriteGateTest extends TestCase
         $this->assertSame([0 => true], pp_content_unchanged_keys([$huge], [$huge]), 'matched byte for byte, unbudgeted');
     }
 
+    // ── cycle 9 ───────────────────────────────────────────────────────────────
+
+    /**
+     * E12 completions (cycle 9): a usemap binds to the FIRST map named (or id'd) so in the
+     * document, and an SVG fragment reference to the first element with that id, so both
+     * are cross-band references: the reproduced captures are refused, both directions.
+     */
+    public function testUsemapAndSvgFragmentReferencesStayInTheirBand(): void
+    {
+        $phish = $this->section('<map name="m"><area shape="default" href="https://evil.test/phish" alt=""></map>');
+        $image = $this->section('<img alt="" src="/a.png" usemap="#m"><map name="m"><area shape="rect" coords="0,0,1,1" href="/x" alt=""></map>');
+        $this->assertNotSame([], pp_validate_composition_errors([$phish, $image], null, null, null), 'both new');
+        $this->assertNotSame([], pp_validate_composition_errors([$phish, $image], null, null, [$phish]), 'the map band stored, the image band new');
+        $this->assertNotSame([], pp_validate_composition_errors([$phish, $image], null, null, [$image]), 'the image band stored, the map band new');
+        $by_id = $this->section('<map id="m"><area shape="default" href="https://evil.test/" alt=""></map>');
+        $this->assertNotSame([], pp_validate_composition_errors([$by_id, $image], null, null, null), 'a map id binds too');
+        $this->assertSame([], pp_validate_composition_errors([$image], null, null, null), 'alone, in band: admitted');
+
+        $logo = $this->section('<svg><g id="logo"><a href="https://evil.test/pay"><rect width="1" height="1"/></a></g></svg>');
+        $use = $this->section('<svg><use href="#logo"/></svg>');
+        $this->assertNotSame([], pp_validate_composition_errors([$logo, $use], null, null, null));
+        $this->assertNotSame([], pp_validate_composition_errors([$logo, $use], null, null, [$use]), 'the reference stored, the id new');
+        $clip = $this->section('<svg><rect width="1" height="1" clip-path="url(#c)"/></svg>');
+        $clipdef = $this->section('<svg><clipPath id="c"><rect width="1" height="1"/></clipPath></svg>');
+        $this->assertNotSame([], pp_validate_composition_errors([$clipdef, $clip], null, null, null));
+        $styled = $this->section('<p style="filter:url(#f)">x</p>');
+        $filter = $this->section('<svg><filter id="f"><feGaussianBlur stdDeviation="2"/></filter></svg>');
+        $this->assertNotSame([], pp_validate_composition_errors([$filter, $styled], null, null, null));
+        $this->assertSame([], pp_validate_composition_errors([$this->section('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/><use href="#g"/></svg>')], null, null, null));
+    }
+
+    /**
+     * The facts walk of unchanged bands is bounded in WALKS as well as bytes (cycle 9): a
+     * page of many small bands makes no write slow, and a band that cannot carry a fact (no
+     * `<`, or no `=`) is not walked at all.
+     */
+    public function testTheFactsWalkIsBoundedByCount(): void
+    {
+        $plain = $tagged = [];
+        for ($i = 0; $i < 6000; $i++) {
+            $plain[] = $this->section('<p>' . $i . '</p>');
+            $tagged[] = $this->section('<p id="a' . $i . '">x</p>');
+        }
+        $index = pp_content_composition_index(array_merge($plain, [$this->section('<p>new</p>')]), [6000]);
+        $this->assertFalse($index[5999]['incomplete'], 'a band with no `=` carries no fact and is not walked');
+        $index = pp_content_composition_index(array_merge($tagged, [$this->section('<p>new</p>')]), [6000]);
+        // The judged band walks 2 values (title, body); each unchanged band 1 (its title has no `<`).
+        $this->assertFalse($index[PP_CONTENT_WRITE_MAX_VALUES - 3]['incomplete']);
+        $this->assertTrue($index[PP_CONTENT_WRITE_MAX_VALUES - 2]['incomplete'], 'exactly at the value budget');
+        $this->assertTrue($index[5999]['incomplete'], 'past the write\'s value budget the facts are incomplete');
+        if (!extension_loaded('xdebug') && !extension_loaded('pcov')) {
+            $items = array_merge($tagged, [$this->section('<p>new</p>')]);
+            $best = INF;
+            for ($run = 0; $run < 2; $run++) {
+                $start = microtime(true);
+                pp_validate_composition_errors($items, null, null, $tagged);
+                $best = min($best, microtime(true) - $start);
+            }
+            $this->assertLessThan(5.0, $best, '6,000 unchanged bands with facts: bounded by the walk budget');
+        }
+    }
+
+    /** The facts budget at its exact edge: judged bytes are charged once, then the unchanged bands. */
+    public function testTheFactsBudgetEdge(): void
+    {
+        $band = fn (int $k) => $this->section('<p class="s">' . str_repeat('s', 63981) . sprintf('%02d', $k) . '</p>'); // 64,000 + 'T'
+        $this->assertSame(64001, array_sum(array_map(static fn ($v) => strlen($v[3]), pp_content_band_values($band(0)))));
+        $fits = [];
+        for ($k = 1; $k <= 15; $k++) {
+            $fits[] = $band($k);
+        }
+        $index = pp_content_composition_index(array_merge([$band(0)], $fits), [0]);
+        $this->assertFalse($index[15]['incomplete'], '16 x 64,001 bytes fit one write (judged charged once)');
+        $index = pp_content_composition_index(array_merge([$band(0)], $fits, [$band(16)]), [0]);
+        $this->assertTrue($index[16]['incomplete'], 'the 17th does not');
+    }
+
+    /** With incomplete facts, every cross-band fact is unverifiable: an id, a reference, a details group, a map. */
+    public function testIncompleteFactsCoverEveryCrossBandFact(): void
+    {
+        $stored = [];
+        for ($k = 0; $k < 17; $k++) {
+            $stored[] = $this->section('<p class="s">' . str_repeat('s', 64990) . $k . '</p>');
+        }
+        foreach (['<p aria-describedby="x">a</p><span id="x">s</span>', '<details name="g"><summary>s</summary>d</details>',
+            '<map name="m"></map>', '<svg><rect fill="url(#g)"/><linearGradient id="g"/></svg>'] as $body) {
+            $errors = pp_validate_composition_errors(array_merge($stored, [$this->section($body)]), null, null, $stored);
+            $this->assertNotSame([], $errors, $body);
+            $this->assertStringContainsString('cannot be verified', $errors[0]->get_error_message(), $body);
+        }
+    }
+
+    /** add_component judges the added band at the writer's tier too. */
+    public function testAddComponentUsesTheWritersTier(): void
+    {
+        $post_id = $this->page([$this->section('<p>stored</p>')]);
+        $GLOBALS['_pp_test_user_caps'] = ['unfiltered_html' => false];
+        try {
+            $result = pp_execute_action('add_component', ['post_id' => $post_id, 'component' => 'section',
+                'props' => ['title' => 'T', 'body' => '<svg viewBox="0 0 1 1"></svg>']]);
+            $this->assertFalse($result['ok']);
+            $this->assertStringContainsString('unfiltered_html', $result['error']);
+        } finally {
+            unset($GLOBALS['_pp_test_user_caps']);
+        }
+    }
+
+    /**
+     * Item 18: the byte-equal passes are not charged to the matcher budget, so a huge
+     * untouched band never spends the budget a structurally-equal band beside it needs.
+     */
+    public function testByteEqualMatchesNeverSpendTheStructuralBudget(): void
+    {
+        $cells = array_fill(0, 18, [str_repeat('c', 60000)]);
+        $huge = ['component' => 'table', 'props' => ['title' => 'T', 'headers' => ['A'], 'rows' => $cells]]; // ~1.08 MB
+        $stored = [$huge, $this->section('<p class=a>x</p>')];
+        $incoming = [$huge, $this->section('<p class="a">x</p>')]; // structurally equal, not byte-equal
+        $this->assertSame([0 => true, 1 => true], pp_content_unchanged_keys($incoming, $stored));
+    }
+
     /** The kept walk is what band_losses finishes: a judged value is never walked twice. */
     public function testBandLossesFinishTheKeptWalk(): void
     {
@@ -674,7 +794,7 @@ class ContentWriteGateTest extends TestCase
     {
         $stored = [];
         for ($k = 0; $k < 17; $k++) {
-            $stored[] = $this->section('<p>' . str_repeat('s', 65000) . $k . '</p>');
+            $stored[] = $this->section('<p class="s">' . str_repeat('s', 64990) . $k . '</p>'); // `=`: it may carry a fact
         }
         $plain = array_merge($stored, [$this->section('<p>new text</p>')]);
         $this->assertSame([], pp_validate_composition_errors($plain, null, null, $stored));

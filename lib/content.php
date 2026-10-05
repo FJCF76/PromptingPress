@@ -788,7 +788,8 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
     $allowed = is_array($core[$tag]) ? array_change_key_case($core[$tag], CASE_LOWER) : [];
     foreach ($values as $attr => $value) {
         $attr = (string) $attr;
-        $listed = isset($allowed[$attr]) || (isset($allowed['data-*']) && preg_match('/^data-[a-z0-9_.:-]+\z/', $attr));
+        // core kses's own data-* grammar (wp_kses_attr_check()): data-[a-z0-9_-]+.
+        $listed = isset($allowed[$attr]) || (isset($allowed['data-*']) && preg_match('/^data-[a-z0-9_-]+\z/', $attr));
         if (!$listed) {
             $state['losses'][] = _pp_content_loss($attr . ' on <' . $qual . '>', $where, 'unfiltered_html', $text);
             continue;
@@ -796,17 +797,20 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
         if (!is_string($value)) {
             continue;
         }
-        if (_pp_content_url_context($tag, $attr) !== null && $attr !== 'srcset'
-            && pp_content_url_loss($value, 'fetch') !== null && pp_content_url_loss($value, 'link') === null
-            || ($attr === 'src' && $tag === 'img' && preg_match('/^\s*data:/i', $value))) {
-            // An app scheme or a data: image: admitted to the full tier only (P-10).
+        // A URL scheme beyond core's protocol list (an app scheme, a data: image): the full
+        // tier only. Read by the same canonicaliser as E2, so no spelling hides a scheme.
+        $c = _pp_content_url_context($tag, $attr) !== null ? pp_content_url_parse($value) : null;
+        if ($c !== null && $c['scheme'] !== null
+            && !in_array($c['scheme'], array_map('strtolower', wp_allowed_protocols()), true)) {
             $state['losses'][] = _pp_content_loss($attr . '="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
                 $where, 'unfiltered_html', 'this URL scheme is beyond WordPress\'s own protocol list, which a user without unfiltered_html writes');
             continue;
         }
         if ($attr === 'style' && trim($value) !== '') {
+            // Kept WHOLE: every declaration core's filter returns, as sent (normalised for
+            // whitespace only), or the write is refused.
             $filtered = function_exists('safecss_filter_attr') ? (string) safecss_filter_attr($value) : null;
-            if ($filtered === null || count(_pp_content_split_declarations($filtered)) < count(_pp_content_split_declarations($value))) {
+            if ($filtered === null || _pp_content_normalise_declarations($filtered) !== _pp_content_normalise_declarations($value)) {
                 $state['losses'][] = _pp_content_loss('style="' . _pp_content_reflect($value, 60) . '" on <' . $qual . '>',
                     $where, 'unfiltered_html', 'a declaration here is beyond WordPress\'s own CSS filter (safecss_filter_attr), which a user without unfiltered_html writes');
             }
@@ -815,41 +819,201 @@ function _pp_content_core_tier_check(string $ns, string $tag, string $qual, arra
     return true;
 }
 
+// ── THE URL CANONICALISER (the one owner of "what URL is this", cycle-9 ruling) ─────────
+//
+// Every URL-judging arm (E2, srcset, the P-11 PDF object, the trust tier, the forms gate)
+// reads a URL through pp_content_url_parse(), which follows the WHATWG URL parser where it
+// matters to a verdict: leading/trailing C0 controls and spaces are stripped and ASCII tab
+// and newline removed anywhere; in a special scheme (and in a relative reference, whose base
+// is this site's http(s) page) a backslash is a slash; a URL whose scheme equals the page's
+// own and has no `//` is a RELATIVE reference (`https:/wp-login.php` is `/wp-login.php`); a
+// special scheme with another name skips any slashes before its authority; dot segments
+// (`.`, `..` and their `%2e` spellings) are resolved. What it cannot parse cleanly (a control
+// character left inside, a malformed host or port, a `file:` URL) is null, and every caller
+// REFUSES null: never passed through.
+
+/** The scheme this site's pages are served under (the base of every relative reference). */
+function _pp_content_site_url_parts(): array {
+    static $parts = null;
+    if ($parts !== null) {
+        return $parts;
+    }
+    $home = function_exists('home_url') ? (string) home_url('/') : '';
+    $p = parse_url($home);
+    $scheme = is_array($p) && isset($p['scheme']) ? strtolower($p['scheme']) : 'https';
+    return $parts = [
+        'scheme' => $scheme,
+        'host'   => is_array($p) && isset($p['host']) ? strtolower($p['host']) : '',
+        'port'   => is_array($p) && isset($p['port']) ? (int) $p['port'] : ($scheme === 'http' ? 80 : 443),
+    ];
+}
+
+/**
+ * Parses a URL the way a browser does, as far as a verdict needs.
+ *
+ * @return array{kind:string, scheme:?string, host:?string, port:?int, path:string, query:?string, fragment:?string, text:string}|null
+ *         kind: opaque (a non-special scheme: mailto:, sip:, data:, javascript: …), absolute
+ *         (a special scheme with an authority), network (`//host/…`), relative (a path,
+ *         query or fragment reference). Null: not parseable cleanly; refuse it.
+ */
+function pp_content_url_parse(string $url): ?array {
+    $u = preg_replace('/^[\x00-\x20]+|[\x00-\x20]+\z/', '', $url) ?? '';
+    $u = str_replace(["\t", "\n", "\r"], '', $u);
+    if (preg_match('/[\x00-\x1F\x7F]/', $u)) {
+        return null;
+    }
+    $special = ['http' => 80, 'https' => 443, 'ws' => 80, 'wss' => 443, 'ftp' => 21, 'file' => 0];
+    $site = _pp_content_site_url_parts();
+    $scheme = null;
+    $rest = $u;
+    if (preg_match('/^([a-zA-Z][a-zA-Z0-9+.\-]*):(.*)\z/s', $u, $m)) {
+        $scheme = strtolower($m[1]);
+        $rest = $m[2];
+    }
+    if ($scheme !== null && !isset($special[$scheme])) {
+        return ['kind' => 'opaque', 'scheme' => $scheme, 'host' => null, 'port' => null, 'path' => $rest,
+            'query' => null, 'fragment' => null, 'text' => $u];
+    }
+    if ($scheme === 'file') {
+        return null;
+    }
+    $rest = str_replace('\\', '/', $rest);
+    if ($scheme !== null && $scheme === $site['scheme'] && !str_starts_with($rest, '//')) {
+        $scheme = null; // the page's own scheme without an authority: a relative reference
+    } elseif ($scheme !== null) {
+        $rest = '//' . ltrim($rest, '/');
+    }
+    $kind = 'relative';
+    $host = null;
+    $port = null;
+    if (str_starts_with($rest, '//')) {
+        $after = substr($rest, 2);
+        $end = strcspn($after, '/?#');
+        $authority = substr($after, 0, $end);
+        $rest = substr($after, $end);
+        $at = strrpos($authority, '@');
+        if ($at !== false) {
+            $authority = substr($authority, $at + 1);
+        }
+        if (!preg_match('/^(\[[0-9a-fA-F:.]+\]|[^:\[\]\/?#@\s%<>^|"\\\\]+)(?::([0-9]*))?\z/u', $authority, $hm)) {
+            return null;
+        }
+        $host = function_exists('mb_strtolower') ? mb_strtolower($hm[1], 'UTF-8') : strtolower($hm[1]);
+        $host = rtrim($host, '.');
+        if ($host === '' || (isset($hm[2]) && $hm[2] !== '' && (int) $hm[2] > 65535)) {
+            return null;
+        }
+        $scheme_for_port = $scheme ?? $site['scheme'];
+        $port = isset($hm[2]) && $hm[2] !== '' ? (int) $hm[2] : ($special[$scheme_for_port] ?? null);
+        $kind = $scheme === null ? 'network' : 'absolute';
+        if ($rest === '' || $rest[0] !== '/') {
+            $rest = '/' . $rest;
+        }
+    }
+    $fragment = null;
+    $hash = strpos($rest, '#');
+    if ($hash !== false) {
+        $fragment = substr($rest, $hash + 1);
+        $rest = substr($rest, 0, $hash);
+    }
+    $query = null;
+    $q = strpos($rest, '?');
+    if ($q !== false) {
+        $query = substr($rest, $q + 1);
+        $rest = substr($rest, 0, $q);
+    }
+    return ['kind' => $kind, 'scheme' => $scheme, 'host' => $host, 'port' => $port,
+        'path' => _pp_content_remove_dot_segments($rest), 'query' => $query, 'fragment' => $fragment, 'text' => $u];
+}
+
+/**
+ * The WHATWG path's dot segments resolved: `.` and `%2e` are dropped, `..` and its `%2e`
+ * spellings pop a segment (never above the root). In a relative path a leading `..` that
+ * nothing can pop is kept: the page it resolves against is not known.
+ */
+function _pp_content_remove_dot_segments(string $path): string {
+    if ($path === '') {
+        return '';
+    }
+    $absolute = $path[0] === '/';
+    $segments = explode('/', $absolute ? substr($path, 1) : $path);
+    $out = [];
+    $last = count($segments) - 1;
+    foreach ($segments as $i => $seg) {
+        $lower = strtolower($seg);
+        if ($lower === '.' || $lower === '%2e') {
+            if ($i === $last) {
+                $out[] = '';
+            }
+            continue;
+        }
+        if (in_array($lower, ['..', '.%2e', '%2e.', '%2e%2e'], true)) {
+            if ($out !== [] && end($out) !== '..') {
+                array_pop($out);
+            } elseif (!$absolute) {
+                $out[] = '..';
+            }
+            if ($i === $last) {
+                $out[] = '';
+            }
+            continue;
+        }
+        $out[] = $seg;
+    }
+    return ($absolute ? '/' : '') . implode('/', $out);
+}
+
+/** Same origin as this site? A relative reference resolves against the page itself. */
+function _pp_content_url_is_same_origin(array $c): bool {
+    if ($c['kind'] === 'relative') {
+        return true;
+    }
+    if ($c['kind'] === 'opaque') {
+        return false;
+    }
+    $site = _pp_content_site_url_parts();
+    return ($c['scheme'] ?? $site['scheme']) === $site['scheme'] && $c['host'] === $site['host'] && $c['port'] === $site['port'];
+}
+
+/** A style value's declarations, whitespace-normalised, for an exact comparison. */
+function _pp_content_normalise_declarations(string $css): array {
+    return array_map(static function (string $decl): string {
+        $colon = strpos($decl, ':');
+        $prop = strtolower(trim($colon === false ? $decl : substr($decl, 0, $colon)));
+        $value = $colon === false ? '' : (preg_replace('/\s+/', ' ', trim(substr($decl, $colon + 1))) ?? '');
+        return $prop . ':' . $value;
+    }, _pp_content_split_declarations($css));
+}
+
 // ── FORMS: where a form may post (routed item 9, ruled for T3a) ─────────────────────────
 
 /**
  * Is this form action same-origin with the site (home_url())? A missing action posts to
- * the page itself; a relative or #fragment action resolves against it. Classified after
- * the URL parser's own preprocessing and backslash normalisation (pp_content_url_loss()).
+ * the page itself; a relative or #fragment action resolves against it. An action the
+ * canonicaliser cannot parse is not same-origin (and is refused by E2 anyway).
  */
 function pp_content_action_is_same_origin(string $action): bool {
-    $u = str_replace(["\t", "\n", "\r", '\\'], ['', '', '', '/'], preg_replace('/^[\x00-\x20]+|[\x00-\x20]+\z/', '', $action) ?? '');
-    if ($u === '' || (!str_starts_with($u, '//') && !preg_match('/^[a-zA-Z][a-zA-Z0-9+.\-]*:/', $u))) {
-        return true;
-    }
-    $home = function_exists('home_url') ? (string) home_url('/') : '';
-    $site = parse_url($home);
-    $target = parse_url(str_starts_with($u, '//') ? (($site['scheme'] ?? 'https') . ':' . $u) : $u);
-    if (!is_array($site) || !is_array($target) || !isset($target['host'], $site['host'])) {
-        return false;
-    }
-    $port = static fn (array $p) => $p['port'] ?? (strtolower($p['scheme'] ?? '') === 'http' ? 80 : 443);
-    return strtolower($target['scheme'] ?? '') === strtolower($site['scheme'] ?? '')
-        && strtolower($target['host']) === strtolower($site['host'])
-        && $port($target) === $port($site);
+    $c = pp_content_url_parse($action);
+    return $c !== null && _pp_content_url_is_same_origin($c);
 }
 
-/** Does this same-origin action target a WordPress admin endpoint (by path, any spelling)? */
+/**
+ * Does this same-origin action target a WordPress admin endpoint? Matched on the
+ * canonical, dot-resolved path (percent-decoded, case-insensitive): any `wp-admin` segment,
+ * and `wp-login.php`, `admin-ajax.php` or `admin-post.php` followed by `/` or the end (a
+ * PATH_INFO suffix still runs the script). A relative path matches in any segment: on the
+ * front page `wp-login.php` resolves to `/wp-login.php`.
+ */
 function pp_content_action_is_admin_endpoint(string $action): bool {
-    if (!pp_content_action_is_same_origin($action)) {
+    $c = pp_content_url_parse($action);
+    if ($c === null || !_pp_content_url_is_same_origin($c)) {
         return false;
     }
-    $u = str_replace(["\t", "\n", "\r", '\\'], ['', '', '', '/'], trim($action));
-    $path = (string) (parse_url(str_starts_with($u, '//') ? 'https:' . $u : $u, PHP_URL_PATH) ?? '');
+    $path = $c['path'];
     for ($i = 0; $i < 3 && preg_match('/%[0-9a-f]{2}/i', $path); $i++) {
-        $path = rawurldecode($path);
+        $path = _pp_content_remove_dot_segments(rawurldecode($path));
     }
-    return preg_match('#(^|/)(wp-admin(/|\z)|wp-login\.php\z|admin-ajax\.php\z|admin-post\.php\z)#i', $path) === 1;
+    return preg_match('#(^|/)(wp-admin|wp-login\.php|admin-ajax\.php|admin-post\.php)(/|\z)#i', $path) === 1;
 }
 
 // ── THE PREDICATE ─────────────────────────────────────────────────────────────────────
@@ -1169,29 +1333,26 @@ function _pp_content_url_context(string $tag, string $attr): ?string {
 }
 
 /**
- * E2 for one URL, after the URL parser's own preprocessing: entities are already decoded
- * by the HTML API, leading/trailing C0 controls and spaces are stripped, and ASCII tab/LF/CR
- * anywhere are removed. Never rewritten (§1.3's rewrite-to-relative is pinned absent):
- * the answer is accept or refuse. Returns the refusal reason or null.
+ * E2 for one URL, read by the shared canonicaliser (pp_content_url_parse(); entities are
+ * already decoded by the HTML API). A URL it cannot parse is refused. Never rewritten
+ * (§1.3's rewrite-to-relative is pinned absent): the answer is accept or refuse. Returns the
+ * refusal reason or null.
  */
 function pp_content_url_loss(string $url, string $context): ?string {
-    $u = preg_replace('/^[\x00-\x20]+|[\x00-\x20]+\z/', '', $url) ?? '';
-    $u = str_replace(["\t", "\n", "\r"], '', $u);
-    // A browser resolves a relative URL against this page's http(s) base, where `\` is a
-    // path separator: `\\host\p` and `/\host/p` are protocol-relative references to
-    // another host. Classified after that normalisation, so they are judged as the
-    // external references they are (P-4 option A: admitted, like `//host/p`).
-    $u = str_replace('\\', '/', $u);
-    if (!preg_match('/^([a-zA-Z][a-zA-Z0-9+.\-]*):/', $u, $m)) {
+    $c = pp_content_url_parse($url);
+    if ($c === null) {
+        return 'this URL cannot be read the way a browser reads it (a control character, or a malformed host or port), so it is refused';
+    }
+    if ($c['scheme'] === null) {
         return null; // relative, protocol-relative (P-4 option A) or #fragment
     }
-    $scheme = strtolower($m[1]);
+    $scheme = $c['scheme'];
     if ($scheme === 'data') {
         if ($context === 'img-src') {
-            if (strlen($u) > PP_CONTENT_DATA_IMAGE_MAX_BYTES) {
+            if (strlen($c['text']) > PP_CONTENT_DATA_IMAGE_MAX_BYTES) {
                 return 'a data: image is limited to ' . PP_CONTENT_DATA_IMAGE_MAX_BYTES . ' bytes (P-10)';
             }
-            if (preg_match('#^data:image/(png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}\z#i', $u)) {
+            if (preg_match('#^data:image/(png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}\z#i', $c['text'])) {
                 return null;
             }
             return 'only base64 data:image/png, jpeg, gif, webp or avif is admitted in <img src>, never SVG (P-10)';
@@ -1825,6 +1986,9 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
                     continue;
                 }
                 $out_attrs[$lname === 'href' ? 'href' : 'xlink:href'] = $string_value;
+                foreach (_pp_content_fragment_references($ns, $tag, $lname, $string_value) as $target) {
+                    $state['refs'][] = ['frag:' . $lname, $qual, $target, $where];
+                }
                 continue;
             }
             if ($lname === 'xml:base') {
@@ -1905,6 +2069,15 @@ function _pp_content_judge_element(WP_HTML_Processor $p, array $stack, array &$s
         }
         if ($ns === 'html' && $attr === 'usemap' && is_string($value)) {
             $state['refs'][] = ['usemap', $tag, $value, $where];
+        }
+        // SVG same-document fragment references (routed item 2, ruled): `<use href="#x">`
+        // and the other fragment-href elements, `url(#x)` in an SVG reference attribute, and
+        // `url(#x)` in any style attribute (P-13). Each binds to the FIRST element with that
+        // id in the document, so it is an E12 reference like any other.
+        if (is_string($value)) {
+            foreach (_pp_content_fragment_references($ns, $tag, $lower, $value) as $target) {
+                $state['refs'][] = ['frag:' . $qattr, $qual, $target, $where];
+            }
         }
     }
 
@@ -2022,6 +2195,31 @@ function _pp_content_parser_form_pointer(WP_HTML_Processor $p): ?bool {
     return $read($p);
 }
 
+/**
+ * The ids an admitted attribute value refers to by same-document fragment: an SVG
+ * fragment-href element's `href`/`xlink:href` (`#x`), an SVG reference attribute's
+ * `url(#x)`, and every `url(#x)` in a style attribute.
+ *
+ * @return list<string>
+ */
+function _pp_content_fragment_references(string $ns, string $tag, string $attr, string $value): array {
+    $url = '/url\(\s*(["\']?)#([A-Za-z_][A-Za-z0-9_.\-]{0,63})\1\s*\)/i';
+    if ($attr === 'style') {
+        return preg_match_all($url, $value, $m) ? $m[2] : [];
+    }
+    if ($ns !== 'svg') {
+        return [];
+    }
+    if (($attr === 'href' || $attr === 'xlink:href') && isset(pp_content_svg_fragment_href_elements()[$tag])
+        && preg_match('/^#([A-Za-z_][A-Za-z0-9_.\-]{0,63})\z/', $value, $m)) {
+        return [$m[1]];
+    }
+    if (isset(pp_content_svg_reference_attributes()[$attr]) && preg_match($url, $value, $m)) {
+        return [$m[2]];
+    }
+    return [];
+}
+
 /** E5 / P-12 / Δ1: `href` and `xlink:href` on an SVG element. Returns [clause, reason] or null. */
 function _pp_content_svg_href_loss(string $tag, string $value): ?array {
     if ($tag === 'a') {
@@ -2083,37 +2281,38 @@ function _pp_content_html_element_loss(string $tag, array $values): ?array {
  * rather than only its host.
  */
 function pp_content_is_same_install_pdf(string $url): bool {
-    if ($url === '' || str_contains($url, '?') || str_contains($url, '#') || !preg_match('/\.pdf\z/i', $url)) {
-        return false;
-    }
     if (!function_exists('wp_upload_dir')) {
         return false;
     }
     $uploads = wp_upload_dir(null, false);
-    $base = is_array($uploads) && isset($uploads['baseurl']) && is_string($uploads['baseurl']) ? $uploads['baseurl'] : '';
-    if ($base === '') {
+    $baseurl = is_array($uploads) && isset($uploads['baseurl']) && is_string($uploads['baseurl']) ? $uploads['baseurl'] : '';
+    // Both read by the shared canonicaliser: dot segments in every spelling are resolved
+    // before the prefix comparison, and what it cannot parse is not this install's PDF.
+    $c = pp_content_url_parse($url);
+    $base = $baseurl === '' ? null : pp_content_url_parse($baseurl);
+    if ($c === null || $base === null || $base['kind'] !== 'absolute' || !in_array($base['scheme'], ['http', 'https'], true)
+        || $c['query'] !== null || $c['fragment'] !== null || !preg_match('/\.pdf\z/i', $c['path'])) {
         return false;
     }
-    // Scheme dropped (http and https both name this install), host compared case-insensitively.
-    $lower_host = static fn (string $u): string => preg_replace_callback('#^//([^/]*)#',
-        static fn ($m) => '//' . strtolower($m[1]), $u) ?? $u;
-    $base = $lower_host(rtrim(preg_replace('#^https?:#i', '', $base) ?? '', '/') . '/');
-    // A root-relative path resolves against this install's own host.
-    if (str_starts_with($url, '/') && !str_starts_with($url, '//') && preg_match('#^//[^/]*#', $base, $host)) {
-        $url = $host[0] . $url;
+    if ($c['kind'] === 'relative') {
+        // Only a root-relative path names a fixed place; a path relative to the page does not.
+        if (!str_starts_with($c['path'], '/')) {
+            return false;
+        }
+    } elseif (!in_array($c['kind'], ['absolute', 'network'], true) || !in_array($c['scheme'] ?? 'https', ['http', 'https'], true)
+        || $c['host'] !== $base['host']) {
+        return false; // scheme dropped: http and https both name this install
     }
-    $candidate = $lower_host(preg_replace('#^https?:#i', '', $url) ?? '');
-    if ($base === '/' || !str_starts_with($candidate, $base)) {
+    $prefix = rtrim($base['path'], '/') . '/';
+    if ($prefix === '/' || !str_starts_with($c['path'], $prefix)) {
         return false;
     }
-    // The path after the uploads base may not climb out of it in any spelling a browser's
-    // URL parser resolves: `..` and `.` segments, percent-encoded dots (`%2e%2e`), a
-    // backslash (a path separator in http(s) URLs) or tab/newline inside a segment.
-    $rest = substr($candidate, strlen($base));
+    // After the uploads base: no climbing out in a spelling a server decodes (a percent-
+    // encoded dot segment or backslash).
+    $rest = substr($c['path'], strlen($prefix));
     for ($i = 0; $i < 3 && preg_match('/%[0-9a-f]{2}/i', $rest); $i++) {
         $rest = rawurldecode($rest);
     }
-    $rest = str_replace(["\t", "\n", "\r"], '', $rest);
     return strpos($rest, '\\') === false && !preg_match('#(^|/)\.{1,2}(/|\z)#', $rest);
 }
 
@@ -2147,10 +2346,13 @@ function _pp_content_ctx(array $ctx): array {
             'ids'     => $set($ctx['other_ids'] ?? []),
             'details' => $set($ctx['other_details_names'] ?? []),
             'refs'    => $set($ctx['other_refs'] ?? []),
+            'maps'    => $set($ctx['other_map_names'] ?? []),
         ],
-        'own'       => ['ids' => [], 'details' => [], 'refs' => []],
+        'own'       => ['ids' => [], 'details' => [], 'refs' => [], 'maps' => []],
         'incomplete' => false,
-        'tier'      => ($ctx['tier'] ?? 'full') === 'core' ? 'core' : 'full',
+        // Fail closed: only an explicit 'full' (or no tier at all: a caller outside the write
+        // path) is the full tier; any other value is core parity.
+        'tier'      => ($ctx['tier'] ?? 'full') === 'full' ? 'full' : 'core',
     ];
 }
 
@@ -2167,18 +2369,22 @@ function _pp_content_resolve_references(array &$state): void {
     $kinds = pp_content_idref_attributes();
     foreach ($state['refs'] as [$attr, $tag, $value, $where]) {
         if ($attr === 'usemap') {
-            $name = ltrim($value, '#');
-            if ($value === '' || $value[0] !== '#' || !(isset($maps[$name]) || isset($ctx['band_maps'][$name]))) {
+            // A browser binds `#m` to the FIRST <map> in the document whose name or id is
+            // `m`, so the map must be in this band and no other band may carry that name or id.
+            $name = substr($value, 1);
+            if ($value === '' || $value[0] !== '#' || !(isset($maps[$name]) || isset($ctx['band_maps'][$name]))
+                || _pp_content_in_other($ctx, 'maps', $name) || _pp_content_in_other($ctx, 'ids', $name)) {
                 $state['losses'][] = _pp_content_loss('usemap="' . _pp_content_reflect($value, 64) . '" on <' . $tag . '>',
-                    $where, 'E12', 'usemap must name a <map name> inside the same band');
+                    $where, 'E12', 'usemap must name a <map name> inside the same band, and no other band may carry that name or id');
             }
             continue;
         }
         $many = ($kinds[$attr] ?? '') === 'many' || $attr === 'for:many';
         // Matched as the browser matches: a list split on HTML whitespace, a single
-        // reference whole (a whitespace-padded one is refused earlier).
+        // reference whole (a whitespace-padded one is refused earlier). An SVG fragment
+        // reference (`frag:` — `<use href="#x">`, `url(#x)`; routed item 2, ruled) names one id.
         $targets = $many ? _pp_content_split_ws($value) : [$value];
-        $label = str_replace(['for:one', 'for:many'], 'for', $attr);
+        $label = str_starts_with($attr, 'frag:') ? substr($attr, 5) : str_replace(['for:one', 'for:many'], 'for', $attr);
         foreach ($targets as $target) {
             // In band, and ONLY in band: an id that another band also carries binds to
             // whichever comes first in the document, so the reference may land outside.
@@ -2199,6 +2405,12 @@ function _pp_content_resolve_references(array &$state): void {
                 'another band refers to this id, so its control would bind to this element');
         }
     }
+    foreach (array_keys($maps) as $name) {
+        if (_pp_content_in_other($ctx, 'refs', (string) $name)) {
+            $state['losses'][] = _pp_content_loss('name="' . _pp_content_reflect((string) $name, 64) . '" on <map>', '', 'E12',
+                'another band\'s usemap names this map, so its image would bind to this map');
+        }
+    }
     foreach ($state['details_names'] as [$name, $where]) {
         if (_pp_content_in_other($ctx, 'details', (string) $name)) {
             $state['losses'][] = _pp_content_loss('name="' . _pp_content_reflect($name, 64) . '" on <details>',
@@ -2210,9 +2422,10 @@ function _pp_content_resolve_references(array &$state): void {
     if (!empty($ctx['incomplete'])) {
         $facts = array_merge(
             array_map(static fn ($id) => 'id="' . _pp_content_reflect((string) $id, 64) . '"', array_keys($own_ids)),
-            array_map(static fn ($r) => str_replace(['for:one', 'for:many'], 'for', $r[0]) . '="' . _pp_content_reflect((string) $r[2], 64) . '"',
+            array_map(static fn ($r) => preg_replace('/^(frag:|for:one|for:many)/', '', $r[0]) . '="' . _pp_content_reflect((string) $r[2], 64) . '"',
                 $state['refs']),
-            array_map(static fn ($d) => 'name="' . _pp_content_reflect((string) $d[0], 64) . '" on <details>', $state['details_names'])
+            array_map(static fn ($d) => 'name="' . _pp_content_reflect((string) $d[0], 64) . '" on <details>', $state['details_names']),
+            array_map(static fn ($m) => 'name="' . _pp_content_reflect((string) $m, 64) . '" on <map>', array_keys($maps))
         );
         if ($facts !== []) {
             $state['losses'][] = _pp_content_loss($facts[0], '', 'E12', sprintf(
@@ -2301,27 +2514,33 @@ function pp_content_close_first_hint(string $bytes): string {
  *                            A value that does not fit is not walked and the band is
  *                            `incomplete`.
  * @param  string   $tier     The writer's trust tier for a judged band (pp_content_write_tier()).
+ * @param  int|null $walks    Values this band may still walk (decremented), with $budget.
  * @return array{values:list<array>, ids:list<string>, maps:list<string>, details:list<string>, refs:list<string>, anchor:string, incomplete:bool, states?:array}
  */
-function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null, string $tier = 'full'): array {
+function pp_content_band_facts(array $item, array $anchors = [], bool $keep = true, ?int &$budget = null, string $tier = 'full', ?int &$walks = null): array {
     $values = pp_content_band_values($item);
     $anchor = (isset($item['props']['id']) && is_string($item['props']['id'])) ? $item['props']['id'] : '';
     $ids = $maps = $details = $refs = [];
     $states = [];
     $incomplete = false;
     foreach ($values as $n => [, , $sink, $value]) {
-        // A value with no `<` has no element, so no fact. A value over the prop cap is not
-        // read (the write refuses it, and a stored one is never judged; #1251 records the
-        // legacy gap this leaves).
-        if (!$keep && (strpos($value, '<') === false || strlen($value) > PP_CONTENT_PROP_MAX_BYTES)) {
+        // A value with no `<` has no element and one with no `=` has no attribute value, so
+        // neither carries a fact. A value over the prop cap is not read (the write refuses
+        // it, and a stored one is never judged; #1251 records the legacy gap this leaves).
+        if (!$keep && (strpos($value, '<') === false || strpos($value, '=') === false
+            || strlen($value) > PP_CONTENT_PROP_MAX_BYTES)) {
             continue;
         }
+        // Bounded in BYTES and in WALKS: each walk has a fixed cost (one wrapper parse).
         if ($budget !== null) {
-            if (strlen($value) > $budget) {
+            if (strlen($value) > $budget || ($walks !== null && $walks < 1)) {
                 $incomplete = true;
                 continue;
             }
             $budget -= strlen($value);
+            if ($walks !== null) {
+                $walks--;
+            }
         }
         // A band read only for its facts is walked without the anchors: an id equal to an
         // anchor is exactly the fact the anchor-add rule needs (E6 would drop it).
@@ -2336,7 +2555,11 @@ function pp_content_band_facts(array $item, array $anchors = [], bool $keep = tr
         array_push($maps, ...array_map('strval', $state['map_names']));
         array_push($details, ...array_map(static fn ($d) => (string) $d[0], $state['details_names']));
         foreach ($state['refs'] as [$attr, , $v]) {
-            if ($attr !== 'usemap') {
+            if ($attr === 'usemap') {
+                $refs[] = substr((string) $v, 1); // the map name a `#name` binds to
+            } elseif (str_starts_with($attr, 'frag:')) {
+                $refs[] = (string) $v;
+            } else {
                 array_push($refs, ..._pp_content_split_ws((string) $v));
             }
         }
@@ -2374,18 +2597,23 @@ function pp_content_composition_index(array $items, ?array $judged = null, strin
         return $index;
     }
     $judged_set = array_fill_keys(array_map('strval', $judged), true);
+    // One budget for everything the write walks, in bytes and in values (the M-8 write
+    // caps): the judged bands first, then the unchanged bands' facts with what remains.
     $budget = PP_CONTENT_WRITE_MAX_BYTES;
+    $walks = PP_CONTENT_WRITE_MAX_VALUES;
     $unbounded = null;
     foreach ($items as $key => $item) {
         if (is_array($item) && isset($judged_set[(string) $key])) {
             $index[$key] = pp_content_band_facts($item, $anchors, true, $unbounded, $tier);
             $budget -= array_sum(array_map(static fn ($v) => strlen($v[3]), $index[$key]['values']));
+            $walks -= count($index[$key]['values']);
         }
     }
     $budget = max(0, $budget);
+    $walks = max(0, $walks);
     foreach ($items as $key => $item) {
         if (!array_key_exists($key, $index)) {
-            $index[$key] = is_array($item) ? pp_content_band_facts($item, $anchors, false, $budget) : null;
+            $index[$key] = is_array($item) ? pp_content_band_facts($item, $anchors, false, $budget, 'full', $walks) : null;
         }
     }
     // Keep the composition's own order (band_context and the anchor pass iterate it).
@@ -2403,7 +2631,7 @@ function pp_content_composition_index(array $items, ?array $judged = null, strin
  * (measured before: a write's cost grew with changed bands × every id on the page).
  */
 function pp_content_index_counts(array $index): array {
-    $counts = ['ids' => [], 'details' => [], 'refs' => [], 'anchors' => [], 'incomplete' => false];
+    $counts = ['ids' => [], 'details' => [], 'refs' => [], 'maps' => [], 'anchors' => [], 'incomplete' => false];
     foreach ($index as $facts) {
         if ($facts === null) {
             continue;
@@ -2434,7 +2662,8 @@ function _pp_content_own_counts(array $facts): array {
     if ($facts['anchor'] !== '') {
         $ids[] = $facts['anchor'];
     }
-    return ['ids' => $tally($ids), 'details' => $tally($facts['details']), 'refs' => $tally($facts['refs'])];
+    return ['ids' => $tally($ids), 'details' => $tally($facts['details']), 'refs' => $tally($facts['refs']),
+        'maps' => $tally($facts['maps'])];
 }
 
 /**
@@ -2450,7 +2679,7 @@ function pp_content_band_context(array $items, $key, ?array $index = null, ?arra
     $index ??= pp_content_composition_index($items);
     $counts ??= pp_content_index_counts($index);
     $own = $index[$key] ?? null;
-    $own_counts = $own === null ? ['ids' => [], 'details' => [], 'refs' => []] : _pp_content_own_counts($own);
+    $own_counts = $own === null ? ['ids' => [], 'details' => [], 'refs' => [], 'maps' => []] : _pp_content_own_counts($own);
     return [
         '_sets'     => true,
         // A band's own anchor is in band for E12, and still reserved against content ids (E6).

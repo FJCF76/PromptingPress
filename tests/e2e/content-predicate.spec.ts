@@ -202,10 +202,15 @@ test.describe('Layer 3A content predicate — live pins', () => {
       '--brand: red', 'background-image: url(/a.png)', 'margin: 0 auto; padding: 1em'];
     const filtered: string[] = probe({ op: 'safecss', inputs: styles });
     const judged = probe({ op: 'judge', sink: 'rich', tier: 'core', inputs: styles.map((st) => `<p style="${st}">x</p>`) });
+    // Kept WHOLE: the declarations core returns equal those sent, whitespace-normalised.
+    const norm = (css: string) =>
+      css.split(';').filter((d) => d.trim() !== '').map((d) => {
+        const at = d.indexOf(':');
+        return `${d.slice(0, at).trim().toLowerCase()}:${d.slice(at + 1).trim().replace(/\s+/g, ' ')}`;
+      });
     styles.forEach((st, i) => {
-      const kept = filtered[i].split(';').filter((d) => d.trim() !== '').length;
-      const sent = st.split(';').filter((d) => d.trim() !== '').length;
-      expect(judged[i].clauses.includes('unfiltered_html'), `${st} -> "${filtered[i]}"`).toBe(kept < sent);
+      const whole = JSON.stringify(norm(filtered[i])) === JSON.stringify(norm(st));
+      expect(judged[i].clauses.includes('unfiltered_html'), `${st} -> "${filtered[i]}"`).toBe(!whole);
     });
     const core = probe({ op: 'judge', sink: 'rich', tier: 'core', inputs: ['<svg></svg>', '<p class="a">x <a href="/y">y</a></p>'] });
     expect(core[0].clauses).toContain('unfiltered_html');

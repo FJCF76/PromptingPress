@@ -2048,7 +2048,14 @@ mechanism silently:
    `itemref` are not on it. Candidate: define E12 by type (every IDREF/IDREFS attribute). The
    same question applies to E2's URL-attribute list and E9's redirector list (for example
    `referrerpolicy`), and to E11's reach (`img` `id`+`name`, form-control `id`s inside a form);
-   and P-18's "editor namespace attributes" needs a grammar and a value gate.
+   and P-18's "editor namespace attributes" needs a grammar and a value gate. *Ruled 2026-10-05
+   (#1242, cycle-9 ruling), implemented in T3a:* same-document SVG fragment references
+   (`<use href="#x">` and the other fragment-`href` elements, `url(#x)` in an SVG reference
+   attribute or any `style` attribute) are E12 references, symmetric with ids: the target is in
+   the same band and no other band carries that id. A `usemap="#m"` binds to the first `<map>`
+   named or id'd `m` in the document, so no other band may carry that name or id either. E12's
+   list carries `commandfor`, `aria-owns`, `aria-activedescendant`, `aria-errormessage`,
+   `aria-flowto` and `itemref`; editor-namespace attributes run Δ1's value gate.
 3. **The P-11 `<object>` row's exact attributes and `data` resolution.** `name` makes a
    navigable target, browsers render by Content-Type rather than `type`, and core's
    same-install PDF check is looser than "this install's uploads".
