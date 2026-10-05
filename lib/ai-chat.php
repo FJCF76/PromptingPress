@@ -204,8 +204,9 @@ function pp_ai_chat_page(): void {
  * With pages: the "Select a page" placeholder, then one option per page. With none: a single
  * empty-valued option reading WordPress's own "No pages found." (core's text domain, so it is
  * core's translation), the same words a page list shows when it has nothing for this user.
- * Its value is empty, so it is never a target: sending with it shows "No pages found." and
- * sends nothing (showPageSelectionPrompt() in assets/js/pp-ai-chat.js).
+ * Its value is empty, so it is never a target: sending with it selected shows a plain status
+ * line instead and sends nothing (showPageSelectionPrompt() in assets/js/pp-ai-chat.js, whose
+ * English text is not translated, unlike this option).
  *
  * @param  array<int, array{id: int, title: string}> $pages  From pp_ai_editable_pages().
  * @return string  Escaped <option> markup.
