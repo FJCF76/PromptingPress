@@ -446,7 +446,7 @@ composer install && composer test
 npm install && npm test
 ```
 
-**E2E specs** — composition editor round-trip (including the serialization gate), post-apply validation, the action-layer CLI, AI chat streaming/apply, concurrent token-override writes serialized behind a real MySQL advisory lock, and rendered-layout proof (style slots and component geometry measured in the browser, where the full cascade decides the outcome), run with Playwright against a live **WordPress 7.0** instance (requires Docker):
+**E2E specs** — composition editor round-trip (including the serialization gate), editor preview isolation, post-apply validation, the action-layer CLI, AI chat streaming/apply, concurrent token-override writes serialized behind a real MySQL advisory lock, and rendered-layout proof (style slots and component geometry measured in the browser, where the full cascade decides the outcome), run with Playwright against a live **WordPress 7.0** instance (requires Docker):
 
 ```bash
 npm run env:start   # boot wp-env container (WordPress 7.0)

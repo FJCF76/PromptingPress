@@ -241,11 +241,13 @@ Two related behaviours are **not** forging:
 This is the one place authored bytes select markup that no theme gate inspects. §7.5 states
 the contract for it.
 
-**The editor preview is not isolated today (measured, static).** The preview frame is
-`sandbox="allow-same-origin allow-scripts"` (`lib/admin.php:5730`), filled through `srcdoc` and
-later through `body.innerHTML` (`assets/js/pp-admin-editor.js:190-196`). That pairing gives the
-frame the admin origin. So shortcode output rendered in the preview runs with the admin's
-session **now**. §8.3 states what Layer 3 requires instead.
+**The editor preview is isolated (met, Sprint 6 T1a).** When this contract was drafted the
+preview frame was `sandbox="allow-same-origin allow-scripts"`, filled through `srcdoc` and later
+through `body.innerHTML`, which gave the frame the admin origin. It is now sandboxed with
+`allow-scripts` only, so it renders in an opaque origin; each refresh rebuilds `srcdoc` with the
+scroll position passed in, the editor accepts only a scroll-position message and only from the
+frame itself, and the preview document carries its own content policy (`connect-src 'none';
+form-action 'none'`). §8.3 states the requirement this meets.
 
 ### 1.6 The pressure on record (CONTEXT — not a gate)
 
@@ -1169,10 +1171,10 @@ output §7.5 describes, must never share an origin with the admin session that p
 
 This is a **precondition** of widening content. It is not a Layer-3 feature.
 
-**What the precondition costs, stated so it is not discovered late.** The editor refreshes the
-preview by reading and writing the frame's document directly: it swaps
-`frame.contentDocument.body.innerHTML` to keep the scroll position
-(`assets/js/pp-admin-editor.js:185-192`). An opaque-origin frame refuses that access. The
+**What the precondition costs, stated so it is not discovered late.** The editor refreshed the
+preview by reading and writing the frame's document directly: it swapped
+`frame.contentDocument.body.innerHTML` to keep the scroll position. An opaque-origin frame
+refuses that access. The
 refresh therefore has to move to a message the frame answers (`postMessage`), or to a full
 reload with the scroll position passed in. The implementation owns that change, and it is
 part of the precondition, not optional polish. **The message check is on the sender, never
@@ -1188,6 +1190,13 @@ an action, a URL, a selector or markup. Anything else is dropped. T-12 pins a me
 stronger alternative is recorded, and the implementation may choose it:** drop `allow-scripts`
 from the preview entirely (plugin behaviour then does not run in the preview, which is disclosed
 in the editor).
+
+**Met (Sprint 6 T1a).** The preview is sandboxed with `allow-scripts` only (opaque origin). Each
+refresh is a full `srcdoc` rebuild with the scroll position passed in; the editor accepts a
+message only when `event.source === frame.contentWindow` and the data passes the strict
+scroll-only schema (`isPreviewScrollMessage`, `assets/js/pp-editor-logic.js`). The preview
+document also carries its own content policy (`connect-src 'none'; form-action 'none'`). The
+stronger alternative (dropping `allow-scripts`) was not taken and remains available.
 
 ---
 
