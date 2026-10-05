@@ -4,6 +4,90 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## Unreleased — Sprint 6
+
+### Changed
+
+- **Layer 3A: content is checked when it is written (#1242 T3a).** Every content prop (a band's
+  body, an FAQ answer, a table cell, embed content, hero proof, the INLINE props and, under the
+  ratified P-2, every title, heading and subheading) now runs one content check at write, in
+  `update_composition`, `update_component`, `create_page`, `add_component` and the editor save.
+  A write whose content contains anything the Layer-3 contract excludes is refused whole with
+  `content_construct_excluded`, naming the prop, the construct and the rule (for example `onclick
+  on <p> at p is refused by E1`). Nothing is stripped or rewritten and nothing is stored, where
+  before the write was accepted and the render silently dropped the construct. Refused: event
+  handlers and `data-wp-*` (E1); script-bearing or off-list URLs, checked after entity decoding
+  and in every `srcset` candidate (E2); author iframes, embeds and `srcdoc` (E3); script, style
+  and document-level elements, including an in-body `<body onload>` (E4); active SVG and MathML
+  (E5); the engine's `data-pp-*` namespace, minted ids, `main`, `pp-nav-menu` and any id equal to
+  a band anchor on the page (E6); `url()`, `!important` and the excluded properties in a `style`
+  attribute (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
+  (E9); markup that escapes its container, such as a stray `</div>` or an unclosed `<textarea>`
+  (E10), including a `<form>` left open, which would capture every later form on the page; the
+  `name` of a `<form>`, or the `id` or `name` of an `<object>`, that shadows a built-in `document`
+  property such as `forms` or `cookie` (an image's `name` is not admitted at all, and embedded
+  elements are refused), and the name or id of a control the
+  HTML parser gives a form, including after a `</form>` it ignores or a form it closed implicitly,
+  that shadows the form's own property such as `action` or `submit` (E11; other ids are admitted,
+  even `top`, `title` or `forms`, because an id shadows no `window` property and reaches `document`
+  only through an `<object>` or a named `<img>`; an id equal to a page-script global such as `wp`
+  is disclosed as an info note, `content_global_shadow`); an id or a single-id reference containing whitespace (E12); an id
+  reference to an element outside the band (E12), and, on a page whose other bands hold more
+  than one write can check (1 MiB), a new id, id reference, details group or band anchor, which
+  cannot be verified against them (E12, E6); and markup the HTML parser cannot verify, named
+  "unsupported markup" with the element to close first, such as `<p><b>Note</p>`, or an element
+  the parser drops where a browser may still build it, such as one inside `<select>` (P-16).
+- **What content may carry is wider, per the ratified contract.** The full HTML and ARIA 1.2
+  attribute set (microdata, `tabindex`, `translate`, `inert`, `bdi`, `datalist`, and the rest;
+  `nonce` is refused because it does nothing outside script and style); inline SVG, spec-derived,
+  with same-document `url(#id)` and fragment `href` on `use`, gradients, patterns, filters and
+  `textPath`, and editor attributes such as `inkscape:label` under the same value checks as every
+  SVG attribute; `picture`, `source` and `srcset`; forms with a checked `action`, `method="dialog"`
+  and file inputs; app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`); base64
+  raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`; hyphenated
+  custom elements (disclosed as `content_plugin_output`, an info note); modern CSS in `style`
+  attributes, including your own custom properties (`--pp-*` stays the engine's). INLINE props
+  and titles admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`,
+  `mark` and `code`; labels, button text and URLs stay plain text.
+- **An old band never blocks an edit to another band.** Content is checked only in the bands a
+  write changes, compared by content rather than by band id, so a stored band whose content a
+  later rule refuses keeps rendering and does not stop edits elsewhere on the page. Each stored
+  band vouches for one band only: a copy of a stored band is new content and is checked. The
+  comparison has the same budget as a write, so a large stored page never makes a small edit slow:
+  a band it cannot compare within the budget is checked as new content.
+- **Content has a size limit.** A content prop may be at most 64 KiB, and one write may carry at
+  most 1 MiB and 4,096 values of changed content. Larger content is refused with
+  `content_too_large`, naming the prop and its size, never truncated. A content prop may nest
+  elements at most 256 deep, counted as the HTML parser nests them; deeper content is refused as
+  `content_construct_excluded` (clause M-8), saying it nests at least 257 deep and naming the limit. The editor
+  preview and the findings report never refuse on content. A write that adds a band anchor equal
+  to an id already inside another band's content is refused on the band being changed.
+
+### Known limits until the rest of Sprint 6 lands
+
+- The render still uses WordPress's own sanitizer and the templates' own escaping, so a construct
+  the write now admits (for example inline SVG) is accepted and stored but not yet rendered as
+  markup, and inline markup in a title or heading (`<sup>®</sup>`) shows as literal text until
+  the render side lands. A title is now parsed as markup, so a literal `<` followed by a letter
+  (`x<y`) is refused; write it as `&lt;`. Rendering stored content
+  through the same check, with a finding for anything stripped, and the census of stored content
+  are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
+  contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
+
+### Tests
+
+- `ContentPredicateTest` pins every admission row in both directions and every exclusion by its
+  contract test shape that applies at write, plus T-18 open-set rows, a render-view fixed point
+  and a 64 KiB write-time budget (T-17). `ContentWriteGateTest` runs the gate through the real
+  actions and the editor save: refusals store nothing, ratified admissions are stored as authored,
+  and the M-2 rules hold (T-14). `ContentTableDriftTest` pins the admission table against WordPress
+  7.0's and 7.1.2's `post` lists (T-1) and the parser-bail set under both versions (P-16; where
+  they differ, the refusal follows the runtime parser). `tests/e2e/content-predicate.spec.ts`
+  compares the snapshots for the live core's version and the clobber tables against live WordPress
+  and Chromium, checks that an admitted `id="top"` is a working anchor, and
+  runs a mutation-XSS corpus through sanitize, browser parse and sanitize again (T-9). The PHPUnit
+  suite now loads WordPress 7.0's HTML API from a test fixture (7.1.2's with `PP_TEST_HTML_API=7.1.2`).
+
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
 **TL;DR: what a visitor sees now matches what you set, and a "latest posts" homepage view writes nothing.** A password on a

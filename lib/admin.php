@@ -2635,9 +2635,24 @@ function _pp_render_undeclared_prop_keys(array $keys): string {
  *                          Only pp_validate_composition() passes a value; see below.
  * @param  int|null $only_index  Run the per-item rules for this offset only (null = all).
  *                          Cross-item rules always run over the whole composition.
+ * @param  array|false|null $content_baseline  THE LAYER-3 CONTENT GATE (LAYER-3-CONTRACT.md
+ *                          §2.2/§2.6, #1242 T3a). null: every band is new, so every band's
+ *                          content runs the predicate (fail-closed default: create_page,
+ *                          add_component). An array: the STORED composition; a band matched
+ *                          one-to-one to a DISTINCT stored band of the same component (position,
+ *                          band id, byte-equal, then structurally equal; pp_content_unchanged_keys())
+ *                          is unchanged and is not refused (M-2 / Q-A4 — a stored band's losses surface at
+ *                          render, never as a block on an unrelated edit). false: the gate is
+ *                          off — report surfaces and the editor preview, which must never
+ *                          refuse on content (§2.6 last bullet).
+ * @param  array|null $content_page  For add_component only: $items is exactly ONE new band that is
+ *                          not on the page yet, and this is the stored page it will join. The
+ *                          content gate's cross-band rules (E6 anchors, E12 details groups,
+ *                          the anchor-add refusal) judge the band as appended to this page;
+ *                          every other rule still judges the synthetic one-item array.
  * @return WP_Error[]       Empty when the composition is valid.
  */
-function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $only_index = null): array {
+function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $only_index = null, $content_baseline = null, ?array $content_page = null): array {
     // THE CONTAINER, JUDGED BEFORE ANY BAND (#724).
     //
     // A composition is a LIST. A JSON object decodes to an associative PHP array that
@@ -2706,6 +2721,11 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
     $errors     = [];
     // One sink for the whole composition: per-item claims plus the shared budget.
     $sink = ['claimed' => [], 'budget' => $limit];
+    // The Layer-3 content gate's per-call indexes, built on first use (see the gate below).
+    $content_unchanged = null;
+    $content_size_errors = null;
+    $content_counts = null;
+    $content_index = null;
 
     foreach ($items as $i => $item) {
         // Authored locations inside THIS item that already carry a finding (#621).
@@ -4820,6 +4840,115 @@ function pp_validate_composition_errors(array $items, ?int $limit = null, ?int $
                 }
             }
         }
+
+        // ── THE LAYER-3 CONTENT GATE (LAYER-3-CONTRACT.md §2.2, #1242 T3a) ──────
+        //
+        // Every content prop of this band runs the one predicate (lib/content.php). A write
+        // whose content produces ANY Loss is refused whole: nothing is stripped, rewritten
+        // or stored (I34). Last in the per-item loop, so the cheaper schema rules speak
+        // first, and skipped once the budget is spent — a full parse per prop is the
+        // costliest rule here and its finding could not be returned anyway.
+        //
+        // Both indexes are built once per call, on first use: §2.6's one-to-one matching of
+        // incoming to stored bands, and the composition's cross-band facts (lib/content.php).
+        $content_gate_runs = $content_baseline !== false && !($sink['budget'] !== null && $sink['budget'] < 1);
+        if ($content_gate_runs && is_array($content_baseline)) {
+            $content_unchanged ??= pp_content_unchanged_keys($items, $content_baseline);
+            $content_gate_runs = !isset($content_unchanged[$i]);
+        }
+        if ($content_gate_runs) {
+            // THE M-8 BOUNDS (lib/content.php: PP_CONTENT_PROP_MAX_BYTES and the per-write
+            // caps), checked over EVERY band this write will judge before any band is
+            // parsed: an over-large prop, or a write whose changed content would cost more to
+            // judge than the request can afford, is refused whole and named, and nothing is
+            // parsed at all. Never truncated (§2.2).
+            if ($content_size_errors === null) {
+                $content_size_errors = [];
+                $budget = ['bytes' => 0, 'values' => 0];
+                foreach ($items as $k => $candidate) {
+                    if (!is_array($candidate) || !is_string($candidate['component'] ?? null)
+                        || ($only_index !== null && $k !== $only_index) || isset($content_unchanged[$k])) {
+                        continue;
+                    }
+                    $found = pp_content_band_size_errors($candidate, $candidate['component'], $budget);
+                    if ($found !== []) {
+                        $content_size_errors[$k] = $found;
+                        break;
+                    }
+                }
+            }
+            foreach ($content_size_errors[$i] ?? [] as $size_error) {
+                if (_pp_claim_item_finding($sink, 'content', $size_error['prop'])) {
+                    $errors[] = new WP_Error('content_too_large', $size_error['message'], [
+                        'index' => is_int($i) ? $i : null,
+                    ]);
+                }
+            }
+            $content_gate_runs = $content_size_errors === [];
+        }
+        if ($content_gate_runs) {
+            if ($content_page !== null) {
+                // add_component: $items is the ONE band being added (pp_validate_composition_item()),
+                // judged as it will sit appended to the stored page.
+                $content_items = array_merge(array_values($content_page), [$item]);
+                $content_index = pp_content_composition_index($content_items, [count($content_items) - 1]);
+                $content_counts = pp_content_index_counts($content_index);
+                $content_losses = pp_content_band_losses($content_items, count($content_items) - 1, $content_index, $content_counts);
+            } else {
+                // The bands this write judges have their facts read from the predicate's
+                // walk, which is then finished rather than run again (lib/content.php).
+                if ($content_index === null) {
+                    $content_judged = [];
+                    foreach ($items as $k => $candidate) {
+                        if (($only_index === null || $k === $only_index) && !isset($content_unchanged[$k])) {
+                            $content_judged[] = $k;
+                        }
+                    }
+                    $content_index = pp_content_composition_index($items, $content_judged);
+                }
+                $content_counts ??= pp_content_index_counts($content_index);
+                $content_losses = pp_content_band_losses($items, $i, $content_index, $content_counts);
+            }
+            $by_prop = [];
+            foreach ($content_losses as $entry) {
+                $by_prop[$entry['prop']][] = $entry['loss'];
+            }
+            foreach ($by_prop as $prop_label => $losses) {
+                if (!_pp_claim_item_finding($sink, 'content', $prop_label)) {
+                    continue;
+                }
+                $first = $losses[0];
+                $errors[] = new WP_Error('content_construct_excluded', sprintf(
+                    'Component "%s" prop %s: %s.%s Nothing was stored; content is never stripped or '
+                    . 'rewritten at write (LAYER-3-CONTRACT.md §2.2), so send the content without it.',
+                    $name,
+                    $prop_label,
+                    $first['message'],
+                    count($losses) > 1 ? sprintf(' %d more construct(s) in this prop are refused too.', count($losses) - 1) : ''
+                ), [
+                    'index'     => is_int($i) ? $i : null,
+                    'clause'    => $first['clause'],
+                    'construct' => $first['construct'],
+                ]);
+            }
+        }
+    }
+
+    // E6, PROPS SIDE (LAYER-3-CONTRACT.md §4 E6, #1242 T3a): a write that ADDS a band
+    // anchor equal to an id already inside band content (another band's, or the band's own
+    // unchanged content) is the write refused,
+    // on the band whose anchor is new (the #1007 rule: the refusal lands on the band
+    // being changed). The code is the props envelope's (M-9). Off with the content gate.
+    if ($content_baseline !== false && !($sink['budget'] !== null && $errors !== [])) {
+        $anchor_items = $content_page !== null ? array_merge(array_values($content_page), array_values($items)) : $items;
+        $anchor_only  = $content_page !== null ? count($anchor_items) - 1 : $only_index;
+        $anchor_base  = $content_page ?? (is_array($content_baseline) ? $content_baseline : null);
+        foreach (pp_content_anchor_collisions($anchor_items, $anchor_base, $anchor_only,
+            $content_index) as $collision) {
+            $errors[] = new WP_Error('invalid_prop_value', $collision['message'], [
+                'index' => ($content_page === null && is_int($collision['index'])) ? $collision['index'] : null,
+            ]);
+        }
     }
 
     // Duplicate BAND ids (v2, BUILD-SPEC §3.1/§3.4). A band id scopes that
@@ -5104,10 +5233,13 @@ function _pp_unlocated_composition_error(WP_Error $error): WP_Error {
  * pp_validate_composition_item() instead — same rules, no band locator.
  *
  * @param  array            $items  Decoded composition array.
+ * @param  array|false|null $content_baseline  The Layer-3 content gate's baseline (null: every
+ *                          band is checked; the stored composition: unchanged bands are not;
+ *                          false: off, for the preview). See pp_validate_composition_errors().
  * @return true|WP_Error
  */
-function pp_validate_composition(array $items) {
-    $errors = pp_validate_composition_errors($items, 1);
+function pp_validate_composition(array $items, $content_baseline = null) {
+    $errors = pp_validate_composition_errors($items, 1, null, $content_baseline);
 
     return $errors === []
         ? true
@@ -5139,9 +5271,12 @@ function pp_validate_composition(array $items) {
  *
  * @param  array $items  The full composition, with the caller's change already merged.
  * @param  int   $index  Offset of the band this write touches.
+ * @param  array|false|null $content_baseline  The Layer-3 content gate's baseline: the stored
+ *                        composition, so an unchanged band is not refused for content (M-2).
+ *                        See pp_validate_composition_errors().
  * @return true|WP_Error
  */
-function pp_validate_composition_band(array $items, int $index) {
+function pp_validate_composition_band(array $items, int $index, $content_baseline = null) {
     // THE BUDGET AND THE CROSS-ITEM PASSES INTERACT, and the interaction is benign in
     // exactly one direction, so it is written down rather than rediscovered. The
     // cross-item passes are skipped when the budget is set AND a finding already exists
@@ -5154,7 +5289,7 @@ function pp_validate_composition_band(array $items, int $index) {
     // What it costs: when both are wrong, the message names the targeted band and stays
     // silent about the collision. The operator repairs one, retries, and meets the other.
     // Two round trips, never a silent accept.
-    $errors = pp_validate_composition_errors($items, 1, $index);
+    $errors = pp_validate_composition_errors($items, 1, $index, $content_baseline);
 
     return $errors === []
         ? true
@@ -5174,11 +5309,14 @@ function pp_validate_composition_band(array $items, int $index) {
  * The message is unchanged either way: it describes the payload the caller just
  * submitted, which needs no band to be actionable.
  *
- * @param  array $item  One composition item, as submitted.
+ * @param  array      $item  One composition item, as submitted.
+ * @param  array|null $page  The stored page the item will join (add_component). Only the Layer-3
+ *                           content gate reads it, for its cross-band rules (E6, E12); every other
+ *                           rule still judges the item alone.
  * @return true|WP_Error
  */
-function pp_validate_composition_item(array $item) {
-    $result = pp_validate_composition_errors([$item], 1);
+function pp_validate_composition_item(array $item, ?array $page = null) {
+    $result = pp_validate_composition_errors([$item], 1, null, null, $page);
 
     return $result === []
         ? true
@@ -5889,7 +6027,9 @@ add_action('wp_ajax_pp_preview_composition', function () {
         wp_send_json_error('Invalid JSON.');
     }
 
-    $result = pp_validate_composition($composition);
+    // Content gate OFF (false): the preview renders what render renders and never refuses
+    // on content (LAYER-3-CONTRACT.md §2.6, last bullet).
+    $result = pp_validate_composition($composition, false);
     if (is_wp_error($result)) {
         // Cleaned at the sink (#864), like every other composed validator message the
         // editor renders. The preview endpoint validates the composition the EDITOR

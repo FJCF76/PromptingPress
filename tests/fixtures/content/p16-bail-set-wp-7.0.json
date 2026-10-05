@@ -1,0 +1,138 @@
+{
+    "wordpress": "7.0",
+    "note": "P-16 drift pin: which inputs the \"unsupported markup\" rule refuses inside the rich wrapper (a parser bail, a start tag the tree builder drops, or an unfinished token), per vendored WordPress version. tests/ContentTableDriftTest.php re-measures each version in its own process (tests/fixtures/content/bail-set-runner.php); tests/e2e/content-predicate.spec.ts compares the live core against the snapshot of its version. Where versions differ, the refusal follows the runtime parser. A difference from a snapshot is read and ruled, never absorbed.",
+    "cases": [
+        {
+            "input": "<b><p>x</b>y</p>",
+            "bails": true
+        },
+        {
+            "input": "<p><i>a<b>b</i>c</b></p>",
+            "bails": true
+        },
+        {
+            "input": "<p><em>a</p><p>b</em></p>",
+            "bails": true
+        },
+        {
+            "input": "<table><tr><td>a</td></tr>x</table>",
+            "bails": true
+        },
+        {
+            "input": "<p><a href=\"#\">x</p>",
+            "bails": true
+        },
+        {
+            "input": "<p><b>Note</p><p>rest</p>",
+            "bails": true
+        },
+        {
+            "input": "<b>x",
+            "bails": true
+        },
+        {
+            "input": "<a href=\"#\">x",
+            "bails": true
+        },
+        {
+            "input": "<p>a<p>b",
+            "bails": false
+        },
+        {
+            "input": "<ul><li>a<li>b</ul>",
+            "bails": false
+        },
+        {
+            "input": "<a href=\"#\"><div>x</div></a>",
+            "bails": false
+        },
+        {
+            "input": "<svg viewBox=\"0 0 1 1\"><path d=\"M0 0\"/></svg>",
+            "bails": false
+        },
+        {
+            "input": "<math><mi>x</mi></math>",
+            "bails": false
+        },
+        {
+            "input": "<p><strong>a</strong> <em>b</em></p>",
+            "bails": false
+        },
+        {
+            "input": "<dl><dt>a<dd>b</dl>",
+            "bails": false
+        },
+        {
+            "input": "<table><tr><td>a<td>b</table>",
+            "bails": false
+        },
+        {
+            "input": "<select><option>a<option>b</select>",
+            "bails": false
+        },
+        {
+            "input": "<ruby>a<rt>b</ruby>",
+            "bails": false
+        },
+        {
+            "input": "<p><b><i>x</i></b></p>",
+            "bails": false
+        },
+        {
+            "input": "<div><b>x</b></div><b>y</b>",
+            "bails": false
+        },
+        {
+            "input": "<b><b><b><b>x</b></b></b></b>",
+            "bails": false
+        },
+        {
+            "input": "<i>a<p>b</p></i>",
+            "bails": false
+        },
+        {
+            "input": "<h1>a<h2>b</h2></h1>",
+            "bails": false
+        },
+        {
+            "input": "<form><form>x</form></form>",
+            "bails": true
+        },
+        {
+            "input": "<table><caption>c</caption><colgroup><col></colgroup><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>",
+            "bails": false
+        },
+        {
+            "input": "<p>x<table><tr><td>y</td></tr></table></p>",
+            "bails": false
+        },
+        {
+            "input": "<select><option>a</option><div>b</div></select>",
+            "bails": true
+        },
+        {
+            "input": "<select><img alt=\"\" src=\"/x.png\"></select>",
+            "bails": true
+        },
+        {
+            "input": "<select><button>b</button></select>",
+            "bails": true
+        },
+        {
+            "input": "<div><td>stray cell</td></div>",
+            "bails": true
+        },
+        {
+            "input": "<form action=\"/a\"><form action=\"/b\">x</form></form>",
+            "bails": true
+        },
+        {
+            "input": "<p>x</p><!--",
+            "bails": true
+        },
+        {
+            "input": "<svg><title/></svg><p>x</p>",
+            "bails": true
+        }
+    ]
+}

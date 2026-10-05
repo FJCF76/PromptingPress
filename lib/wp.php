@@ -3470,6 +3470,9 @@ function pp_render_faq_schema(array $items): string {
     return '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
 }
 
+/** The largest inline data: image URI any image sink accepts (bytes). */
+const PP_IMAGE_DATA_URI_MAX_BYTES = 1_000_000;
+
 /**
  * Safely escapes an image source for output in <img src="..."> or a CSS
  * background-image:url(...) value embedded in an HTML style attribute.
@@ -3553,9 +3556,9 @@ function pp_esc_image_src(string $url, int $depth = 0): string {
         return str_replace(')', '%29', esc_url($url));
     }
 
-    // Sanity bound against pathologically large inline payloads.
-    $max_data_uri_length = 1_000_000;
-    if (strlen($url) > $max_data_uri_length) {
+    // Sanity bound against pathologically large inline payloads. One constant, shared with
+    // the Layer-3 content gate's raster data: admission (P-10, lib/content.php).
+    if (strlen($url) > PP_IMAGE_DATA_URI_MAX_BYTES) {
         return '';
     }
 

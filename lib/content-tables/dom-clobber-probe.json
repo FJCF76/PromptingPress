@@ -1,0 +1,102 @@
+{
+ "browser": "147.0.7727.15",
+ "method": "div id=N then window[N] === div (each window-chain name); img name=N then document[N] === img (each document-chain name); form > input name=N then form[N] === input (each form-chain name)",
+ "window_chain_names_tested": 997,
+ "window_id_clobbered": [],
+ "document_chain_names_tested": 310,
+ "document_name_not_clobbered": [
+  "location"
+ ],
+ "examples": {
+  "top": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": false
+  },
+  "location": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": false,
+   "window_own_configurable": false
+  },
+  "window": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": false
+  },
+  "document": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": false
+  },
+  "self": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  },
+  "name": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  },
+  "status": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  },
+  "history": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  },
+  "forms": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "images": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "cookie": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "body": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "getElementById": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "querySelector": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "addEventListener": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "title": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": null
+  },
+  "navigation": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  },
+  "opener": {
+   "div_id_clobbers_window": false,
+   "img_name_clobbers_document": true,
+   "window_own_configurable": true
+  }
+ }
+}

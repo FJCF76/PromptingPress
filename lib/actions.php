@@ -5145,7 +5145,10 @@ pp_register_action('update_composition', [
             return $exists;
         }
         $params['composition'] = pp_normalize_composition($params['composition']);
-        $valid = pp_validate_composition($params['composition']);
+        // The STORED page is the content gate's baseline (LAYER-3-CONTRACT.md §2.6, M-2):
+        // a band whose content is unchanged from a stored band is not refused for content
+        // a later contract change made refusable; it surfaces at render instead.
+        $valid = pp_validate_composition($params['composition'], pp_content_stored_baseline((int) $params['post_id']));
         if (is_wp_error($valid)) {
             return $valid;
         }
@@ -5271,7 +5274,11 @@ pp_register_action('add_component', [
         // carries no band locator (#642): the item is not on the page yet, so no offset
         // in this call names a real band. Nothing is lost — this action judges only the
         // item it adds, so the rejection always belongs to the payload just submitted.
-        $valid = pp_validate_composition_item($new_item);
+        // The stored page rides along for the content gate's cross-band rules only (E6
+        // anchors, E12 details groups, the anchor-add refusal): the item is judged as it
+        // will sit on that page (LAYER-3-CONTRACT.md §4 E6, "add_component ... must run the
+        // cross-band E6 checks against the stored page with the new item merged in").
+        $valid = pp_validate_composition_item($new_item, pp_get_composition($params['post_id']));
         if (is_wp_error($valid)) {
             return $valid;
         }
@@ -5446,7 +5453,12 @@ pp_register_action('remove_component', [
  * lands in those engines and is reported here for free.
  *
  *   pp_validate_composition_errors()  -> severity 'error'    (collect-all; would block a write)
+ *                                        EXCEPT the Layer-3 content gate, called off here:
+ *                                        a stored band's content losses are the render
+ *                                        side's `content_stripped_at_render` finding
+ *                                        (LAYER-3-CONTRACT.md §2.3), never a write error
  *   pp_validate_composition_smells()  -> severity 'warning'  (advisory; never blocks a write)
+ *   pp_content_composition_disclosures() -> severity 'info'  (P-23/P-9 plugin boundary)
  *   pp_udc_composition_findings()     -> severity 'warning', or 'info' for the types
  *                                        pp_informational_finding_types() names (#1194)
  *
@@ -5473,7 +5485,10 @@ pp_register_action('remove_component', [
 function _pp_composition_findings(array $items, ?int $post_id = null): array {
     $findings = [];
 
-    foreach (pp_validate_composition_errors($items) as $error) {
+    // THE CONTENT GATE IS OFF HERE (false): this assembler reports a page, it never refuses
+    // a write, and a stored band's content losses are the render side's finding
+    // (`content_stripped_at_render`, LAYER-3-CONTRACT.md §2.3), not a write-time error.
+    foreach (pp_validate_composition_errors($items, null, null, false) as $error) {
         $findings[] = [
             'type'     => $error->get_error_code(),
             'severity' => 'error',
@@ -5523,6 +5538,18 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
             'severity' => pp_finding_severity((string) $disclosure['type']),
             'message'  => $disclosure['message'],
             'index'    => $disclosure['index'],
+        ];
+    }
+
+    // THE PLUGIN-BOUNDARY DISCLOSURE (LAYER-3-CONTRACT.md P-23 / P-9, #1242 T3a): content
+    // that uses a custom element or a customized built-in is admitted, and said so. Info:
+    // it asks for nothing.
+    foreach (pp_content_composition_disclosures($items) as $disclosure) {
+        $findings[] = [
+            'type'     => $disclosure['type'],
+            'severity' => pp_finding_severity($disclosure['type']),
+            'message'  => $disclosure['message'],
+            'index'    => is_int($disclosure['index']) ? $disclosure['index'] : null,
         ];
     }
 
@@ -6582,7 +6609,7 @@ pp_register_action('update_component', [
         // a declared prop merged verbatim two lines up, so a naive item-only validation
         // would let one call collide two bands' ids and persist the wrong-targetable
         // state #238 closed.
-        $valid = pp_validate_composition_band($test_composition, $params['component_index']);
+        $valid = pp_validate_composition_band($test_composition, $params['component_index'], $composition);
         if (is_wp_error($valid)) {
             return $valid;
         }
@@ -6665,7 +6692,7 @@ pp_register_action('update_component', [
         // another, and only the shared engine sees every such shape. It is the same
         // band-scoped validator validate ran, on the band execute is about to write.
         if (_pp_component_update_carries($params, 'udc')) {
-            $revalidated = pp_validate_composition_band($composition, $index);
+            $revalidated = pp_validate_composition_band($composition, $index, pp_get_composition((int) $params['post_id']));
             if (is_wp_error($revalidated)) {
                 return _pp_action_error('update_component', 'section',
                     'The band changed while this udc patch was being applied, and the result no longer '
