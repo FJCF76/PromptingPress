@@ -2103,7 +2103,7 @@ if (!function_exists('safecss_filter_attr')) {
 }
 if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false): array {
-        $base = $GLOBALS['_pp_test_upload_baseurl'] ?? 'http://example.test/wp-content/uploads';
+        $base = $GLOBALS['_pp_test_upload_baseurl'] ?? 'https://example.com/wp-content/uploads';
         return ['baseurl' => $base, 'url' => $base, 'basedir' => '/tmp/uploads', 'path' => '/tmp/uploads', 'subdir' => '', 'error' => false];
     }
 }

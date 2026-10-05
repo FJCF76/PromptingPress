@@ -21,8 +21,9 @@ All notable changes to PromptingPress are documented here.
   and document-level elements, including an in-body `<body onload>` (E4); active SVG and MathML
   (E5); the engine's `data-pp-*` namespace, minted ids, `main`, `pp-nav-menu` and any id equal to
   a band anchor on the page (E6); `url()`, `!important` and the excluded properties in a `style`
-  attribute (E7), and any CSS function not on the admitted list, such as `-moz-element()` or
-  `paint()` (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
+  attribute (E7), and any CSS function not on the admitted list in a style declaration or a
+  CSS-valued SVG attribute, such as `-moz-element()` or `paint()` (text, such as a quoted font
+  name or an `aria-label` with parentheses, is not a call) (E7); unknown elements (E8); the `formaction` family, `ping`, `http-equiv` and `form=`
   (E9); markup that escapes its container, such as a stray `</div>` or an unclosed comment
   (E10); the `id` or `name` of an `<object>` that shadows a built-in `document` property such as
   `forms` or `cookie` (an image's `name` is not admitted at all, and embedded elements are
@@ -37,14 +38,15 @@ All notable changes to PromptingPress are documented here.
   "unsupported markup" with the element to close first, such as `<p><b>Note</p>`, or an element
   the parser drops where a browser may still build it, such as a table part outside a table (P-16).
 - **What content may carry is wider, per the ratified contract.** The full HTML and ARIA 1.2
-  attribute set (microdata, `tabindex`, `translate`, `inert`, `bdi`, `datalist`, and the rest;
+  attribute set (microdata, `tabindex`, `translate`, `inert`, `bdi`, and the rest;
   `nonce` is refused because it does nothing outside script and style); inline SVG, spec-derived,
   with same-document `url(#id)` and fragment `href` on `use`, gradients, patterns, filters and
   `textPath`, and editor attributes such as `inkscape:label` under the same value checks as every
   SVG attribute; `picture`, `source` and `srcset`; app links (`sip`, `whatsapp`, `geo`, `maps`, `signal`, `facetime`) in a
   link's `href` on `a` and `area` only; `autofocus`, `contenteditable` and `is`; base64
   raster `data:` images in `img src`; a PDF from this site's uploads in `<object>`, served from
-  the same origin as the uploads (host and port); hyphenated
+  the same origin as the uploads (scheme, host and port; an http link on an https site is
+  refused); hyphenated
   custom elements (disclosed as `content_plugin_output`, an info note); modern CSS in `style`
   attributes, including your own custom properties (`--pp-*` stays the engine's). INLINE props
   admit `a`, `strong`, `em`, `br`, `span` with `class`/`style`, `sup`, `sub`, `small`, `mark` and
@@ -52,7 +54,7 @@ All notable changes to PromptingPress are documented here.
   plain text.
 - **Forms are not admitted yet.** The ratified contract admits forms (P-5, P-24), but the owner
   descoped them from this release on 2026-10-05: `form`, `input`, `select`, `option`, `optgroup`,
-  `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause Δ5,
+  `selectedcontent`, `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause Δ5,
   "descoped by the owner"), and they arrive with the Layer-3 forms contract. `button`, `label`,
   `meter` and `progress` are admitted: none of them submits anything without a form.
 - **The wider set is for users WordPress trusts with unfiltered HTML.** Everything beyond core's

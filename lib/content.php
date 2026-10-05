@@ -880,7 +880,6 @@ function pp_content_url_parse(string $url): ?array {
             return null;
         }
         $host = function_exists('mb_strtolower') ? mb_strtolower($hm[1], 'UTF-8') : strtolower($hm[1]);
-        $host = rtrim($host, '.');
         if ($host === '' || (isset($hm[2]) && $hm[2] !== '' && (int) $hm[2] > 65535)) {
             return null;
         }
@@ -1483,8 +1482,29 @@ function pp_content_css_functions(): array {
     ], true);
 }
 
-/** The first CSS function a value calls that pp_content_css_functions() does not admit, or null. */
+/**
+ * The SVG attributes whose value is a CSS value (presentation attributes and transforms):
+ * the ones a CSS function can appear in, so the only ones the function list judges. Text
+ * attributes (aria-label, font-family, title …) are text: `Revenue (2024)` is no call.
+ */
+function pp_content_svg_css_attributes(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    return $cache = pp_content_svg_reference_attributes() + array_fill_keys(['transform', 'gradienttransform',
+        'patterntransform', 'color', 'stop-color', 'flood-color', 'lighting-color', 'cursor', 'opacity', 'fill-opacity',
+        'stroke-opacity', 'stop-opacity', 'flood-opacity', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset',
+        'font-size', 'letter-spacing', 'word-spacing', 'display', 'visibility', 'transform-origin'], true);
+}
+
+/**
+ * The first CSS function a value calls that pp_content_css_functions() does not admit, or
+ * null. Quoted strings are text, not calls (`font-family: "Foo (Pro)"`), so they are
+ * skipped.
+ */
 function _pp_content_unlisted_css_function(string $value): ?string {
+    $value = preg_replace('/"[^"]*"|\'[^\']*\'/', '""', $value) ?? $value;
     if (preg_match_all('/([a-zA-Z_\\-][a-zA-Z0-9_\\-]*)\s*\(/', $value, $m)) {
         foreach ($m[1] as $name) {
             if (!isset(pp_content_css_functions()[strtolower($name)])) {
@@ -1557,7 +1577,7 @@ function pp_content_svg_value_loss(string $attr, string $value): ?string {
     if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|@import|javascript:/', $unescaped, $m)) {
         return sprintf('"%s" is refused in an SVG attribute value; only a same-document url(#id) on a reference attribute is admitted (Δ1)', $m[0]);
     }
-    $function = _pp_content_unlisted_css_function(_pp_css_unescape($value));
+    $function = isset(pp_content_svg_css_attributes()[$attr]) ? _pp_content_unlisted_css_function(_pp_css_unescape($value)) : null;
     if ($function !== null) {
         return sprintf('%s() is not on the admitted CSS function list (unknown functions are refused) (Δ1)', _pp_content_reflect($function, 40));
     }
@@ -2184,17 +2204,25 @@ function pp_content_is_same_install_pdf(string $url): bool {
         || $c['query'] !== null || $c['fragment'] !== null || !preg_match('/\.pdf\z/i', $c['path'])) {
         return false;
     }
+    // The canonical ORIGIN must equal the uploads base's: scheme, host and port (owner
+    // ruling, 2026-10-05). A root-relative path resolves against the page, so the SITE's
+    // origin is the one compared; a network-path reference takes the page's scheme. http
+    // against an https base is another origin (mixed content), and so is another port. A
+    // host the canonicaliser keeps as written (a non-ASCII spelling a browser would map, a
+    // trailing dot) never equals the base's: inequality is refusal.
+    $site = _pp_content_site_url_parts();
     if ($c['kind'] === 'relative') {
         // Only a root-relative path names a fixed place; a path relative to the page does not.
         if (!str_starts_with($c['path'], '/')) {
             return false;
         }
-    } elseif (!in_array($c['kind'], ['absolute', 'network'], true) || !in_array($c['scheme'] ?? 'https', ['http', 'https'], true)
-        || $c['host'] !== $base['host'] || $c['port'] !== $base['port']) {
-        // The canonical ORIGIN: host and port (each URL's port is explicit or its scheme's
-        // default, so http against an https base differs too). A host the canonicaliser
-        // keeps as written (a non-ASCII spelling a browser would map) never equals the
-        // base's, so it is refused: inequality is refusal.
+        $origin = [$site['scheme'], $site['host'], $site['port']];
+    } elseif (in_array($c['kind'], ['absolute', 'network'], true)) {
+        $origin = [$c['scheme'] ?? $site['scheme'], $c['host'], $c['port']];
+    } else {
+        return false;
+    }
+    if ($origin !== [$base['scheme'], $base['host'], $base['port']]) {
         return false;
     }
     $prefix = rtrim($base['path'], '/') . '/';

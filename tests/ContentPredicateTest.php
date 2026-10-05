@@ -135,16 +135,16 @@ class ContentPredicateTest extends TestCase
             $this->assertRefused("<{$tag} src=\"https://example.com\"></{$tag}>", 'E3');
         }
         $this->assertRefused('<div srcdoc="&lt;script&gt;">x</div>', 'E3');
-        $uploads = 'http://example.test/wp-content/uploads/2026/10/a.pdf';
+        $uploads = 'https://example.com/wp-content/uploads/2026/10/a.pdf';
         $this->assertAdmitted('<object type="application/pdf" data="' . $uploads . '"></object>');
-        $this->assertAdmitted('<object type="application/pdf" data="http://example.test/wp-content/uploads/a.pdf" width="600" height="400"></object>');
+        $this->assertAdmitted('<object type="application/pdf" data="https://example.com/wp-content/uploads/a.pdf" width="600" height="400"></object>');
         foreach ([
             '<object type="application/pdf" data="https://evil.example/wp-content/uploads/a.pdf"></object>',
-            '<object type="application/pdf" data="http://example.test/wp-content/uploads/a.pdf?x=1"></object>',
-            '<object type="application/pdf" data="http://example.test/a.pdf"></object>',
+            '<object type="application/pdf" data="https://example.com/wp-content/uploads/a.pdf?x=1"></object>',
+            '<object type="application/pdf" data="https://example.com/a.pdf"></object>',
             '<object type="text/html" data="' . $uploads . '"></object>',
             '<object data="' . $uploads . '"></object>',
-            '<object type="application/pdf" data="http://example.test/wp-content/uploads/../../x.pdf"></object>',
+            '<object type="application/pdf" data="https://example.com/wp-content/uploads/../../x.pdf"></object>',
         ] as $refused) {
             $this->assertRefused($refused, 'E3');
         }
@@ -607,28 +607,21 @@ class ContentPredicateTest extends TestCase
     /** P-11: the uploads path may not be climbed out of in any spelling a browser resolves. */
     public function testP11PdfPathsMayNotClimbOutOfUploads(): void
     {
-        foreach (['http://example.test/wp-content/uploads/%2e%2e/%2e%2e/x.pdf',
-            'http://example.test/wp-content/uploads/%252e%252e/x.pdf',
-            'http://example.test/wp-content/uploads/a/..\\..\\x.pdf',
-            "http://example.test/wp-content/uploads/.\t./x.pdf", 'http://example.test/wp-content/uploads/a:1/../../x.pdf',
+        foreach (['https://example.com/wp-content/uploads/%2e%2e/%2e%2e/x.pdf',
+            'https://example.com/wp-content/uploads/%252e%252e/x.pdf',
+            'https://example.com/wp-content/uploads/a/..\\..\\x.pdf',
+            "https://example.com/wp-content/uploads/.\t./x.pdf", 'https://example.com/wp-content/uploads/a:1/../../x.pdf',
             'wp-content/uploads/a.pdf'] as $url) {
             $this->assertFalse(pp_content_is_same_install_pdf($url), $url);
         }
         // Read by the shared canonicaliser: a `.` segment that stays inside uploads resolves
         // to the same file a browser fetches.
-        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test/wp-content/uploads/./x.pdf'));
+        $this->assertTrue(pp_content_is_same_install_pdf('https://example.com/wp-content/uploads/./x.pdf'));
         // The page's own scheme with one slash is a root-relative path (https site).
         $this->assertTrue(pp_content_is_same_install_pdf('https:/wp-content/uploads/a.pdf'));
-        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test/wp-content/uploads/2026/10/a.pdf'));
-        // A network-path reference takes the PAGE's scheme (https here), so it names the
-        // uploads only when they are served under the same scheme.
-        $this->assertFalse(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/a.pdf'));
-        $GLOBALS['_pp_test_upload_baseurl'] = 'https://example.test/wp-content/uploads';
-        try {
-            $this->assertTrue(pp_content_is_same_install_pdf('//example.test/wp-content/uploads/a.pdf'));
-        } finally {
-            unset($GLOBALS['_pp_test_upload_baseurl']);
-        }
+        $this->assertTrue(pp_content_is_same_install_pdf('https://example.com/wp-content/uploads/2026/10/a.pdf'));
+        // A network-path reference takes the PAGE's scheme (https here): the uploads' own.
+        $this->assertTrue(pp_content_is_same_install_pdf('//example.com/wp-content/uploads/a.pdf'));
     }
 
     /** E12 for every ARIA id-reference list, and a usemap that is not a #reference. */
@@ -774,29 +767,39 @@ class ContentPredicateTest extends TestCase
 
     public function testP11ComparesTheHostCaseInsensitively(): void
     {
-        $this->assertTrue(pp_content_is_same_install_pdf('http://EXAMPLE.test/wp-content/uploads/a.pdf'));
+        $this->assertTrue(pp_content_is_same_install_pdf('https://EXAMPLE.com/wp-content/uploads/a.pdf'));
     }
 
     /**
-     * P-11 compares the canonical ORIGIN, port included (cycle-9 ruling): another port, or
-     * another scheme's default port, is another origin. A host spelled in characters a
-     * browser would map (full-width, an ideographic full stop, a soft hyphen) is kept as
-     * written, never equals the uploads host, and is therefore refused: inequality is refusal.
+     * P-11 compares the canonical ORIGIN, scheme + host + port (owner rulings, 2026-10-05):
+     * another port, http against an https base (mixed content), or a host spelled in
+     * characters a browser would map (full-width, an ideographic full stop, a soft hyphen, a
+     * trailing dot) is another origin and refused: inequality is refusal. A root-relative
+     * path resolves against the SITE's origin, so it is this install's only when the uploads
+     * share it.
      */
-    public function testP11ComparesTheCanonicalOriginIncludingPort(): void
+    public function testP11ComparesTheCanonicalOriginSchemeHostAndPort(): void
     {
-        foreach (['http://example.test:8080/wp-content/uploads/a.pdf', 'https://example.test/wp-content/uploads/a.pdf',
-            'http://ｅxample.test/wp-content/uploads/a.pdf', 'http://example。test/wp-content/uploads/a.pdf',
-            "http://exa\u{00AD}mple.test/wp-content/uploads/a.pdf", 'http://EXAMPLE.TEST.evil/wp-content/uploads/a.pdf'] as $url) {
+        foreach (['https://example.com:8080/wp-content/uploads/a.pdf', 'http://example.com/wp-content/uploads/a.pdf',
+            'http://example.com:443/wp-content/uploads/a.pdf', 'https://example.com:80/wp-content/uploads/a.pdf',
+            'https://ｅxample.com/wp-content/uploads/a.pdf', 'https://example。com/wp-content/uploads/a.pdf',
+            "https://exa\u{00AD}mple.com/wp-content/uploads/a.pdf", 'https://example.com./wp-content/uploads/a.pdf',
+            'https://example.com../wp-content/uploads/a.pdf', 'https://EXAMPLE.COM.evil/wp-content/uploads/a.pdf'] as $url) {
             $this->assertFalse(pp_content_is_same_install_pdf($url), $url);
         }
-        $this->assertTrue(pp_content_is_same_install_pdf('http://example.test:80/wp-content/uploads/a.pdf'), 'an explicit default port is the same origin');
-        $GLOBALS['_pp_test_upload_baseurl'] = 'https://example.test:8443/wp-content/uploads';
-        try {
-            $this->assertFalse(pp_content_is_same_install_pdf('https://example.test/wp-content/uploads/a.pdf'));
-            $this->assertTrue(pp_content_is_same_install_pdf('https://example.test:8443/wp-content/uploads/a.pdf'));
-        } finally {
-            unset($GLOBALS['_pp_test_upload_baseurl']);
+        $this->assertTrue(pp_content_is_same_install_pdf('https://example.com:443/wp-content/uploads/a.pdf'), 'an explicit default port is the same origin');
+        $this->assertTrue(pp_content_is_same_install_pdf('/wp-content/uploads/a.pdf'));
+        foreach (['https://example.com:8443/wp-content/uploads', 'http://example.com/wp-content/uploads',
+            'https://cdn.example.com/wp-content/uploads'] as $base) {
+            $GLOBALS['_pp_test_upload_baseurl'] = $base;
+            try {
+                $this->assertFalse(pp_content_is_same_install_pdf('/wp-content/uploads/a.pdf'),
+                    'a root-relative path is on the site origin, not ' . $base);
+                $this->assertFalse(pp_content_is_same_install_pdf('https://example.com/wp-content/uploads/a.pdf'), $base);
+                $this->assertTrue(pp_content_is_same_install_pdf($base . '/a.pdf'), $base);
+            } finally {
+                unset($GLOBALS['_pp_test_upload_baseurl']);
+            }
         }
     }
 
@@ -815,6 +818,17 @@ class ContentPredicateTest extends TestCase
             $this->assertAdmitted('<div style="' . $decl . '">x</div>');
         }
         $this->assertAdmitted('<svg><rect transform="rotate(45 10 10) translate(1 2)" fill="rgb(0,0,0)"/></svg>');
+        // Text is not a call (owner ruling, 2026-10-05): the check runs on CSS-valued SVG
+        // attributes and style declarations only, and skips quoted strings.
+        foreach (['<svg aria-label="Revenue (2024)" role="img"><title>Sales (Q1)</title></svg>',
+            '<svg><text font-family="Foo (Pro)" aria-roledescription="a (b)">t</text></svg>',
+            '<p style="font-family: &quot;Foo (Pro)&quot;, serif">x</p>', "<p style=\"font-family: 'Bar (Bold)'\">x</p>"] as $text) {
+            $this->assertAdmitted($text);
+        }
+        // ... while a real call beside a quoted string is still judged.
+        $this->assertRefused('<div style="font-family: &quot;a (b)&quot;; background: -moz-element(#s)">x</div><p id="s">s</p>', 'D3');
+        $this->assertRefused('<svg><rect fill="paint(x)"/></svg>', 'D1');
+        $this->assertRefused('<svg><rect stroke-width="unknown-fn(1)"/></svg>', 'D1');
     }
 
     // ── review fixes (#1242 T3a /review cycle 3) ──────────────────────────────

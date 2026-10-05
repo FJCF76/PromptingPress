@@ -192,7 +192,7 @@ class ContentWriteGateTest extends TestCase
             'Δ3 modern style (P-13, P-20)'  => ['<div style="transform: rotate(2deg); color: rgb(0 0 0 / .5); font-family: &quot;Inter&quot;, sans-serif; --accent: #f00; fill: url(#g1)">x</div><svg><linearGradient id="g1"/></svg>'],
             'invoker commands (P-17)'       => ['<button commandfor="d1" command="show-modal">Open</button><dialog id="d1"><button commandfor="d1" command="close">Close</button></dialog>'],
             'P-10 app link + raster data:'  => ['<a href="whatsapp://send?text=hi">w</a> <img alt="" src="data:image/png;base64,iVBORw0KGgo=">'],
-            'P-11 same-install PDF'         => ['<object type="application/pdf" data="http://example.test/wp-content/uploads/2026/10/guide.pdf"></object>'],
+            'P-11 same-install PDF'         => ['<object type="application/pdf" data="https://example.com/wp-content/uploads/2026/10/guide.pdf"></object>'],
             'P-23 custom element'           => ['<my-widget class="w">x</my-widget>'],
             'E12 in-band references'        => ['<button popovertarget="m1">open</button><div popover id="m1" aria-labelledby="h1"><h3 id="h1">M</h3></div>'],
             'P-16 parses fine'              => ['<p>a<p>b<ul><li>c<li>d</ul>'],
