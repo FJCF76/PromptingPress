@@ -30,7 +30,9 @@ All notable changes to PromptingPress are documented here.
   own "No pages found." and sending says so instead of asking for a selection, and the AI is
   told "None you can edit." ("No pages exist yet." stays for a user who sees every page, on a
   site with none). Reading a page's current version answers a page that does not exist the same
-  way as one the user may not edit. Nothing changes for an editor or administrator.
+  way as one the user may not edit. Administrators and editors still see every page they can edit
+  in WordPress (for an editor that leaves out the privacy policy page, which WordPress reserves
+  for administrators).
 
 ### Docs
 
