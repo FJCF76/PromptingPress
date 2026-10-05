@@ -7,7 +7,7 @@
  */
 
 // ── Theme version (single source of truth — keep in sync with style.css) ──
-define('PP_VERSION', '2.0.2');
+define('PP_VERSION', '2.1.0');
 
 // ── Load lib files ─────────────────────────────────────────────────────────
 require_once get_template_directory() . '/lib/wp.php';

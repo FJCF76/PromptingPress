@@ -4,9 +4,196 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## Unreleased — Sprint 6
+## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)
 
-### Added
+**TL;DR: what you write into a page is checked when you save it, and what is saved is what the page shows.**
+Content that WordPress's sanitizer used to strip without a word at render (an event handler, a
+script, an off-list URL) is now refused at write, naming the prop, the construct and the rule, and
+nothing is stored. In exchange, much more is admitted: inline SVG, `picture`/`srcset`, the full HTML
+and ARIA attribute set, modern inline styles, markup in titles and headings. That wider set is for
+users WordPress trusts with unfiltered HTML (administrators and editors on a single site); everyone else gets
+exactly what WordPress's own `post` rules allow. Content stored before this release keeps rendering
+as it did, except a prop whose markup is broken or oversized, which now renders empty and is listed
+by `wp pp content census`. Every band can now carry a scoped style sheet, and a new `custom` band holds your own HTML
+with named text islands. Run `wp pp content census` after upgrading: it lists any stored content that
+now renders differently. Forms are not part of this release. Like every theme update, this one
+re-opens your acknowledged judgment calls, and this time the old acknowledgement rows must be redone,
+because they are now signed.
+
+### Highlights
+
+- **The content write gate.** Every content prop (band bodies, FAQ answers, table cells, embed
+  content, hero proof, INLINE props, titles, headings and subheadings) runs one content check in
+  `update_composition`, `update_component`, `create_page`, `add_component` and the editor save. A
+  write carrying anything the Layer-3 contract excludes is refused whole with
+  `content_construct_excluded` (or `content_too_large` above 64 KiB a prop, 1 MiB or 4,096 values a
+  write); nothing is stripped, rewritten or stored (#1242 T3a).
+- **A trust tier, as in WordPress.** The wider set needs the `unfiltered_html` capability. A user
+  without it (a Contributor or an Author; on multisite, anyone but a super admin; everyone when
+  `DISALLOW_UNFILTERED_HTML` is set) writes what core's `post` list admits, and anything beyond is
+  refused by name (clause `unfiltered_html`), never stripped. WP-CLI, including agents and scripts
+  that use `wp pp operate`, always writes and vouches for the wider set, even when
+  `DISALLOW_UNFILTERED_HTML` is set.
+- **Stored content renders at the level its writer vouched for.** Content saved after this release
+  by a user with `unfiltered_html`, through the editor, the AI or WP-CLI, renders the wider set. Everything
+  stored earlier, restored, or written by anyone else renders exactly what WordPress's own sanitizer
+  showed before Layer 3. A stored prop whose markup escapes its container, that the HTML parser
+  cannot verify, or that is over 64 KiB or nested more than 256 deep renders empty, and is reported (`content_stripped_at_render`); the rest of the page
+  renders normally.
+- **Titles and headings can carry inline markup** (`H<sub>2</sub>O`, `<em>fast</em>`) when a checked
+  write saved it. A title stored before this release renders as the text it was, even when it looks
+  like markup; a stored title the check refuses renders **escaped**, as plain text, never empty.
+- **`wp pp content census`.** A read-only inventory of every stored content prop that renders
+  differently from how it is stored (empty, without a construct, a title as plain text, or not
+  checked because the page is over the per-view budget), with the rule. Administrators see an admin notice when props render empty, until they dismiss that list. The
+  census runs again on its own after a WordPress core update (on a later request, with the new HTML
+  parser), on the first admin visit after a theme update, and after an edit while props still render
+  empty.
+- **A scoped style sheet on every band.** `udc._scoped` takes ordinary CSS rules (`{selector, css}`,
+  optional `media`/`supports`/`container`) emitted under the band's own `[data-pp-band]`, so they
+  can only reach that band (#1242 T4).
+- **The `custom` band and content islands.** A band whose inside is your own HTML (`markup`), with
+  named islands (`data-pp-island`) for the text people edit, as plain text, the INLINE set or rich
+  content. The markup is changed only by a structural write; islands are edited one by one, in the
+  accordion editor, by `update_component` or by `wp pp operate patch` (#1242 T5).
+- **The AI is told the content rules up front.** The chat's instructions state which props take
+  rich, inline and title markup, what each admits, what is refused and the size cap, read from the
+  check's own tables. The assembled system prompt for an empty site is now 97,219 bytes
+  (`PP_AI_PROMPT_BUDGET`; 92,713 on 2.0.2).
+- **Hardening.** The editor's live preview renders in its own isolated origin. The chat places a page
+  in its context, and lists a page, only for a user who can edit it; for users who cannot edit menus,
+  the menu items it is told about follow the same check; and it shows its media list only to users who
+  can browse the media library. Site content reaches the AI as quoted data. Acknowledgement
+  rows are signed (#1214). Schema role defaults and the preset-name list are bounded (#1200, #1122).
+
+### ⚠️ Behaviour changes
+
+- **Writes that used to succeed are now refused.** A write whose content holds an excluded construct
+  was accepted before and the construct was dropped silently at render; it is now refused whole with
+  `content_construct_excluded`, naming the prop, the construct and the rule. An agent or script that
+  sends such content must remove the construct first. Stored content is not re-checked until a write
+  changes its band; editing any prop of a band re-checks the whole band.
+- **Users without `unfiltered_html` are refused, not filtered.** A Contributor or Author (on
+  multisite, anyone but a super admin) whose content holds anything beyond core's `post` list gets a
+  refusal (clause `unfiltered_html`) instead of a silent strip. Because a write re-checks the whole
+  band, such a user also cannot edit any prop of a band that holds wider-set content a trusted user
+  saved (an inline SVG in its body refuses an edit to its title); a user with `unfiltered_html` can.
+- **Forms are refused.** The ratified contract admits forms, but the owner descoped them from this
+  release (2026-10-05): `form`, `input`, `select`, `textarea`, `fieldset` and the other form
+  controls are refused at write (clause `D5`, the contract's Δ5). They arrive with the Layer-3 forms contract. `button`,
+  `label`, `meter` and `progress` are admitted.
+- **A stored prop that is broken or oversized renders empty.** Content stored before this release
+  whose markup escapes its container (a stray `</div>`), that the HTML parser cannot verify
+  (`<p><b>Note</p>`), or that is over 64 KiB or nested more than 256 deep renders empty instead of whatever the browser made of it, with a
+  `content_stripped_at_render` warning. `wp pp content census` lists every such prop.
+- **Pages report new findings.** `content_stripped_at_render` and `content_not_checked` (a page with
+  more than 1 MiB or 4,096 values of stored content: the rest renders through WordPress's sanitizer
+  as before) and `content_duplicate_id` are warnings, so `wp pp validate site` can fail a page that
+  passed on 2.0.2. `custom_island_empty` (a custom band naming an island with no content) is a
+  warning too. `content_inline_style`, `content_plugin_output`, `content_global_shadow` and
+  `custom_band_unverified` are informational.
+- **Upgrading re-opens every acknowledgement, and the old rows must be redone.** An acknowledgement
+  records the theme version, so none made on 2.0.2 matches after this update; and acknowledgements
+  are now signed (#1214), so a row made before 2.1.0 carries no signature and `wp pp check page`
+  lists it as ignored ("no signature"). Its advisory fails `wp pp validate site` until you acknowledge it again.
+  By design: an upgrade can change what paints, and an unsigned row cannot be told apart from a
+  planted one.
+- **The chat shows less to users with less access.** Its page list and page context follow per-page
+  edit permission; for a user who cannot edit menus, so do the menu items; and the media list needs
+  `upload_files`. Nothing changes for an
+  administrator or for an editor working on pages they can edit.
+- **The editor preview rebuilds on each refresh.** Every image in it reloads on each refresh, and a
+  self-hosted webfont shows in the preview only if its files carry an
+  `Access-Control-Allow-Origin` header. The published page is not affected.
+
+### Upgrading
+
+This is a theme-only update. It needs no migration and changes nothing stored when it is installed.
+The first wp-admin visit by an administrator afterwards records the theme version and schedules one
+census run through WP-Cron (in batches of 1 MiB of stored content), which records its result in
+`pp_content_census*` options. On a site with a lot of stored content each batch can take several
+seconds of server time, and the same whole-site run repeats after edits until the props the notice
+lists are fixed, so fix those first; such a site may prefer a real system cron. A scheduled batch
+that hits the server's time limit leaves that page out of the admin notice: `wp pp content census`
+in WP-CLI, which has no web time limit, is the full list.
+1. If you use `wp pp readiness`, run `wp pp readiness status` after replacing the theme files. When
+   the only drift it reports is the 2.1.0 files, run `wp pp readiness rebaseline`.
+2. Run `wp pp content census`. It writes nothing. For each prop it lists as `empty` or `stripped`,
+   and each title listed as `text` with a rule other than `unverified`, edit the prop to remove what
+   it names, and save. A title listed as `text` with clause `unverified` renders exactly as before;
+   editing it through the editor, the AI or WP-CLI admits its markup. A prop listed as `unchecked` (clause
+   `budget`) is on a page over the per-view budget and renders through WordPress's sanitizer as
+   before; split the page to have it checked.
+3. Run `wp pp validate site`. Fix any `content_stripped_at_render` warning it reports the same way.
+4. Re-acknowledge your judgment calls. For each page you had acknowledged, run
+   `wp pp check page --post_id=<id>`, and for each advisory you still judge intentional run
+   `wp pp check acknowledge` with the key it prints now and a note. Then remove the old unsigned rows
+   with `wp pp check unacknowledge --post_id=<id> --key=<key>` (and `--malformed` for rows `check page`
+   lists as malformed). If you might roll back to 2.0.2, keep the old rows until you are sure.
+5. If an agent or script writes content, let it read the refusals: each names the prop, the
+   construct and the rule. The in-admin assistant is told the content rules up front.
+
+**Rolling back to 2.0.2** restores the silent strip at render instead of the refusal at write.
+Content a trusted writer saved on 2.1.0 with constructs beyond core's `post` list (inline SVG, a
+`data:` image, a custom element) is stripped by 2.0.2's render, and titles saved with markup render
+their tags as text. 2.0.2 does not know the `custom` band or `udc._scoped`: custom bands render
+nothing, scoped sheets are not emitted, and 2.0.2 refuses writes that carry them, so remove them
+before rolling back. Acknowledgements signed on 2.1.0 are stale on 2.0.2; the old 2.0.2 rows apply
+again if you kept them. `wp pp readiness` reports the theme files as changed until you rebaseline.
+
+### Named deviations from the ratified Layer-3 contract
+
+- **Forms** (P-5, P-24) are descoped by the owner (2026-10-05); destination: the Layer-3 forms
+  contract.
+- **`counter()` and `counters()` in scoped `content`** are refused until Layer 2's integer counters
+  close (#1254).
+- **The per-page-view content check is bounded at 1 MiB or 4,096 values**, the write path's bound,
+  not the ruled 4 MiB: the ruled bound measured 44 s on the worst shape, past PHP's 30 s limit.
+
+### Known issues (rolled up)
+
+- Stored content, custom bands and scoped sheets are checked on every page view, with no render
+  cache yet. Ordinary pages take milliseconds; a page holding a very large amount of content, or very
+  large custom bands, can take seconds per view. Scoped-sheet-heavy pages have no render-time bound
+  yet (#1260), and head CSS has no size cap (#1062).
+- Layer 2's `_css` counter values and text-bearing CSS strings are not yet as restricted as the
+  scoped sheet's (#1254, #1168), and fragment `url()` values in content styles are not yet restricted
+  the way the scoped sheet restricts them (#1256).
+- The dangling-image check reports a valid `@token` role background as attachment id 0 (#1257).
+- Cross-band id checks do not see legacy values over the size cap or ids inside an inline SVG's
+  `<style>` (#1251).
+- Readiness acknowledgements (`wp pp readiness acknowledge`) are not signed yet (#1249).
+- The chat's compatibility mode answers without the selected page's context (#1243); a stored
+  composition that JSON cannot re-encode shows the chat an empty composition block (#1253); the system
+  prompt (97,219 bytes) is re-sent uncached on every turn (#1089).
+- Carried from 2.0.2: posts the old front-page bug wrote a composition onto keep it (#1240); header
+  and footer findings cannot be acknowledged (#1220); a static front page with no stored composition
+  is given the default homepage on its first visit (#1239); item ids still carry in some whole-band
+  rewrites, and a clear-then-remove of a styled card is two chat turns (#1234, #1232);
+  `update_composition` and `restore_composition` stay declarative, with no item-design check; a band
+  whose stored `component` is an array still stops the page inspection behind the chat context and
+  `wp pp operate inspect` (#1223); the operating-docs write audit has a remainder (#1236).
+- Also open since 2.0.2: a protected page on the default template shows its password prompt without
+  the form controls (#1225); a hero with `centered` layout does not centre a short subtitle (#1218); a
+  stored item design with a malformed id, or a cleared card design whose id another card still
+  references, locks every `items` patch on its band (#1230, #1231); `wp pp validate site` does not fail
+  on a corrupt `pp_site_udc` row (#1229) or when a findings check throws and is dropped (#1222);
+  post-apply validation names a non-string stored component "Array" (#1221).
+- Carried from 2.0.1: acknowledgements are read only by `wp pp check page` and `wp pp validate site`;
+  a write's `findings` report and the chat still list an acknowledged advisory as a warning. They do
+  not re-open for a code change between releases (a development build, a child theme, a plugin's late
+  CSS), and a raw `_css` property can paint past the band an acknowledgement covers. An accent over a
+  scrim cannot be acknowledged (#1211); undo and rollback
+  wording treats informational notes as issues in three places (#1205); band-id namespaces and a few
+  refusal messages have follow-ups (#1213, #1215); a malformed `clamp()`/`calc()` length is accepted
+  and dropped by the browser and lengths have no size limit (#1198, #1199); the `card-media`
+  `object-fit: contain` route does nothing (#1209), the grid `header` role description contradicts
+  itself (#1208), the checklist-to-link gap is tight (#1207); `wp pp schema` echoes rejected keys raw
+  (#1201).
+
+### Itemized changes
+
+#### Added
 
 - **Layer 3B: a scoped style sheet on every band (#1242 T4).** A band's `udc` map now takes
   `_scoped`, beside `_tokens`: a list of rules, each `{selector, css}` with an optional `media`,
@@ -39,7 +226,7 @@ All notable changes to PromptingPress are documented here.
   properties are refused, and the text-bearing properties include CSS Overflow 4's
   `block-ellipsis` and `line-clamp`, which take no string.
 
-### Changed
+#### Changed
 
 - **One list of CSS functions for both Layer-3 channels.** The content check's admitted CSS
   functions (`pp_content_css_functions()`) now come from `pp_layer3_css_functions()`, which the
@@ -93,16 +280,16 @@ All notable changes to PromptingPress are documented here.
   plain text.
 - **Forms are not admitted yet.** The ratified contract admits forms (P-5, P-24), but the owner
   descoped them from this release on 2026-10-05: `form`, `input`, `select`, `option`, `optgroup`,
-  `selectedcontent`, `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause Δ5,
-  "descoped by the owner"), and they arrive with the Layer-3 forms contract. `button`, `label`,
+  `selectedcontent`, `datalist`, `textarea`, `output`, `fieldset` and `legend` are refused at write (clause `D5`,
+  the contract's Δ5, "descoped by the owner"), and they arrive with the Layer-3 forms contract. `button`, `label`,
   `meter` and `progress` are admitted: none of them submits anything without a form.
 - **The wider set is for users WordPress trusts with unfiltered HTML.** Everything beyond core's
   own `post` list needs the `unfiltered_html` capability, as in WordPress itself. A user without
-  it (a Contributor or Author, or an Editor on multisite) writes what core's `post` list admits:
+  it (a Contributor or Author; on multisite, anyone but a super admin) writes what core's `post` list admits:
   its elements and attributes, WordPress's own URL protocols, and styles core's CSS filter keeps
   whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped. A
   stored band such a user does not change is not re-checked. WP-CLI writes with server-level
-  access.
+  access, at the wider set, even when `DISALLOW_UNFILTERED_HTML` is set.
 - **An old band never blocks an edit to another band.** Content is checked only in the bands a
   write changes, compared by content rather than by band id, so a stored band whose content a
   later rule refuses keeps rendering and does not stop edits elsewhere on the page. Each stored
@@ -139,18 +326,18 @@ All notable changes to PromptingPress are documented here.
 - **Stored content keeps rendering at WordPress's own level until a trusted, checked write
   saves it.** The wider set Layer 3 admits (inline SVG, MathML, `data:` images, custom elements
   and the rest beyond core's `post` list) renders only for content a user with the
-  `unfiltered_html` capability saved through the editor or the AI after this release. Content
+  `unfiltered_html` capability saved through the editor, the AI or WP-CLI after this release. Content
   stored earlier, or by anyone else, renders exactly what WordPress's own sanitizer showed
   before; anything beyond that is left out and reported (`content_stripped_at_render`, rule
   `unfiltered_html`). Saving content unchanged does not count: edit it.
 - **A page view checks at most 1 MiB or 4,096 values of stored content.** On a page that holds
   more, the rest renders through WordPress's own sanitizer as before, and the page reports
-  `content_not_checked` (a warning naming the bands), so a very large page never makes a page
-  view slow. The editor preview has the same bound and the write's size limits.
+  `content_not_checked` (a warning naming the bands), so the check on a very large page is
+  bounded. The editor preview has the same bound and the write's size limits.
 - **Inline icons in content stay on their line.** An SVG inside a sentence, a list item or a
   table cell now flows with its text; an SVG standing on its own is still a block.
 - **Titles and headings render markup only when a checked write admitted it.** A title or
-  heading saved through the editor or the AI after this release may carry the inline set
+  heading saved through the editor, the AI or WP-CLI after this release may carry the inline set
   (`H<sub>2</sub>O`, `<em>fast</em>`), and renders it. A title stored before it keeps rendering
   as the text it was, even when it looks like markup (`The <span> element`), until it is edited
   (saving it unchanged does not re-check it); a stored title the check refuses (`The <code> element`) renders as plain text, never
@@ -165,8 +352,11 @@ All notable changes to PromptingPress are documented here.
   HTML parser), on the first admin visit after a theme update, and after an edit while props
   still render empty, and the notice says when a WordPress update made the list longer. Run
   `wp pp content census` after updating to this release. The scheduled run reads the site in
-  batches of 1 MiB of stored content, one request each, so a large site never times out.
-- **Two new findings, one new note.** `content_duplicate_id` (warning) names an id used in the
+  batches of 1 MiB of stored content, one request each, so each request stays bounded; a batch that
+  still hits the server's time limit leaves that page out of the notice, and `wp pp content census`
+  in WP-CLI is the full list.
+- **Two more new codes** (every new finding and note is listed under Behaviour changes above).
+  `content_duplicate_id` (warning) names an id used in the
   content of two bands; `content_inline_style` (info) says how many `style` declarations a
   band's content carries, which properties they set, and any `popover` element.
 - **The AI is told the content rules.** The chat's instructions now state which props take
@@ -200,13 +390,13 @@ All notable changes to PromptingPress are documented here.
   engine-shaped id when they reach the page. Limits: markup 64 KiB, an island 16 KiB, markup and
   islands together 128 KiB.
 
-### Known limits
+#### Known limits
 
 - A custom band is composed and verified on every render, with no cache yet: a maximal band
   (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig and about
   five times that on a shared CI runner; an ordinary one takes a few milliseconds. There is no render cache yet (#1089 is the chat prompt's cache, not this one).
 
-### Fixed
+#### Fixed
 
 - **Scoped sheet: a control byte can no longer end a `url(#…)` early (#1242 T4).** Found in
   review before release: a fragment URL with a line break inside it, such as `url(#a` followed by
@@ -295,7 +485,7 @@ All notable changes to PromptingPress are documented here.
   remainder ("and N more") after it, like every other list the engine prints (#1122). Every
   preset a site saved normally is still listed; only a store written around those limits is cut.
 
-### Docs
+#### Docs
 
 - `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
   the §8.3 precondition as met.
@@ -328,7 +518,7 @@ All notable changes to PromptingPress are documented here.
   bounds and what the engine can and cannot verify inside custom markup (§7.4). The v2 rosters
   name eleven components.
 
-### Tests
+#### Tests
 
 - `CustomBandIslandsTest` (T-13 and routed item 10): the host matrix per kind, the name,
   kind, count and emptiness rules, the unknown and non-string island refusals, the island
@@ -408,6 +598,9 @@ All notable changes to PromptingPress are documented here.
   the cascade order against `_css`, an attachment background, and that an embed band's selector
   cannot probe attributes over the network. The prompt byte budget is 94,988 (measured on the
   merged tree; was 92,970).
+- The release's prompt byte budget is 97,219 (`PP_AI_PROMPT_BUDGET`, measured on merged main):
+  94,988 after the scoped sheet, 95,404 after the custom band (+416), 97,219 after the content
+  contract paragraph (+1,815).
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
