@@ -1434,6 +1434,10 @@ class SchemaValidationTest extends TestCase
                     // Plain array prop (no item contract): an array of strings is a
                     // valid, non-rejected value.
                     $props[$prop_name] = ['x'];
+                } elseif ($prop_type === 'object') {
+                    // Top-level object prop (#1242 T5: custom.islands, a name -> string map).
+                    // An empty map is a valid value of every declared object prop.
+                    $props[$prop_name] = [];
                 } else {
                     $props[$prop_name] = 'x';
                 }
@@ -3197,6 +3201,9 @@ class SchemaValidationTest extends TestCase
                     $this->assertIsArray($itemProps, "'{$componentType}' derives '{$name}' but schema has no props.items.items.");
                     $this->assertArrayHasKey($sub, $itemProps, "'{$componentType}' derives '{$name}' but '{$sub}' is not a props.items.items key.");
                     $this->assertContains($itemProps[$sub]['type'] ?? null, $scalarTypes, "'{$componentType}.{$name}' sub-prop is not scalar in schema.");
+                } elseif ($name === 'islands.<name>') {
+                    // §7.2 (#1242 T5): a custom band's islands, patched one at a time.
+                    $this->assertSame('object', $props['islands']['type'] ?? null, "'{$componentType}' derives '{$name}' without an object `islands` prop.");
                 } else {
                     $this->assertArrayHasKey($name, $props, "'{$componentType}' derives '{$name}' but it is not a schema prop.");
                 }
@@ -3211,7 +3218,11 @@ class SchemaValidationTest extends TestCase
                     continue;
                 }
                 $type = $propDef['type'] ?? null;
-                if (in_array($type, $scalarTypes, true)) {
+                if (($propDef['structural_only'] ?? false) === true) {
+                    // P-7 (#1242 T5): the one declared exemption — a structural prop is
+                    // edited by structural writes only, never as a patched field.
+                    $this->assertArrayNotHasKey($propName, $derived, "'{$componentType}.{$propName}' is structural_only (P-7) but was derived as a patchable field.");
+                } elseif (in_array($type, $scalarTypes, true)) {
                     $this->assertArrayHasKey($propName, $derived, "'{$componentType}.{$propName}' is a scalar schema prop but was NOT derived (silent coverage drop).");
                 } elseif (in_array($type, ['array', 'object'], true)) {
                     $this->assertArrayNotHasKey($propName, $derived, "'{$componentType}.{$propName}' is a structural prop but leaked into the derived field set.");
@@ -3247,6 +3258,7 @@ class SchemaValidationTest extends TestCase
      */
     private const PINNED_PROP_BASELINE = [
         'cta'          => ['id', 'title', 'title_accent', 'eyebrow', 'body', 'button_text', 'button_url', 'button2_text', 'button2_url', 'button2_variant', 'layout', 'theme', 'background_image', 'button_variant'],
+        'custom'       => ['id', 'markup', 'islands'],
         'embed'        => ['id', 'title', 'content', 'theme'],
         'faq'          => ['id', 'title', 'title_accent', 'eyebrow', 'theme', 'items'],
         'footer'       => ['location', 'show_logo', 'logo_text', 'logo_id', 'logo_alt', 'bg', 'text', 'link_color', 'blurb', 'contact', 'copyright', 'menu_label', 'contact_label', 'secondary_location', 'secondary_label', 'note', 'social'],
@@ -3545,17 +3557,18 @@ class SchemaValidationTest extends TestCase
     ];
 
     /**
-     * The append-only floor for the prop surface (#598). 128 props across 12 components
-     * (126 as of v1.13.15, plus section's `body_items_align` from #1023 and grid's
-     * `items_source` from #1181). NEVER DECREASE
+     * The append-only floor for the prop surface (#598). 131 props across 13 components
+     * (126 as of v1.13.15, plus section's `body_items_align` from #1023, grid's
+     * `items_source` from #1181, and the custom band's `id`, `markup` and `islands` from
+     * #1242 T5). NEVER DECREASE
      * THIS. Adding props raises what the baseline holds,
      * which is fine (the check is >=); retiring one moves it into the notes register, so
      * the accounted total still never drops.
      */
-    private const PROP_BASELINE_FLOOR = 128;
+    private const PROP_BASELINE_FLOOR = 131;
 
     /** Content fingerprint of PINNED_PROP_BASELINE. See baselineFingerprint(). */
-    private const PROP_BASELINE_FINGERPRINT = '7f2e8692a175c967';
+    private const PROP_BASELINE_FINGERPRINT = 'd53ea0cb04bead64';
 
     /**
      * Pure drift detector: any baseline prop that no longer exists in the live schema
@@ -5204,7 +5217,9 @@ class SchemaValidationTest extends TestCase
         // BAND) plus six `reached_only_by_inheritance` records naming the partners a
         // colour set on `_band` or `card` will NOT reach. Every v2 component is counted
         // here now: this is the whole theme's role corpus, not a subset.
-        $this->assertSame(143, $checked, 'the role count changed — update this number deliberately');
+        // 143 -> 144 AT #1242 T5: the custom band's one role, `_band` (no obligation record:
+        // it pins no colour of its own).
+        $this->assertSame(144, $checked, 'the role count changed — update this number deliberately');
         $this->assertSame(29, $records, 'the obligation corpus changed — update this number deliberately');
     }
 
@@ -5288,7 +5303,8 @@ class SchemaValidationTest extends TestCase
         }
         // 143 since #1101, when grid's 18 roles joined — see the count's own note in
         // testEveryRoleDeclaresObligationsAndEveryPartnerExists above.
-        $this->assertSame(143, $checked, 'the role count changed — update deliberately');
+        // 144 since #1242 T5 (the custom band's `_band`).
+        $this->assertSame(144, $checked, 'the role count changed — update deliberately');
     }
 
     /**
@@ -7198,6 +7214,8 @@ class SchemaValidationTest extends TestCase
             // grid joined at #1101 — the last v2 component, and the last fixture this
             // roster will ever need.
             'grid'         => ['items' => [['title' => 'Card', 'text' => 'B']]],
+            // custom joined at #1242 T5 (Layer 3C).
+            'custom'       => ['markup' => '<div><p data-pp-island="lede"></p></div>', 'islands' => ['lede' => 'L']],
         ];
 
         foreach ($v2 as $component) {

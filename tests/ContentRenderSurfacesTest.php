@@ -42,7 +42,7 @@ class ContentRenderSurfacesTest extends TestCase
             foreach ($paths as $path => $sink) {
                 if ($sink === 'rich' || $sink === 'rich_cell' || $sink === 'inline') {
                     $this->assertStringContainsString($component . '.' . $path, $prompt, "{$sink} prop {$component}.{$path}");
-                } elseif ($path !== 'title_accent') {
+                } elseif ($sink === 'heading' && $path !== 'title_accent') {
                     $this->assertStringContainsString('`' . $path . '`', $prompt, "heading field {$path}");
                 }
             }
@@ -197,6 +197,11 @@ class ContentRenderSurfacesTest extends TestCase
         // pp_content_prop_html() (or the heading-with-accent renderer for `title`), never a
         // direct core sanitizer that would skip §2.3.
         foreach (pp_content_prop_contracts() as $component => $paths) {
+            if ($component === 'custom') {
+                // The custom band renders through its own composer (pp_content_custom_band_html(),
+                // #1242 T5), which runs the same predicate over markup, islands and the whole band.
+                continue;
+            }
             $src = (string) file_get_contents(dirname(__DIR__) . '/components/' . $component . '/' . $component . '.php');
             foreach (array_keys($paths) as $path) {
                 if ($path === 'title_accent') {

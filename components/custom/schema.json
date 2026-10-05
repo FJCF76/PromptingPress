@@ -1,0 +1,60 @@
+{
+  "component": "custom",
+  "description": "A band whose inner structure is the author's own HTML (`markup`), with named content islands (`islands`) for the text a person edits. Use it when no structured component expresses the layout. `markup` is checked as rich content (LAYER-3-CONTRACT.md §3-§4) plus the two island attributes, and is edited only by structural writes (update_component / update_composition, i.e. the AI and the JSON editor; P-7). An island is an EMPTY element in markup carrying data-pp-island=\"<name>\" (and optionally data-pp-island-kind=\"plain|inline|rich\"); its content lives in islands.<name> and renders into that element. Shortcodes in markup are not expanded: it is author markup, not plugin output (use the embed band for a shortcode). The band declares one role, `_band`; style its insides through the band's scoped sheet. See docs/v2/LAYER-3-CONTRACT.md §7.",
+  "props": {
+    "id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Optional HTML id attribute for anchor linking (e.g. navigation anchors). Also becomes the component's stable id."
+    },
+    "markup": {
+      "type": "string",
+      "required": true,
+      "structural_only": true,
+      "description": "The band's inner HTML, judged as rich content plus the island attributes (data-pp-island, data-pp-island-kind; refused everywhere else). An island element must be empty here. Host elements per kind: plain = any rich or inline host plus a, button, time, code, abbr, sub, sup; inline = span, p, h1-h6, strong, em, small, mark, label, dt, summary, caption, figcaption, legend, cite, q; rich = div, section, article, aside, header, footer, main, figure, figcaption, blockquote, li, dd, td, th, details. At most 64 islands, names ^[a-z][a-z0-9_-]{0,63}$, unique. Edited by structural writes only (P-7)."
+    },
+    "islands": {
+      "type": "object",
+      "required": false,
+      "default": {},
+      "description": "Island name -> content string. Each value passes the contract its host declares: plain (escaped text), inline (the INLINE set) or rich. An entry with no element in markup is refused; an island in markup with no entry renders empty with a custom_island_empty finding. update_component merges this map by key: a sent island replaces that island, null removes it, unsent islands are kept."
+    }
+  },
+  "roles": {
+    "_band": {
+      "selector": "",
+      "description": "The band itself, the <section> around the author's markup. It is the only role: the markup declares no stable role selectors, so the band's scoped sheet is how its insides are styled, and the readability, presence and overlay findings run on this role only (custom_band_unverified says so on every custom band). The defaults are the shared band rhythm and a centred background position, the same as every v2 band. An inherited `typography.color` reaches the markup only where nothing declares its own colour (base.css pins headings, blockquotes and links).",
+      "groups": [
+        "typography",
+        "spacing",
+        "border",
+        "background",
+        "sizing",
+        "shadow",
+        "motion"
+      ],
+      "defaults": {
+        "spacing": {
+          "padding-top": "@pp-band-padding",
+          "padding-bottom": "@pp-band-padding"
+        },
+        "background": {
+          "position": "center"
+        }
+      },
+      "obligations": []
+    }
+  },
+  "styling": {
+    "root_class": "custom",
+    "variant_classes": [],
+    "tokens": []
+  },
+  "safe_to_edit": [
+    "custom.php"
+  ],
+  "do_not_touch": [
+    "schema.json without updating this component's README.md and the repo-root AI_CONTEXT.md"
+  ]
+}

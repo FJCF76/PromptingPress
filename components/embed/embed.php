@@ -7,8 +7,9 @@
  * (contact forms, Gravity Forms, etc.) or pre-rendered HTML blocks that
  * belong to WP plugins rather than to the PromptingPress composition model.
  *
- * The content prop is the only way to introduce arbitrary HTML into a
- * composition. It is intentional and explicit — not a workaround.
+ * The content prop is how plugin output enters a composition (author-structured
+ * HTML with editable text is the custom band's, components/custom/). It is
+ * intentional and explicit — not a workaround.
  * Props: see schema.json
  *
  * @var array $props

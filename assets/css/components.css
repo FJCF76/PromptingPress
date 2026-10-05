@@ -593,7 +593,8 @@
 .logos,
 .embed,
 .testimonials,
-.table-section {
+.table-section,
+.custom {
   scroll-margin-top: var(--pp-header-height);
 }
 
@@ -2347,13 +2348,25 @@
    records why it keeps its own literal rather than routing `--measure-heading`.
 
    `.embed` still appears in the shared `scroll-margin-top` list near the top of this file.
-   That rule spans ten components and belongs to none of them, which is why the lint
+   That rule spans eleven components and belongs to none of them, which is why the lint
    exempts multi-component selectors and why it is not a violation of this emptiness.
 
    The band root carries no rule either — its padding is the `_band` role's default. Both
    of embed's per-component adjacent-sibling rules went with the slot they existed to keep
    alive, for the reason section's went at #1023, cta's at #1026, faq's at #1046 and
    table's at #1066. */
+
+/* ==========================================================================
+   COMPONENT: custom  —  A v2 COMPONENT
+   The author's own markup with content islands (LAYER-3-CONTRACT.md §7, #1242 T5).
+   ========================================================================== */
+
+/* THIS BLOCK IS EMPTY, AND IT HAS NOTHING TO BE EMPTY OF. The custom band renders a
+   <section> and the author's markup inside it: no .container, no template element, no
+   class of its own below the band root. Its padding is the `_band` role's default, and
+   everything inside is styled by the band's scoped sheet or by theme classes the markup
+   borrows. `.custom` appears only in the shared `scroll-margin-top` list near the top of
+   this file, which spans every id-bearing band and belongs to none of them. */
 
 /* ==========================================================================
    COMPONENT: testimonials  —  THE FIRST v2 COMPONENT

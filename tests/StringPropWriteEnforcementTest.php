@@ -695,6 +695,7 @@ class StringPropWriteEnforcementTest extends TestCase
     {
         $base = [
             'cta'          => ['button_text' => 'Go', 'button_url' => '/'],
+            'custom'       => ['markup' => '<p data-pp-island="lede"></p>', 'islands' => ['lede' => 'Lede']],
             'embed'        => ['content' => '<iframe src="/x"></iframe>'],
             'faq'          => ['items' => [['question' => 'Q', 'answer' => 'A']]],
             'grid'         => ['items' => [['title' => 'Card', 'text' => 'Text']]],

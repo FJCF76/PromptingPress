@@ -20,8 +20,9 @@ Run `wp pp operate inspect`. Review:
 
 ### 2. PLAN
 Map the brief to PromptingPress components:
-- The ten composable body components: `hero`, `section`, `grid`, `cta`, `faq`, `stats`,
-  `table`, `embed`, `logos`, `testimonials`. **`nav` and `footer` are NOT on this list** —
+- The eleven composable body components: `hero`, `section`, `grid`, `cta`, `faq`, `stats`,
+  `table`, `embed`, `logos`, `testimonials`, `custom` (your own markup with content islands,
+  for a layout no structured component expresses). **`nav` and `footer` are NOT on this list** —
   they are site chrome the template renders on every page, and composing either is
   rejected with `template_owned_component`
 - Choose layouts from the `layout` prop where the component has one (`hero`, `section`,

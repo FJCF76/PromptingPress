@@ -57,6 +57,12 @@ function _pp_content_finished_values(array $items, int $post_id = 0): array {
     [$index, $counts] = _pp_content_render_index($items, $post_id);
     $out = [];
     foreach (array_keys($index) as $key) {
+        // The custom band (#1242 T5) is rendered and reported by its own composer
+        // (pp_content_custom_band_html(), pp_content_custom_disclosures()): its markup and
+        // islands are judged there as one composed band, so this report does not restate them.
+        if (($items[$key]['component'] ?? null) === 'custom') {
+            continue;
+        }
         $values = _pp_content_finish_band($items, $key, $index, $counts);
         if ($values !== []) {
             $out[$key] = $values;

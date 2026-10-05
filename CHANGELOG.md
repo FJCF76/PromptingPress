@@ -6,7 +6,45 @@ All notable changes to PromptingPress are documented here.
 
 ## Unreleased — Sprint 6
 
+### Added
+
+- **Layer 3B: a scoped style sheet on every band (#1242 T4).** A band's `udc` map now takes
+  `_scoped`, beside `_tokens`: a list of rules, each `{selector, css}` with an optional `media`,
+  `supports` or `container` condition, that style the band and anything inside it with ordinary CSS selectors.
+  Each rule is emitted as `[data-pp-band="<id>"] <selector>` (or `[data-pp-band="<id>"]:hover` when
+  the selector starts with a pseudo-class), so it can reach only its own band: a selector that
+  could match outside the band (a sibling combinator at the root, a `:has()` that looks outward)
+  is refused when it is written, as are `:root`, `:scope` and `:host`, which never mean the
+  band, namespaces and a top-level selector list (write one rule per selector). The pseudo-classes
+  and pseudo-elements a selector may use are pinned lists, and an embed band refuses attribute
+  selectors. Declarations take the same grammar as a band's `_css`, plus your own custom
+  properties (no strings in them, never `--pp-*` or a site token name), `content` limited to
+  `""`, `none` and `normal`, `@media` and `@container` conditions from a pinned feature list and
+  `@supports` tests whose value passes the same checks,
+  `url(#id)` only on `filter`, `clip-path`, `mask`, `marker`, `fill` and `stroke`, and a
+  background image only as a media-library attachment id written as a number (a token
+  reference such as `"@img"` is refused). CSS functions come from the same
+  fixed list the Layer-3 content check uses. Every rule is checked again when the page renders,
+  so a stored rule the gate no longer admits is dropped there, not emitted. A band holds at most
+  128 rules, 64 declarations a rule and a 64 KiB compiled sheet. Each scoped selector carries
+  the band's reduced-motion guard. `wp pp schema <component>` lists the scoped sheet's keys,
+  bounds and pinned lists, and an untyped property in a scoped rule is reported as unchecked,
+  as in `_css`.
+- **What a scoped rule may not do, and why.** A rule that can match the band root itself may set
+  `display` only to a fixed set of values and may not set custom properties, so it cannot make
+  the band a list item and give the page a marker. On a band whose `_css` already sets a string
+  list marker or counter, scoped `display`, `list-style` and `content` take the same narrow set.
+  `counter()` and `counters()` are refused in `content` until Layer 2's counter path closes
+  (#1254). Quote keywords (`open-quote` and the rest) and CSS-wide keywords on text-bearing
+  properties are refused, and the text-bearing properties include CSS Overflow 4's
+  `block-ellipsis` and `line-clamp`, which take no string.
+
 ### Changed
+
+- **One list of CSS functions for both Layer-3 channels.** The content check's admitted CSS
+  functions (`pp_content_css_functions()`) now come from `pp_layer3_css_functions()`, which the
+  scoped sheet reads too, so content and scoped CSS cannot admit different functions. The list
+  itself is unchanged.
 
 - **Layer 3A: content is checked when it is written (#1242 T3a).** Every content prop (a band's
   body, an FAQ answer, a table cell, embed content, hero proof, the INLINE props and, under the
@@ -136,9 +174,42 @@ All notable changes to PromptingPress are documented here.
   repair. Validation messages after an AI change now quote stored names, ids and media paths
   as quoted data. The chat's media list is shown only to users who can browse the media library
   (WordPress's `upload_files`, as the media screen requires).
+- **Layer 3C: the custom band and content islands (#1242 T5).** A new component, `custom`,
+  is a band whose inside is your own HTML (`markup`), with named **islands** for the text people
+  edit. An island is an empty element in the markup carrying `data-pp-island="<name>"`; its
+  content lives in `islands.<name>` and renders into that element, as escaped text (`plain`, the
+  default), the INLINE set (`inline`) or rich content (`rich`), chosen with
+  `data-pp-island-kind`. Each kind has its own host elements (a link or button label is a plain
+  island). The markup is checked as rich content, each island in its own contract, and the band
+  once more as a whole; island content that would restructure the markup around its host (a
+  link inside an island whose host sits in a link, a button in a button, a list item in a
+  list-item host) is refused, naming the island. Refused with `content_construct_excluded`
+  (clause `§7.2`): a wrong host, a bad or duplicate name, a 65th island, an island element with
+  content in the markup, and an `islands` entry with no element in the markup. An island the
+  markup names with no content renders empty with a `custom_island_empty` warning; every custom
+  band carries a `custom_band_unverified` note (information) saying its insides were checked for
+  safety, not readability. `markup` is edited only by a structural write (`update_component`,
+  `update_composition`, the JSON editor); `update_component` merges `islands` by key (a sent
+  island replaces that island, `null` removes it, unsent islands are kept) and reports an island
+  edit as the one field `props.islands.<name>`; `wp pp operate patch` takes
+  `custom.islands.<name>` and refuses `custom.markup` by name. The accordion editor shows the
+  markup without a control and lists one text box per island. Custom markup is never passed
+  through `do_shortcode()`, and the band's inner bytes carry no `data-pp-*` attribute and no
+  engine-shaped id when they reach the page. Limits: markup 64 KiB, an island 16 KiB, markup and
+  islands together 128 KiB.
+
+### Known limits
+
+- A custom band is composed and verified on every render, with no cache yet: a maximal band
+  (64 rich islands at the 128 KiB cap) takes about 2.4 s to render on the test rig and about
+  five times that on a shared CI runner; an ordinary one takes a few milliseconds. There is no render cache yet (#1089 is the chat prompt's cache, not this one).
 
 ### Fixed
 
+- **Scoped sheet: a control byte can no longer end a `url(#…)` early (#1242 T4).** Found in
+  review before release: a fragment URL with a line break inside it, such as `url(#a` followed by
+  a newline, could leave an unterminated value that the browser reads differently from the gate.
+  Any control byte in a scoped value, `content` included, is now refused at write and at render.
 - **Editor: the live preview renders content in an isolated origin.** The composition editor's
   preview frame now shares no origin with the admin screen (LAYER-3-CONTRACT §8.3), and the
   preview document carries its own content policy: script in it cannot use the request APIs or
@@ -240,9 +311,34 @@ All notable changes to PromptingPress are documented here.
 - The Layer-3 contract marks §8.2 (the assistant's context) as met, with the sink owner and the
   tests that pin it. `AI_CONTEXT.md` lists the sink owner and the menu filter among the context
   functions, and `ai-instructions/add-component.md` states the role-default value limits.
+- The scoped sheet is documented where authors look: `ai-instructions/style-component.md` has a
+  `_scoped` section (shape, selectors, what a declaration may hold, bounds),
+  `ai-instructions/website-building.md`, `ai-instructions/composition.md`,
+  `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md` (the `udc_scoped` field of
+  `wp pp schema`), `AI_RULES.md`, `AI_CONTEXT.md` and `README.md` name it,
+  and the Layer-3 contract's §6 records every T4 ruling, the counter deviation bound to #1254 and
+  the named divergences.
+
+- The custom band is documented in `components/custom/README.md`, `ai-instructions/composition.md`
+  (the component table, the content-model table and a section of its own), `AI_CONTEXT.md`,
+  `README.md` and `docs/reference-apply-cli.md`; the Layer-3 contract records routed item 10 as
+  ruled with its mechanism, the M-21 reading of the island refusal codes, the emission belt, the
+  bounds and what the engine can and cannot verify inside custom markup (§7.4). The v2 rosters
+  name eleven components.
 
 ### Tests
 
+- `CustomBandIslandsTest` (T-13 and routed item 10): the host matrix per kind, the name,
+  kind, count and emptiness rules, the unknown and non-string island refusals, the island
+  attributes refused outside custom markup and inside island content, island content judged in
+  its kind's contract, E12 across markup and islands, five restructuring shapes refused with their
+  positive controls, the bounds, merge by key with a planted sibling kept byte for byte, `null`
+  removing one island, the one-field diff, CAS and undo per island write, `operate patch` on an
+  island and its P-7 refusal of `markup`, fail-closed render, no shortcode expansion, the E6
+  emission belt (direct and through a raw-meta forged band), both findings, and a maximal band's
+  write and render cost (T-17). `pp-editor-islands.test.js` boots the real editor with the shipped
+  schema: markup shown without a control, island boxes, merge by key, JSON-only mode for a
+  non-string island.
 - `PreviewFrameIsolationTest` pins the preview frame's sandbox (exactly `allow-scripts`) and the
   preview document's content policy (exact directives, first in the head).
   `pp-editor-preview-isolation.test.js` pins the scroll-message schema, the sender check, the
@@ -301,6 +397,15 @@ All notable changes to PromptingPress are documented here.
   and Chromium, checks that an admitted `id="top"` is a working anchor, and
   runs a mutation-XSS corpus through sanitize, browser parse and sanitize again (T-9). The PHPUnit
   suite now loads WordPress 7.0's HTML API from a test fixture (7.1.2's with `PP_TEST_HTML_API=7.1.2`).
+- `UdcScopedSheetTest` pins the scoped sheet (#1242 T4): every selector, declaration and condition
+  refusal at write and again at render, with each review reproduction pinned red before its fix;
+  confinement of the emitted selector; the bounds at their edges; the band-root and marker-band
+  rules; the one CSS function list shared with the content check; and the `wp pp schema` report.
+  `tests/e2e/scoped-sheet.spec.ts` checks in Chromium that a scoped rule paints inside its band
+  and not in the band beside it (with counterfactual selectors), `:first-child` on the band root,
+  the cascade order against `_css`, an attachment background, and that an embed band's selector
+  cannot probe attributes over the network. The prompt byte budget is 94,988 (measured on the
+  merged tree; was 92,970).
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 

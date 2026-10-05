@@ -268,9 +268,9 @@ class SchemaThemeConsistencyTest extends TestCase
         // Fail-closed AND exact, for the same reason the roster above is: a shrink means a
         // band stopped stating the rhythm, a growth is a new band to review here.
         $this->assertSame(
-            ['cta', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'table', 'testimonials'],
+            ['cta', 'custom', 'embed', 'faq', 'grid', 'logos', 'section', 'stats', 'table', 'testimonials'],
             $bands,
-            'the nine bands that route the shared --pp-band-padding rhythm'
+            'the ten bands that route the shared --pp-band-padding rhythm (custom joined, #1242 T5)'
         );
 
         // THE EXCLUSION, GUARDED ON BOTH EDGES — including a one-sided edit, which is how

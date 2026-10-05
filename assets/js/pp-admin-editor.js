@@ -263,6 +263,46 @@
         return 'pp-field-' + compIdx + '-' + fieldIdx + (itemIdx !== undefined ? '-' + itemIdx : '');
     }
 
+    // A STRUCTURAL prop (P-7, #1242 T5: custom.markup) is SHOWN, never edited here: only a
+    // structural write (the JSON view, the assistant) edits it. The block carries no
+    // data-comp / data-field, so the sync resolves no control for it and leaves the stored
+    // value exactly as it is (the "no control resolved" branch), the same mechanism #805's
+    // display-only sub-keys use.
+    function buildStructuralFieldHtml(field) {
+        var h = '<div class="pp-accordion-field pp-accordion-field--structural">';
+        h += '<span class="pp-accordion-label">' + esc(field.name) + '</span>';
+        h += '<pre class="pp-accordion-structural" tabindex="0">' + esc(field.value) + '</pre>';
+        h += '<p class="description">Structural: edit it in the JSON view. The text people edit is in the islands below.</p>';
+        h += '</div>';
+        return h;
+    }
+
+    // A name -> string MAP (#1242 T5: custom.islands), one text box per island. The boxes
+    // list every island the stored map holds plus every island the band's markup names,
+    // so an island with no content yet is offered empty. Each box carries data-map-field /
+    // data-map-key rather than data-field, so no scalar lookup can resolve it; the sync
+    // reads them through syncMapField below.
+    function buildMapFieldHtml(field, compIdx, fieldIdx, props) {
+        var stored = (field.value && typeof field.value === 'object' && !Array.isArray(field.value)) ? field.value : {};
+        var keys = Object.keys(stored);
+        logic.islandNamesInMarkup(props && props.markup).forEach(function (k) {
+            if (keys.indexOf(k) === -1) keys.push(k);
+        });
+        var h = '<fieldset class="pp-accordion-field pp-accordion-map" data-comp="' + compIdx + '" data-map-field="' + esc(field.name) + '">';
+        h += '<legend>' + esc(field.name) + '</legend>';
+        if (!keys.length) {
+            h += '<p class="description">No islands yet: an island is an empty element in the markup carrying data-pp-island="name".</p>';
+        }
+        keys.forEach(function (k, kIdx) {
+            var id = fieldElementId(compIdx, fieldIdx, kIdx);
+            h += '<label for="' + esc(id) + '">' + esc(k) + '</label>';
+            h += '<textarea id="' + esc(id) + '" rows="2" data-comp="' + compIdx + '" data-map-field="' + esc(field.name)
+                + '" data-map-key="' + esc(k) + '">' + esc(stored[k] === undefined ? '' : stored[k]) + '</textarea>';
+        });
+        h += '</fieldset>';
+        return h;
+    }
+
     function buildFieldHtml(field, compIdx, fieldIdx, itemIdx) {
         var id = fieldElementId(compIdx, fieldIdx, itemIdx);
         var idAttr   = esc(id);
@@ -573,6 +613,10 @@
             comp.fields.forEach(function (field, fIdx) {
                 if (field.type === 'array') {
                     h += buildArrayFieldHtml(field, idx, fIdx);
+                } else if (field.type === 'map') {
+                    h += buildMapFieldHtml(field, idx, fIdx, comp.props);
+                } else if (field.structural) {
+                    h += buildStructuralFieldHtml(field);
                 } else {
                     h += buildFieldHtml(field, idx, fIdx);
                 }
@@ -757,6 +801,23 @@
                     });
                     field.value = reconciled.items;
                     field.userTouched = true;
+                } else if (field.type === 'map') {
+                    // One read per box, merged by key into the stored map (logic.mergeMapRead):
+                    // a box replaces its key, an unboxed stored key is kept, and an untouched
+                    // empty box for a key never stored adds nothing.
+                    var read = {};
+                    var $boxes = $scope.find('textarea[data-map-key]').filter(function () {
+                        return this.getAttribute('data-comp') === String(compIdx)
+                            && this.getAttribute('data-map-field') === field.name;
+                    });
+                    $boxes.each(function () { read[this.getAttribute('data-map-key')] = $(this).val(); });
+                    var merged = logic.mergeMapRead(field.value, read);
+                    if (JSON.stringify(merged) !== JSON.stringify(field.value)) {
+                        field.value = merged;
+                        field.userTouched = true;
+                    }
+                } else if (field.structural) {
+                    // No control by design (buildStructuralFieldHtml): the stored value stands.
                 } else {
                     var $input = findScalarControl($scope, compIdx, field.name);
                     if ($input.length) {

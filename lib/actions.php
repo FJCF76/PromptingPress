@@ -6554,7 +6554,7 @@ pp_register_action('update_component', [
     'scope'       => 'section',
     'mutates_composition' => true,
     'description' => 'Updates a single component\'s props and/or its band design, each via shallow merge (patch, not replace). `udc` restyles THIS band only (#1088): it is merged into the band\'s stored `udc` map BY ROLE — a role you send replaces that role\'s map whole (so send every value the role should keep; read the band first), `null` removes a role, and roles you do not send are kept. Engine-minted tokens (`@<role>-<group>-<param>-<bp>` and their `_tokens` entries) that the merge leaves unreferenced are dropped; a `_tokens` key you send replaces the band\'s token map whole. Send at least one of props, udc or style; a call with none is refused with `missing_component_update`. Accepts component_id (an authored id prop, or the auto-generated pp-<hex8> — note auto-generated ids do not survive a full update_composition re-apply) or component_index (0-based). component_id takes precedence when both are provided. IT ALSO DECLARES A `style` PARAMETER, WHICH IS NOT FOR STYLING: no component declares a style slot, so the only thing it can do is CLEAR a v1 map off a band written before that component was rebuilt. Such a band refuses every edit — a props-only edit included — until the map is gone, and the refusal tells you so. To clear it, send `style` with every stored KEY set to null (a `__recipe` key is not a slot name and must be included) and `props` as `{}`; or rewrite the band with no `style` key through update_composition, which needs no enumeration.',
-    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. udc is shallow-merged by role into the band\'s stored udc map (a sent role replaces that role; null removes it; unsent roles kept; orphaned engine mints pruned). At least one of props/udc/style is required (missing_component_update). The `style` param shallow-merges into the band\'s stored v1 map, which is only useful for emptying it: every key in it is undeclared now, so any non-null value is refused. Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. An `items` patch on an item-grain component keeps a stored card design only when that card\'s `id` is re-sent or, when the number of entries is unchanged, by position for an entry sent without an `id`; a patch that would leave a stored design with neither is refused with item_design_would_be_lost and nothing is written (#1118). Engine-owned item ids are minted, carried and cleared on the targeted band only (#1119). Target component by component_id or component_index.',
+    'semantics'   => 'Patch. Props are shallow-merged into existing props. Unspecified props unchanged. null removes a prop. udc is shallow-merged by role into the band\'s stored udc map (a sent role replaces that role; null removes it; unsent roles kept; orphaned engine mints pruned; a sent `_scoped` rule list replaces the stored list whole, so send every rule you keep). At least one of props/udc/style is required (missing_component_update). The `style` param shallow-merges into the band\'s stored v1 map, which is only useful for emptying it: every key in it is undeclared now, so any non-null value is refused. Validates the band it targets via pp_validate_composition_band() (#1007) — a stale prop on another band does not block this write and is reported on the accepted envelope\'s findings instead; the cross-item rules (duplicate band/component ids) still run over the whole page and still refuse from any band. An `items` patch on an item-grain component keeps a stored card design only when that card\'s `id` is re-sent or, when the number of entries is unchanged, by position for an entry sent without an `id`; a patch that would leave a stored design with neither is refused with item_design_would_be_lost and nothing is written (#1118). Engine-owned item ids are minted, carried and cleared on the targeted band only (#1119). Target component by component_id or component_index.',
     'params'      => [
         'post_id'          => ['type' => 'int',    'required' => true],
         'component_index'  => ['type' => 'int',    'required' => false],
@@ -6668,7 +6668,7 @@ pp_register_action('update_component', [
         $before_props = $applied['props_before'];
         $after_props  = $applied['props_after'];
 
-        $changes = _pp_diff_props($before_props, $after_props, $index);
+        $changes = _pp_diff_props($before_props, $after_props, $index, (string) ($composition[$index]['component'] ?? ''));
 
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
         $changes = array_merge($changes, _pp_diff_udc($applied['udc_before'], $applied['udc_after'], $index));
@@ -6738,7 +6738,7 @@ pp_register_action('update_component', [
             }
         }
 
-        $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index);
+        $changes = _pp_diff_props($applied['props_before'], $applied['props_after'], $index, (string) ($applied['item']['component'] ?? ''));
         $changes = array_merge($changes, _pp_diff_style($applied['style_before'], $applied['style_after'], $index));
 
         // Item ids are minted, carried and cleared on THIS band only — the band
@@ -7710,6 +7710,14 @@ function _pp_merge_component_props(array $existing, array $new, string $componen
             && is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
             $value = _pp_preserve_item_design($existing[$key], $value, $post_id, $lost);
         }
+        // A CUSTOM BAND'S ISLANDS MERGE BY KEY (LAYER-3-CONTRACT.md §7.2, #1242 T5): a sent
+        // island replaces that island, null removes it, and unsent islands are kept — the D1
+        // rule this function's udc caller applies by role (#1088), applied one level down.
+        // A wholesale replace would silently empty every sibling island on a one-island edit.
+        if ($component === 'custom' && $key === 'islands' && is_array($value)
+            && isset($existing[$key]) && is_array($existing[$key])) {
+            $value = _pp_merge_component_props($existing[$key], $value);
+        }
         $merged[$key] = $value;
     }
     return $merged;
@@ -8260,12 +8268,26 @@ function _pp_diff_style(array $before, array $after, int $index): array {
 /**
  * Computes a prop-level diff for the changes array.
  */
-function _pp_diff_props(array $before, array $after, int $index): array {
+function _pp_diff_props(array $before, array $after, int $index, string $component = ''): array {
     $changes = [];
     $all_keys = array_unique(array_merge(array_keys($before), array_keys($after)));
     foreach ($all_keys as $key) {
         $from = $before[$key] ?? null;
         $to   = $after[$key] ?? null;
+        // A custom band's island is one field (§7.2): an island edit diffs as
+        // props.islands.<name>, never as the whole map.
+        if ($component === 'custom' && $key === 'islands' && is_array($from) && is_array($to)) {
+            foreach (array_unique(array_merge(array_keys($from), array_keys($to))) as $island) {
+                if (($from[$island] ?? null) !== ($to[$island] ?? null)) {
+                    $changes[] = [
+                        'path' => 'composition[' . $index . '].props.islands.' . $island,
+                        'from' => $from[$island] ?? null,
+                        'to'   => $to[$island] ?? null,
+                    ];
+                }
+            }
+            continue;
+        }
         if ($from !== $to) {
             $changes[] = [
                 'path' => 'composition[' . $index . '].props.' . $key,

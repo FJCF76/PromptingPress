@@ -192,8 +192,8 @@ and still gets the near-white routing, because the attribute records that a scri
 not how dark it is.
 
 **ON A v2 COMPONENT THIS WHOLE TRAP IS GONE, and the reason is worth knowing because it
-is the shape of every future sprint.** All TEN v2 components — `hero`, `section`,
-`testimonials`, `cta`, `faq`, `table`, `embed`, `stats`, `logos` and `grid` — have no `theme` prop,
+is the shape of every future sprint.** All ELEVEN v2 components — `hero`, `section`,
+`testimonials`, `cta`, `faq`, `table`, `embed`, `stats`, `logos`, `grid` and `custom` — have no `theme` prop,
 no band class, and no dark-band ROUTING: a band you make dark with `_band`
 `background.fill` (or `background.image` + `overlay`) does not silently recolour its text
 for you, so there is no class-versus-literal conflict to fall into. The trade is that YOU
@@ -299,8 +299,8 @@ it rounds every card and panel too, and no longer reaches the button at all.
 > **NO COMPONENT IS ON THIS SURFACE ANY MORE (#986, #1023, #1026, #1046, #1066, #1101).**
 > Everything in this section describes the v1 per-instance STYLE SLOT cascade, and that
 > cascade governs NOTHING: `grid` was the last component on it and its rebuild at #1101
-> retired the engine itself. All TEN composable components — hero, section, testimonials,
-> cta, faq, table, embed, stats, logos and grid — declare no style slots, and their
+> retired the engine itself. All ELEVEN composable components — hero, section, testimonials,
+> cta, faq, table, embed, stats, logos, grid and custom — declare no style slots, and their
 > buttons and text are ROLES styled through the band's `udc` map. Any `--hero-button-*`, `--hero-button2-*`, `--hero-accent*`,
 > `--section-*` or `--cta-*` name below is HISTORY — writing one is refused with
 > `no_style_slots`. Read
@@ -499,7 +499,7 @@ into CSS variables.
 The entire visual output of the site flows through the design tokens and the apply/action
 model. Editing files directly is unnecessary for a retheme — use `update_design_token` for
 global tokens, `enqueue_font` for fonts, and, for per-band visual overrides, **the band's
-`udc` map** on any of the ten v2 components (one band: `update_component`'s `udc` param, merged
+`udc` map** on any of the eleven v2 components (one band: `update_component`'s `udc` param, merged
 by role; whole bands: `update_composition` / `create_page`). `style_component` is retired:
 no component declares a style slot, so it refuses every component with `no_style_slots`.
 
@@ -510,10 +510,11 @@ are theme-internal properties declared outside the token registry, so
 surface, and changing one is a band-at-a-time job. **Set it in the band's `udc` map;
 there is no slot answer any more:**
 
-- **The ten v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
-  logos, grid) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
+- **The eleven v2 components** (hero, section, testimonials, cta, faq, table, embed, stats,
+  logos, grid, custom) — set it in the band's `udc` map. Vertical rhythm is the `_band` role's
   `spacing.padding-top` / `padding-bottom`; heading size is the `heading` role's
-  `typography.size`. Both accept a literal or a REGISTERED design token (`@space-2xl`
+  `typography.size` (a custom band has no heading role: its headings are its own markup,
+  sized through its scoped sheet). Both accept a literal or a REGISTERED design token (`@space-2xl`
   verified accepted). They do **not** accept `@pp-band-padding` or
   `@pp-band-heading-size` — the same registry gap that makes `update_design_token` reject
   them makes an authored reference to them `invalid_prop_value`. Those two names are
