@@ -2173,4 +2173,13 @@ class AiContextTest extends TestCase
         }
         return implode("\n", $out);
     }
+
+    /** The per-card delete routes the item-design refusal names reach the model too (#1118). */
+    public function testThePerCardDeleteRoutesReachThePrompt(): void
+    {
+        $prompt = pp_ai_system_prompt();
+        $this->assertStringContainsString('set its `udc` to `{}` one turn, remove it the next', $prompt);
+        $this->assertStringContainsString('update_composition re-sending every kept card', $prompt);
+        $this->assertStringContainsString('else ids shift and can lock the band', $prompt);
+    }
 }
