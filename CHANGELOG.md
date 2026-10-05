@@ -4,6 +4,24 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## Unreleased — Sprint 6
+
+### Fixed
+
+- **Chat: page context honours per-page permissions.** The AI chat places a page in its context
+  only for a user who can edit that page, on both the streaming and the non-streaming path. For
+  any other page the request gets the chat's usual permission refusal, before anything else is
+  checked, and the chat shows that refusal instead of retrying in compatibility mode. Nothing
+  changes for an editor or administrator working on pages they can edit.
+
+### Tests
+
+- `ChatPageContextPermissionTest` pins the per-page check at the context reader, the
+  non-streaming handler and the stream entry point, and that the refusal matches the existing
+  one. The test bootstrap's capability stub accepts a per-object grant.
+  `pp-ai-chat-stream-refusal.test.js` pins that a refused stream request is shown and not
+  retried through the non-streaming endpoint, while a server error still falls back.
+
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
 **TL;DR: what a visitor sees now matches what you set, and a "latest posts" homepage view writes nothing.** A password on a
