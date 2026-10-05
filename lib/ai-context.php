@@ -110,8 +110,8 @@ function pp_ai_system_prompt(): string {
     }
     $parts[] = '';
 
-    // Page inventory
-    $pages = pp_composition_pages();
+    // Page inventory: the pages this user can work on (pp_ai_editable_pages()).
+    $pages = pp_ai_editable_pages(pp_composition_pages());
     if ($pages) {
         $parts[] = '## Pages';
         foreach ($pages as $page) {
@@ -119,12 +119,23 @@ function pp_ai_system_prompt(): string {
         }
         $parts[] = 'To change a page\'s URL, use the update_page_slug action (post_id + slug) — never guess or construct a URL, and never propose a slug change without confirming the current URL above first.';
     } else {
+        // "No pages exist yet." only when it is true AND the user may already know it: the
+        // unfiltered list is empty and the user can open the Pages screen (edit_pages) and see
+        // private pages there (read_private_pages), the two capabilities under which core lists
+        // every page title to them (administrators and editors). Everyone else is told the list
+        // is empty for them, which is true whether or not other pages exist, so the line says
+        // nothing about pages this user cannot see. It is no longer than the first sentence, so
+        // the budget pin's empty-site figure covers both.
         $parts[] = '## Pages';
-        $parts[] = 'No pages exist yet.';
+        $parts[] = current_user_can('edit_pages') && current_user_can('read_private_pages') && pp_composition_pages() === []
+            ? 'No pages exist yet.'
+            : 'None you can edit.';
     }
     // THE POSTS PAGE AS A COMPOSITION (#1181). Stated once, outside the page list, so it
-    // reaches the model on every site (the list only prints when pages exist, and marks the
-    // posts page when there is one). The catalog line already carries
+    // reaches the model on every site (the list only prints when this user has pages they can
+    // edit, and marks the posts page only when it is one of them, so for a user who cannot edit
+    // the posts page "none marked" reads as "none set": accepted, the sentence is shared by
+    // every user and the prompt budget has no room for the longer wording). The catalog line already carries
     // `items_source?: "posts"`; this is the part the enum cannot say.
     $parts[] = 'POSTS PAGE: the page marked "posts page" above (set in Settings -> Reading; none marked, none set) renders its own composition when it has one. Its post listing is a grid band with `"items_source": "posts"` and `"items": []`, accepted only there (one per page, no per-card udc).';
     $parts[] = '';
@@ -902,17 +913,26 @@ function pp_ai_format_params(array $params): string {
  * the row and fails closed with no handle, because it decides whether a write may proceed.
  * A cached classification that has gone stale mid-request describes the page one moment out
  * of date, which is the honest cost of a context block; a GATE resting on one is the
- * vulnerability #833 recorded. Nothing here gates anything, so the staleness is disclosed
+ * vulnerability #833 recorded. Nothing here gates a write (the one check this reader makes
+ * is the per-page permission below, which reads no composition), so the staleness is disclosed
  * and accepted rather than paid for with a per-request query.
  *
  * @param int $post_id  WordPress post ID.
- * @return array  [] when the post does not exist — the caller's `if ($page_ctx)` guard is
- *                what that shape is for, and `composition_error` is absent from it, not
+ * @return array  [] when the post does not exist or the current user may not edit it
+ *                (pp_ai_page_context_permitted(); the two look the same on purpose) —
+ *                the caller's `if ($page_ctx)` guard is what that shape is for, and
+ *                `composition_error` is absent from it, not
  *                null. Otherwise ['id' => int, 'title' => string, 'status' => string,
  *                'composition' => array, 'composition_error' => ?string,
  *                'composition_version' => int].
  */
 function pp_ai_page_context(int $post_id): array {
+    // Per-page permission (see pp_ai_page_context_permitted()). The chat entry points refuse
+    // first; this keeps the reader itself from handing a page to a caller that skipped them.
+    // Answers exactly like a missing page.
+    if (!pp_ai_page_context_permitted($post_id)) {
+        return [];
+    }
     $post = get_post($post_id);
     if (!$post) {
         return [];
@@ -928,6 +948,64 @@ function pp_ai_page_context(int $post_id): array {
         'composition_error'   => $stored['error'],
         'composition_version' => pp_get_composition_marker($post_id)['version'],
     ];
+}
+
+/**
+ * Whether the current user may have this page's composition placed in the chat context.
+ *
+ * The chat surface is an editing surface: what the model reads, it proposes changes to, and
+ * every page-scoped chat action already requires `edit_post` on its target
+ * (_pp_required_caps_for(), lib/ai-chat.php). The context read uses the same bar, so the
+ * assistant never sees a page its user could not open in the editor. `edit_post` rather than
+ * `read_post`: core maps `read_post` on a published page to plain `read` without consulting
+ * a post password, so it would not honour a protected page.
+ *
+ * No page in scope (null or 0) is permitted: there is nothing page-specific to load. A page
+ * id that does not exist is refused exactly like one the user may not edit (core maps both to
+ * `do_not_allow`), so this check's answer does not say whether a page exists.
+ *
+ * One owner for ai-stream.php, the non-streaming fallback, pp_ai_page_context() itself and
+ * pp_ai_editable_pages(), which applies it to every page list the chat shows or gives the model.
+ * Lives here, not in lib/ai-chat.php, because ai-stream.php runs outside wp-admin, where
+ * lib/ai-chat.php is not loaded.
+ *
+ * @param int|null $page_id  The page the chat request names, already cast to int.
+ * @return bool
+ */
+function pp_ai_page_context_permitted(?int $page_id): bool {
+    if (!$page_id) {
+        return true;
+    }
+    return current_user_can('edit_post', $page_id);
+}
+
+/**
+ * The pages from a page list that the current user can work on in the chat.
+ *
+ * Every page list the chat shows or tells the model about goes through here: the system
+ * prompt's page inventory, the page dropdown (server-rendered and the copy handed to the
+ * script) and pp_ai_site_context(). A page is kept when pp_ai_page_context_permitted()
+ * admits it, the same check every chat turn makes on the page it names, so a listed page
+ * is always one the chat will accept. With the stock roles, an administrator or editor
+ * keeps every page, and an author or contributor (no page capabilities) keeps none.
+ *
+ * A row without a positive id is dropped: the permission check answers "permitted" for
+ * "no page", which is right for a turn with no page in scope and wrong for a list entry.
+ *
+ * @param  array<int, array{id: int, title: string, status: string, url: string}> $pages
+ *         Usually pp_composition_pages().
+ * @return array<int, array{id: int, title: string, status: string, url: string}>
+ *         The kept rows, in their original order, re-indexed from 0.
+ */
+function pp_ai_editable_pages(array $pages): array {
+    $kept = [];
+    foreach ($pages as $page) {
+        $id = (int) ($page['id'] ?? 0);
+        if ($id > 0 && pp_ai_page_context_permitted($id)) {
+            $kept[] = $page;
+        }
+    }
+    return $kept;
 }
 
 // ── Media Inventory ────────────────────────────────────────────────────────
@@ -989,7 +1067,7 @@ function pp_ai_site_context(): array {
             'description' => pp_site_description(),
             'url'         => pp_site_url(),
         ],
-        'pages'      => pp_composition_pages(),
+        'pages'      => pp_ai_editable_pages(pp_composition_pages()),
         'menus'      => pp_get_menus(),
         'components' => array_keys(pp_composable_components()),
         'actions'    => array_keys(pp_get_registered_actions()),

@@ -9,7 +9,9 @@
  * Response: text/event-stream with data: {json}\n\n chunks
  * Final: data: [DONE]\n\n
  *
- * Auth: WordPress cookie + nonce pp_ai_stream + edit_posts capability.
+ * Auth: WordPress cookie + nonce pp_ai_stream + edit_posts capability, plus edit_post on
+ *       the page_id when one is given. Each refusal is a 403 marked `X-PP-Refusal: 1`,
+ *       so the chat client can tell it from a 403 sent by a proxy in front of WordPress.
  */
 
 // ── Bootstrap WordPress ────────────────────────────────────────────────────
@@ -46,6 +48,7 @@ if (!is_array($input)) {
 $nonce = $input['nonce'] ?? '';
 if (!wp_verify_nonce($nonce, 'pp_ai_stream')) {
     http_response_code(403);
+    header('X-PP-Refusal: 1');
     echo 'Invalid nonce.';
     exit;
 }
@@ -53,6 +56,19 @@ if (!wp_verify_nonce($nonce, 'pp_ai_stream')) {
 // Check capability
 if (!current_user_can('edit_posts')) {
     http_response_code(403);
+    header('X-PP-Refusal: 1');
+    echo 'Insufficient permissions.';
+    exit;
+}
+
+// Per-page permission: the page this turn names goes into the model context, so the user
+// must be able to edit it (pp_ai_page_context_permitted(), lib/ai-context.php). Checked
+// before anything else is read or assembled, with the same refusal as the check above; a
+// page that does not exist gets the same answer.
+$page_id = isset($input['page_id']) ? (int) $input['page_id'] : null;
+if (!pp_ai_page_context_permitted($page_id)) {
+    http_response_code(403);
+    header('X-PP-Refusal: 1');
     echo 'Insufficient permissions.';
     exit;
 }
@@ -67,7 +83,6 @@ if (!pp_ai_is_configured()) {
 // ── Extract Parameters ─────────────────────────────────────────────────────
 
 $conversation = $input['messages'] ?? [];
-$page_id      = isset($input['page_id']) ? (int) $input['page_id'] : null;
 
 if (empty($conversation)) {
     http_response_code(400);
@@ -101,7 +116,8 @@ $messages = pp_ai_format_messages($system_prompt, $conversation, $page_id);
 // model reads is assembled, so the browser can store it as the conversation's per-page
 // baseline and thread it back on write. Captured here — not at execute time — so the CAS
 // covers the whole gap between the model reading the page and the user applying, which is
-// where lost updates happen. Only when a page is in scope and still exists.
+// where lost updates happen. Only when a page is in scope and still exists (a page the user
+// may not edit was refused above, before anything was read).
 $page_baseline = null;
 if ($page_id && get_post($page_id)) {
     $page_baseline = [

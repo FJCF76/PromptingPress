@@ -414,6 +414,19 @@ if (!function_exists('esc_attr')) {
     }
 }
 
+// Translation: no locale is loaded here, so core returns the text unchanged.
+if (!function_exists('__')) {
+    function __($text, $domain = 'default'): string {
+        return (string) $text;
+    }
+}
+
+if (!function_exists('esc_html__')) {
+    function esc_html__($text, $domain = 'default'): string {
+        return esc_html(__($text, $domain));
+    }
+}
+
 if (!function_exists('esc_url')) {
     function esc_url($url): string {
         // The early return mirrors core's shape (core returns $url untouched before
@@ -1064,11 +1077,16 @@ if (!function_exists('current_user_can')) {
     // Unset (the default) or a capability absent from the map both mean
     // "can do everything" — the historical always-true behavior every other
     // test in this suite relies on. Clear the global in tearDown() for isolation.
+    //
+    // A map value may also be a Closure, called with the object arguments
+    // (current_user_can('edit_post', $id) -> $fn($id)), for per-object checks
+    // such as "may edit page 40 but not page 41".
     function current_user_can(string $capability, ...$args): bool {
         if (!isset($GLOBALS['_pp_test_user_caps'])) {
             return true;
         }
-        return $GLOBALS['_pp_test_user_caps'][$capability] ?? true;
+        $grant = $GLOBALS['_pp_test_user_caps'][$capability] ?? true;
+        return $grant instanceof Closure ? (bool) $grant(...$args) : $grant;
     }
 }
 

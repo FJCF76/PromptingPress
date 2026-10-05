@@ -74,8 +74,66 @@ All notable changes to PromptingPress are documented here.
   are the next Layer-3 task (T3b). The AI-facing instructions still describe the render
   contracts; deriving them from the new tables is the Layer-3 AI-surface work (T-16).
 
+### Fixed
+
+- **Editor: the live preview renders content in an isolated origin.** The composition editor's
+  preview frame now shares no origin with the admin screen (LAYER-3-CONTRACT §8.3), and the
+  preview document carries its own content policy: script in it cannot use the request APIs or
+  submit forms. Each refresh rebuilds the whole preview, so a style change now shows on the next
+  refresh instead of after a reload, and the preview reopens where you were scrolled. Preview
+  limitations, none of which affect the published page: every image in the preview loads on each
+  refresh; a self-hosted webfont shows in the preview only if its font files are served with an
+  `Access-Control-Allow-Origin` header; and if the admin screen sends a Content-Security-Policy
+  that forbids inline script, the preview opens at the top on each refresh.
+
+- **Chat: page context honours per-page permissions.** The AI chat places a page in its context
+  only for a user who can edit that page, on both the streaming and the non-streaming path. For
+  any other page the request gets the chat's usual permission refusal, right after the chat's
+  own permission check and before any provider, message or page work, and the chat shows that refusal instead of retrying in compatibility mode. Nothing
+  changes for an editor or administrator working on pages they can edit.
+
+- **Chat: the page list shows the pages you can work on.** The chat's page selector and the
+  page list the AI is given now hold only the pages the signed-in user can edit, the same check
+  each chat turn already makes on the page it names. With none, the selector reads WordPress's
+  own "No pages found." and sending says so instead of asking for a selection, and the AI is
+  told "None you can edit." ("No pages exist yet." stays for a user who sees every page, on a
+  site with none). Reading a page's current version answers a page that does not exist the same
+  way as one the user may not edit. Administrators and editors still see every page they can edit
+  in WordPress (for an editor that leaves out the privacy policy page, which WordPress reserves
+  for administrators).
+
+### Docs
+
+- `AI_CONTEXT.md` describes the isolated preview and its limitations; the Layer-3 contract marks
+  the §8.3 precondition as met.
+- The Layer-3 content contract (`docs/v2/LAYER-3-CONTRACT.md`) is ratified, and the document now
+  says so: each of its 27 owner decisions carries its ruling, and the sections those decisions
+  change state what was decided. Everything the contract admits in content is scheduled for
+  2.1.0; each piece left for later names the contract that will carry it. The build specification's
+  Layer-3 note records the ratification.
+
 ### Tests
 
+- `PreviewFrameIsolationTest` pins the preview frame's sandbox (exactly `allow-scripts`) and the
+  preview document's content policy (exact directives, first in the head).
+  `pp-editor-preview-isolation.test.js` pins the scroll-message schema, the sender check, the
+  scroll bridge's run-time behaviour and that only the latest preview request paints.
+  `preview-isolation.spec.ts` checks in a real browser that the preview's origin is opaque, that a
+  connection from inside it is refused, that an edit rebuilds it with current styles, and that the
+  scroll position survives refreshes, including with lazy unsized images and after a jump to the
+  end of the page.
+- `ChatPageContextPermissionTest` pins the per-page check at the context reader, the
+  non-streaming handler and the stream entry point, and that the refusal matches the existing
+  one. The test bootstrap's capability stub accepts a per-object grant.
+  `pp-ai-chat-stream-refusal.test.js` pins that a refused stream request is shown and not
+  retried through the non-streaming endpoint, while a server error still falls back.
+- `ChatPageListPermissionTest` pins the filtered list, the prompt's page inventory for a user
+  with some, all and no editable pages (each in its own process, because the page list is
+  memoised per process), the empty-list wording rule, the prompt byte budget for a filtered list,
+  the selector markup (escaped, and its empty state), that every page-list read in the chat and
+  the AI context goes through the filter, and the version read's single answer for missing and
+  forbidden pages. `pp-ai-chat-page-list-empty.test.js` pins the empty-list message. The test
+  bootstrap gains `__()` / `esc_html__()` stubs.
 - `ContentPredicateTest` pins every admission row in both directions and every exclusion by its
   contract test shape that applies at write, plus T-18 open-set rows, a render-view fixed point
   and a 64 KiB write-time budget (T-17). `ContentWriteGateTest` runs the gate through the real
