@@ -7017,6 +7017,13 @@ function pp_generate_item_id(): string {
  *                                         lock, after the CAS and before any write. Receives
  *                                         the authoritative in-lock history ring (array).
  *                                         Returns true to proceed or a WP_Error to refuse.
+ * @param int[]|null    $item_id_scope     The composition indexes whose ITEM ids this write may
+ *                                         mint, carry or clear (#1119) — the bands the calling
+ *                                         action validated. Null (the default) is every band,
+ *                                         for whole-composition writes and replays.
+ * @param int[]         $new_band_indexes  Composition indexes holding a band this write CREATES
+ *                                         (add_component): it has no stored counterpart, so its
+ *                                         items never inherit the item ids stored at that index.
  * @return true|WP_Error  true on write; WP_Error('composition_not_encodable') when the
  *                        composition cannot be represented as JSON (#941) — refused before
  *                        the lock is taken, so nothing is read or written and the page keeps
@@ -7024,7 +7031,7 @@ function pp_generate_item_id(): string {
  *                        version mismatch; the precondition's own WP_Error when it refuses;
  *                        WP_Error('composition_lock_failed') on lock-acquire failure.
  */
-function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null, ?callable $in_lock_precondition = null) {
+function pp_update_composition(int $post_id, array $composition, ?int $expected_version = null, ?callable $in_lock_precondition = null, ?array $item_id_scope = null, array $new_band_indexes = []) {
     // Hash the canonical PRE-stable-id form, before the id-injection loop below mutates
     // the array. (pp_composition_content_hash also strips ids defensively, so the two are
     // belt-and-suspenders — the hash is stable across the id round-trip either way.)
@@ -7087,7 +7094,15 @@ function pp_update_composition(int $post_id, array $composition, ?int $expected_
     // predict — false and null auto-vivify and fabricate a band, everything else
     // throws. The band-id pass tests for an array instead.
     $stored_for_carry = pp_get_composition($post_id);
-    $composition = pp_udc_assign_band_ids($composition, is_array($stored_for_carry) ? $stored_for_carry : []);
+    // The ITEM-id half is confined to the bands the caller validated (#1119): a
+    // band-scoped action passes its own index list, so a band it never judged keeps its
+    // stored item ids byte for byte.
+    $composition = pp_udc_assign_band_ids(
+        $composition,
+        is_array($stored_for_carry) ? $stored_for_carry : [],
+        $item_id_scope,
+        $new_band_indexes
+    );
 
     // Responsive values are lifted into band-local tokens at the moment they are
     // stored (§3.1). The author's literal is what the envelope reports and the

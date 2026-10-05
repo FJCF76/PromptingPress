@@ -54,6 +54,69 @@ stray composition on a post can be removed with `wp post meta delete <id> _pp_co
   password cookie.
 - `tests/bootstrap.php`: the `get_the_ID()` stub reads the global post, as core does.
 
+## A grid `items` patch never drops a stored card design; item ids stay on the band a write touched (#1118, #1119)
+
+**Editing a grid's cards can no longer silently erase another card's design.** An `update_component`
+patch that sends the `items` array keeps each stored card design in one of two ways: the card's `id` is
+re-sent, or, when the number of cards is unchanged, the design is carried by position onto an entry sent
+without an `id`. A patch that would leave a stored design with neither is now refused with
+`item_design_would_be_lost`, names the cards, and writes nothing. It used to be accepted with
+`ok: true` and `findings: []` and drop every unclaimed design and minted id, including the designs of the
+cards the author kept.
+
+**Behaviour change: three patches that used to succeed are now refused.**
+
+1. A patch that changes the number of cards (adds or removes one) without re-sending the `id` of every
+   styled card it keeps.
+2. A same-length patch that names one card by `id` at a position where a different styled card sat.
+3. A same-length patch that sends an `id` this band never stored at a styled card's position.
+
+**The route:** re-send the `id` of every styled card you keep (read them with
+`wp post meta get <post_id> _pp_composition`). To delete a styled card, first send `"udc": {}` on it in a
+patch that keeps the same number of cards, then remove it. Those are two separate writes (two chat
+turns), or one `update_composition` that rewrites the band and re-sends the `id` of every styled card
+you keep. Switching a styled grid to the posts listing (`items_source: "posts"`, `items: []`) follows
+the same route: clear the designs first.
+
+**An edit to one band no longer rewrites item ids on another.** `update_component` validates only the band
+it targets (#1007), but the engine re-minted malformed item ids and deleted map-less ones on every band of
+the page. Item ids are now minted, carried and cleared only on the band the write validated:
+`update_component` its band, `add_component` the band it inserts, `remove_component` and
+`reorder_components` none. A malformed stored id elsewhere stays as stored and is reported in the
+findings. Item ids also never carry from a band an insert or a reorder moved (when its band id is
+re-sent) or onto a band `add_component` creates.
+
+### Fixed
+- `update_component` refuses an `items` patch that would lose a stored card design or minted id, with
+  `item_design_would_be_lost`, in validate, preview and execute; the message names each card (position,
+  title, id) and the routes (#1118).
+- Item ids change only on the band a write validated; `add_component` no longer gives the band it
+  inserts the item ids of the band it displaced (#1119).
+- The `udc_item_design_carried_by_position` disclosure names `wp post meta get`, which returns the ids,
+  instead of `wp pp operate inspect`, which does not.
+
+### Known limits
+- Item ids still carry from a band the write deleted at the same index, from a stored band with no id,
+  and in an `update_composition` that sends no band ids. Re-send band ids on a whole-band rewrite. The
+  designed fix is #1234.
+- `update_composition` and `restore_composition` stay declarative: what they are sent is what is stored,
+  with no item-design check.
+- A chat proposal previews every step against the page as it is now, so clear-then-remove has to be two
+  turns (#1232).
+
+### Docs
+- `lib/ai-context.php`, `AI_CONTEXT.md`, `ai-instructions/composition.md`, `components/grid/README.md`,
+  `docs/howto-migrate-a-grid-band-to-v2.md` and `docs/explanation-validation-scope.md` describe the refusal,
+  the routes and the item-id scope.
+
+### Tests
+- `tests/ItemsPatchIntegrityTest.php` (new): the refusals and their routes through the real action
+  surface, validate/preview/execute parity, the message's raw-meta shapes, the cross-band and band-level
+  item-id scope, rename safety, and the known gaps pinned as shipped.
+- `tests/GridItemUdcTest.php`: the delete-without-ids case is now the refusal; the orphan-mint carve-out
+  keeps a pin through an `update_composition` rewrite.
+- `tests/AiContextTest.php`: the per-card delete routes reach the system prompt.
+
 ## Composed pages: honour post passwords (#1219)
 
 **A composed page with a post password asks for it, the way WordPress content does.** A page on the

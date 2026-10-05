@@ -540,9 +540,9 @@ class GridItemUdcTest extends TestCase
      *
      * ID WINS, THEN POSITION — which is what "preserve by index" had to mean once ids
      * existed to win. The same-length no-id case is D6's red-proofed one and is
-     * byte-identical; a LENGTH CHANGE drops rather than migrates, because position
-     * demonstrably lies once an entry was added or removed and a design that vanishes is
-     * visible where one on the wrong card looks deliberate.
+     * byte-identical; a LENGTH CHANGE never migrates, because position demonstrably lies
+     * once an entry was added or removed and a design on the wrong card looks deliberate.
+     * Nor does it drop (#1118): an unclaimed stored design refuses the write by name.
      */
     public function testReorderAndDeleteCarryTheDesignWithTheCardWhenIdsAreSent(): void
     {
@@ -591,18 +591,19 @@ class GridItemUdcTest extends TestCase
             $titles(pp_get_composition($post_id)[0]['props']['items'])
         );
 
-        // 3. DELETE WITHOUT IDS — drops rather than migrating. This is the behaviour
-        //    change: it used to put card 02's design on card 03.
+        // 3. DELETE WITHOUT IDS — neither migrates nor drops (#1118). It used to put card
+        //    02's design on card 03; then it dropped it with `ok: true, findings: []`, the
+        //    design of a card the author KEPT. Now it is refused by name and nothing is
+        //    written (the full pin set is tests/ItemsPatchIntegrityTest.php).
         [$post_id] = $seed();
-        $this->assertTrue($patch($post_id, [
+        $before = pp_get_composition($post_id);
+        $refused = $patch($post_id, [
             ['title' => '02', 'text' => 'two'],
             ['title' => '03', 'text' => 'three'],
-        ])['ok']);
-        $this->assertSame(
-            ['02', '03'],
-            $titles(pp_get_composition($post_id)[0]['props']['items']),
-            'a length change must not hand one card\'s design to another'
-        );
+        ]);
+        $this->assertFalse($refused['ok'], 'a length change must neither move nor drop a kept card\'s design');
+        $this->assertSame('item_design_would_be_lost', $refused['error_code']);
+        $this->assertSame($before, pp_get_composition($post_id));
 
         // 4. SAME LENGTH, NO IDS — D6's red-proofed case, unchanged.
         [$post_id] = $seed();
@@ -1750,6 +1751,12 @@ class GridItemUdcTest extends TestCase
      * and collision is the only thing that gate's own message claims to prevent. And
      * `pp_udc_normalize_band()` reaps orphans on the next write, so they do not
      * accumulate. The carve-out is what lets that write happen at all.
+     *
+     * SINCE #1118 `update_component` deletes a styled card as clear-then-remove, so the
+     * clear write already reaps the mint and the removal meets no leftover token. The
+     * carve-out keeps its positive pin through the third route below: `update_composition`
+     * rewriting the band without the card while re-sending the stored `_tokens` — the
+     * write that still meets the orphaned mint and must not be refused over it.
      */
     public function testACardCarryingAResponsiveValueCanBeDeletedAndCleared(): void
     {
@@ -1768,8 +1775,24 @@ class GridItemUdcTest extends TestCase
             $tokens = pp_get_composition($post_id)[0]['udc']['_tokens'] ?? [];
             $this->assertNotSame([], $tokens, 'the responsive value must have minted, or this proves nothing');
 
-            // DELETE re-sends the array without the card; CLEAR re-sends it with an
-            // explicit empty map, which is the route the merge's docblock promises.
+            // CLEAR re-sends the array with an explicit empty map, which is the route the
+            // merge's docblock promises. DELETE is that clear followed by the removal: a
+            // length change that drops a stored design without its id being re-sent is
+            // refused by name since #1118, so a styled card is deleted on purpose — its
+            // design cleared explicitly — never as a side effect.
+            if ($cleared_map === null) {
+                $refused = pp_execute_action('update_component', [
+                    'post_id'         => $post_id,
+                    'component_index' => 0,
+                    'props'           => ['items' => [['title' => '01']]],
+                ]);
+                $this->assertSame('item_design_would_be_lost', $refused['error_code'] ?? null);
+                $this->assertTrue(pp_execute_action('update_component', [
+                    'post_id'         => $post_id,
+                    'component_index' => 0,
+                    'props'           => ['items' => [['title' => '01'], ['title' => '02', 'udc' => []]]],
+                ])['ok']);
+            }
             $items = $cleared_map === null
                 ? [['title' => '01']]
                 : [['title' => '01'], ['title' => '02', 'udc' => $cleared_map]];
@@ -1794,6 +1817,24 @@ class GridItemUdcTest extends TestCase
                 "the orphaned mint must be reaped on the next write (`{$route}`)"
             );
         }
+
+        // REWRITE: the whole band re-sent without the styled card, carrying the stored band
+        // map (its `_tokens` included, as a read-modify-write does). The orphaned mint is in
+        // that map and nothing names it any more.
+        $post_id = $this->newPage('orphan mint rewrite');
+        $this->assertTrue($this->write($post_id, [[
+            'component' => 'grid',
+            'props'     => ['title' => 'T', 'items' => [
+                ['title' => '01'],
+                ['title' => '02', 'udc' => $responsive],
+            ]],
+        ]])['ok']);
+        $band = pp_get_composition($post_id)[0];
+        $this->assertNotSame([], $band['udc']['_tokens'] ?? [], 'the responsive value must have minted');
+        $band['props']['items'] = [['title' => '01']];
+        $result = $this->write($post_id, [$band]);
+        $this->assertTrue($result['ok'], 'a rewrite carrying the orphaned mint must not be refused over it: ' . ($result['error'] ?? ''));
+        $this->assertSame([], pp_get_composition($post_id)[0]['udc']['_tokens'] ?? [], 'and the orphan is reaped');
     }
 
     /**
