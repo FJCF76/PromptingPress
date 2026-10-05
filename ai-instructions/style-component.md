@@ -33,8 +33,9 @@ any, its `defaults` (what it renders with nothing authored, per breakpoint and s
 `defaults` in a report" below) and its `obligations`. When the role declares them it also gives `overlay_defaults` (the ink the role
 re-lights to on a band that paints a scrim over an image), `within` (the roles that enclose it,
 limited to this component's roles) and `text_content: true` (its own element renders text, so the
-own-surface finding can name it). The report also carries `udc_groups` (the whole vocabulary, derived from the engine) and
-`udc_raw_css` (the escape hatch, described below).
+own-surface finding can name it). The report also carries `udc_groups` (the whole vocabulary, derived from the engine),
+`udc_raw_css` (the escape hatch, described below) and, on a band component, `udc_scoped` (the
+selector rules, described below).
 
 **This file deliberately does not list any component's roles.** A roster copied into a document
 goes stale at the next rebuild; the report is generated from the schema every time you ask. If you
@@ -340,9 +341,15 @@ item, a `::before`), write rules in the band's `"_scoped"` list, at the top of i
 - **The `css` map** is `_css`'s grammar with these differences: no `":hover"` keys (states go in
   the selector); your own custom properties (`--brandColor`, case-sensitive) are allowed, but not
   `--pp-*` or a site token name, never with a string value, and never on a rule that starts with
-  `:`; `content` takes only `""`, `none` or `normal`; `counter-*` take counter names only; only
-  known CSS functions, and `url()` only as `url(#id)` on `filter`, `clip-path`, `mask`, `marker`,
-  `fill` or `stroke`. A background image is `"background-image": <attachment id>`, as on a role.
+  `:`; `content` takes only `""`, `none` or `normal`; `counter-*` take counter names only, each
+  once; on a rule that starts with `:`, `display` takes a fixed keyword set (no `list-item`, no
+  `inherit`-style keyword, no `var()`); the properties that print a string as text (`quotes`,
+  `list-style`, `list-style-type`, `text-emphasis`, `text-emphasis-style`, `hyphenate-character`,
+  `text-overflow`, `block-ellipsis`, `line-clamp`) take keywords only, never a quoted string,
+  `var()` or `inherit`/`initial`/`unset`/`revert`; only known CSS functions, and `url()` only as
+  `url(#id)` on `filter`, `clip-path`, `mask`, `marker`, `fill` or `stroke`. A background image is
+  `"background-image": <attachment id>`, as on a role, written as a number (`42`): a `"@token"`
+  reference is refused there.
 - **Conditions:** `"media"` takes non-width features (`(prefers-color-scheme: dark)`, `print`);
   widths stay breakpoint maps (`{"d": …, "p": …}`). `"supports"` and `"container"` take their own
   conditions. No other at-rule, `@keyframes` included.

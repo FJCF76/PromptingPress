@@ -9,8 +9,8 @@ All notable changes to PromptingPress are documented here.
 ### Added
 
 - **Layer 3B: a scoped style sheet on every band (#1242 T4).** A band's `udc` map now takes
-  `_scoped`, beside `_tokens`: a list of rules, each `{selector, css}` with an optional `media` or
-  `container` condition, that style the band and anything inside it with ordinary CSS selectors.
+  `_scoped`, beside `_tokens`: a list of rules, each `{selector, css}` with an optional `media`,
+  `supports` or `container` condition, that style the band and anything inside it with ordinary CSS selectors.
   Each rule is emitted as `[data-pp-band="<id>"] <selector>` (or `[data-pp-band="<id>"]:hover` when
   the selector starts with a pseudo-class), so it can reach only its own band: a selector that
   could match outside the band (a sibling combinator at the root, a `:has()` that looks outward)
@@ -19,7 +19,8 @@ All notable changes to PromptingPress are documented here.
   and pseudo-elements a selector may use are pinned lists, and an embed band refuses attribute
   selectors. Declarations take the same grammar as a band's `_css`, plus your own custom
   properties (no strings in them, never `--pp-*` or a site token name), `content` limited to
-  `""`, `none` and `normal`, `@media` and `@container` conditions from a pinned feature list,
+  `""`, `none` and `normal`, `@media` and `@container` conditions from a pinned feature list and
+  `@supports` tests whose value passes the same checks,
   `url(#id)` only on `filter`, `clip-path`, `mask`, `marker`, `fill` and `stroke`, and a
   background image only as a media-library attachment id written as a number (a token
   reference such as `"@img"` is refused). CSS functions come from the same
@@ -241,7 +242,9 @@ All notable changes to PromptingPress are documented here.
   functions, and `ai-instructions/add-component.md` states the role-default value limits.
 - The scoped sheet is documented where authors look: `ai-instructions/style-component.md` has a
   `_scoped` section (shape, selectors, what a declaration may hold, bounds),
-  `ai-instructions/website-building.md`, `AI_RULES.md`, `AI_CONTEXT.md` and `README.md` name it,
+  `ai-instructions/website-building.md`, `ai-instructions/composition.md`,
+  `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md` (the `udc_scoped` field of
+  `wp pp schema`), `AI_RULES.md`, `AI_CONTEXT.md` and `README.md` name it,
   and the Layer-3 contract's §6 records every T4 ruling, the counter deviation bound to #1254 and
   the named divergences.
 
