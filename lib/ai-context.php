@@ -87,16 +87,32 @@
  * up to 12 per escaped P-15 code point. Measured, not estimated, on this branch over
  * fc815d4: 92711 -> 92970 (+259 bytes).
  *
- * RAISED 92970 → 93386 (#1242 T5, Layer 3C; orchestrator ruling Q1 = A, 2026-10-05). The
+ * RAISED 92970 → 94988 (#1242 T4, Layer 3B, merged second after T2 and T3a). The scoped sheet (`udc._scoped`) is a ratified
+ * admission (P-3, LAYER-3-CONTRACT §6), and an accepted capability the chat model is not
+ * taught is an incomplete implementation: one `SELECTOR RULES` paragraph after `_css`, stating
+ * where a selector matches, what is refused and how the `css` map differs from `_css`
+ * (+1847 bytes), plus the `_scoped` item-grain refusal reason the catalog lists (+7 bytes).
+ * Measured, not estimated, over main fc815d4: 92713 -> 94567. Then +95 bytes for the limits
+ * the #1242 T4 rulings added (counter values take names only; 64 declarations per rule and
+ * 64 KiB per band): 94567 -> 94662. Then +31 for the Q5/Q6 rulings (no quote keywords; a
+ * fragment url() only on element-referencing properties): 94662 -> 94693; +19 for the cycle-5
+ * ruling (no quoted strings in author custom properties): 94693 -> 94712; -16 for the final
+ * ruling (no counters in `content` yet): 94712 -> 94696; +33 for the last ruling (no custom
+ * property on a rule starting with `:`): 94696 -> 94729 on fc815d4. RECONCILED on the merge
+ * over main 8568fb4 (T2 and T3a landed first, at 92970): measured 94988 on the merged tree,
+ * the T4 paragraph's +2018 bytes over main's figure.
+ *
+ * RAISED 94988 → 95404 (#1242 T5, Layer 3C; orchestrator ruling Q1 = A, 2026-10-05). The
  * custom band is a new composable component, so the schema-derived catalog grows by its
  * line and its `_band` roles line (~200 bytes); a one-line `CUSTOM:` hint says what an island
  * is, because the catalog line alone says only `markup: string, islands?: object` and an
  * assistant that learns islands from refusals is the opposite of this surface's purpose
  * (~190); and the focal-point v2 roster names `custom` (~26). Measured, not estimated, on
- * this branch over 8568fb4: 92970 -> 93386 (+416 bytes). T4 raises the same constant in
- * parallel: whichever of the two lands second re-measures on merged main.
+ * T5's branch over 8568fb4: 92970 -> 93386 (+416 bytes). T5 landed second: RECONCILED on the
+ * merge over main 548c434 (T4 landed at 94988), measured 95404 on the merged tree, the same
+ * +416 over main's figure.
  */
-const PP_AI_PROMPT_BUDGET = 93386;
+const PP_AI_PROMPT_BUDGET = 95404;
 
 // ── Stored bytes in the assistant's context: the one sink owner (§8.2, P-15) ──
 //
@@ -784,8 +800,16 @@ function pp_ai_system_prompt(): string {
         . 'AND NO VALUE MAY NAME AN EXTERNAL RESOURCE — not `url()`, and not `image-set()`, `image()` or `src()` either, on any property. A background image is an attachment id on '
         . '`background.image`, as above; the Media Library is the only source of external assets. Selectors, `@media`/`@supports` blocks and pseudo-elements '
         . '(`::before`) are not written here either: `_css` is a declaration LIST on the role you '
-        . 'put it on, and the engine owns everything around it. `!important` IS REFUSED: this engine keeps specificity flat by construction, so your value wins on cascade position and never on weight — an `!important` would be unbeatable by the component\'s own defaults and by your own next write, and the declaration already wins without it. AND YOU STILL OWN CONTRAST: a raw '
+        . 'put it on, and the engine owns everything around it (selectors go in `_scoped`, below). `!important` IS REFUSED: this engine keeps specificity flat by construction, so your value wins on cascade position and never on weight — an `!important` would be unbeatable by the component\'s own defaults and by your own next write, and the declaration already wins without it. AND YOU STILL OWN CONTRAST: a raw '
         . '`background` or `opacity` changes what text sits on, and nothing checks that for you.';
+    // LAYER 3B (#1242 T4, LAYER-3-CONTRACT §6): the scoped sheet. Taught after `_css` because
+    // it is the same declaration grammar with the selector handed over, and the rules that
+    // differ are exactly the ones a model would otherwise carry over wrongly from `_css`.
+    $parts[] = 'SELECTOR RULES (`"_scoped"`) — CSS WITH SELECTORS, CONFINED TO ONE BAND. At the top of a band\'s `udc` map, beside `_tokens`, every band takes a LIST of rules: '
+        . '`"_scoped": [{"selector": ".section__content ul", "css": {"list-style": "disc"}}, {"selector": ":hover .grid__title", "css": {"color": "@color-accent"}, "media": "(hover: hover)"}]`. '
+        . 'THE SELECTOR is matched INSIDE the band only: one entering with `:` or `::` is a condition on the band itself (`:hover .x`, `::before`), anything else selects descendants; begin with `*` to put a pseudo-class on a descendant. REFUSED: a top-level comma (one rule each), a leading `+`/`~` or one after a band-root condition (it reaches the next band), `html`/`body`/`:root`, unknown pseudo-classes, a second pseudo-element; on an `embed` band, `[attribute]` selectors. '
+        . 'THE `css` MAP is `_css`\'s grammar with four differences: no `":hover"` keys (states go in the selector); your own custom properties (`--brandColor`, case-sensitive, no quoted strings, not on a rule starting with `:`) are allowed, except `--pp-*` and the site token names (reference those as `@name`); `content` takes only `""`, `none` or `normal` (no counters yet), and `counter-*` take names only — never text or numbers; only known CSS functions, with `url()` only as `url(#id)` on filter, clip-path, mask, marker, fill or stroke. At most 64 declarations per rule and 64 KiB of sheet per band. A background image is `"background-image": <attachment id>`. Widths stay `{"d": …, "p": …}` maps; `"media"` takes non-width features (`(prefers-color-scheme: dark)`), plus `"supports"` and `"container"`; no other at-rule. '
+        . 'Later rules win ties, and a rule beats a role rule of equal specificity; against a more specific role selector, raise yours. A write REPLACES the whole list. Contrast findings do not read these rules: you own their contrast. A condition (`:hover`, `:checked`, a media feature) that toggles an external image tells its host when it holds.';
     // The dark-band expression, and the contrast obligation that comes with it.
     // v2 components have no `theme` prop: a tone preset is a bundle of designable
     // values, and the whole point of this contract is that the model can now say

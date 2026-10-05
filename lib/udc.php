@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/css-layer3.php'; // the Layer-3 CSS value rules (§6.3, #1242 T4)
 /**
  * lib/udc.php — the Universal Design Contract engine (v2, BUILD-SPEC §3).
  *
@@ -447,7 +448,10 @@ function _pp_udc_state_from_mint(array $parts): array {
  * `_preset` skip validation, which is the opposite of what it needs.
  */
 function pp_udc_reserved_keys(): array {
-    return ['_tokens'];
+    // `_scoped` (Layer 3B, #1242 T4) is a LIST of rules, not a role map: the role walks
+    // that consult this list (normalisation, the preset scan) step over it, and
+    // pp_udc_validate_map() gives it its own gate rather than skipping it.
+    return ['_tokens', PP_UDC_SCOPED_KEY];
 }
 
 /**
@@ -2101,6 +2105,8 @@ function pp_udc_item_reserved_keys(): array {
             . 'on a band reports with a band locator and cannot yet name a single item',
         '_tokens' => 'tokens are declared once per band, on the band\'s own map — they emit as custom '
             . 'properties on the band root, which is the only element the band and its items share',
+        PP_UDC_SCOPED_KEY => 'the scoped sheet belongs to the band, and its selectors already reach every item '
+            . '(by position, for example :nth-child(2)), so write the rule on the band\'s own map',
     ];
 }
 
@@ -3436,6 +3442,15 @@ function pp_udc_validate_map($udc, string $component, array $item_maps = []): ?W
                 ));
             }
             $band_tokens[$name] = (string) $value;
+        }
+    }
+
+    // LAYER 3B (#1242 T4): the scoped sheet has its own gate. Reserved so the role walk
+    // below steps over it, and validated HERE so a reserved key is never stored unchecked.
+    if (array_key_exists(PP_UDC_SCOPED_KEY, $udc)) {
+        $error = _pp_udc_validate_scoped($udc[PP_UDC_SCOPED_KEY], $component, $band_tokens, $udc);
+        if ($error !== null) {
+            return $error;
         }
     }
 
@@ -5948,6 +5963,13 @@ function pp_udc_compile_band(array $item, string $layer, ?array &$drops = null):
         }
     }
 
+    // LAYER 3B (#1242 T4): the band's scoped sheet, compiled AFTER every role so it renders
+    // after the band's role and `_css` blocks (§5.5's tie rule), and BEFORE the token loop
+    // below so a band token a scoped rule references is emitted like any other.
+    if ($layer === 'authored' || $layer === 'all') {
+        $out['scoped'] = _pp_udc_compile_scoped($udc, $component, $id, $band_tokens, $referenced, $drops);
+    }
+
     // Only tokens something actually references are emitted. The unused-token
     // LINT lives on the write side (pp_udc_composition_findings), which is where
     // findings have a channel to an operator; computing it here would build a
@@ -6555,8 +6577,11 @@ function _pp_udc_place(
 // ── Emission ────────────────────────────────────────────────────────────────
 
 /** A band id is a CSS attribute-selector value; the charset is what bounds it. */
+/** The longest legal band id, in bytes; the scoped sheet's write-time size bound measures under it. */
+const PP_UDC_BAND_ID_MAX = 64;
+
 function pp_udc_valid_band_id(string $id): bool {
-    return (bool) preg_match('/^[A-Za-z0-9_-]{1,64}\z/', $id);
+    return (bool) preg_match('/^[A-Za-z0-9_-]{1,' . PP_UDC_BAND_ID_MAX . '}\z/', $id);
 }
 
 /**
@@ -7815,6 +7840,11 @@ function _pp_udc_render_blocks(
         $css      .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope, 'element');
         return ($root_css !== '' ? '@layer ' . $root_layer . '{' . $root_css . '}' : '') . $css;
     }
+
+    // THE SCOPED SHEET (Layer 3B, §5.5): after the band's role and `_css` rules in the same
+    // unlayered block, so an equal-specificity tie goes to it; before the engine's motion
+    // guard, so that guard still has the last word for the engine's own motion values.
+    $css .= _pp_udc_render_scoped($compiled['scoped'] ?? []);
 
     $css .= _pp_udc_reduced_motion_guard($motion_selectors, $scope, $root_scope);
 
@@ -11157,6 +11187,51 @@ function pp_udc_composition_findings(array $items): array {
             }
         }
 
+        // LAYER 3B (#1242 T4): the scoped sheet's unchecked set, on the SAME finding type and
+        // the same bound as `_css` (§6.3: "typed where known and verbatim where not, with
+        // udc_css_unchecked_property"). Only rules the predicate admits are described; a
+        // refused stored rule is the emit drop ledger's subject, never "emitted as written".
+        $scoped_rules = $item['udc'][PP_UDC_SCOPED_KEY] ?? null;
+        if (is_array($scoped_rules) && pp_is_list($scoped_rules) && !pp_udc_is_chrome($component)) {
+            $scoped_tokens = isset($item['udc']['_tokens']) && is_array($item['udc']['_tokens']) ? $item['udc']['_tokens'] : [];
+            foreach (array_slice($scoped_rules, 0, PP_UDC_SCOPED_MAX_RULES, true) as $rule_index => $rule) {
+                if ($css_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                    break;
+                }
+                if (pp_udc_scoped_rule_problem($rule, $component, $scoped_tokens, true, _pp_udc_band_has_string_list_marker($item['udc'])) !== null) {
+                    continue;
+                }
+                foreach (array_keys($rule['css']) as $property) {
+                    $property = (string) $property;
+                    // `content` has its own closed grammar; a typed property is checked; an author
+                    // custom property is ADMITTED by P-20 and carries no claim about any property,
+                    // so disclosing it would be noise that spends the shared budget (#1242 T4).
+                    if ($property === 'content' || strncmp($property, '--', 2) === 0
+                        || empty(pp_udc_css_param($property)['untyped'])) {
+                        continue;
+                    }
+                    if ($css_disclosed >= PP_UDC_MAX_EMIT_DROPS) {
+                        break 2;
+                    }
+                    $css_disclosed++;
+                    $findings[] = [
+                        'type'    => 'udc_css_unchecked_property',
+                        'message' => sprintf(
+                            'Component "%s" "%s"[%d] (selector %s): "%s" is not a property the design vocabulary '
+                            . 'knows, so its value was checked for safety only and is emitted exactly as '
+                            . 'written. Nothing verifies that the browser accepts it.',
+                            $component,
+                            PP_UDC_SCOPED_KEY,
+                            $rule_index,
+                            _pp_udc_reflect((string) $rule['selector']),
+                            _pp_udc_reflect($property)
+                        ),
+                        'index'   => is_int($i) ? $i : null,
+                    ];
+                }
+            }
+        }
+
         // THE TOKEN SECTION BELOW EARLY-OUTS ON A BAND WITH NO `_tokens`, WHICH IS WHY
         // EVERY DISCLOSURE ABOVE HAS TO COME FIRST. Caught by probe, not by reading: the
         // Layer-2 findings were written after this `continue` and produced NOTHING for
@@ -12397,4 +12472,1607 @@ function _pp_udc_value_is_light(string $value, array $band_tokens): ?bool {
         }
     }
     return false;
+}
+
+// ── Layer 3B: the scoped sheet, `udc._scoped` (LAYER-3-CONTRACT §6, #1242 T4) ──
+//
+// CSS WITH SELECTORS, CONFINED TO ONE BAND. Layer 2 (`_css`) is selector-free by
+// definition: the engine owns every selector and the author owns only declarations.
+// The scoped sheet hands the author the selector too, so the selector is the new
+// security boundary of this section, exactly as the property name was Layer 2's.
+//
+//   "_scoped": [
+//     {"selector": ".section__content ul", "css": {"list-style": "disc"}},
+//     {"selector": ":hover .grid__title",  "css": {"color": "@accent"},
+//      "media": "(hover: hover)"}
+//   ]
+//
+// ONE PREDICATE, TWO CALLERS. pp_udc_scoped_rule_problem() decides whether a rule is
+// admitted: it composes the selector gate (pp_udc_scoped_selector_problem()), the
+// condition gate (pp_udc_scoped_condition_problem()), the per-rule declaration bound and the
+// declaration gate (_pp_udc_scoped_declaration_problem()). pp_udc_validate_map() calls it to
+// REFUSE at write and pp_udc_compile_band() calls it again to DROP AND LEDGER stored rules a raw meta write, an older composition or restore_composition
+// (#233) carried past the write gate. The #570 convergence rule: whatever the write
+// gate accepts the emitter emits, and whatever it would refuse the emitter reports.
+//
+// WHAT CONFINES A RULE is the emitted form (§6.2's table, M-5), not a filter applied
+// afterwards: every rule prints as `[data-pp-band="<id>"]E` (an entry beginning on the
+// root) or `[data-pp-band="<id>"] E` (children and descendants), so the SUBJECT of
+// every rule is the band root or one of its descendants. The gate's job is to make
+// sure `E` cannot change that: no top-level comma (M-20), no leading `+`/`~`, no
+// depth-0 sibling combinator after a root condition (rule 7), balanced brackets, and
+// a byte allowlist so nothing ends the rule or the style element.
+
+/** The key a band's `udc` map carries its scoped sheet under (§6.1). */
+const PP_UDC_SCOPED_KEY = '_scoped';
+
+/** At most this many rules per band (M-8). */
+const PP_UDC_SCOPED_MAX_RULES = 128;
+
+/**
+ * At most this many declarations per rule, and this many bytes of compiled sheet per band
+ * (#1242 Q3, ruled 2026-10-05): refused at write with a named clause, ledgered at emit.
+ *
+ * WHY TWO MORE BOUNDS. M-8 bounds rules, not what a rule holds or what the band prints, and
+ * the sheet is re-gated and re-printed on every request (no render cache yet, #1089). Measured
+ * on the Layer-2 §3.6 harness, merge-base fc815d4, before these bounds:
+ *
+ *   page                                              render     head CSS
+ *   50 bands, no `_scoped`                            1.3 ms     2.7 KB  (byte-identical to main)
+ *   50 bands x 4 rules (realistic)                    13 ms      80 KB
+ *   50 bands x 128 rules, short selectors             0.4 s      2.3 MB
+ *   50 bands x 128 rules, 256-byte selectors          1.2 s      6.9 MB
+ *   1 band, 128 rules x 500 custom properties         0.33 s     1.47 MB
+ *
+ * 64 KiB per band is M-8's per-prop content bound; 64 declarations is several times the
+ * longest realistic rule. With both, each band prints at most 64 KiB of scoped CSS; head CSS
+ * still grows with the band count (about 3.2 MB at 50 bands), the residual #1062 owns. The
+ * write gate measures the sheet as compiled under the longest legal band id, so a sheet it
+ * accepts is clipped at emit only when a render-time input grows (an attachment URL answered
+ * longer at render), and then the rules past the bound drop with a ledger row.
+ */
+const PP_UDC_SCOPED_MAX_DECLARATIONS = 64;
+const PP_UDC_SCOPED_MAX_SHEET_BYTES  = 65536;
+
+/** A selector, and each at-rule prelude, is at most this many BYTES (§6.2). */
+const PP_UDC_SCOPED_SELECTOR_MAX_BYTES = 256;
+
+/** Functional pseudo-classes nest at most this deep (§6.2 rule 4). */
+const PP_UDC_SCOPED_MAX_DEPTH = 3;
+
+/**
+ * THE PINNED SELECTORS LIST (P-22, ratified 2026-10-04): every pseudo-class this gate
+ * admits, and the argument grammar each takes.
+ *
+ * Pinned snapshot, 2026-10: the pseudo-class index of Selectors Level 4 (W3C Editor's
+ * Draft), plus the three the HTML Living Standard defines (`:autofill`, `:open`,
+ * `:popover-open`). A name is admitted because it is in this table, never because it
+ * matches a pattern, so a later spec addition is NOT admitted until this table moves:
+ * an unknown name is refused (I19), because a selector the browser does not know
+ * validates green and paints nothing.
+ *
+ * MINUS THE NAMED EXCLUSIONS (§6.2 rule 4): `:root`, `:host`, `:host()`, `:scope` and
+ * `:defined` are absent here and refused by name in
+ * pp_udc_scoped_excluded_pseudo_classes(); every vendor-prefixed name is refused too.
+ *
+ * The form-validation states (`:valid`, `:invalid`, `:user-valid`, `:user-invalid`,
+ * `:required`, `:optional`, `:in-range`, `:out-of-range`, `:read-only`, `:read-write`)
+ * are admitted by the ruling. Content-authored forms are descoped from 3A by the owner
+ * (2026-10-05, #1242) until their follow-up contract, so today these match the theme's
+ * own and plugins' form controls only.
+ *
+ * Kinds: `plain` (no argument), `selectors` (a selector list), `relative` (`:has()`'s
+ * relative selector list), `nth` (An+B), `nth-of` (An+B, optionally ` of <selectors>`),
+ * `lang` (a BCP 47-shaped tag), `dir` (`ltr`|`rtl`). `:current` is both plain and
+ * functional, which is why `current()` is its own row.
+ *
+ * @return array<string, string> lowercase name => kind
+ */
+function pp_udc_scoped_pseudo_classes(): array {
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $plain = [
+        // user action
+        'hover', 'active', 'focus', 'focus-visible', 'focus-within',
+        // location
+        'any-link', 'link', 'visited', 'local-link', 'target', 'target-within',
+        // tree structure
+        'empty', 'first-child', 'last-child', 'only-child', 'first-of-type', 'last-of-type', 'only-of-type',
+        // input and form states (see the docblock: content forms are descoped from 3A)
+        'enabled', 'disabled', 'read-only', 'read-write', 'placeholder-shown', 'autofill', 'default',
+        'checked', 'indeterminate', 'blank', 'valid', 'invalid', 'in-range', 'out-of-range',
+        'required', 'optional', 'user-valid', 'user-invalid',
+        // element display state (P-14 admits :popover-open and :modal)
+        'open', 'popover-open', 'modal', 'fullscreen', 'picture-in-picture',
+        // time-dimensional and resource state
+        'current', 'past', 'future', 'playing', 'paused', 'seeking', 'buffering', 'stalled',
+        'muted', 'volume-locked',
+    ];
+    $table = array_fill_keys($plain, 'plain');
+    $table += [
+        'not'              => 'selectors',
+        'is'               => 'selectors',
+        'where'            => 'selectors',
+        'current()'        => 'selectors',
+        'has'              => 'relative',
+        'nth-child'        => 'nth-of',
+        'nth-last-child'   => 'nth-of',
+        'nth-of-type'      => 'nth',
+        'nth-last-of-type' => 'nth',
+        'nth-col'          => 'nth',
+        'nth-last-col'     => 'nth',
+        'lang'             => 'lang',
+        'dir'              => 'dir',
+    ];
+    return $table;
+}
+
+/**
+ * The pseudo-classes refused BY NAME (§6.2 rule 4), each with its reason. A reason, not a
+ * bare "unknown", because each is a real selector an author will reasonably try.
+ *
+ * @return array<string, string>
+ */
+function pp_udc_scoped_excluded_pseudo_classes(): array {
+    return [
+        'root'    => 'the document root is never inside a band, so the rule would paint nothing',
+        'scope'   => 'it means the document root here, never the band; begin the entry with `:` to put a condition on the band root',
+        'host'    => 'there is no shadow host in a band',
+        'host()'  => 'there is no shadow host in a band',
+        'defined' => 'every element in a band is defined, so it decides nothing',
+    ];
+}
+
+/**
+ * The pinned PSEUDO-ELEMENT list (P-22): CSS Pseudo-Elements Level 4 (W3C Working Draft)
+ * plus `::file-selector-button` (CSS Pseudo-Elements, HTML file inputs), `::backdrop`
+ * (Fullscreen/CSS Position 4) and `::cue` (WebVTT), snapshot 2026-10. `::part()` and
+ * `::slotted()` are the named exclusions (no shadow tree in a band), refused by name; a
+ * vendor-prefixed pseudo-element is refused; anything else is unknown and refused (I19).
+ *
+ * `highlight` takes one custom-highlight identifier and `cue` a selector list; every
+ * other admitted pseudo-element takes no argument.
+ *
+ * `::backdrop` and anything `position: fixed` can paint outside the band's box. That is
+ * an admission the contract discloses (§4, §6.2): the SUBJECT stays inside the band.
+ *
+ * @return array<string, string> name => 'plain' | 'ident' | 'selectors'
+ */
+function pp_udc_scoped_pseudo_elements(): array {
+    static $table = null;
+    if ($table !== null) {
+        return $table;
+    }
+    $table = array_fill_keys([
+        'before', 'after', 'marker', 'first-line', 'first-letter', 'placeholder', 'selection',
+        'backdrop', 'file-selector-button', 'target-text', 'spelling-error', 'grammar-error',
+        'details-content', 'cue',
+    ], 'plain');
+    $table['highlight()'] = 'ident';
+    $table['cue()']       = 'selectors';
+    return $table;
+}
+
+/**
+ * Why this selector may not be a scoped rule's selector, or null when it may (§6.2).
+ *
+ * ONE PREDICATE, TWO CALLERS: the write gate refuses with this reason and the compiler drops
+ * (and ledgers) a stored rule for it. The walk is the M-6 bounded in-house tokenizer:
+ * every accepted byte is accounted for by a named
+ * grammar step, and the depth bound is a parameter of the recursion, not of the input.
+ * Regular expressions match leaf tokens and closed argument shapes only (an identifier,
+ * An+B, a language tag); nesting, combinators and lists are walked.
+ *
+ * $component matters for one rule only: M-16. An `embed` band carries plugin output the
+ * theme cannot inspect, so no attribute selector may read inside it.
+ */
+function pp_udc_scoped_selector_problem($selector, string $component = ''): ?string {
+    if (!is_string($selector)) {
+        return 'the selector must be a string';
+    }
+    if (strlen($selector) > PP_UDC_SCOPED_SELECTOR_MAX_BYTES) {
+        return sprintf('the selector is longer than %d bytes', PP_UDC_SCOPED_SELECTOR_MAX_BYTES);
+    }
+    $entry = trim($selector, " \t\n\r\f");
+    if ($entry === '') {
+        return 'the selector is empty';
+    }
+    // UTF-8 first, so every later step may decode a code point without re-asking (M-17).
+    if (!mb_check_encoding($entry, 'UTF-8')) {
+        return 'the selector is not valid UTF-8';
+    }
+    $state = [
+        's'      => $entry,
+        'n'      => strlen($entry),
+        'i'      => 0,
+        'embed'  => $component === 'embed',
+    ];
+    $ctx = [
+        'top'      => true,   // the entry itself, not a functional argument
+        'relative' => false,  // inside :has(), where an item may lead with a combinator
+        'logical'  => false,  // inside :is()/:where()/:not()/:current()/`of S`/::cue()
+        'in_has'   => false,
+        'unsafe_has' => false, // M-16: this :has() can see outside the band
+        'has_on_root' => false, // this :has() sits on the band root's own compound
+        'root_compound' => false, // inside the band root's own compound (a root entry's first compound)
+        'of_root'   => false,  // inside an `of S` that tests the band root's siblings (M-16, Q1)
+        'depth'    => 0,
+    ];
+    $facts = ['root_entry' => $entry[0] === ':', 'pseudo_element' => false, 'attr' => false, 'combinator' => false];
+    $problem = _pp_udc_scoped_complex($state, $ctx, $facts);
+    if ($problem !== null) {
+        return $problem;
+    }
+    if ($state['i'] < $state['n']) {
+        $byte = $state['s'][$state['i']];
+        if ($byte === ',') {
+            // M-20 (routed item 14, RULED: the mechanics table governs). Each entry is
+            // already its own rule, so `a, b` is a second spelling of two rules — the I36
+            // aliasing shape. Commas inside :is()/:where()/:not()/:has() stay.
+            return 'a selector list is not accepted at the top level: write one rule per selector '
+                . '(a comma inside :is(), :where(), :not() or :has() is fine)';
+        }
+        return sprintf('unexpected %s at byte %d', _pp_udc_scoped_byte_label($byte), $state['i'] + 1);
+    }
+    return null;
+}
+
+/**
+ * One byte for a refusal message: quoted when printable ASCII, hex otherwise, so a tab, a
+ * newline or a stray UTF-8 byte is named rather than printed as nothing.
+ */
+function _pp_udc_scoped_byte_label(string $byte): string {
+    $ord = ord($byte);
+    return ($ord >= 0x21 && $ord <= 0x7E) ? '"' . $byte . '"' : sprintf('byte 0x%02X', $ord);
+}
+
+/** One `ws*` run. Only the space byte is whitespace inside a selector (rule 1). */
+function _pp_udc_scoped_ws(array &$st): bool {
+    $start = $st['i'];
+    while ($st['i'] < $st['n'] && $st['s'][$st['i']] === ' ') {
+        $st['i']++;
+    }
+    return $st['i'] > $start;
+}
+
+/**
+ * A complex selector: [combinator] compound (combinator compound)*.
+ *
+ * Rule 7 lives here because only here are the combinators visible at their own depth:
+ * at the top level only `>` may lead, and an entry that begins on the root (`:`/`::`)
+ * may not use `+` or `~` at depth 0 at all — `:hover + section` emits
+ * `[data-pp-band="<id>"]:hover + section`, whose subject is the NEXT band.
+ */
+function _pp_udc_scoped_complex(array &$st, array $ctx, array &$facts): ?string {
+    _pp_udc_scoped_ws($st);
+    $first = true;
+    $lead  = $st['i'] < $st['n'] ? $st['s'][$st['i']] : '';
+    if (in_array($lead, ['>', '+', '~'], true)) {
+        if ($ctx['top'] && $lead !== '>') {
+            return sprintf('an entry may not begin with "%s": it would select the band\'s sibling, '
+                . 'outside the band. Begin it with "*" or a descendant selector instead', $lead);
+        }
+        if (!$ctx['top'] && !$ctx['relative']) {
+            return sprintf('a selector inside :is(), :where() or :not() may not begin with "%s"', $lead);
+        }
+        $st['i']++;
+        _pp_udc_scoped_ws($st);
+        $facts['combinator'] = true;
+        if ($ctx['relative'] && $ctx['has_on_root'] && $lead !== '>') {
+            // M-16(b): a root-anchored :has() that leads with a sibling combinator reads
+            // the NEXT bands' subtrees, plugin output included.
+            $ctx['unsafe_has'] = true;
+        }
+    }
+    while (true) {
+        if ($st['i'] >= $st['n'] || in_array($st['s'][$st['i']], [',', ')'], true)) {
+            return $first ? 'a selector is missing where one is required' : 'the selector ends with a combinator';
+        }
+        if ($facts['pseudo_element'] && $ctx['top']) {
+            return 'a pseudo-element must be the last thing in the selector';
+        }
+        $problem = _pp_udc_scoped_compound($st, $ctx, $facts, $first);
+        if ($problem !== null) {
+            return $problem;
+        }
+        $first = false;
+        // A combinator, a descendant space, or the end of this complex selector.
+        $had_ws = _pp_udc_scoped_ws($st);
+        if ($st['i'] >= $st['n'] || in_array($st['s'][$st['i']], [',', ')'], true)) {
+            return null;
+        }
+        $byte = $st['s'][$st['i']];
+        if (in_array($byte, ['>', '+', '~'], true)) {
+            if ($ctx['top'] && $facts['root_entry'] && $byte !== '>') {
+                return sprintf('an entry that begins on the band root (with ":" or "::") may not use "%s": '
+                    . 'it would select the next band. Begin the entry with "*" or a descendant selector instead', $byte);
+            }
+            $st['i']++;
+            _pp_udc_scoped_ws($st);
+            $facts['combinator'] = true;
+            continue;
+        }
+        if (!$had_ws) {
+            return sprintf('unexpected %s at byte %d', _pp_udc_scoped_byte_label($byte), $st['i'] + 1);
+        }
+        $facts['combinator'] = true; // a descendant combinator: loop on to the next compound
+    }
+}
+
+/**
+ * One compound selector: [type | *] (.class | #id | [attr] | :pseudo-class)* [::pseudo-element].
+ *
+ * $first: the first compound of a TOP-LEVEL entry that begins with `:` is a condition on
+ * the band root (§6.2's table), which is what M-16(b) needs to know about a :has() here.
+ */
+function _pp_udc_scoped_compound(array &$st, array $ctx, array &$facts, bool $first): ?string {
+    $s = $st['s'];
+    $start = $st['i'];
+    $on_root = $ctx['top'] && $first && $facts['root_entry'];
+    if ($s[$st['i']] === '*') {
+        $st['i']++;
+        if ($st['i'] < $st['n'] && $s[$st['i']] === '|') {
+            return 'namespace prefixes ("|") are not accepted';
+        }
+    } elseif (preg_match('/\G-?[A-Za-z_][A-Za-z0-9_-]*/', $s, $m, 0, $st['i'])) {
+        $type = strtolower($m[0]);
+        $st['i'] += strlen($m[0]);
+        if ($st['i'] < $st['n'] && $s[$st['i']] === '|') {
+            return 'namespace prefixes ("|") are not accepted';
+        }
+        if (in_array($type, ['html', 'head', 'body'], true)) {
+            return sprintf('the type selector "%s" matches nothing inside a band, so the rule would paint nothing', $type);
+        }
+    }
+    while ($st['i'] < $st['n']) {
+        $byte = $s[$st['i']];
+        if ($facts['pseudo_element'] && $ctx['top'] && !in_array($byte, [' ', ',', ')', '>', '+', '~'], true)) {
+            return 'a pseudo-element must be the last thing in the selector';
+        }
+        if ($byte === '.' || $byte === '#') {
+            $st['i']++;
+            $ident = _pp_udc_scoped_ident($st, true);
+            if ($ident === null) {
+                return sprintf('"%s" must be followed by a class or id name (letters, digits, "-" or "_", not starting with a digit)', $byte);
+            }
+            continue;
+        }
+        if ($byte === '[') {
+            $problem = _pp_udc_scoped_attribute($st, $ctx);
+            if ($problem !== null) {
+                return $problem;
+            }
+            $facts['attr'] = true;
+            continue;
+        }
+        if ($byte === ':') {
+            if ($st['i'] + 1 < $st['n'] && $s[$st['i'] + 1] === ':') {
+                $problem = _pp_udc_scoped_pseudo_element($st, $ctx, $facts);
+            } else {
+                $problem = _pp_udc_scoped_pseudo_class($st, $ctx, $facts, $on_root);
+            }
+            if ($problem !== null) {
+                return $problem;
+            }
+            continue;
+        }
+        break;
+    }
+    if ($st['i'] === $start) {
+        return sprintf('unexpected %s at byte %d', _pp_udc_scoped_byte_label($s[$st['i']]), $st['i'] + 1);
+    }
+    return null;
+}
+
+/**
+ * A CSS identifier at the cursor, or null. ASCII only, except where $unicode admits a
+ * Unicode letter or digit (`\p{L}`/`\p{N}`): class and id names, so content authored in a
+ * non-Latin script is selectable (M-17, routed item 14 RULED). Nothing is normalised (I34):
+ * the bytes stored are the bytes emitted, and they were proved valid UTF-8 up front.
+ */
+function _pp_udc_scoped_ident(array &$st, bool $unicode): ?string {
+    $pattern = $unicode
+        ? '/\G(?:--|-?(?:[A-Za-z_]|[^\x00-\x7F]))(?:[A-Za-z0-9_-]|[^\x00-\x7F])*/u'
+        : '/\G(?:--|-?[A-Za-z_])[A-Za-z0-9_-]*/';
+    if (!preg_match($pattern, $st['s'], $m, 0, $st['i'])) {
+        return null;
+    }
+    // A non-ASCII code point is admitted only when it is a letter or a digit (M-17), or a
+    // combining mark that follows a letter or another mark (#1242 Q4, ruled): `.हिन्दी`, Hebrew
+    // with niqqud and Arabic with harakat are spelled with marks. A mark never begins the
+    // identifier (the lookbehind needs a letter or mark before it, so a leading one fails),
+    // and a mark cannot end a rule or a style element.
+    if ($unicode && preg_match('/[^\x00-\x7F]/', $m[0])
+        && !preg_match('/\A(?:[\x00-\x7F]|[\p{L}\p{N}]|(?<=[\p{L}\p{M}])\p{M})*\z/u', $m[0])) {
+        return null;
+    }
+    $st['i'] += strlen($m[0]);
+    return $m[0];
+}
+
+/**
+ * `[name]` or `[name op value flag?]` (rule 2, rule 3). Operators only inside brackets; a
+ * value is an ASCII identifier or a quoted string whose bytes are printable ASCII (minus `\`,
+ * its own quote, `<`, `{`, `}` and `;`) or Unicode letters/digits (M-17). An unquoted value
+ * that is not an identifier (`[data-n=1]`) is invalid CSS that would paint nothing (I19).
+ */
+function _pp_udc_scoped_attribute(array &$st, array $ctx): ?string {
+    if ($st['embed']) {
+        // M-16(a): an attribute condition on an embed band reads plugin output, which the
+        // theme cannot inspect (nonces, prefilled values) — the §6.7 fetch channel.
+        return 'an attribute selector is not accepted on an embed band: it would read the plugin '
+            . 'output the band carries (M-16). Select by class or element instead';
+    }
+    if ($ctx['of_root']) {
+        // M-16 as extended by ruling Q1: an `of S` reached from the band root's own compound
+        // tests S against the root's SIBLINGS, the other band roots, with no combinator in sight.
+        return 'an attribute selector is not accepted inside an "of" selector on the band root: '
+            . ':nth-child(… of S) there tests the attributes of the bands beside this one (M-16)';
+    }
+    if ($ctx['in_has'] && $ctx['unsafe_has']) {
+        return 'an attribute selector is not accepted inside a :has() that can see outside this band '
+            . '(a :has() on the band root that begins with "+" or "~", or one nested in :is(), :where(), '
+            . ':not(), :current(), an "of" selector or ::cue()): it could read another band\'s plugin output (M-16)';
+    }
+    $s = $st['s'];
+    $st['i']++; // [
+    _pp_udc_scoped_ws($st);
+    $name = _pp_udc_scoped_ident($st, false);
+    if ($name === null) {
+        if ($st['i'] < $st['n'] && $s[$st['i']] === '|') {
+            return 'namespace prefixes ("|") are not accepted';
+        }
+        return 'an attribute selector must name an attribute';
+    }
+    _pp_udc_scoped_ws($st);
+    if ($st['i'] < $st['n'] && $s[$st['i']] === ']') {
+        $st['i']++;
+        return null;
+    }
+    if (!preg_match('/\G(?:[~|^$*]?=)/', $s, $m, 0, $st['i'])) {
+        if ($st['i'] + 1 < $st['n'] && $s[$st['i']] === '|' && $s[$st['i'] + 1] === '|') {
+            return 'the column combinator "||" is not accepted';
+        }
+        return 'an attribute selector operator must be one of =, ~=, |=, ^=, $= or *=';
+    }
+    $st['i'] += strlen($m[0]);
+    _pp_udc_scoped_ws($st);
+    if ($st['i'] >= $st['n']) {
+        return 'the attribute selector is not closed with "]"';
+    }
+    $delim = $s[$st['i']];
+    if ($delim === '"' || $delim === "'") {
+        $st['i']++;
+        while (true) {
+            if ($st['i'] >= $st['n']) {
+                return 'a string attribute value is not closed';
+            }
+            $byte = $s[$st['i']];
+            if ($byte === $delim) {
+                $st['i']++;
+                break;
+            }
+            $ord = ord($byte);
+            if ($ord >= 0x80) {
+                // Letters and digits in any script, and a combining mark after a letter or mark
+                // (M-17; #1242 Q4).
+                $after_letter = $st['i'] > 0 && preg_match('/[\p{L}\p{M}]\z/u', substr($s, 0, $st['i']));
+                if (!preg_match($after_letter ? '/\G[\p{L}\p{N}\p{M}]/u' : '/\G[\p{L}\p{N}]/u', $s, $cm, 0, $st['i'])) {
+                    return 'a string attribute value may carry letters and digits in any script, but not other non-ASCII characters';
+                }
+                $st['i'] += strlen($cm[0]);
+                continue;
+            }
+            if ($ord < 0x20 || $ord === 0x7F || in_array($byte, ['\\', '<', '{', '}', ';'], true)) {
+                return sprintf('a string attribute value may not contain "%s"', _pp_udc_reflect($byte));
+            }
+            $st['i']++;
+        }
+    } elseif (_pp_udc_scoped_ident($st, false) === null) {
+        return 'an attribute value that is not a plain identifier must be written as a string, for example [data-n="1"]';
+    }
+    _pp_udc_scoped_ws($st);
+    if ($st['i'] < $st['n'] && in_array($s[$st['i']], ['i', 'I', 's', 'S'], true)) {
+        $st['i']++;
+        _pp_udc_scoped_ws($st);
+    }
+    if ($st['i'] >= $st['n'] || $s[$st['i']] !== ']') {
+        return 'the attribute selector is not closed with "]"';
+    }
+    $st['i']++;
+    return null;
+}
+
+/** `:name` or `:name(args)` against the pinned list (rule 4). */
+function _pp_udc_scoped_pseudo_class(array &$st, array $ctx, array &$facts, bool $on_root): ?string {
+    $s = $st['s'];
+    $st['i']++; // :
+    if (!preg_match('/\G-?[A-Za-z][A-Za-z0-9-]*/', $s, $m, 0, $st['i'])) {
+        return '":" must be followed by a pseudo-class name';
+    }
+    $st['i'] += strlen($m[0]);
+    $name       = strtolower($m[0]);
+    $functional = $st['i'] < $st['n'] && $s[$st['i']] === '(';
+    $key        = $functional && $name === 'current' ? 'current()' : $name;
+    $key        = $functional && $name === 'host' ? 'host()' : $key;
+    if ($name[0] === '-') {
+        return sprintf('the vendor-prefixed pseudo-class ":%s" is not accepted', _pp_udc_reflect($name));
+    }
+    $excluded = pp_udc_scoped_excluded_pseudo_classes();
+    if (isset($excluded[$key])) {
+        return sprintf('the pseudo-class ":%s" is not accepted: %s', $key === 'host()' ? 'host()' : $name, $excluded[$key]);
+    }
+    if (in_array($name, ['before', 'after', 'first-line', 'first-letter'], true)) {
+        return sprintf('":%s" is the old one-colon spelling: write "::%s"', $name, $name);
+    }
+    $table = pp_udc_scoped_pseudo_classes();
+    if (!isset($table[$key])) {
+        return sprintf('":%s" is not a pseudo-class this engine knows (it would paint nothing)', _pp_udc_reflect($name . ($functional ? '()' : '')));
+    }
+    $kind = $table[$key];
+    if ($kind === 'plain') {
+        if ($functional) {
+            return sprintf('":%s" takes no argument', $name);
+        }
+        return null;
+    }
+    if (!$functional) {
+        return sprintf('":%s" needs an argument in parentheses', $name);
+    }
+    $st['i']++; // (
+    $close = _pp_udc_scoped_matching_paren($s, $st['i']);
+    if ($close === null) {
+        return sprintf('":%s(" is not closed', $name);
+    }
+    $arg = substr($s, $st['i'], $close - $st['i']);
+    if ($kind === 'selectors' || $kind === 'relative') {
+        if ($kind === 'relative' && $ctx['in_has']) {
+            return ':has() inside :has() is not valid CSS';
+        }
+        $inner = _pp_udc_scoped_nested_ctx($ctx, $kind === 'relative');
+        if ($inner === null) {
+            return sprintf('functional pseudo-classes nest at most %d deep', PP_UDC_SCOPED_MAX_DEPTH);
+        }
+        // A constraining argument on the root's compound still describes the root, so an `of S`
+        // inside it tests the root's siblings too. A :has() argument describes descendants.
+        $inner['root_compound'] = $kind !== 'relative' && ($ctx['root_compound'] || $on_root);
+        if ($kind === 'relative') {
+            $inner['has_on_root'] = $on_root;
+            // M-16(b): nested in :is()/:where()/:not() (or :current(), `of S`, ::cue()), the
+            // :has() may be anchored on an ancestor outside the band, whose subtree holds
+            // every band on the page.
+            $inner['unsafe_has']  = $ctx['logical'];
+        }
+        $problem = _pp_udc_scoped_list($st, $inner, $close, $facts);
+        if ($problem !== null) {
+            return $problem;
+        }
+        $st['i'] = $close + 1;
+        return null;
+    }
+    if ($kind === 'nth' || $kind === 'nth-of') {
+        $an_b = $arg;
+        $of   = null;
+        if (preg_match('/\A(.*?) of (.+)\z/s', $arg, $parts)) {
+            if ($kind !== 'nth-of') {
+                return sprintf('":%s()" does not take "of <selector>"', $name);
+            }
+            [$an_b, $of] = [$parts[1], $parts[2]];
+        }
+        // CSS's own An+B grammar (Selectors 4 §13.1, case-insensitive): a space may sit only
+        // around the sign between An and B, never between a leading sign and what it signs,
+        // so `+ 5` and `- n+1` (which a browser drops, I19) are refused.
+        if (!preg_match('/\A *(odd|even|[+-]?\d{1,3}|[+-]?\d{0,3}n( *[+-] *\d{1,3})?) *\z/i', $an_b)) {
+            return sprintf('":%s()" takes odd, even, a whole number or an An+B form such as 2n+1', $name);
+        }
+        if ($of !== null) {
+            $inner = _pp_udc_scoped_nested_ctx($ctx, false);
+            if ($inner === null) {
+                return sprintf('functional pseudo-classes nest at most %d deep', PP_UDC_SCOPED_MAX_DEPTH);
+            }
+            $inner['of_root'] = $ctx['of_root'] || $ctx['root_compound'] || $on_root;
+            $st['i'] = $close - strlen($of);
+            $problem = _pp_udc_scoped_list($st, $inner, $close, $facts);
+            if ($problem !== null) {
+                return $problem;
+            }
+        }
+        $st['i'] = $close + 1;
+        return null;
+    }
+    if ($kind === 'lang') {
+        if (!preg_match('/\A *(["\']?)[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*\1 *\z/', $arg)) {
+            return '":lang()" takes one language tag, such as en or pt-BR';
+        }
+        $st['i'] = $close + 1;
+        return null;
+    }
+    // dir
+    if (!preg_match('/\A *(ltr|rtl) *\z/i', $arg)) {
+        return '":dir()" takes ltr or rtl';
+    }
+    $st['i'] = $close + 1;
+    return null;
+}
+
+/** `::name` or `::name(arg)` against the pinned list (rule 5): one, and last. */
+function _pp_udc_scoped_pseudo_element(array &$st, array $ctx, array &$facts): ?string {
+    $s = $st['s'];
+    $st['i'] += 2; // ::
+    if (!preg_match('/\G-?[A-Za-z][A-Za-z0-9-]*/', $s, $m, 0, $st['i'])) {
+        return '"::" must be followed by a pseudo-element name';
+    }
+    $st['i'] += strlen($m[0]);
+    $name = strtolower($m[0]);
+    if (!$ctx['top']) {
+        return sprintf('the pseudo-element "::%s" is not valid inside a functional pseudo-class', _pp_udc_reflect($name));
+    }
+    if ($facts['pseudo_element']) {
+        return 'a selector may carry at most one pseudo-element';
+    }
+    if ($name[0] === '-') {
+        return sprintf('the vendor-prefixed pseudo-element "::%s" is not accepted', _pp_udc_reflect($name));
+    }
+    if (in_array($name, ['part', 'slotted'], true)) {
+        return sprintf('"::%s()" is not accepted: there is no shadow tree in a band', $name);
+    }
+    $functional = $st['i'] < $st['n'] && $s[$st['i']] === '(';
+    $table = pp_udc_scoped_pseudo_elements();
+    $key   = $functional ? $name . '()' : $name;
+    if (!isset($table[$key])) {
+        return sprintf('"::%s" is not a pseudo-element this engine knows (it would paint nothing)', _pp_udc_reflect($name . ($functional ? '()' : '')));
+    }
+    $facts['pseudo_element'] = true;
+    if (!$functional) {
+        return null;
+    }
+    $st['i']++; // (
+    $close = _pp_udc_scoped_matching_paren($s, $st['i']);
+    if ($close === null) {
+        return sprintf('"::%s(" is not closed', $name);
+    }
+    if ($table[$key] === 'ident') {
+        if (!preg_match('/\A *(?:--|-?[A-Za-z_])[A-Za-z0-9_-]* *\z/', substr($s, $st['i'], $close - $st['i']))) {
+            return sprintf('"::%s()" takes one name', $name);
+        }
+        $st['i'] = $close + 1;
+        return null;
+    }
+    $inner = _pp_udc_scoped_nested_ctx($ctx, false);
+    if ($inner === null) {
+        return sprintf('functional pseudo-classes nest at most %d deep', PP_UDC_SCOPED_MAX_DEPTH);
+    }
+    $problem = _pp_udc_scoped_list($st, $inner, $close, $facts);
+    if ($problem !== null) {
+        return $problem;
+    }
+    $st['i'] = $close + 1;
+    return null;
+}
+
+/**
+ * The context one functional argument is walked in, or null past PP_UDC_SCOPED_MAX_DEPTH.
+ * $relative: a :has() argument (items may lead with a combinator); otherwise a selector list
+ * that can only constrain (:is()/:where()/:not()/:current(), `of S`, ::cue()), marked
+ * `logical` so a :has() inside it is known to have a possibly outside anchor (M-16).
+ */
+function _pp_udc_scoped_nested_ctx(array $ctx, bool $relative): ?array {
+    if ($ctx['depth'] + 1 > PP_UDC_SCOPED_MAX_DEPTH) {
+        return null;
+    }
+    $inner = $ctx;
+    $inner['top']   = false;
+    $inner['depth'] = $ctx['depth'] + 1;
+    if ($relative) {
+        $inner['relative'] = true;
+        $inner['in_has']   = true;
+    } else {
+        $inner['relative'] = false;
+        $inner['logical']  = true;
+    }
+    return $inner;
+}
+
+/**
+ * A comma-separated selector list ending exactly at $close (a functional argument). Every
+ * item must be a valid complex selector: CSS's forgiving parsing of :is()/:where() would drop
+ * a bad item silently, which is the paints-nothing shape this gate refuses (I19).
+ */
+function _pp_udc_scoped_list(array &$st, array $ctx, int $close, array &$outer): ?string {
+    $limit_state = $st;
+    $limit_state['n'] = $close;
+    while (true) {
+        $facts   = ['root_entry' => false, 'pseudo_element' => false, 'attr' => false, 'combinator' => false];
+        $problem = _pp_udc_scoped_complex($limit_state, $ctx, $facts);
+        if ($problem !== null) {
+            return $problem;
+        }
+        // M-16, EXTENDED BY RULING (Sprint 6 T4, #1242 Q1): no reading attributes the band does
+        // not own, applied to selector reach. Inside :is()/:where()/:not()/:current()/`of S`/
+        // ::cue(), an argument that pairs an attribute test with a combinator matches compounds
+        // OTHER than the subject: ancestors of the band and earlier siblings of ancestors
+        // (body-level plugin markup, the admin bar, earlier band roots). One `^=` probe per
+        // character turns that into a character-by-character read, exfiltrated through a
+        // condition that toggles a background or a lazy external image. An attribute test on
+        // the subject itself (`:is([lang=fr])`) and a pure-ancestor class test
+        // (`:is(.dark *)`) stay admitted.
+        if ($ctx['logical'] && !$ctx['relative'] && $facts['attr'] && $facts['combinator']) {
+            return 'an attribute selector is not accepted inside :is(), :where(), :not(), :current(), an "of" '
+                . 'selector or ::cue() when that argument also uses a combinator: it would read the attributes of '
+                . 'elements outside the band (M-16). Test the attribute on the element itself, or select by class';
+        }
+        $outer['attr'] = $outer['attr'] || $facts['attr'];
+        if ($limit_state['i'] >= $close) {
+            break;
+        }
+        if ($limit_state['s'][$limit_state['i']] !== ',') {
+            return sprintf('unexpected %s at byte %d', _pp_udc_scoped_byte_label($limit_state['s'][$limit_state['i']]), $limit_state['i'] + 1);
+        }
+        $limit_state['i']++;
+    }
+    $st['i'] = $close;
+    return null;
+}
+
+/**
+ * The offset of the `)` that closes the `(` just before $from, or null. String-aware: a
+ * quote ends only at its own opening character (rule 2), so `[title="a)b"]` balances.
+ */
+function _pp_udc_scoped_matching_paren(string $s, int $from): ?int {
+    $depth = 1;
+    $delim = '';
+    $n = strlen($s);
+    for ($i = $from; $i < $n; $i++) {
+        $c = $s[$i];
+        if ($delim !== '') {
+            if ($c === $delim) {
+                $delim = '';
+            }
+            continue;
+        }
+        if ($c === '"' || $c === "'") {
+            $delim = $c;
+        } elseif ($c === '(') {
+            $depth++;
+        } elseif ($c === ')') {
+            $depth--;
+            if ($depth === 0) {
+                return $i;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * The selector a validated entry is emitted as (§6.2's table, M-5).
+ *
+ * The prefix is built from the BAND ID ALONE, never from a tier scope a caller passes in:
+ * chrome renders through the same compiler under `[data-pp-chrome]`, and a scoped rule must
+ * never reach it (P-3 admits bands, and chrome is not a band).
+ */
+function pp_udc_scoped_emitted_selector(string $band_id, string $selector): string {
+    $entry  = trim($selector, " \t\n\r\f");
+    $prefix = '[data-pp-band="' . $band_id . '"]';
+    return $entry[0] === ':' ? $prefix . $entry : $prefix . ' ' . $entry;
+}
+
+// ── Declarations (§6.3, §6.4, P-19, P-20) ─────────────────────────────────────
+
+/**
+ * Why a custom property NAME may not be written in a scoped rule, or null (P-20 as RULED).
+ *
+ * Refused: the engine-owned custom properties — the `--pp-` namespace (band tokens and
+ * engine values emit there), a name with the shape the engine mints, and every unprefixed
+ * design-token name the theme reads, taken from pp_design_tokens() (the token parser is the
+ * one owner of that list; there is no hand-written copy). Every other custom property is the
+ * author's.
+ *
+ * CASE-SENSITIVE (routed item 15, RULED): `--brandColor` and `--brandcolor` are two
+ * properties, so an uppercase name is never "corrected"; a refusal names the exact name.
+ */
+function pp_udc_scoped_custom_property_problem(string $name): ?string {
+    if (!preg_match('/\A--[A-Za-z0-9_-]{1,64}\z/', $name)) {
+        return sprintf('the custom property "%s" must be "--" followed by 1-64 letters, digits, "-" or "_"', _pp_udc_reflect($name));
+    }
+    if (strncmp($name, '--pp-', 5) === 0) {
+        return sprintf('the custom property "%s" is in the engine\'s own "--pp-" namespace (band tokens and engine values live there); '
+            . 'pick another name', $name);
+    }
+    if (isset(pp_design_tokens()[$name])) {
+        return sprintf('the custom property "%s" is a site design token the theme reads; change it site-wide with '
+            . 'update_design_token, or reference it in a value as "@%s"', $name, substr($name, 2));
+    }
+    if (_pp_udc_is_mint_shaped_name(substr($name, 2))) {
+        return sprintf('the custom property "%s" has the shape of a name the engine mints for itself; pick another name', $name);
+    }
+    return null;
+}
+
+/**
+ * Why one declaration of a scoped rule's `css` map is not admitted, or null (§6.3).
+ *
+ * Exactly Layer 2's value grammar — the property charset and §6.0's exclusions, typed where
+ * the vocabulary types the property, verbatim through the security gates where it does not,
+ * `@references` only where a type exists, breakpoint-keyed values — with the departures the
+ * contract names: no state keys (states live in the selector), author custom properties
+ * (P-20), `content` on its own closed grammar (§6.4), and the Layer-3 value additions.
+ *
+ * P-19 needs no departure at all: `background-image` is already TYPED in `_css` as the
+ * `background.image` parameter (an attachment id, single-valued), so `"background-image": 42`
+ * in a scoped rule is the A2 background, and the engine builds the same-install URL exactly
+ * as `_band.background.image` does.
+ */
+function _pp_udc_scoped_declaration_problem(string $property, $value, array $band_tokens, bool $at_emit = false): ?string {
+    if ($property !== '' && $property[0] === ':') {
+        return sprintf('"%s" is a state key, and a scoped rule says states in its selector: write '
+            . '"%s" at the end of the selector instead', _pp_udc_reflect($property), _pp_udc_reflect($property));
+    }
+    if ($property !== '' && $property[0] === '@') {
+        return sprintf('"%s" is not a declaration. At-rules are not written inside "css": a scoped rule carries '
+            . 'its own "media", "supports" and "container" conditions, and @keyframes, @import and every other '
+            . 'at-rule are not available (keyframe names are page-global and would override the theme\'s own)',
+            _pp_udc_reflect($property));
+    }
+    $leaves = is_array($value) ? $value : ['d' => $value];
+    if (is_array($value)) {
+        if ($value === []) {
+            return sprintf('"%s" must carry at least one breakpoint value', _pp_udc_reflect($property));
+        }
+        foreach (array_keys($value) as $bp) {
+            if (!isset(pp_udc_breakpoints()[$bp])) {
+                return sprintf('"%s" has no breakpoint "%s". Available breakpoints: %s', _pp_udc_reflect($property),
+                    _pp_udc_reflect((string) $bp), implode(', ', array_keys(pp_udc_breakpoints())));
+            }
+        }
+    }
+    foreach ($leaves as $leaf) {
+        if (!is_scalar($leaf) || is_bool($leaf)) {
+            return sprintf('"%s" must be a scalar value or a breakpoint-keyed object', _pp_udc_reflect($property));
+        }
+    }
+
+    $custom = strncmp($property, '--', 2) === 0;
+    if ($custom) {
+        $problem = pp_udc_scoped_custom_property_problem($property);
+        if ($problem !== null) {
+            return $problem;
+        }
+        // ROUTED ITEM 5, FAIL-CLOSED FROM THIS SIDE (#1242 T4, cycle-5 ruling (b)). A quoted string
+        // in a custom property reaches a text-bearing property through var(), and the read can
+        // sit in Layer 2's `_css` (`list-style-type: var(--m)`, `quotes`, `hyphenate-character`,
+        // `text-emphasis-style` all painted the text in Chromium), out of this sheet's sight. So
+        // while item 5 is open, an author custom property holds no string at all.
+        foreach ($leaves as $leaf) {
+            if (preg_match('/["\']/', (string) $leaf)) {
+                return sprintf('"%s" may not hold a string value: a custom property can carry it into a property '
+                    . 'that prints text (routed item 5, still open; M-7)', $property);
+            }
+        }
+        // Untyped: the registry's only custom property is `--pp-*`, refused above.
+        $param = pp_udc_css_param($property);
+    } elseif ($property === 'content') {
+        foreach ($leaves as $leaf) {
+            $problem = pp_layer3_content_problem((string) $leaf);
+            if ($problem !== null) {
+                return $problem;
+            }
+        }
+        return null;
+    } else {
+        if (!pp_udc_valid_css_property($property)) {
+            $hint = (strtolower($property) !== $property && pp_udc_valid_css_property(strtolower($property)))
+                ? sprintf(' CSS property names are case-insensitive, so write "%s".', strtolower($property))
+                : '';
+            return sprintf('"%s" is not a valid CSS property name: 1-64 lowercase letters, digits and hyphens, '
+                . 'optionally starting with one hyphen for a vendor prefix, or a custom property "--name".%s',
+                _pp_udc_reflect($property), $hint);
+        }
+        $exclusion = _pp_udc_css_exclusion_reason($property);
+        if ($exclusion !== null) {
+            return sprintf('"%s" is not available: %s', $property, $exclusion);
+        }
+        $param = pp_udc_css_param($property);
+    }
+
+    $untyped = !empty($param['untyped']);
+    if (!empty($param['single_valued']) && is_array($value)) {
+        return sprintf('"%s" takes one value only, so it accepts no breakpoint map', $property);
+    }
+    foreach ($leaves as $leaf) {
+        $literal = (string) $leaf;
+        $ref = pp_udc_parse_reference($literal);
+        if ($ref !== null) {
+            // P-19'S RATIFIED SHAPE IS THE ID ITSELF (#1242 T4, adversarial F1, ruled 2026-10-05): a
+            // scoped background takes a Media Library attachment id and the engine builds the URL.
+            // A token reference was never admitted, and the compiler checks the id as written, so
+            // `"background-image": "@img"` passed here and painted nothing, with no report.
+            if (($param['type'] ?? '') === 'attachment_id') {
+                return sprintf('"%s" takes a Media Library attachment id written as a number (for example 42), '
+                    . 'not the reference "@%s"', $property, _pp_udc_reflect($ref));
+            }
+            if ($untyped) {
+                return sprintf('"%s" cannot take the reference "@%s": this property has no declared grammar, so '
+                    . 'the engine cannot check that a token\'s value is usable here. Write the literal value instead',
+                    _pp_udc_reflect($property), _pp_udc_reflect($ref));
+            }
+            $error = _pp_udc_validate_scalar(sprintf('"%s"', $property), $literal, $param, $band_tokens);
+            if ($error !== null) {
+                return $error->get_error_message();
+            }
+            continue;
+        }
+        // AN ATTACHMENT DELETED AFTER A VALID WRITE is a DECLARATION-level drop at emit, the
+        // posture `_band.background.image` takes (I17): its siblings keep painting, and the
+        // compiler ledgers it. Here, at emit, only the id's shape is the rule's business.
+        if ($at_emit && ($param['type'] ?? '') === 'attachment_id') {
+            if (!preg_match('/\A[0-9]+\z/', trim($literal)) || (int) $literal <= 0) {
+                return sprintf('"%s" must be a Media Library attachment id', $property);
+            }
+            continue;
+        }
+        [$problem, $probe] = pp_layer3_value_problem($property, $literal);
+        if ($problem !== null) {
+            return $problem;
+        }
+        // P-13's fragment url() is admitted on the VERBATIM path only. A typed property
+        // emits through _pp_udc_place(), whose re-gate refuses every `url(`, so it is
+        // judged on the literal itself: a fragment there is refused at write rather
+        // than accepted and silently dropped at emit (#570).
+        $check = pp_udc_validate_value($untyped ? $probe : $literal, $param);
+        if ($check !== true) {
+            return sprintf('"%s": %s', _pp_udc_reflect($property), $check->get_error_message());
+        }
+    }
+    return null;
+}
+
+// ── Conditions (§6.5, P-21) ──────────────────────────────────────────────────
+
+/**
+ * The media features a scoped rule may test (P-21: non-width features), from the Media
+ * Queries Level 5 feature index, snapshot 2026-10. A discrete feature lists its keywords;
+ * a range feature says how its value is read and also takes the `min-`/`max-` prefixes.
+ *
+ * WIDTH IS ABSENT ON PURPOSE AND REFUSED BY NAME: the engine emits every width `@media`
+ * from pp_udc_breakpoints(), exactly as Layer 2 does, so a responsive value is a
+ * breakpoint map (`{"d": …, "p": …}`), never an authored width query.
+ *
+ * @return array<string, string[]|string>
+ */
+function pp_udc_scoped_media_features(): array {
+    return [
+        'any-hover' => ['none', 'hover'], 'hover' => ['none', 'hover'],
+        'any-pointer' => ['none', 'coarse', 'fine'], 'pointer' => ['none', 'coarse', 'fine'],
+        'color-gamut' => ['srgb', 'p3', 'rec2020'], 'video-color-gamut' => ['srgb', 'p3', 'rec2020'],
+        'dynamic-range' => ['standard', 'high'], 'video-dynamic-range' => ['standard', 'high'],
+        'forced-colors' => ['none', 'active'], 'inverted-colors' => ['none', 'inverted'],
+        'orientation' => ['portrait', 'landscape'], 'overflow-block' => ['none', 'scroll', 'paged'],
+        'overflow-inline' => ['none', 'scroll'], 'prefers-color-scheme' => ['light', 'dark'],
+        'prefers-contrast' => ['no-preference', 'less', 'more', 'custom'],
+        'prefers-reduced-data' => ['no-preference', 'reduce'], 'prefers-reduced-motion' => ['no-preference', 'reduce'],
+        'prefers-reduced-transparency' => ['no-preference', 'reduce'], 'scan' => ['interlace', 'progressive'],
+        'scripting' => ['none', 'initial-only', 'enabled'], 'update' => ['none', 'slow', 'fast'],
+        'display-mode' => ['fullscreen', 'standalone', 'minimal-ui', 'browser', 'picture-in-picture'],
+        'grid' => ['0', '1'],
+        'aspect-ratio' => 'ratio', 'height' => 'length', 'resolution' => 'resolution',
+        'color' => 'integer', 'color-index' => 'integer', 'monochrome' => 'integer',
+        'horizontal-viewport-segments' => 'integer', 'vertical-viewport-segments' => 'integer',
+    ];
+}
+
+/** The size features a scoped rule's `container` condition may test (P-21). */
+function pp_udc_scoped_container_features(): array {
+    return [
+        'width' => 'length', 'height' => 'length', 'inline-size' => 'length', 'block-size' => 'length',
+        'aspect-ratio' => 'ratio', 'orientation' => ['portrait', 'landscape'],
+    ];
+}
+
+/**
+ * Why a rule's `media`, `supports` or `container` prelude is not admitted, or null (§6.5).
+ *
+ * A small closed grammar per kind, walked by the same bounded approach as the selector:
+ *   condition := "not" in-parens | in-parens ( ("and" in-parens)+ | ("or" in-parens)+ )?
+ *   in-parens := "(" condition ")" | "(" feature ")"
+ * `media` may lead with a media type (all|screen|print, optionally after not|only), then
+ * "and" conditions. `container` may lead with a container name. `supports` tests
+ * `(property: value)` declarations, whose value passes the same Layer-3 value gate;
+ * `selector()` and the other supports functions are refused. Range syntax
+ * (`(height >= 600px)`) is refused: `min-height`/`max-height` is its one spelling, and `<`
+ * is a byte that never reaches a style element from author input.
+ */
+function pp_udc_scoped_condition_problem(string $kind, $prelude): ?string {
+    if (!is_string($prelude)) {
+        return sprintf('"%s" must be a string', $kind);
+    }
+    if (strlen($prelude) > PP_UDC_SCOPED_SELECTOR_MAX_BYTES) {
+        return sprintf('"%s" is longer than %d bytes', $kind, PP_UDC_SCOPED_SELECTOR_MAX_BYTES);
+    }
+    // Trimmed of ASCII whitespace like a selector entry, and the compiler trims the same way;
+    // inside, the charset below admits the space byte only.
+    $p = trim($prelude, " \t\n\r\f");
+    if ($p === '') {
+        return sprintf('"%s" is empty', $kind);
+    }
+    // `<`, `>` and `=` pass this byte check only so the feature step can name range syntax
+    // in its refusal; no feature admits them, so they never reach a style element.
+    $charset = $kind === 'supports' ? '/\A[A-Za-z0-9 ()\-:.,\/%#"\'_+*]+\z/' : '/\A[A-Za-z0-9 ()\-:.\/_<>=]+\z/';
+    if (!preg_match($charset, $p)) {
+        return sprintf('"%s" carries a character a %s condition cannot contain', $kind, $kind === 'supports' ? '@supports' : '@' . $kind);
+    }
+    $tokens = $p;
+    if ($kind === 'media') {
+        if (preg_match('/\A(?:(not|only) )?(all|screen|print)(?: and (.+))?\z/i', $p, $m)) {
+            if (empty($m[3])) { // a bare type, optionally after not/only
+                return null;
+            }
+            if (preg_match('/\bor\b/i', $m[3])) {
+                return '"media": after a media type, conditions join with "and" only';
+            }
+            $tokens = $m[3];
+        } elseif (preg_match('/\A[a-z-]+\z/i', $p)) {
+            return sprintf('"media": "%s" is not a media type here: use all, screen or print', _pp_udc_reflect($p));
+        }
+    }
+    if ($kind === 'container' && preg_match('/\A(-?[A-Za-z_][A-Za-z0-9_-]*) (.+)\z/', $p, $m)
+        && !in_array(strtolower($m[1]), ['not', 'and', 'or'], true)) {
+        if (in_array(strtolower($m[1]), ['none', 'inherit', 'initial', 'unset', 'revert', 'default'], true)) {
+            return sprintf('"container": "%s" cannot name a container', $m[1]);
+        }
+        $tokens = $m[2];
+    }
+    $i = 0;
+    $problem = _pp_udc_scoped_condition($kind, $tokens, $i, 0);
+    if ($problem !== null) {
+        return $problem;
+    }
+    if ($i !== strlen($tokens)) {
+        return sprintf('"%s": unexpected text "%s"', $kind, _pp_udc_reflect(substr($tokens, $i)));
+    }
+    return null;
+}
+
+/**
+ * condition := "not " in-parens | in-parens ((" and " in-parens)+ | (" or " in-parens)+)?
+ *
+ * Depth counts nested CONDITION parentheses, the same bound the selector walk puts on
+ * functional pseudo-classes; a feature's own parentheses do not count, so
+ * `((((hover))))` is three levels of nesting around one feature test.
+ */
+function _pp_udc_scoped_condition(string $kind, string $s, int &$i, int $depth): ?string {
+    if ($depth > PP_UDC_SCOPED_MAX_DEPTH) {
+        return sprintf('"%s": conditions nest at most %d deep', $kind, PP_UDC_SCOPED_MAX_DEPTH);
+    }
+    if (strncasecmp(substr($s, $i), 'not ', 4) === 0) {
+        $i += 4;
+        return _pp_udc_scoped_in_parens($kind, $s, $i, $depth);
+    }
+    $problem = _pp_udc_scoped_in_parens($kind, $s, $i, $depth);
+    if ($problem !== null) {
+        return $problem;
+    }
+    $joiner = '';
+    while (preg_match('/\G (and|or) /i', $s, $m, 0, $i)) {
+        $word = strtolower($m[1]);
+        if ($joiner !== '' && $word !== $joiner) {
+            return sprintf('"%s": "and" and "or" cannot be mixed at one level without parentheses', $kind);
+        }
+        $joiner = $word;
+        $i += strlen($m[0]);
+        $problem = _pp_udc_scoped_in_parens($kind, $s, $i, $depth);
+        if ($problem !== null) {
+            return $problem;
+        }
+    }
+    return null;
+}
+
+/** in-parens := "(" condition ")" | "(" feature ")" */
+function _pp_udc_scoped_in_parens(string $kind, string $s, int &$i, int $depth): ?string {
+    if ($i >= strlen($s) || $s[$i] !== '(') {
+        if (preg_match('/\G[a-z-]+\(/i', $s, $m, 0, $i)) {
+            return sprintf('"%s": %s) is not accepted here', $kind, _pp_udc_reflect($m[0]));
+        }
+        return sprintf('"%s": expected "(" at byte %d', $kind, $i + 1);
+    }
+    $close = _pp_udc_scoped_matching_paren($s, $i + 1);
+    if ($close === null) {
+        return sprintf('"%s": a "(" is not closed', $kind);
+    }
+    $inner = trim(substr($s, $i + 1, $close - $i - 1), ' ');
+    if ($inner === '') {
+        return sprintf('"%s": empty parentheses', $kind);
+    }
+    if ($inner[0] === '(' || strncasecmp($inner, 'not ', 4) === 0) {
+        $j = 0;
+        $problem = _pp_udc_scoped_condition($kind, $inner, $j, $depth + 1);
+        if ($problem !== null) {
+            return $problem;
+        }
+        if ($j !== strlen($inner)) {
+            return sprintf('"%s": unexpected text "%s"', $kind, _pp_udc_reflect(substr($inner, $j)));
+        }
+    } else {
+        $problem = _pp_udc_scoped_feature($kind, $inner);
+        if ($problem !== null) {
+            return $problem;
+        }
+    }
+    $i = $close + 1;
+    return null;
+}
+
+/** One `name` / `name: value` feature, or one `property: value` supports declaration. */
+function _pp_udc_scoped_feature(string $kind, string $feature): ?string {
+    if ($kind === 'supports') {
+        if (!preg_match('/\A(--[A-Za-z0-9_-]{1,64}|-?[a-z][a-z0-9-]{0,63}) *: *(.+)\z/s', $feature, $m)) {
+            return '"supports" tests "(property: value)" declarations only';
+        }
+        [$problem, $probe] = pp_layer3_value_problem($m[1], $m[2]);
+        if ($problem !== null) {
+            return '"supports": ' . $problem;
+        }
+        $forbidden = _pp_forbidden_css_construct($probe);
+        if ($forbidden !== null || !_pp_udc_delimiters_balanced($probe)) {
+            return sprintf('"supports": the value of "%s" %s', _pp_udc_reflect($m[1]), $forbidden ?? 'is not balanced');
+        }
+        return null;
+    }
+    if (preg_match('/[<>=]/', $feature)) {
+        return sprintf('"%s": range syntax is not accepted; write min-/max- (for example (min-height: 600px))', $kind);
+    }
+    if (!preg_match('/\A([A-Za-z-]+)(?: *: *(.+))?\z/', $feature, $m)) {
+        return sprintf('"%s": "%s" is not a feature test', $kind, _pp_udc_reflect($feature));
+    }
+    // Feature names and keywords are ASCII case-insensitive in CSS; matched lowercased,
+    // emitted as written.
+    $name  = strtolower($m[1]);
+    $value = isset($m[2]) ? strtolower(trim($m[2])) : null;
+    $base  = preg_replace('/\A(?:min|max)-/', '', $name);
+    $prefixed = $base !== $name;
+    if ($kind === 'media' && in_array($base, ['width', 'device-width'], true)) {
+        return '"media": width is engine-owned. A responsive value is a breakpoint map ({"d": …, "t": …, "p": …}), '
+            . 'and the engine writes every width @media itself (P-21)';
+    }
+    $table = $kind === 'media' ? pp_udc_scoped_media_features() : pp_udc_scoped_container_features();
+    if (!isset($table[$base])) {
+        return sprintf('"%s": "%s" is not a feature this engine knows (it would match nothing)', $kind, _pp_udc_reflect($name));
+    }
+    $grammar = $table[$base];
+    if ($prefixed && is_array($grammar)) {
+        return sprintf('"%s": "%s" takes no min-/max- prefix', $kind, $base);
+    }
+    if ($value === null) {
+        return $prefixed ? sprintf('"%s": "%s" needs a value', $kind, $name) : null;
+    }
+    if (is_array($grammar)) {
+        return in_array($value, $grammar, true) ? null
+            : sprintf('"%s": "%s" takes one of %s', $kind, $name, implode(', ', $grammar));
+    }
+    $ok = [
+        'length'     => '/\A(?:0|\d{1,5}(?:\.\d{1,4})?(?:px|em|rem|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|cqw|cqh|cqi|cqb))\z/',
+        'ratio'      => '/\A\d{1,5}(?:\.\d{1,4})?(?: *\/ *\d{1,5}(?:\.\d{1,4})?)?\z/',
+        'resolution' => '/\A\d{1,5}(?:\.\d{1,4})?(?:dpi|dpcm|dppx|x)\z/',
+        'integer'    => '/\A\d{1,5}\z/',
+    ][$grammar];
+    return preg_match($ok, $value) ? null : sprintf('"%s": "%s" takes a %s value', $kind, $name, $grammar);
+}
+
+// ── The rule, as a whole (§6.1) ──────────────────────────────────────────────
+
+/** The keys a scoped rule may carry. */
+function pp_udc_scoped_rule_keys(): array {
+    return ['selector', 'css', 'media', 'supports', 'container'];
+}
+
+/**
+ * Why one stored rule is not admitted, or null — the shape, the selector, the conditions and
+ * every declaration, in that order. ONE PREDICATE for the write gate and the compiler.
+ *
+ * @return array{0: string, 1: string}|null [locator suffix, reason]
+ */
+/**
+ * Whether this band's own Layer-2 `_css` opens a list-marker TEXT CHANNEL: any `list-style-type`
+ * or `list-style` value OUTSIDE the closed keyword set, on any role, in any state or breakpoint.
+ *
+ * PRESENCE OF THE CHANNEL, NOT SPELLING OF THE PAYLOAD (#1242 T4, cycle-5 ruling (a)). The first
+ * cut looked for a quote character and missed `list-style-type: var(--pp-tok)` reading a band
+ * token `"BUY NOW "`, and `var(--m)` reading a scoped custom property: both rendered the text in
+ * Chromium. Anything that is not a plain keyword now counts. So does a Layer-2 counter value
+ * outside the names-only grammar (cycle-6 ruling): `counter-reset: x 5551234` there is printed by
+ * a scoped `content: counter(x)`, and `counter-set: list-item 731` spells "ABC." in a marker.
+ *
+ * WHY THE SCOPED SHEET ASKS (#1242 T4, Q5, ruled 2026-10-05). `list-style-type` is inherited,
+ * so a string marker set on a role reaches every list item below it. A scoped
+ * `display: list-item` would turn any element there into a list item that paints that string,
+ * M-7's text channel by another route. The scoped sheet refuses `display: list-item` on such a
+ * band; Layer 2's own string markers are #1168's subject.
+ */
+function _pp_udc_band_has_string_list_marker(array $udc): bool {
+    foreach ($udc as $role => $role_map) {
+        if (in_array((string) $role, pp_udc_reserved_keys(), true) || !is_array($role_map)
+            || !isset($role_map[PP_UDC_CSS_KEY]) || !is_array($role_map[PP_UDC_CSS_KEY])) {
+            continue;
+        }
+        $stack = [$role_map[PP_UDC_CSS_KEY]];
+        while ($stack !== []) {
+            foreach (array_pop($stack) as $key => $value) {
+                if (is_array($value)) {
+                    $base = (string) preg_replace('/\A-[a-z]+-/', '', (string) $key);
+                    if (in_array($base, ['list-style-type', 'list-style'], true)) {
+                        foreach ($value as $leaf) {
+                            if (!_pp_udc_marker_keyword_ok($base, $leaf)) {
+                                return true;
+                            }
+                        }
+                        continue;
+                    }
+                    if (in_array($base, ['counter-reset', 'counter-set', 'counter-increment'], true)) {
+                        foreach ($value as $leaf) {
+                            if (!is_scalar($leaf) || !pp_layer3_counter_value_is_names_only((string) $leaf)) {
+                                return true;
+                            }
+                        }
+                        continue;
+                    }
+                    $stack[] = $value; // a state sub-map
+                    continue;
+                }
+                $base = (string) preg_replace('/\A-[a-z]+-/', '', (string) $key);
+                if (in_array($base, ['list-style-type', 'list-style'], true) && !_pp_udc_marker_keyword_ok($base, $value)) {
+                    return true;
+                }
+                // A Layer-2 counter value outside the names-only grammar (an integer) is the same
+                // channel: the scoped sheet's counter() and list markers would print it (cycle-6
+                // ruling; Layer 2's own case is #1168/#1254).
+                if (in_array($base, ['counter-reset', 'counter-set', 'counter-increment'], true)
+                    && (!is_scalar($value) || !pp_layer3_counter_value_is_names_only((string) $value))) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Whether one value of `display`, `list-style` or `list-style-type` (unprefixed name) is inside
+ * the CLOSED keyword set: no `list-item`, no CSS-wide keyword, no `var()`/`env()`, no string,
+ * nothing else. ONE OWNER for both questions it answers: whether a band's Layer-2 marker could
+ * carry text (_pp_udc_band_has_string_list_marker()) and what the scoped sheet may write on
+ * such a band (_pp_udc_scoped_marker_band_problem()).
+ */
+function _pp_udc_marker_keyword_ok(string $base, $leaf): bool {
+    static $display = ['block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'flow-root',
+        'none', 'contents', 'table', 'inline-table', 'table-row', 'table-cell', 'table-caption', 'table-column',
+        'table-column-group', 'table-header-group', 'table-footer-group', 'table-row-group'];
+    static $types = ['none', 'disc', 'circle', 'square', 'decimal', 'decimal-leading-zero', 'lower-roman', 'upper-roman',
+        'lower-alpha', 'upper-alpha', 'lower-latin', 'upper-latin', 'lower-greek'];
+    if (!is_scalar($leaf) || is_bool($leaf)) {
+        return false;
+    }
+    $tokens = preg_split('/ +/', strtolower(trim((string) $leaf, ' ')));
+    if ($base === 'display') {
+        return count($tokens) === 1 && in_array($tokens[0], $display, true);
+    }
+    if ($base === 'list-style-type') {
+        return count($tokens) === 1 && in_array($tokens[0], $types, true);
+    }
+    return count($tokens) <= 2 && array_diff($tokens, array_merge($types, ['inside', 'outside'])) === [];
+}
+
+/**
+ * On a band whose `_css` sets a string list marker: `display`, `list-style` and
+ * `list-style-type` take a CLOSED keyword set (#1242 T4, cycle-4 ruling: kill the class, not
+ * the probes). The set leaves out `list-item`, every CSS-wide keyword (`inherit`, `initial`,
+ * `unset`, `revert`, `revert-layer`) and every `var()`/`env()` indirection, so no spelling
+ * can bring the inherited marker back: the three reproductions were `list-style-type:
+ * inherit` with `display: revert`, `display: var(--d)` with `--d: list-item`, and
+ * `display: list-item` itself. Anything outside the set refuses with this clause.
+ */
+function _pp_udc_scoped_marker_band_problem(string $property, $value): ?string {
+    $base = (string) preg_replace('/\A-[a-z]+-/', '', $property);
+    if ($base === 'content') {
+        foreach (is_array($value) ? $value : [$value] as $leaf) {
+            if (!is_scalar($leaf) || !in_array(strtolower(trim((string) $leaf)), ['""', "''", 'none', 'normal'], true)) {
+                return 'content on this band takes only "" (an empty string), none or normal: its "_css" opens a '
+                    . 'list-marker or counter channel, and counter() would print it (M-7)';
+            }
+        }
+        return null;
+    }
+    if (!in_array($base, ['display', 'list-style', 'list-style-type'], true)) {
+        return null;
+    }
+    foreach (is_array($value) ? $value : [$value] as $leaf) {
+        if (!_pp_udc_marker_keyword_ok($base, $leaf)) {
+            return sprintf('"%s" on this band takes only a fixed set of keywords (no list-item, no inherit/initial/unset/'
+                . 'revert/revert-layer, no var() or env()): its "_css" sets a list marker written as a string, and a '
+                . 'list item would paint that text (M-7)', $property);
+        }
+    }
+    return null;
+}
+
+function pp_udc_scoped_rule_problem($rule, string $component, array $band_tokens, bool $at_emit = false, bool $band_string_marker = false): ?array {
+    if (!is_array($rule) || $rule === [] || pp_is_list($rule)) {
+        return ['', 'each rule must be an object {"selector": …, "css": {…}}'];
+    }
+    foreach (array_keys($rule) as $key) {
+        if (!in_array((string) $key, pp_udc_scoped_rule_keys(), true)) {
+            return ['', sprintf('a rule has no key %s. Rule keys: %s', _pp_render_undeclared_prop_keys([(string) $key]),
+                implode(', ', pp_udc_scoped_rule_keys()))];
+        }
+    }
+    if (!array_key_exists('selector', $rule)) {
+        return ['', 'a rule needs a "selector"'];
+    }
+    $problem = pp_udc_scoped_selector_problem($rule['selector'], $component);
+    if ($problem !== null) {
+        return [' "selector"', $problem];
+    }
+    foreach (['media', 'supports', 'container'] as $kind) {
+        if (array_key_exists($kind, $rule)) {
+            $problem = pp_udc_scoped_condition_problem($kind, $rule[$kind]);
+            if ($problem !== null) {
+                // The location already names the condition; a message that names it too would
+                // read `"supports": "supports": …`.
+                $problem = (string) preg_replace('/\A"' . $kind . '": /', '', $problem);
+                $problem = (string) preg_replace('/\A"' . $kind . '" /', 'the condition ', $problem);
+                return [' "' . $kind . '"', $problem];
+            }
+        }
+    }
+    if (!isset($rule['css']) || !is_array($rule['css']) || $rule['css'] === [] || pp_is_list($rule['css'])) {
+        return [' "css"', 'a rule needs a non-empty "css" object of property => value'];
+    }
+    if (count($rule['css']) > PP_UDC_SCOPED_MAX_DECLARATIONS) {
+        return [' "css"', sprintf('a rule holds at most %d declarations; this one holds %d (split it into more rules)',
+            PP_UDC_SCOPED_MAX_DECLARATIONS, count($rule['css']))];
+    }
+    foreach ($rule['css'] as $property => $value) {
+        $problem = _pp_udc_scoped_declaration_problem((string) $property, $value, $band_tokens, $at_emit);
+        if ($problem !== null) {
+            return [' "css"', $problem];
+        }
+        if ($band_string_marker) {
+            $problem = _pp_udc_scoped_marker_band_problem((string) $property, $value);
+            if ($problem !== null) {
+                return [' "css"', $problem];
+            }
+        }
+        // A RULE THAT CAN MATCH THE BAND ROOT ITSELF (an entry beginning with `:` or `::`, §6.2's
+        // first emission row) takes only the closed `display` set, on EVERY band (#1242 T4, last
+        // ruling). Band roots are siblings in <main>, and a root made a list item is numbered from
+        // the earlier band roots that are list items: band A's Layer-2 `display: list-item;
+        // counter-set: list-item 5551233` printed "5551234." on band B's root in Chromium. Layer 2 alone can do that too (#1254 owns it);
+        // this closes the scoped sheet's second route without page-wide context.
+        $on_root = is_string($rule['selector']) && ltrim($rule['selector'], " \t\n\r\f")[0] === ':';
+        // NO CUSTOM PROPERTY ON A RULE THAT CAN MATCH THE BAND ROOT (#1242 T4, final ruling). The
+        // channel is "a scoped custom property set on the root that Layer 2 can read": band B's
+        // Layer-2 `display: var(--d, block)` read a scoped root `--d: list-item` and painted
+        // "5551234." in Chromium, the third spelling of one class in three passes. So the
+        // channel closes, not the spelling: custom properties go on inner elements.
+        if ($on_root && strncmp((string) $property, '--', 2) === 0) {
+            return [' "css"', sprintf('the custom property "%s" may not be set on a rule that can match the band root: '
+                . 'the band\'s own "_css" can read it there through var() (M-7; #1254). Set it on an element inside the '
+                . 'band instead', _pp_udc_reflect((string) $property))];
+        }
+        if (preg_replace('/\A-[a-z]+-/', '', (string) $property) === 'display' && $on_root) {
+            foreach (is_array($value) ? $value : [$value] as $leaf) {
+                if (!_pp_udc_marker_keyword_ok('display', $leaf)) {
+                    return [' "css"', 'on a rule that can match the band root, "display" takes only a fixed set of keywords '
+                        . '(no list-item, no inherit/initial/unset/revert/revert-layer, no var()): a band root made a list '
+                        . 'item is numbered from the bands before it, which can print a number set there (M-7; #1254)'];
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * The write gate for `_scoped` (§6.1): a list of at most PP_UDC_SCOPED_MAX_RULES rules, on a
+ * band (P-3: every band; chrome is not a band and refuses it).
+ */
+function _pp_udc_validate_scoped($scoped, string $component, array $band_tokens, array $udc = []): ?WP_Error {
+    if (pp_udc_is_chrome($component)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s": "%s" is not available on site chrome. The scoped sheet is confined to one band '
+            . '(P-3), and chrome is not a band: style chrome through its roles and "_css".',
+            $component, PP_UDC_SCOPED_KEY
+        ));
+    }
+    if (!is_array($scoped) || !pp_is_list($scoped)) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s" udc "%s" must be a list of rules, [{"selector": …, "css": {…}}]; got %s. '
+            . 'Rule order is the cascade\'s tie-breaker, which is why it is a list.',
+            $component, PP_UDC_SCOPED_KEY, _pp_schema_value_for_message($scoped)
+        ));
+    }
+    if (count($scoped) > PP_UDC_SCOPED_MAX_RULES) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s" udc "%s" holds %d rules; a band takes at most %d.',
+            $component, PP_UDC_SCOPED_KEY, count($scoped), PP_UDC_SCOPED_MAX_RULES
+        ));
+    }
+    $string_marker = _pp_udc_band_has_string_list_marker($udc);
+    foreach ($scoped as $index => $rule) {
+        $problem = pp_udc_scoped_rule_problem($rule, $component, $band_tokens, false, $string_marker);
+        if ($problem !== null) {
+            return new WP_Error('invalid_prop_value', sprintf(
+                'Component "%s" udc "%s"[%d]%s: %s.',
+                $component, PP_UDC_SCOPED_KEY, $index, $problem[0], rtrim($problem[1], '.')
+            ));
+        }
+    }
+    // The compiled size, measured under the longest legal band id (64 bytes), so what is
+    // accepted here is never clipped at emit under the band's real, shorter id.
+    $referenced = [];
+    $no_ledger  = null;
+    $clipped_at = null;
+    _pp_udc_compile_scoped([PP_UDC_SCOPED_KEY => $scoped], $component, str_repeat('x', PP_UDC_BAND_ID_MAX), $band_tokens,
+        $referenced, $no_ledger, $clipped_at);
+    if ($clipped_at !== null) {
+        return new WP_Error('invalid_prop_value', sprintf(
+            'Component "%s" udc "%s"[%d]: the band\'s compiled scoped sheet would pass %d KiB at this rule. '
+            . 'A band\'s sheet is at most %d KiB (every breakpoint and condition re-prints its selector): '
+            . 'shorten selectors, merge rules or move styling into roles.',
+            $component, PP_UDC_SCOPED_KEY, $clipped_at, PP_UDC_SCOPED_MAX_SHEET_BYTES / 1024, PP_UDC_SCOPED_MAX_SHEET_BYTES / 1024
+        ));
+    }
+    return null;
+}
+
+/**
+ * Compiles the band's scoped sheet (§6, M-5), re-gating every stored rule (the #570 rule).
+ *
+ * A rule the predicate refuses is DROPPED WHOLE and ledgered — a half-rule would paint a
+ * selector the author never saw validated with only some of its declarations. Typed
+ * properties place through _pp_udc_place(), the same function `_css` uses, so references,
+ * the attachment-id background and every typed grammar resolve exactly as they do there;
+ * band tokens a scoped rule references are marked in $referenced so they emit.
+ *
+ * @return array<int, array{selector: string, at: array<string, string>, by_bp: array<string, array<string, string>>, motion: bool}>
+ */
+function _pp_udc_compile_scoped(array $udc, string $component, string $id, array $band_tokens, array &$referenced, ?array &$drops, ?int &$clipped_at = null): array {
+    if (!array_key_exists(PP_UDC_SCOPED_KEY, $udc)) {
+        return [];
+    }
+    $note = static function (string $where, string $reason) use (&$drops): void {
+        if ($drops !== null && count($drops) < PP_UDC_MAX_EMIT_DROPS) {
+            $drops[] = ['where' => $where, 'reason' => $reason];
+        }
+    };
+    $scoped = $udc[PP_UDC_SCOPED_KEY];
+    if (pp_udc_is_chrome($component)) {
+        $note('"' . PP_UDC_SCOPED_KEY . '"', 'site chrome is not a band, so it takes no scoped sheet');
+        return [];
+    }
+    if (!is_array($scoped) || !pp_is_list($scoped)) {
+        $note('"' . PP_UDC_SCOPED_KEY . '"', 'the scoped sheet is not a list of rules');
+        return [];
+    }
+    $out           = [];
+    $sheet_bytes   = 0;
+    $string_marker = _pp_udc_band_has_string_list_marker($udc);
+    $breakpoints = pp_udc_breakpoints();
+    $motion      = _pp_udc_motion_properties();
+    foreach (array_slice($scoped, 0, PP_UDC_SCOPED_MAX_RULES, true) as $index => $rule) {
+        $where   = sprintf('"%s"[%d]', PP_UDC_SCOPED_KEY, $index);
+        $problem = pp_udc_scoped_rule_problem($rule, $component, $band_tokens, true, $string_marker);
+        if ($problem !== null) {
+            $note($where . $problem[0], _pp_udc_reflect($problem[1]));
+            continue;
+        }
+        $by_bp      = [];
+        $has_motion = false;
+        foreach ($rule['css'] as $property => $value) {
+            $property = (string) $property;
+            $param    = (strncmp($property, '--', 2) === 0 || $property === 'content') ? null : pp_udc_css_param($property);
+            if ($param !== null && empty($param['untyped'])) {
+                if (($param['type'] ?? '') === 'attachment_id' && pp_udc_background_image_url($value) === null) {
+                    // A DELETED ATTACHMENT DROPS THIS ONE DECLARATION, with NO ledger row here:
+                    // check 8c (pp_check_udc_background_images) owns that report for the
+                    // sheet as it does for roles, with the next action this ledger cannot
+                    // give (re-import the image). Two rows for one fact is the I25 shape.
+                    continue;
+                }
+                $resolved = [];
+                _pp_udc_place($resolved, '', [$property => $param], $property, $value, 'udc', $band_tokens,
+                    $breakpoints, $referenced, $drops, $drops === null ? '' : $where . ' "css"', true);
+                foreach (($resolved[''] ?? []) as $bp => $decls) {
+                    foreach ($decls as $out_property => $entry) {
+                        if ($out_property === PP_UDC_BACKGROUND_OVERLAY_CARRIER || !isset($entry['css'])) {
+                            continue;
+                        }
+                        $by_bp[$bp][$out_property] = (string) $entry['css'];
+                    }
+                }
+            } else {
+                foreach ((is_array($value) ? $value : ['d' => $value]) as $bp => $leaf) {
+                    $by_bp[(string) $bp][$property] = (string) $leaf;
+                }
+            }
+            // A vendor-prefixed motion property is motion too (`-webkit-animation`).
+            $has_motion = $has_motion || isset($motion[$property]) || isset($motion[(string) preg_replace('/\A-[a-z]+-/', '', $property)]);
+        }
+        if ($by_bp === []) {
+            continue;
+        }
+        $at = [];
+        foreach (['media', 'supports', 'container'] as $kind) {
+            if (isset($rule[$kind])) {
+                $at[$kind] = trim((string) $rule[$kind], " \t\n\r\f");
+            }
+        }
+        $compiled_rule = [
+            'selector' => pp_udc_scoped_emitted_selector($id, (string) $rule['selector']),
+            'at'       => $at,
+            'by_bp'    => $by_bp,
+            'motion'   => $has_motion,
+        ];
+        // THE PER-BAND BYTE BOUND (#1242 Q3): measured on what this rule prints, so the bound
+        // is the bytes a browser receives, breakpoint and condition re-prints included.
+        $sheet_bytes += strlen(_pp_udc_render_scoped([$compiled_rule]));
+        if ($sheet_bytes > PP_UDC_SCOPED_MAX_SHEET_BYTES) {
+            $clipped_at = (int) $index;
+            $note('"' . PP_UDC_SCOPED_KEY . '"[' . (int) $index . ']', sprintf(
+                'the band\'s compiled scoped sheet passes %d KiB here, so this rule and the ones after it do not paint',
+                PP_UDC_SCOPED_MAX_SHEET_BYTES / 1024
+            ));
+            break;
+        }
+        $out[] = $compiled_rule;
+    }
+    if (count($scoped) > PP_UDC_SCOPED_MAX_RULES) {
+        $note('"' . PP_UDC_SCOPED_KEY . '"', sprintf('only the first %d rules paint', PP_UDC_SCOPED_MAX_RULES));
+    }
+    return $out;
+}
+
+/**
+ * Renders the compiled scoped sheet (§5.5, §6.5): in rule order, each rule's base tier and
+ * then its breakpoint tiers in the engine's emit order, each wrapped as
+ * `@media <engine bp>{@media <author>{@supports …{@container …{<selector>{…}}}}}`.
+ *
+ * EACH RULE PRINTS ALONE, and so does each reduced-motion guard: one selector a browser
+ * does not support (`:popover-open` in an older engine) drops only its own rule, where a
+ * comma-joined list would drop every selector in it (CSS discards the whole rule).
+ */
+function _pp_udc_render_scoped(array $scoped): string {
+    $css    = '';
+    $guards = '';
+    $tiers  = pp_udc_breakpoints_in_emit_order();
+    foreach ($scoped as $rule) {
+        foreach (['base', 'media'] as $pass) {
+            foreach ($tiers as $bp => $meta) {
+                if (($pass === 'base') !== ($meta['media'] === null) || empty($rule['by_bp'][$bp])) {
+                    continue;
+                }
+                $decls = '';
+                foreach ($rule['by_bp'][$bp] as $property => $value) {
+                    $decls .= $property . ':' . $value . ';';
+                }
+                $block = $rule['selector'] . '{' . $decls . '}';
+                foreach (['container', 'supports', 'media'] as $kind) {
+                    if (isset($rule['at'][$kind])) {
+                        $block = '@' . $kind . ' ' . $rule['at'][$kind] . '{' . $block . '}';
+                    }
+                }
+                $css .= $meta['media'] === null ? $block : '@media ' . $meta['media'] . '{' . $block . '}';
+            }
+        }
+        if (!empty($rule['motion'])) {
+            // Animation too: base.css's global kill switch matches `*, *::before, *::after`
+            // only, and the sheet reaches `::marker`, `::backdrop` and other pseudo-elements
+            // it does not (found by the pre-landing red team).
+            $guards .= '@media (prefers-reduced-motion: reduce){' . $rule['selector']
+                . '{transition-duration:0.01ms;animation-duration:0.01ms;animation-iteration-count:1;}}';
+        }
+    }
+    return $css . $guards;
 }

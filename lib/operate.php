@@ -3050,6 +3050,29 @@ function pp_component_schema_report(string $component): array|WP_Error {
                 . 'any other property is checked for safety only and emitted verbatim.',
             'excluded'  => array_keys(pp_udc_css_excluded_properties()),
         ];
+        // THE SCOPED SHEET IS AUTHORING SURFACE TOO (Layer 3B, #1242 T4), and for the same reason
+        // `udc_raw_css` is here: `_scoped` is neither a role nor a group, so without this a CLI
+        // operator or an SSH-only agent had no discovery route to it. Every field is DERIVED from
+        // the engine's own constants and pinned tables, so it cannot drift from the gate.
+        if (!pp_udc_is_chrome($component)) {
+            $report['udc_scoped'] = [
+                'key'              => PP_UDC_SCOPED_KEY,
+                'grain'            => 'The band\'s own `udc` map, beside `_tokens`: a LIST of rules, each emitted as '
+                    . '`[data-pp-band="<id>"]<selector>`, so its subject is the band root or inside it. Not on chrome or items.',
+                'rule_keys'        => pp_udc_scoped_rule_keys(),
+                'max_rules'        => PP_UDC_SCOPED_MAX_RULES,
+                'max_declarations' => PP_UDC_SCOPED_MAX_DECLARATIONS,
+                'max_sheet_bytes'  => PP_UDC_SCOPED_MAX_SHEET_BYTES,
+                'max_selector_bytes' => PP_UDC_SCOPED_SELECTOR_MAX_BYTES,
+                'pseudo_classes'   => array_keys(pp_udc_scoped_pseudo_classes()),
+                'pseudo_elements'  => array_keys(pp_udc_scoped_pseudo_elements()),
+                'css'              => 'The `_css` grammar, except: no state keys (states go in the selector); author custom '
+                    . 'properties allowed (no strings, not `--pp-*` or a site token name, not on a rule that can match the band '
+                    . 'root); `content` only "", none or normal; CSS functions from a fixed list; url() only as url(#id) on '
+                    . 'filter, clip-path, mask, marker, fill or stroke; a background image as an attachment id.',
+                'media_features'   => array_keys(pp_udc_scoped_media_features()),
+            ];
+        }
     }
 
     return $report;

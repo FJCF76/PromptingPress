@@ -50,7 +50,7 @@ auto-loader picks up any component at `/components/{name}/{name}.php` — no reg
 | `AI_CONTEXT.md` | Orientation, file map, component index | Start here |
 | `AI_RULES.md` | Hard invariants, coding rules | Overrides everything else |
 | `ai-instructions/*.md` | Task-specific workflows | Executable procedures |
-| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file. Readable without filesystem access via `wp pp schema {name}` (#688): props, `roles` (each entry's `role`, `selector`, `groups`, `description`, and when declared its `defaults`, `obligations`, `overlay_defaults`, `within` and `text_content`), `udc_groups`, `udc_raw_css`, `item_roles` |
+| `components/{name}/schema.json` | Prop contracts (types, required) | Supersedes prose in any other file. Readable without filesystem access via `wp pp schema {name}` (#688): props, `roles` (each entry's `role`, `selector`, `groups`, `description`, and when declared its `defaults`, `obligations`, `overlay_defaults`, `within` and `text_content`), `udc_groups`, `udc_raw_css`, `udc_scoped` (Layer 3B's rule keys, bounds and pinned pseudo-class list), `item_roles` |
 
 **Never:**
 - Add hooks or filters to template or component files (only in `functions.php`)
@@ -441,7 +441,7 @@ Token overrides survive theme updates — `base.css` is overwritten on update, b
 
 ## Style slots (per-instance styling)
 
-Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected. **That is a statement about SLOTS, and since #1079 it is no longer the theme's whole posture:** a v2 band reaches any CSS property through a role's `"_css"` map (see the `udc` section below), safety-checked rather than vocabulary-checked. The slot system itself never gained an escape hatch and never will — grid is its last consumer.
+Style slots allow per-instance visual customization of components without CSS edits. Each component declares allowed CSS custom properties in its `schema.json` under `styling.style_slots`. Only declared slots are accepted — arbitrary CSS is rejected. **That is a statement about SLOTS, and since #1079 it is no longer the theme's whole posture:** a v2 band reaches any CSS property through a role's `"_css"` map (see the `udc` section below), safety-checked rather than vocabulary-checked. And since #1242 T4 it reaches any element inside the band through its `"_scoped"` rule list (CSS with selectors, confined to the band; `ai-instructions/style-component.md`). The slot system itself never gained an escape hatch and never will — grid is its last consumer.
 
 **0 style slots** across 0 components. THE v1 STYLE-SLOT SURFACE HAS NO CONSUMER LEFT (#1101): `grid` was the last component declaring `styling.style_slots`, and its rebuild retired all 38. Every shipped component — `hero`, `section`, `testimonials`, `cta`, `faq`, `table`, `embed`, `stats`, `logos` and `grid` — is on the **Universal Design Contract**, where named ROLES carry every designable value through the band's `udc` map (see the `udc` section below). `style_component` therefore refuses every component with `no_style_slots`; a stored `style` map is only ever something to CLEAR off an aged page.
 
