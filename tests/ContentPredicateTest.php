@@ -833,8 +833,9 @@ class ContentPredicateTest extends TestCase
             $this->assertAdmitted('<div style="' . $decl . '">x</div>');
         }
         $this->assertAdmitted('<svg><rect transform="rotate(45 10 10) translate(1 2)" fill="rgb(0,0,0)"/></svg>');
-        // Text is not a call (owner ruling, 2026-10-05): the check runs on CSS-valued SVG
-        // attributes and style declarations only, and skips quoted strings.
+        // Text is not a call (owner and orchestrator rulings, 2026-10-05): the check runs on
+        // style declarations and on every SVG and MathML attribute value except the named
+        // text attributes, and it skips quoted strings.
         foreach (['<svg aria-label="Revenue (2024)" role="img"><title>Sales (Q1)</title></svg>',
             '<svg><text font-family="&#39;Foo (Pro)&#39;" aria-roledescription="a (b)">t</text></svg>',
             '<p style="font-family: &quot;Foo (Pro)&quot;, serif">x</p>', "<p style=\"font-family: 'Bar (Bold)'\">x</p>"] as $text) {
@@ -860,12 +861,30 @@ class ContentPredicateTest extends TestCase
             $this->assertRefused($math, 'E5');
         }
         $this->assertAdmitted('<math><mi mathsize="120%" mathcolor="rgb(0 0 0)" title="Sum (total)">x</mi></math>');
+        // A comment cannot pair the quotes the check skips: comment delimiters and control
+        // characters are refused in a MathML value, as in an SVG one.
+        $this->assertRefused('<math><mi mathsize="/*&quot;*/calc(sibling-index() * 300%)/*&quot;*/">x</mi></math>', 'E5');
+        $this->assertRefused("<math><mi mathsize=\"/*'*/calc(sibling-index() * 100%)/*'*/\">x</mi></math>", 'E5');
+        $this->assertRefused('<math><mi mathbackground="url(#g)">x</mi></math>', 'E5');
+        // Text values, both namespaces (namespace parity): ids, classes, data-*, a link's
+        // download/target/rel/hreflang/referrerpolicy, MathML encoding, lang and role.
+        foreach (['<math><mi id="f(x)" class="a (b)" data-latex="f(x)">f</mi></math>',
+            '<math><semantics><mi>x</mi><annotation encoding="text/x (tex)">x</annotation></semantics></math>',
+            '<svg><a href="/r.pdf" download="report (1).pdf" target="win(1)" rel="noopener (x)" hreflang="en" referrerpolicy="no-referrer"><text>t</text></a></svg>',
+            '<svg lang="en (x)" role="img (z)" data-x="f (x)"><g inkscape:label="Layer (1)"/></svg>'] as $text) {
+            $this->assertAdmitted($text);
+        }
+        $this->assertTrue(_pp_content_is_text_attribute('inkscape:label'));
+        $this->assertFalse(_pp_content_is_text_attribute('xlink:role'), 'xlink: and xml: are not editor namespaces');
+        $this->assertFalse(_pp_content_is_text_attribute('xml:base'));
+        $this->assertFalse(_pp_content_is_text_attribute('fill'));
         // A call BETWEEN two quoted strings is a call: the quote skip is not greedy.
         $this->assertRefused('<p style="font-family: &quot;a&quot; frob(1), &quot;b&quot;">x</p>', 'D3');
         $this->assertRefused("<p style=\"font-family: 'a' frob(1), 'b'\">x</p>", 'D3');
         // The function-family rulings: path() and the font-variant-alternates functions are
         // admitted; attr() and the anchor-positioning family are refused.
         $this->assertAdmitted('<div style="clip-path: path(&quot;M0 0 L1 1&quot;); font-variant-alternates: styleset(ss01) character-variant(cv01)">x</div>');
+        $this->assertAdmitted('<div style="font-variant-alternates: stylistic(a) swash(b) ornaments(c) annotation(d)">x</div>');
         foreach (['top: anchor(--a top)', 'width: anchor-size(--a width)', 'width: attr(data-w px)'] as $decl) {
             $this->assertRefused('<div style="' . $decl . '">x</div>', 'D3');
         }

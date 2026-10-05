@@ -1495,12 +1495,16 @@ function pp_content_css_functions(): array {
  * is judged except these, whose value is prose, a token or a name, never CSS:
  *   - aria-* (labels and descriptions: `aria-label="Revenue (2024)"` is no call);
  *   - title, alttext (MathML/SVG prose), lang and xml:lang, role, tabindex;
+ *   - a link's download (a filename), target, rel, hreflang and referrerpolicy (tokens);
+ *   - MathML encoding (a media type);
  *   - editor-namespace attributes (inkscape:label …), inert metadata names.
  * (SVG <title>/<desc> CONTENT is text, never an attribute value, and is not judged here.)
  */
 function _pp_content_is_text_attribute(string $attr): bool {
-    $attr = strtolower($attr);
-    if (strncmp($attr, 'aria-', 5) === 0 || in_array($attr, ['title', 'alttext', 'lang', 'xml:lang', 'role', 'tabindex'], true)) {
+    // $attr arrives lowercased (the tokenizer folds attribute names; SVG names are folded
+    // before their value gate).
+    if (strncmp($attr, 'aria-', 5) === 0 || in_array($attr, ['title', 'alttext', 'lang', 'xml:lang', 'role', 'tabindex',
+        'download', 'target', 'rel', 'hreflang', 'referrerpolicy', 'encoding'], true)) {
         return true;
     }
     // An editor namespace (prefix:name, not xlink/xml/xmlns).
@@ -2174,14 +2178,20 @@ function _pp_content_svg_href_loss(string $tag, string $value): ?array {
  * attributes (orchestrator ruling, 2026-10-05). Returns [clause, reason] or null.
  */
 function _pp_content_math_value_loss(string $attr, string $value): ?array {
-    if (_pp_content_is_text_attribute($attr) || in_array($attr, ['id', 'class', 'style'], true)) {
+    // Namespace parity with SVG: ids, classes, data-* and style (judged as a style attribute)
+    // are not CSS values.
+    if (_pp_content_is_text_attribute($attr) || in_array($attr, ['id', 'class', 'style'], true)
+        || strncmp($attr, 'data-', 5) === 0) {
         return null;
     }
-    $unescaped = strtolower(preg_replace('/\s+/', '', _pp_css_unescape($value)) ?? $value);
-    if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|javascript:/', $unescaped, $m)) {
-        return ['E5', sprintf('"%s" is refused in a MathML attribute value', $m[0])];
+    // The SVG gate's pre-refusals, so a comment cannot pair the quotes the function check
+    // skips (`/*"*/calc(...)/*"*/`) and nothing escapes the value.
+    if (preg_match('/[\x00-\x1F\x7F<>{};\\\\]/', $value) || strpos($value, '/*') !== false || strpos($value, '*/') !== false) {
+        return ['E5', 'MathML attribute values may not contain control characters, < > { } ; \\ or comment delimiters'];
     }
-    $function = _pp_content_unlisted_css_function(_pp_css_unescape($value));
+    // No separate no-URL test: url(), image(), image-set() and src() are not on the
+    // admitted function list, so the function check below refuses them.
+    $function = _pp_content_unlisted_css_function($value);
     return $function === null ? null
         : ['E5', sprintf('%s() is not on the admitted CSS function list (unknown functions are refused)', _pp_content_reflect($function, 40))];
 }
