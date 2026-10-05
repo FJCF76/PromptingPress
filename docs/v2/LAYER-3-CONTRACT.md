@@ -42,12 +42,10 @@
 > content `style` attribute passes today; E10 refuses stray closers; "unsupported markup" is
 > refused (P-16); and where kses silently drops an attribute today, §2.2 refuses the write
 > instead, for an attribute outside the spec-derived admission set (P-18). Titles and
-> headings, escaped today, are parsed under P-2's inline set, so a stored title whose text holds
-> a literal `<` that today renders as typed is parsed as markup instead: an unknown element is a
-> `Loss`, and text that names an inline-set element is no longer shown as typed: a formatting
-> element (`The <code> element`) makes the parser bail, so the title renders empty ("unsupported
-> markup"), and a non-formatting one (`The <span> element`) closes implicitly and its tag text
-> silently disappears (§3.3, §2.3; routed item 11). The same-install
+> headings, escaped today, are parsed under P-2's inline set, so a new title holding a raw `<`
+> followed by a letter is refused at write (the message names `&lt;`); a stored one that fails
+> the predicate renders fully escaped and is census-listed (§3.3; orchestrator ruling,
+> 2026-10-05). The same-install
 > PDF `<object>` that core renders today stays admitted (P-11).
 >
 > **Decisions.** The owner-posture questions (P-1 to P-27) are all ruled. The mechanics
@@ -485,7 +483,9 @@ comparison, run in evidence on WordPress 7.0 (probe-07).
   census re-run on `upgrader_process_complete`, raising the notice when the empty set grows.
   The trio ships with or before any 3A rendering, in the Layer-3 release (scheduled: v2.1.0,
   Sprint 6 T3b). When the core-upgrade re-run happens is open (routed item 7 under the §12
-  table).
+  table). **Titles and headings are the exception to render-empty:** a stored one that fails
+  the predicate renders fully escaped and is census-listed (§3.3; orchestrator ruling,
+  2026-10-05).
 - **Where the finding surfaces:** everywhere findings already do. That is `wp pp check page`,
   the post-write envelope's `findings`, and the chat's validation report.
 - **The template's own escaping still runs after the predicate.** This is defence in depth,
@@ -542,8 +542,7 @@ stored band's losses surface as the §2.3 finding and never block. The mechanism
   random id for every id-less entry (`lib/wp.php:6559-6566`), and id-less aged bands are the
   likeliest to carry now-refused content, so they would never match and would block every
   write. A band id match is a fast path, never a requirement. **Refined in Sprint 6:** the
-  matching is one-to-one (an orchestrator ruling during T3a; its public record is still to be
-  written into #1242's body; scheduled: v2.1.0).
+  matching is one-to-one (orchestrator ruling; record: the "Sprint-6 mechanics rulings record" in #1242's body; scheduled: v2.1.0).
 - **The comparison is on RAW parses, never on sanitized output.** Both sides are parsed
   (elements, attribute names, decoded attribute values, CSS declarations) from the bytes as
   written, and only §2.2's normalisations are ignored. Comparing sanitized output would let an
@@ -773,11 +772,13 @@ typography, and stay narrow where markup has no meaning:
 - **INLINE widens.** Beyond today's `a[href,title]`, `strong`, `em` and `br`, it admits `span`
   (with `class` and `style`, the `style` value through Δ3) and `sup`, `sub`, `small`, `mark` and
   `code`.
-- **Titles and headings admit the same inline set** (`span` with `class`/`style`, `sup`, `sub`,
-  `small`, `mark`, `code`), where they were PLAIN. That is the set the record names; whether
-  titles and headings also take INLINE's existing `a`, `strong`, `em` and `br` is open (routed
-  item 11 under the §12 table). Which schema props are titles and headings is fixed per prop by
-  the implementation (scheduled: v2.1.0).
+- **Titles and headings admit the inline set, without `a`** (mechanics ruled by the
+  orchestrator 2026-10-05; the "Sprint-6 mechanics rulings record" in #1242's body): `strong`, `em`, `br`, and the widening set (`span` with
+  `class`/`style`, `sup`, `sub`, `small`, `mark`, `code`), where they were PLAIN. **`a` is
+  excluded from titles and headings**, with its reason: templates may render a title inside a
+  link, and a nested anchor is unparseable, so a link in a title would be a refusal authors could
+  never decode. INLINE props keep `a`. Which schema props are titles and headings is fixed per
+  prop by the implementation (scheduled: v2.1.0).
 - **Labels, button text and URLs stay PLAIN.** So does every other PLAIN prop the ruling does
   not name, for example chrome text and `section.panel_body`: P-2 widens titles and headings
   only.
@@ -790,14 +791,17 @@ The predicate still runs over INLINE, the widened titles and headings, and PLAIN
 
 - **INLINE, titles and headings:** a `Loss` of an element outside the prop's admitted set is
   refused, where today it is silently stripped (titles and headings were escaped, never
-  parsed). A consequence the ruling does not itself address, for the implementation and the AI
-  surface to state: a title or heading that means a literal `<` writes it as `&lt;`. A stored
-  title that names an inline-set element as text either renders empty (a formatting element such
-  as `<code>` or `<small>` makes the parser bail) or loses that tag text silently (`<span>`,
-  `<sup>`, `<sub>` and `<mark>` close implicitly; measured by this fold-in's review on WordPress
-  7.1.2); how stored titles are handled is routed item 11. How `title_accent`
-  (`pp_render_heading_with_accent()`, which every titled component uses) works on a parsed title
-  is routed item 13.
+  parsed). **A literal `<` in a title (ruled by the orchestrator 2026-10-05; the "Sprint-6 mechanics rulings record" in #1242's body):**
+  a new title or heading holding a raw `<` followed by a letter is refused at write, with a
+  message naming `&lt;` as the way to write it. A **stored** title or heading that fails the
+  predicate is **not** rendered empty: it renders fully escaped, as inert text (E10 holds,
+  because nothing in it paints as markup), and the P-27 census lists it. This is the
+  orchestrator's reading of P-27's edge for text sinks, to be flagged to the owner in the sprint
+  report. (Without it, measured by this fold-in's review on WordPress 7.1.2, `The <code> element`
+  would make the parser bail and `The <span> element` would silently lose its tag text.)
+  **`title_accent`** (`pp_render_heading_with_accent()`, which every titled component uses)
+  operates on the parsed tree and wraps whole text nodes only; it never substring-splits raw
+  bytes (same record; render-side implementation: Sprint 6 T3b).
 - **PLAIN: never a `Loss`.** A PLAIN prop is escaped and never parsed, so a literal `<` in a
   label (`The <details> element`) is neither executed nor lost: it renders as the author typed
   it. An earlier draft refused markup in a plain prop; that was **reversed** (ruled Q-A5, see
@@ -825,7 +829,7 @@ finding.
 | **E8** | **Unknown elements** (any tag not in §3.1 + §3.2) **that are not a valid custom-element name.** **Narrowed by P-23 (ratified 2026-10-04):** a hyphenated name in the valid custom-element grammar is admitted, and disclosed under the plugin boundary (§7.5); a name that shadows an HTML, SVG or MathML element stays refused. | an unknown element without script is an inert span that validates green and paints nothing special: the I19 shape. A styled custom element paints through its class, `style` and the scoped sheet, and where a page script defines it (a plugin's `customElements.define`) it is the plugin boundary P-9 discloses rather than refuses. Listed so that freedom-first does not read as "anything with angle brackets". | an unknown-tag matrix refused, with a message naming the element; valid hyphenated custom-element names admitted and disclosed; shadowing names refused |
 | **E9** | **Submission and navigation redirectors:** `formaction`, `formtarget`, `formmethod`, `formenctype`, `ping`, `http-equiv`, and the `form` attribute (`form="<id>"`, which enrolls a control in any form on the page: theme, plugin or comments). | they move where a click or submit goes, or where a request is sent, outside the reviewed `action`/`href`. | each refused on every element |
 | **E10** | **Markup that escapes its container**, defined by **containment** (§2.1 step 5), not by a list of tags: the prop fails E10 when, parsed inside its real template wrapper, any node it produced lands outside the sink container, the next band's sentinel is not intact, or a formatting element it opened is still active when the container closes. Known shapes: a stray `</div>`/`</section>`/`</p>`; `</td>`, `</tr>`, `</table>` in a cell; an unclosed `<textarea>` (swallows the next band); an unclosed `<a>`/`<b>` (rebuilt inside the next band); a start tag that closes the host (`<td>` in a cell, `<li>` in an `li` host, `<a>` in an `a` host). | in the page the browser uses the stray closer to close the **template's** container, and in a table cell the table itself, so everything after it renders outside the band: outside `data-pp-band` scoping, the scoped sheet and every finding. A fragment parse ignores the closer, which is why the predicate must parse in context. Measured: `wp_kses_post('a</div></section><p>outside</p>')` passes the closers verbatim, and none of the five RICH sinks balances tags. Refused, never balanced: rendering a re-balanced tree would make the stored bytes stop being what renders (I36), and I34 is reject-never-coerce. | the known-shape matrix above, per sink wrapper (RICH, `<td>`, each island host kind); the assertion is **the next band's sentinel is intact, outside this band, with its own text and no inherited formatting**, read from the rendered page in Chromium. A "band contains every content node" check alone passes vacuously for a swallowed or re-wrapped next band. |
-| **E11** | **DOM clobbering:** an `id` or `name` whose value equals an **own property of `window` or `document` per the living standard** (for example `getElementById`, `querySelector`, `location`, `cookie`, `forms`, `body`). | the browser exposes named elements as properties of `document` and `window`, so `<form name="querySelector">` shadows `document.querySelector` and breaks the theme's `assets/js/main.js` and every plugin script on the page; measured, `<a name="getElementById">` passes `wp_kses_post` today. That is authored bytes steering script, which §0.3 rules out. | the property list is **read from a browser probe** (enumerate the own properties of `window` and `document` in the pinned Chromium) and stored as a snapshot the test compares against a fresh probe, never a hand-written array (the drift lesson of T-1); each probed name as `id` and as `name` refused. **Being refined in Sprint 6:** the name set and where it is enforced are narrowed on browser-probe evidence (orchestrator rulings recorded in the T3a status of #1242; scheduled: v2.1.0) |
+| **E11** | **DOM clobbering:** an `id` or `name` whose value equals an **own property of `window` or `document` per the living standard** (for example `getElementById`, `querySelector`, `location`, `cookie`, `forms`, `body`). | the browser exposes named elements as properties of `document` and `window`, so `<form name="querySelector">` shadows `document.querySelector` and breaks the theme's `assets/js/main.js` and every plugin script on the page; measured, `<a name="getElementById">` passes `wp_kses_post` today. That is authored bytes steering script, which §0.3 rules out. | the property list is **read from a browser probe** (enumerate the own properties of `window` and `document` in the pinned Chromium) and stored as a snapshot the test compares against a fresh probe, never a hand-written array (the drift lesson of T-1); each probed name as `id` and as `name` refused. **Being refined in Sprint 6:** the name set and where it is enforced are narrowed on browser-probe evidence (orchestrator ruling; record: the "Sprint-6 mechanics rulings record" in #1242's body; scheduled: v2.1.0) |
 | **E12** | **References that leave the band:** an id-reference attribute whose target is not an id inside the same band: `popovertarget`, `for` (on `label`/`output`), `usemap`/`map name`, `aria-controls`, `aria-describedby`, `aria-labelledby`, `aria-details`, `headers`, `list`, and `details name` (a name group joins every `details` on the page). Checked in step 5 against the band's own ids. Whether the list is closed or defined by type (every IDREF/IDREFS attribute of the P-17 base) is open (routed item 2 under the §12 table). | the same reason E9 refuses `form=`: a control in one band would act on another band or on the theme (measured passing kses today: `popovertarget="pp-nav-menu"`, `label for="pp-ai-input"`, `details name`, `usemap`). | each attribute with an in-band target admitted and an out-of-band target refused, in Chromium: the out-of-band target's state is unchanged after the control is activated |
 
 **Precedence:** where the base (§3.1) or a delta row admits something a row here excludes,
@@ -1542,8 +1546,8 @@ The rules every pin follows:
 |---|---|---|
 | T-1 | §3.1 base ownership | the PP-owned table equals **the P-17 base (the pinned HTML and ARIA 1.2 static set, a test-owned snapshot taken from the specifications and kept separate from the runtime table's source, so the equality never compares the table with itself) − §4 + Δ**, with `autofocus`, `contenteditable`, `nonce` and `is` each asserted as its own argued row; and a stored snapshot of core `post` equals live core `post` (the clause that fails on drift; never the table compared to itself). A divergence fails loudly, and a core addition is then admitted unless §4 (P-17). **Plus the P-16 drift pin:** a stored snapshot of the parser's bail set (the P-16 shapes that bail and those that do not) equals live `WP_HTML_Processor` behaviour, so a WordPress change to it fails a test |
 | T-2 | §2.5 convergence | for every §3 admission row: write accepted, stored verbatim, and the rendered DOM contains the construct (normalised). Plus Δ4: `target="_blank"` and a named target each get `noopener` on the rendered DOM; `_self` does not. |
-| T-3 | §2.2 write refusal | each §4 row refused with `content_construct_excluded`, naming the construct and the clause; nothing stored. **Each §4 row is asserted by that row's own §4 test-shape column,** not by a generic absence check. Also: §3.3's INLINE non-inline element (`<div>` in `cta.body`) and an element outside a title's widened set (`<div>` in a title) refused at write; the P-2 inline set admitted in INLINE props and in titles and headings. Plus Δ5's value gates in the refuse direction (P-24): an `enctype` outside the three standard values and a `method` outside `get|post|dialog` refused, with `method="dialog"` closing an admitted `dialog` in Chromium as the positive control. Plus P-16's message, where the element to close first is the innermost element still open when the misnested end tag arrives: `<p><b>Note</p><p>rest</p>` refused with the clause "unsupported markup" and a message naming `b`, and `<b><p>x</b>y</p>` naming `p`. Plus E11 and E12 (see their §4 test-shape columns), and a PLAIN label containing a literal `<` (`The <details> element`) accepted at write and rendered escaped, never refused. |
-| T-4 | §2.3 render strip + finding | raw-meta and restore paths: the construct is absent from the rendered DOM, and `content_stripped_at_render` carries the facts. "Absent from the rendered DOM" is never the whole assertion: E10 asserts the next band's sentinel (a stray closer is never a DOM node), and E4 asserts that no byte of a refused `script`/`style` body appears in the band's text. The finding is asserted on all three surfaces: `wp pp check page`, the post-write envelope, and the chat report. Plus a stored parser bail and a stored stray closer: the prop renders empty, the band renders, and the finding names the clause and the prop. **Plus the P-27 census trio:** the read-only census lists exactly the props that would render empty, each with its clause (a clean prop in the same composition is absent), and writes nothing; the admin notice points at it; an `upgrader_process_complete` re-run raises the notice when the empty set grows and not when it shrinks or stays equal. Plus a stored PLAIN-era title holding `The <code> element`: its render under P-2 follows routed item 11 once ruled, and until then the pin records the §2.3 render-empty outcome and its finding. |
+| T-3 | §2.2 write refusal | each §4 row refused with `content_construct_excluded`, naming the construct and the clause; nothing stored. **Each §4 row is asserted by that row's own §4 test-shape column,** not by a generic absence check. Also: §3.3's INLINE non-inline element (`<div>` in `cta.body`) and an element outside a title's widened set (`<div>` in a title) refused at write; the P-2 inline set admitted in INLINE props (with `a`) and in titles and headings (`strong`, `em`, `br` and the widening set; an `a` in a title or heading refused, naming the nested-anchor reason; a raw `<` followed by a letter in a new title refused with a message naming `&lt;`). Plus Δ5's value gates in the refuse direction (P-24): an `enctype` outside the three standard values and a `method` outside `get|post|dialog` refused, with `method="dialog"` closing an admitted `dialog` in Chromium as the positive control. Plus P-16's message, where the element to close first is the innermost element still open when the misnested end tag arrives: `<p><b>Note</p><p>rest</p>` refused with the clause "unsupported markup" and a message naming `b`, and `<b><p>x</b>y</p>` naming `p`. Plus E11 and E12 (see their §4 test-shape columns), and a PLAIN label containing a literal `<` (`The <details> element`) accepted at write and rendered escaped, never refused. |
+| T-4 | §2.3 render strip + finding | raw-meta and restore paths: the construct is absent from the rendered DOM, and `content_stripped_at_render` carries the facts. "Absent from the rendered DOM" is never the whole assertion: E10 asserts the next band's sentinel (a stray closer is never a DOM node), and E4 asserts that no byte of a refused `script`/`style` body appears in the band's text. The finding is asserted on all three surfaces: `wp pp check page`, the post-write envelope, and the chat report. Plus a stored parser bail and a stored stray closer: the prop renders empty, the band renders, and the finding names the clause and the prop. **Plus the P-27 census trio:** the read-only census lists exactly the props that would render empty, each with its clause (a clean prop in the same composition is absent), and writes nothing; the admin notice points at it; an `upgrader_process_complete` re-run raises the notice when the empty set grows and not when it shrinks or stays equal. Plus stored PLAIN-era titles holding `The <code> element` and `The <span> element`: each renders fully escaped (the literal text, no element in the DOM), is never empty, and is census-listed (§3.3 ruling). Plus `title_accent` on a parsed title wraps whole text nodes only: an accent string that overlaps a tag or attribute in the stored bytes never splits it. |
 | T-5 | E1 / E2 matrices | §4's name and obfuscation matrices, including `xlink:href` and every `srcset` candidate; `data-wp-*`; protocol-relative `//host` URLs asserted to follow P-4's host rule (any `http(s)` host, with `content_external_resource`); an external `https://` `img src` and one external `srcset` candidate each raise `content_external_resource` naming the host, while a same-install uploads URL and a relative URL raise none; rewrite-to-relative pinned absent |
 | T-6 | E6 forging | one row per §1.4 marker: the forged scope does not paint (computed style); the promote step and E6 agree. Every forged-marker row is paired with a **positive control**: the genuine engine-emitted marker paints a distinct computed value with the same fixture styles. Extended to the rest of E6: minted `it-` ids, the reserved ids `main` and `pp-nav-menu`, `data-pp-island*` refused outside `custom.markup` and admitted inside it, and a `props.id` collision refused on the write that adds the anchor. |
 | T-7 | Δ3 style gate | LAYER-2's §6.0 matrix through a `style` attribute; §1.3's first-row properties admitted; the entity-split case round-trips; every property the owner's 85 measured `style` attributes use is admitted (a fixture built from probe-05's property census). Plus the Δ3 rules outside LAYER-2's matrix: the text-bearing string properties (`quotes`, `list-style-type`, `text-overflow`, …) refused with a string value and admitted with a keyword; a CSS escape and an apostrophe inside a double-quoted value refused as written. |
@@ -1661,7 +1665,9 @@ pushes content out of grid, cta and testimonials just as a custom-band-only shee
   runs", which is a demand condition and was withdrawn in the freedom-posture pass (§13.5).
 - **RATIFIED 2026-10-04 (#1167):** **B+.** INLINE admits `span` (`class`/`style`) plus `sup`,
   `sub`, `small`, `mark`, `code`; the same inline set in titles and headings, which were PLAIN;
-  labels, button text and URLs stay PLAIN. Folded into §3.3 (and §9.4, §11, T-3).
+  labels, button text and URLs stay PLAIN. Folded into §3.3 (and §9.4, §11, T-3). The
+  title mechanics (no `a`; stored failing titles render escaped; `title_accent` on whole text
+  nodes) are orchestrator rulings of 2026-10-05, recorded in #1242's body.
 
 **P-3. Scoped-sheet reach.** Is `udc._scoped` accepted on **every** band, or only on the
 custom band?
@@ -1988,10 +1994,12 @@ restatements:
 
 - **M-2:** its row predates the band-matching fix; §2.6 is the current mechanism (matched by
   content, raw-parse comparison, ruled Q-A5). Sprint 6 refined it to **one-to-one** matching
-  (an orchestrator ruling during T3a; its public record is still to be written into #1242's
-  body).
-- **M-8:** Sprint 6 added a nesting-depth cap (256), whose depth model is being reworked; see
-  the T3a status in #1242. Other M-8 refinements ruled during T3a have no public record yet.
+  (record: the "Sprint-6 mechanics rulings record" in #1242's body).
+- **M-8:** Sprint 6 refined the bounds (per-prop and per-write caps, a nesting-depth cap, all
+  refusals whole and named); record: the "Sprint-6 mechanics rulings record" in #1242's body.
+- **E11:** narrowed as implemented in Sprint 6; record: the "Sprint-6 mechanics rulings record" in #1242's body.
+- **Titles under P-2, stored-title rendering and `title_accent`:** ruled 2026-10-05 (routed
+  items 11 and 13, now closed); record: the "Sprint-6 mechanics rulings record" in #1242's body.
 - **M-17, M-20, M-21:** their recommendations differ from §6.2 (an ASCII-only selector byte
   gate; a 16-entry comma split, pinned in T-10) and from §7.2 (dedicated island refusal codes),
   and that prose has not absorbed them. Which text governs is routed item 14.
@@ -2008,7 +2016,8 @@ restatements:
 
 **Routed, not ruled (found by the fold-in's review, 2026-10-05; questions for the
 orchestrator in #1242).** Each is a place where a ratified admission meets a mechanism this
-contract does not yet specify. None is decided here. **What "open" means:** a construct a
+contract does not yet specify. None is decided here; items 11 and 13 have since been ruled
+(2026-10-05) and are marked so. **What "open" means** (endorsed by the orchestrator as written): a construct a
 P-ruling admits stays admitted and bound to v2.1.0 (P-26); only the unspecified mechanism is
 pending. Until an item is ruled, an implementation that reaches it fails closed on the specific
 shape the item names (for example, it refuses a `form` still open when its container closes)
@@ -2044,18 +2053,16 @@ mechanism silently:
 10. **Island content parsed under its host's ancestors.** An `inline` host inside an authored
     `a` or `button` lets island content restructure the markup; the island's wrapper and the
     composed check both use the host alone.
-11. **Titles and headings under P-2.** Whether they also take INLINE's `a`, `strong`, `em` and
-    `br`; and how stored titles that hold a literal `<` are handled (a one-time escape on
-    upgrade, a census entry, or render-empty as §2.3 stands).
+11. **Titles and headings under P-2.** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):*
+    `strong`, `em`, `br` and the widening set, no `a`; a raw `<` refused at write; a stored
+    failing title renders fully escaped and is census-listed.
 12. **Who may write the widened set.** Composition writes check `edit_post`; nothing ties the
     Δ admissions to `unfiltered_html`, which WordPress uses to decide who may write beyond core
     `post`. Whether the widened set needs that capability, or the trust tier is stated as
     "anyone who can edit the page".
-13. **`title_accent` on a parsed title (P-2).** `pp_render_heading_with_accent()` finds the
-    accent as a raw substring of the title and wraps it in a `span`. On parsed markup a
-    substring cut can split a tag or attribute after step 5 verified it, and an accent run gets
-    two spellings (`title_accent` and an authored `span`). Match against parsed text nodes and
-    verify the composed heading, or retire `title_accent` with a migration.
+13. **`title_accent` on a parsed title (P-2).** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):* it
+    operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
+    bytes (implementation: T3b).
 14. **M-17, M-20 and M-21 against §6.2 and §7.2.** Non-ASCII selector bytes, the top-level
     comma, and the island refusal codes: which text governs.
 15. **M-3 and custom-property case.** M-3 refuses an uppercase property and suggests the
@@ -2297,7 +2304,10 @@ text that is about to change. *(Superseded on 2026-10-04: the §12 list is ruled
 - **The fold-in's own review** (/ship, 2026-10-05) found places where a ruling meets a
   mechanism the contract does not yet specify. Those that are wording or test-plan consequences
   of a ruling were folded in; those that would add a gate are listed, unruled, in the note under
-  the §12 mechanics table and routed to the orchestrator in #1242.
+  the §12 mechanics table and routed to the orchestrator in #1242. The orchestrator ruled the
+  title items (11, 13) on 2026-10-05 and recorded them, with the Sprint-6 M-2, M-8 and E11
+  rulings, in the "Sprint-6 mechanics rulings record" in #1242's body; the rest are ruled at
+  the tasks that implement them.
 - **What the fold-in does not do:** it changes no engine code or test, and it does not mark
   anything met that has not landed. The M table is unchanged; the note under it records what
   supersedes or refines a row and what is routed.
