@@ -146,8 +146,9 @@ class WpAbstractionTest extends TestCase
     // back to a plain decode — but now so is EVERY other read path, which is the point:
     // one contract, not a renderer that disagrees with the editor.
     //
-    // The get_the_ID() bootstrap stub returns 0, so pp_composition() reads
-    // post_meta[0]; each test seeds that slot and tearDown clears it.
+    // The get_the_ID() bootstrap stub returns 0 when no global $post is set (none is,
+    // here), so pp_composition() reads post_meta[0]; each test seeds that slot and
+    // tearDown clears it.
 
     protected function tearDown(): void
     {

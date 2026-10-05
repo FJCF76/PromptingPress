@@ -1015,9 +1015,13 @@ if (!function_exists('sanitize_text_field')) {
     }
 }
 
+// Core reads the GLOBAL current post (get_post() with no argument), so does this stub:
+// 0 when there is none, as every older test assumed. #1173 needs the real semantics: on a
+// latest-posts front page the current post is the newest blog post, not a front page.
 if (!function_exists('get_the_ID')) {
     function get_the_ID(): int {
-        return 0;
+        $post = $GLOBALS['post'] ?? null;
+        return is_object($post) && isset($post->ID) ? (int) $post->ID : 0;
     }
 }
 

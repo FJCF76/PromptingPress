@@ -9,8 +9,10 @@
  *
  * Fallback behaviour (classification owned by pp_resolve_front_page_render(), #506):
  *   render    — a present (or freshly-seeded) composition; render it in order.
- *   no_front  — post_id = 0: no static front page is configured. Surface the
- *               misconfiguration to admins rather than hiding it behind defaults.
+ *   no_front  — nothing is queried (post_id = 0). The root front-page.php sends a
+ *               front page with no static page configured to templates/home.php, so
+ *               this arm answers only a direct include of this template; it surfaces
+ *               the misconfiguration to admins rather than hiding it behind defaults.
  *   corrupt   — stored meta is present but undecodable/wrong-shape. Render a
  *               NON-DESTRUCTIVE fallback: the stored bytes are left byte-identical
  *               for recovery, `inspect` keeps reporting the exact error, and the
@@ -19,12 +21,29 @@
  * The genuinely-absent case (post exists, no meta) is the only one that seeds the
  * default composition — and that seed goes through the versioned writer, not a raw
  * meta write. See pp_resolve_front_page_render() in lib/wp.php.
+ *
+ * THE STATIC FRONT PAGE ONLY (#1173). The root front-page.php sends a "Your latest
+ * posts" front page to templates/home.php. This template resolves the QUERIED page, the
+ * reading the head's emitter makes too, never the current post (on a latest-posts front
+ * page that was the newest blog post, which got the default homepage written onto it on
+ * a visitor's GET). Only the page Settings -> Reading names is ever seeded.
+ *
+ * THE PASSWORD GATE COMES FIRST (#1173). A front page that still needs its password
+ * renders its title and core's form, and nothing is resolved: resolving may seed an
+ * absent composition, and a visitor without the password must cause no write. Same
+ * predicate as the head (pp_composition_locked_page()), so head and body agree.
  */
 
 require_once get_template_directory() . '/templates/base.php';
 
 pp_base_template(function () {
-    $render = pp_resolve_front_page_render((int) get_the_ID());
+    $locked = pp_composition_locked_page();
+    if ($locked !== null) {
+        pp_render_locked_page($locked);
+        return;
+    }
+
+    $render = pp_resolve_front_page_render((int) get_queried_object_id());
 
     // Admin-only diagnostic notice, mirroring the historical no-front-page pattern:
     // anonymous visitors never see chrome about a misconfiguration; operators get an
