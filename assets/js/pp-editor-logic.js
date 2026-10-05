@@ -1379,6 +1379,174 @@ function getCollapsedRowPreview(compData) {
     return '';
 }
 
+// ── Preview frame channel (LAYER-3-CONTRACT §8.3) ─────────────────────────────
+//
+// The preview iframe is sandboxed WITHOUT allow-same-origin, so its document has
+// an opaque origin and the editor cannot read or write it. The editor refreshes
+// it by rebuilding srcdoc, and the only thing it ever learns from the frame is
+// where the frame is scrolled, so the rebuilt document can open at the same
+// place:
+//
+//   editor                                   preview frame (opaque origin)
+//   ──────────────────────────────────────   ────────────────────────────────
+//   srcdoc = html + previewScrollBridge(y) ─▶ bridge: scrollTo(0, y)
+//   accept iff event.source is the frame    ◀─ on scroll: postMessage(
+//        AND isPreviewScrollMessage(data)          {type:'pp-preview:scroll', y})
+//
+// Everything in the frame, the theme's bridge included, can post any message it
+// likes, and an opaque origin reports itself as "null" — the same as every other
+// sandboxed frame. So the editor checks the SENDER (event.source, never origin)
+// and then treats the data as untrusted: a scroll position and nothing else.
+
+/** The one message type the preview channel carries. */
+var PREVIEW_SCROLL_MESSAGE = 'pp-preview:scroll';
+
+/**
+ * How often, at most, the frame reports its position while it is being
+ * scrolled: one message per burst, sent this long after the burst starts and
+ * carrying the position at send time, so the last position always arrives.
+ */
+var PREVIEW_SCROLL_REPORT_MS = 100;
+
+/**
+ * Upper bound for the position passed back into a rebuilt preview (px). Far
+ * beyond any real page, and small enough that it always prints as plain digits
+ * (a large float would print in exponent form).
+ */
+var PREVIEW_SCROLL_MAX = 10000000;
+
+/**
+ * Strict schema for a message from the preview frame: a plain object with
+ * EXACTLY the own keys `type` and `y`, `type` the scroll message type, `y` a
+ * finite, non-negative number. Anything else — an extra field, an action verb,
+ * markup, a URL, a non-finite or negative number — is not a scroll message.
+ *
+ * @param {*} data  event.data of a message event.
+ * @returns {boolean}
+ */
+function isPreviewScrollMessage(data) {
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) return false;
+    var keys = Object.keys(data);
+    if (keys.length !== 2) return false;
+    var own = Object.prototype.hasOwnProperty;
+    if (!own.call(data, 'type') || !own.call(data, 'y')) return false;
+    if (data.type !== PREVIEW_SCROLL_MESSAGE) return false;
+    return typeof data.y === 'number' && isFinite(data.y) && data.y >= 0;
+}
+
+/**
+ * The scroll bridge the editor appends to every preview document.
+ *
+ * Appended AFTER the server's closing </html>: the HTML parser places a trailing
+ * script at the end of <body>, and a parser-inserted script waits for the head's
+ * stylesheets, so the restore runs against styled layout.
+ *
+ * THE DOCUMENT CAN STILL BE TOO SHORT when the script runs, and `load` does not
+ * mean it has stopped growing: an image rendered with loading="lazy" and no
+ * dimensions (pp_render_responsive_image()'s raw-URL fallback) is not waited for
+ * by `load`, and reaches its height only once it nears the viewport. So the
+ * restore is not a one-shot. Until the document SETTLES the bridge re-applies it
+ * every time the document grows (ResizeObserver; `load` as a fallback), as long as
+ * the position is still the one the bridge itself set — it never fights a reader.
+ * Scroll anchoring is switched off in the preview document (overflow-anchor:
+ * none) until the reader's first input: the remembered position is a coordinate
+ * in the FULLY loaded layout, so the right content is shown by holding that
+ * coordinate while images above it gain their height. Anchoring would instead
+ * shift the position by each image's height, and that shift would read as the
+ * reader moving.
+ *
+ * Lazy images and iframes are switched to eager loading on EVERY refresh, top
+ * included, so the remembered coordinate is measured and restored in the same
+ * layout once the eager loads have finished (a jump made while they are still
+ * arriving is measured in the layout of that moment): a lazy element far ABOVE the target is never near the viewport, so it
+ * would never load and the document would never reach the coordinate, and a
+ * preview opened at the top that stayed lazy would let a reader who jumps down
+ * (End key, scrollbar click) report a coordinate from a layout missing what
+ * they skipped. The cost — every image in the preview loads on each refresh —
+ * is accepted for an editor preview.
+ *
+ * A scroll the bridge did not cause normally means the reader moved, with one
+ * exception: a document that SHRINKS while the restore is still clamped lowers
+ * the offset itself. An offset below the last bridge-set one while the page is
+ * at its maximum scroll (scrollHeight - clientHeight, which excludes a
+ * horizontal scrollbar; 1px tolerance for fractional offsets) is that clamp, not
+ * the reader, and the restore stays armed.
+ *
+ * The input listeners are a fast path, not the only way to settle. Outside the
+ * clamp, any offset change the bridge did not cause — a reader's scroll,
+ * including a scrollbar drag in an engine that fires no pointerdown for it — is
+ * not a clamp and settles through the scroll handler. (Where an engine rejects
+ * "instant" and the fallback scroll animates, the bridge settles on the
+ * animation's first frame and keeps reporting as it moves.)
+ *
+ * It settles when the restore reaches its target, or at the reader's first
+ * wheel, pointer, touch or key input, or at the first scroll it did not cause.
+ * Until then it does not report a position SHORT of the target: that is the clamp
+ * of a still-growing document, not where the reader is, and reporting it would
+ * make the editor remember the clamp and lose the reader's place. On settling it
+ * reports once if it is no longer at the target, so a move made while the
+ * document was growing is not lost.
+ *
+ * `y` is coerced to an integer in [0, PREVIEW_SCROLL_MAX] here, whatever the
+ * caller passes, so nothing but digits is ever interpolated into the script.
+ *
+ * What it depends on, stated so a silent failure is diagnosable: it is an inline
+ * script, so a Content-Security-Policy on the admin screen that forbids inline
+ * script (a srcdoc document inherits the embedder's policy) stops it, and markup
+ * that leaves a raw-text element open (an unclosed <textarea>, <xmp>, comment)
+ * swallows it as text. Either way the preview still renders; it just opens at
+ * the top on each refresh.
+ *
+ * @param {*} y  Scroll position to open at.
+ * @returns {string}  A complete <script> element.
+ */
+function previewScrollBridge(y) {
+    var target = (typeof y === 'number' && isFinite(y) && y > 0)
+        ? Math.min(Math.floor(y), PREVIEW_SCROLL_MAX)
+        : 0;
+    // behavior "instant": base.css sets `html { scroll-behavior: smooth }`, and a
+    // plain scrollTo would animate down from the top on every refresh. The
+    // two-argument form is the fallback for an engine that rejects "instant".
+    return '<script>(function(){' +
+        'var y=' + target + ';' +
+        'var root=window.document.documentElement;' +
+        'try{root.style.overflowAnchor="none";}catch(e){}' +
+        'try{var lazy=window.document.querySelectorAll("img[loading=lazy],iframe[loading=lazy]");for(var i=0;i<lazy.length;i++){lazy[i].loading="eager";}}catch(e){}' +
+        'function go(){try{window.scrollTo({top:y,left:0,behavior:"instant"});}catch(e){window.scrollTo(0,y);}}' +
+        'go();' +
+        'var at=window.pageYOffset;' +
+        'var settled=at>=y;' +
+        'function report(){window.parent.postMessage({type:"' + PREVIEW_SCROLL_MESSAGE + '",y:window.pageYOffset},"*");}' +
+        'function settle(){try{root.style.overflowAnchor="";}catch(e){}if(!settled){settled=true;if(window.pageYOffset!==y){report();}}}' +
+        'function clamped(){return window.pageYOffset<at&&window.pageYOffset>=root.scrollHeight-root.clientHeight-1;}' +
+        'function retry(){' +
+            'if(settled||window.pageYOffset!==at){return;}' +
+            'go();' +
+            'at=window.pageYOffset;' +
+            'if(at>=y){settled=true;}' +
+        '}' +
+        'if(!settled){' +
+            'if(window.ResizeObserver){new window.ResizeObserver(retry).observe(window.document.documentElement);}' +
+            'window.addEventListener("load",retry);' +
+        '}' +
+        'window.addEventListener("wheel",settle);' +
+        'window.addEventListener("pointerdown",settle);' +
+        'window.addEventListener("touchstart",settle);' +
+        'window.addEventListener("keydown",settle);' +
+        'var queued=false;' +
+        'window.addEventListener("scroll",function(){' +
+            'if(!settled&&window.pageYOffset!==at){if(clamped()){at=window.pageYOffset;}else{settle();}}' +
+            'if(queued){return;}' +
+            'queued=true;' +
+            'setTimeout(function(){' +
+                'queued=false;' +
+                'if(!settled&&window.pageYOffset<y){return;}' +
+                'report();' +
+            '},' + PREVIEW_SCROLL_REPORT_MS + ');' +
+        '});' +
+    '})();<\/script>';
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 var _logic = {
@@ -1405,6 +1573,8 @@ var _logic = {
     nonContainerValueDiffs:         nonContainerValueDiffs,
     formatDiffsForIssue:            formatDiffsForIssue,
     getCollapsedRowPreview:         getCollapsedRowPreview,
+    isPreviewScrollMessage:         isPreviewScrollMessage,
+    previewScrollBridge:            previewScrollBridge,
 };
 
 /* istanbul ignore next */

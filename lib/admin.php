@@ -5854,10 +5854,23 @@ function pp_composition_workspace_page(): void {
                     <span class="pp-preview-status" id="pp-preview-status">Loading&hellip;</span>
                 </div>
                 <div class="pp-pane-body pp-pane-body--preview">
+                    <?php
+                    // THE PREVIEW RENDERS CONTENT IN AN ISOLATED ORIGIN (LAYER-3-CONTRACT §8.3).
+                    // `allow-scripts` WITHOUT `allow-same-origin`: the srcdoc document gets an
+                    // opaque origin, so nothing rendered in it shares an origin with this admin
+                    // screen, and this screen cannot reach into it either. Never add
+                    // allow-same-origin here — combined with allow-scripts it undoes the
+                    // sandbox. The editor therefore refreshes by rebuilding srcdoc and learns
+                    // the scroll position only through a validated message (the
+                    // window message listener in assets/js/pp-admin-editor.js;
+                    // schema: isPreviewScrollMessage in pp-editor-logic.js). The
+                    // document's own content policy is pp_preview_document_csp().
+                    // Pinned by tests/PreviewFrameIsolationTest.php.
+                    ?>
                     <iframe
                         id="pp-preview-frame"
                         class="pp-preview-frame"
-                        sandbox="allow-same-origin allow-scripts"
+                        sandbox="allow-scripts"
                         title="Composition preview"
                     ></iframe>
                 </div>
@@ -5947,6 +5960,33 @@ add_action('wp_ajax_pp_preview_composition', function () {
 
     wp_send_json_success(['html' => $html]);
 });
+
+/**
+ * The editor preview's content policy, emitted first in its <head>.
+ *
+ * The preview document already renders in an opaque origin (the iframe is
+ * sandboxed without allow-same-origin; LAYER-3-CONTRACT §8.3). Script inside it
+ * still runs, and this narrows what that script can reach: connect-src 'none'
+ * refuses script-initiated requests (fetch, XHR, beacon, WebSocket,
+ * EventSource), and form-action 'none' refuses form submission (the sandbox,
+ * which grants no allow-forms, already blocks that; this keeps it blocked if the
+ * sandbox ever widens). It is NOT a no-outbound guarantee: requests the page
+ * makes by rendering — images, stylesheets, fonts, nested frames, resource
+ * hints — are governed by other directives and stay open, because the preview
+ * has to render what the page renders. The editor's scroll bridge talks to the
+ * editor by postMessage, which no CSP directive covers.
+ *
+ * Embedded output that loads data with a script therefore does not do so in the
+ * preview — it renders as it is first emitted. Such scripts could not reach the
+ * site from the preview's opaque origin anyway.
+ *
+ * A srcdoc document also inherits any policy the admin screen itself is served
+ * with; this one only adds restrictions. Pinned by
+ * tests/PreviewFrameIsolationTest.php and tests/e2e/preview-isolation.spec.ts.
+ */
+function pp_preview_document_csp(): string {
+    return '<meta http-equiv="Content-Security-Policy" content="connect-src \'none\'; form-action \'none\'">';
+}
 
 /**
  * The preview iframe's <head>: the theme stylesheets plus the v2 UDC layers,
@@ -6042,7 +6082,10 @@ function pp_preview_document_head(array $composition, string $dir_uri): string {
         $fonts .= '<link rel="stylesheet" href="' . esc_url($font_url) . '">';
     }
 
-    return '<meta charset="UTF-8">'
+    // THE PREVIEW'S OWN CONTENT POLICY COMES FIRST, ahead of anything that loads
+    // (see pp_preview_document_csp()).
+    return pp_preview_document_csp()
+        . '<meta charset="UTF-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
         // THE LAYER ORDER, AHEAD OF EVERYTHING (#986). base.css carries the same
         // statement, but the links below have no cache-busting query, so a browser

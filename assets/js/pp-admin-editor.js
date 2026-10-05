@@ -148,12 +148,39 @@
         $('#pp-preview-status').text(msg || '');
     }
 
+    // The preview renders in an isolated (opaque) origin — see the sandbox comment
+    // on #pp-preview-frame in lib/admin.php and the channel diagram in
+    // pp-editor-logic.js. The editor never touches the frame's document. Each
+    // refresh rebuilds srcdoc and passes in the last scroll position the frame
+    // reported, so the reader stays where they were.
+    var previewScrollY = 0;
+
+    window.addEventListener('message', function (event) {
+        var frame = document.getElementById('pp-preview-frame');
+        // The SENDER is the check, never event.origin: the frame's origin is
+        // "null", which any other sandboxed frame reports too. And the sender
+        // check alone is not enough — script inside the frame IS that sender — so
+        // the data must also pass the strict scroll-only schema.
+        if (!frame || !frame.contentWindow || event.source !== frame.contentWindow) return;
+        if (!logic.isPreviewScrollMessage(event.data)) return;
+        previewScrollY = event.data.y;
+    });
+
+    // Each preview request is numbered, and only the latest one may paint: a full
+    // rebuild from a slower, older response would otherwise replace a newer
+    // preview (or refill one the editor has since cleared).
+    var previewRequest = 0;
+
     var runPreview = debounce(function () {
         if (!cm) return;
+        var seq = ++previewRequest;
         var value = cm.getValue().trim();
 
         if (!value) {
             document.getElementById('pp-preview-frame').srcdoc = '';
+            // Nothing is shown, so there is no place to keep: the next preview
+            // (of whatever is typed next) opens at the top.
+            previewScrollY = 0;
             setPreviewStatus('');
             return;
         }
@@ -177,23 +204,13 @@
             nonce:       nonce,
         })
         .done(function (res) {
+            if (seq !== previewRequest) return;
             if (res.success && res.data && res.data.html) {
+                // Every refresh is a full rebuild: the whole document, head
+                // included, so composition-dependent style blocks are current too.
                 var frame = document.getElementById('pp-preview-frame');
-                var hasBody = false;
-                var scrollY = 0;
-                try {
-                    hasBody = !!(frame.contentDocument && frame.contentDocument.body && frame.contentDocument.body.innerHTML);
-                    scrollY = frame.contentWindow.pageYOffset || 0;
-                } catch (e) {}
-
-                if (hasBody) {
-                    // Subsequent update: swap body only to preserve scroll
-                    var parsed = (new DOMParser()).parseFromString(res.data.html, 'text/html');
-                    frame.contentDocument.body.innerHTML = parsed.body.innerHTML;
-                    frame.contentWindow.scrollTo(0, scrollY);
-                } else {
-                    // First load: set full document
-                    frame.srcdoc = res.data.html;
+                if (frame) {
+                    frame.srcdoc = res.data.html + logic.previewScrollBridge(previewScrollY);
                 }
                 setPreviewStatus('');
             } else {
@@ -201,6 +218,7 @@
             }
         })
         .fail(function (xhr) {
+            if (seq !== previewRequest) return;
             setPreviewStatus('Preview failed (' + xhr.status + ').');
         });
     }, 500);
