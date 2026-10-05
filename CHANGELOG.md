@@ -4,11 +4,130 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [Unreleased — Sprint 5] — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle (#1219)
+## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
-The five version files stay at `2.0.1` until the sprint close; each Sprint-5 PR adds its section here.
+**TL;DR: what a visitor sees now matches what you set, and a "latest posts" homepage view writes nothing.** A password on a
+composed page now hides its content until the visitor enters it. A "Your latest posts" homepage
+shows your posts, styled, and viewing it no longer writes anything, so it can no longer put a
+password-protected post's page on the homepage. `wp pp validate site` now fails on a header or footer
+advisory instead of passing without looking. A grid `update_component` patch that would erase a
+styled card's design is refused with a message naming the card, instead of succeeding silently. A
+band whose stored title or image is a list or an object no longer stops the AI chat, and a band whose
+stored component is not a string no longer makes every render log a PHP warning. The update changes
+nothing stored. Like every theme update, it re-opens your acknowledged judgment calls, so
+re-check them after upgrading.
 
-## The docs now say exactly what `wp pp operate inspect` writes (#1219)
+### Highlights
+
+- **Composed pages honour post passwords.** A Composition-template page or static front page with a
+  post password shows its title and WordPress's password form until the password is entered: no
+  bands, and no band styles in the head. After the password it renders exactly as before (#1219).
+- **A "latest posts" homepage is your post listing.** With Settings → Reading → "Your latest posts",
+  `/` renders the posts index with its default styles. It used to paint an unstyled default homepage
+  and write that composition onto a blog post on the first visit (the first post that view showed,
+  usually the newest or a sticky one, and on each page of a paginated listing); if that post had a
+  password, its page content could show on the homepage. A visit now writes nothing (#1173).
+- **`wp pp validate site` checks the header and footer.** A new `--- Site chrome (header and
+  footer) ---` section lists the findings a header or footer write returns, and the command exits 1
+  on any that is not an informational note (#1204).
+- **A grid `update_component` patch can no longer drop a styled card's design.** A patch that sends
+  `items` keeps each stored card design (by its re-sent `id`, or by position when the card count is
+  unchanged). A patch that would lose one is refused with `item_design_would_be_lost`, which names
+  the cards and the route, and writes nothing (#1118). `update_composition` and `restore_composition`
+  are not checked. A write no longer re-mints or deletes item ids on bands it did not validate
+  (#1119); ids can still carry in the cases listed under Known issues (#1234).
+- **Unusual stored values no longer break the chat context or the render.** A band whose stored `title` or
+  image is a list or an object no longer stops the chat's context build, and a band whose
+  `component` is not a string no longer logs "Array to string conversion" on every render (#1163,
+  #1189). A band whose stored `component` is an array still stops the chat context (#1223).
+- **The docs say exactly what `wp pp operate inspect` writes:** one run-state row (autoload off)
+  that mints the run token, after clearing expired or malformed run-state rows, and nothing in your
+  site's design (#1219).
+
+### ⚠️ Behaviour changes
+
+- **`wp pp validate site` can now fail a site that passed under 2.0.1**, on a header or footer
+  advisory. Header and footer findings cannot be acknowledged yet (#1220), so fix the value. A raw
+  `_css` property outside the design vocabulary (`udc_css_unchecked_property`) on the header or
+  footer keeps failing the gate until you remove it or #1220 lands, so a deploy pipeline that gates
+  on this command will block on it.
+- **Three grid `items` patches that used to succeed are now refused** with
+  `item_design_would_be_lost`: a patch that adds or removes a card without re-sending the `id` of
+  every styled card it keeps; a same-length patch that names a card by `id` at a position where a
+  different styled card sat; and a same-length patch that sends an `id` the band never stored at a
+  styled card's position. The route is in the itemized section below.
+- **An item id on a band a write did not validate is left as stored.** A malformed id there is no
+  longer re-minted or deleted by an edit to another band; it is reported in the findings.
+- **A password-protected composed page no longer shows its bands to visitors** without the password.
+  If you relied on a password page rendering openly, remove the password.
+- **A "Your latest posts" homepage renders the post listing**, not the default homepage composition.
+- **Upgrading re-opens every `wp pp check acknowledge` acknowledgement.** An acknowledgement records
+  the theme version, so each one you made on 2.0.1 goes stale with this update and its advisory fails `wp pp validate site`
+  again until you re-acknowledge it. This is by design: an upgrade can change what paints.
+
+### Upgrading
+
+This is a theme-only update. It changes nothing stored and needs no migration; step 4 is an optional
+cleanup for sites that ever ran a "Your latest posts" homepage.
+1. If you use `wp pp readiness`, run `wp pp readiness status` after replacing the theme files. When
+   the only drift it reports is the 2.0.2 files, run `wp pp readiness rebaseline`.
+2. Run `wp pp validate site`. If the new header and footer section fails, fix the value with
+   `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with
+   `save_preset`. Do this before you acknowledge page judgment calls: every `pp_site_udc` or preset
+   write re-opens them.
+3. Re-acknowledge your judgment calls. The update re-opened every acknowledgement made on 2.0.1. For
+   each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
+   still judge intentional, run `wp pp check acknowledge` again with the key it prints now and a note.
+   `check page` then reports the 2.0.1 rows as orphaned. If you might roll back to 2.0.1, keep them
+   until you are sure: they apply again on 2.0.1 when nothing else on the site has changed.
+4. If the site ever ran with "Your latest posts" before 2.0.2, a visit may have written a page
+   composition onto one or more blog posts. Find them with
+   `wp post list --post_type=post --meta_key=_pp_composition` (add any custom post type your home
+   listing shows). The theme writes compositions to pages only, so on a post one came from this bug
+   or from a raw meta write you made yourself; check it with `wp post meta get <id> _pp_composition`
+   first. Remove a stray one with `wp post meta delete <id> _pp_composition`, then the same command
+   for `_pp_composition_hash` and `_pp_composition_version`. A finding that names them is planned
+   (#1240).
+5. If an agent or script patches grid `items`, have it re-send the `id` of every styled card it keeps
+   (read them with `wp post meta get <post_id> _pp_composition`). To delete a styled card, first send
+   `"udc": {}` on it in a patch that keeps the same number of cards, then remove it in a second write.
+
+**Rolling back to 2.0.1** brings the fixed behaviour back: a password-protected composed page shows
+its bands to visitors without the password again (set such pages to private or draft first), a
+"Your latest posts" homepage writes onto blog posts again (use a static front page, or repeat step 4
+afterwards), and `wp pp readiness` reports the theme files as changed until you rebaseline again.
+
+### Known issues (rolled up)
+
+- Posts the old front-page bug wrote a composition onto keep it, and their single pages print band
+  CSS with no matching markup until it is removed (#1240; cleanup in Upgrading above).
+- Header and footer findings cannot be acknowledged (#1220).
+- A static front page with no stored composition is still given the default homepage on its first
+  visit (password-protected pages excepted). Moving that write off the page view is #1239.
+- Item ids still carry from a band the write deleted at the same index, from a stored band with no
+  id, and in an `update_composition` that sends no band ids; re-send band ids on a whole-band
+  rewrite (#1234). `update_composition` and `restore_composition` stay declarative, with no
+  item-design check. In the chat, clearing a card's design and removing it must be two turns (#1232).
+- A band whose stored `component` is an array still stops the chat context, one step earlier, in the
+  page inspection (#1223).
+- The audit of what every operating command writes has a remainder (#1236).
+- Carried from 2.0.1: an accent over a scrim cannot be acknowledged (#1211); an undo's count and
+  truncation wording treat informational notes as issues in three places (#1205).
+- Carried from 2.0.1: acknowledgements are read only by `wp pp check page` and `wp pp validate
+  site`; a write's `findings` report and the chat still list an acknowledged advisory as a warning.
+  They do not re-open for a code change between releases (a development build, a child theme, a
+  plugin's late CSS), and a raw `_css` property can paint past the band an acknowledgement covers. An
+  acknowledgement row written straight into post meta is honoured; signing rows is planned (#1214).
+  The band-id namespaces and a few refusal messages have follow-ups (#1213, #1215).
+- Carried from 2.0.1: a malformed `clamp()`/`calc()` inside a length is accepted and dropped by the
+  browser (#1198) and length values have no size limit (#1199); the `card-media` → `_css` `object-fit: contain` route
+  has no effect (#1209), the grid `header` role description contradicts itself (#1208) and the
+  checklist-to-link gap is tight (#1207); `wp pp schema` can carry a third-party theme's unbounded
+  or invisible characters (#1200) and echoes rejected keys raw (#1201).
+
+### Itemized changes
+
+### The docs now say exactly what `wp pp operate inspect` writes (#1219)
 
 **`inspect` is no longer described as read-only, because it is not.** The reference and the AI
 operating loop called INSPECT "read-only" and said it "never mutates the site". In fact every call
@@ -24,7 +143,7 @@ one you already hold. If that row cannot be written, `inspect` fails with `Canno
 the UUID that message quotes is unusable (normally nothing was stored under it). `wp pp readiness status` is
 unchanged and still writes nothing.
 
-### Docs
+#### Docs
 - `docs/reference-apply-cli.md` (the `operate inspect` section, where `validate site`'s
   `findings_skipped` row points you): what `inspect` writes, what it deletes, and its failure case.
 - `ai-instructions/operating-loop.md`: the INSPECT step states the same, and the readiness paragraph
@@ -47,7 +166,7 @@ unchanged and still writes nothing.
 - `docs/tutorial-style-a-band-on-the-design-contract.md`: the run-token note covers the writes the
   tutorial makes, rather than every mutating command.
 
-### Tests
+#### Tests
 - `tests/OperateInspectWriteSurfaceTest.php` (new) runs the real `inspect` command handler against
   the unit-test harness and compares options, posts, post meta, theme mods and Custom CSS before and
   after. A bare call, a sweep over live, near-TTL, foreign, shape-incomplete, expired, just-expired,
@@ -56,12 +175,12 @@ unchanged and still writes nothing.
 - `tests/bootstrap.php`: the `update_option` stub records the autoload flag, so the test can check
   that the run row is written with autoload off.
 
-## A "latest posts" front page is the posts index, and a visit no longer writes onto a blog post (#1173)
+### A "latest posts" front page is the posts index, and a visit no longer writes onto a blog post (#1173)
 
 **With Settings → Reading → "Your latest posts", the homepage now shows your posts, styled, and
 viewing it changes nothing.** Before, that homepage painted the theme's default homepage with no
-styles at all, and the first visit wrote that default homepage onto your newest blog post. If the
-newest post had a password, its own page content could appear on the homepage to anyone. Now the
+styles at all, and the first visit wrote that default homepage onto a blog post (the first one the
+view showed, usually the newest). If that post had a password, its own page content could appear on the homepage to anyone. Now the
 homepage is the posts listing (the same page `home.php` renders for a posts index), with its
 default styles, and a visit writes nothing.
 
@@ -74,9 +193,9 @@ nothing is resolved behind it. Only the page Settings → Reading names is ever 
 homepage composition when it has none (the blank-page safeguard of #506), and never by a visitor
 who has not entered its password.
 
-### Fixed
+#### Fixed
 - **"Your latest posts" homepage.** Renders the post listing with its default styles instead of an
-  unstyled default homepage, and no longer writes a page composition onto the newest blog post.
+  unstyled default homepage, and no longer writes a page composition onto a blog post.
 - **A password-protected newest post on a "latest posts" homepage.** Its stored composition is not
   shown there; the listing shows it the way WordPress shows any protected post.
 - **A password-protected static front page with no composition yet.** A visitor without the
@@ -84,15 +203,19 @@ who has not entered its password.
 
 **Upgrading.** A site that was set to "Your latest posts" before this release may have had a page
 composition written onto a blog post by a visit. It is left as it is (nothing stored is ever removed
-by a render). To find such posts: `wp post list --post_type=post --meta_key=_pp_composition`; a
-stray composition on a post can be removed with `wp post meta delete <id> _pp_composition`.
+by a render). To find such posts: `wp post list --post_type=post --meta_key=_pp_composition`. The
+theme writes compositions to pages only, so check one with `wp post meta get` before removing it
+(`wp post meta delete <id>` for `_pp_composition`, `_pp_composition_hash` and
+`_pp_composition_version`). Until
+it is, that post's single page prints band CSS with no matching markup; a `wp pp validate site`
+finding that names such posts is tracked in #1240.
 
-### Docs
+#### Docs
 - `AI_CONTEXT.md` describes what the front page renders for each Reading setting, and which page a
   front-page view may seed; `ai-instructions/bootstrap.md` notes that "Your latest posts" never
   renders a composition.
 
-### Tests
+#### Tests
 - `tests/FrontPageRouteTest.php` (new): `/` through the shipped root `front-page.php` and templates
   for a latest-posts site (listing, its role defaults, no write, a protected newest post, no posts),
   a static front page (stored, seeded once, protected before and after the password), and a page
@@ -102,7 +225,7 @@ stray composition on a post can be removed with `wp post meta delete <id> _pp_co
   password cookie.
 - `tests/bootstrap.php`: the `get_the_ID()` stub reads the global post, as core does.
 
-## A grid `items` patch never drops a stored card design; item ids stay on the band a write touched (#1118, #1119)
+### A grid `items` patch never drops a stored card design; item ids stay on the band a write touched (#1118, #1119)
 
 **Editing a grid's cards can no longer silently erase another card's design.** An `update_component`
 patch that sends the `items` array keeps each stored card design in one of two ways: the card's `id` is
@@ -134,7 +257,7 @@ the page. Item ids are now minted, carried and cleared only on the band the writ
 findings. Item ids also never carry from a band an insert or a reorder moved (when its band id is
 re-sent) or onto a band `add_component` creates.
 
-### Fixed
+#### Fixed
 - `update_component` refuses an `items` patch that would lose a stored card design or minted id, with
   `item_design_would_be_lost`, in validate, preview and execute; the message names each card (position,
   title, id) and the routes (#1118).
@@ -143,7 +266,7 @@ re-sent) or onto a band `add_component` creates.
 - The `udc_item_design_carried_by_position` disclosure names `wp post meta get`, which returns the ids,
   instead of `wp pp operate inspect`, which does not.
 
-### Known limits
+#### Known limits
 - Item ids still carry from a band the write deleted at the same index, from a stored band with no id,
   and in an `update_composition` that sends no band ids. Re-send band ids on a whole-band rewrite. The
   designed fix is #1234.
@@ -152,12 +275,12 @@ re-sent) or onto a band `add_component` creates.
 - A chat proposal previews every step against the page as it is now, so clear-then-remove has to be two
   turns (#1232).
 
-### Docs
+#### Docs
 - `lib/ai-context.php`, `AI_CONTEXT.md`, `ai-instructions/composition.md`, `components/grid/README.md`,
   `docs/howto-migrate-a-grid-band-to-v2.md` and `docs/explanation-validation-scope.md` describe the refusal,
   the routes and the item-id scope.
 
-### Tests
+#### Tests
 - `tests/ItemsPatchIntegrityTest.php` (new): the refusals and their routes through the real action
   surface, validate/preview/execute parity, the message's raw-meta shapes, the cross-band and band-level
   item-id scope, rename safety, and the known gaps pinned as shipped.
@@ -165,7 +288,7 @@ re-sent) or onto a band `add_component` creates.
   keeps a pin through an `update_composition` rewrite.
 - `tests/AiContextTest.php`: the per-card delete routes reach the system prompt.
 
-## Composed pages: honour post passwords (#1219)
+### Composed pages: honour post passwords (#1219)
 
 **A composed page with a post password asks for it, the way WordPress content does.** A page on the
 Composition template, and a static front page, show the page title and WordPress's password form
@@ -180,16 +303,16 @@ composition, so the CSS and the markup always agree. The form is WordPress's own
 so the `the_password_form` filter applies), echoed as WordPress returns it. Nothing stored changes,
 and authoring a composed page works exactly as before.
 
-### Fixed
+#### Fixed
 - **Composed pages and post passwords.** A Composition-template page or static front page with a
   post password shows its title (WordPress's "Protected: …" form of it) and the password form until
   the password is entered, with no bands and no band CSS.
 
-### Docs
+#### Docs
 - `AI_CONTEXT.md` and `ai-instructions/composition.md` describe what a password-protected composed
   page shows.
 
-### Tests
+#### Tests
 - `tests/ComposedPagePasswordTest.php` (new): the form and the heading in place of the bands, the bands
   once the password is entered, the head's band CSS following the same rule, the static front page on
   both sides, and the gate asking about the page being rendered (the queried page, or the posts page),
@@ -199,7 +322,7 @@ and authoring a composed page works exactly as before.
   cookie, a protected page and a protected static front page show the form, then their bands and
   authored styles once the password is entered.
 
-## Atypical stored data no longer breaks the chat context or warns on render (#1163, #1189)
+### Atypical stored data no longer breaks the chat context or warns on render (#1163, #1189)
 
 **A page whose stored composition holds an atypical value now opens in the AI chat and renders
 without PHP warnings.** Stored compositions are not always what the write path accepts: a restore
@@ -219,7 +342,7 @@ index as `(unreadable entry: a stored <type>, not a component object)`, so the n
 bands holds. The index no longer names the retired `theme` and `background_image` props, which no
 component declares and nothing renders.
 
-### Fixed
+#### Fixed
 - **Chat context on a page with an atypical stored band.** The component index builds for every stored
   shape of `title`, `image_url`, `layout`, the band's stored `id`, its stored recipe and its style
   values (#1163). A band whose `component` is an array still stops the chat context one step earlier,
@@ -229,18 +352,18 @@ component declares and nothing renders.
 - **Render loop.** `pp_render_composition_bands()` skips a band whose `component` is not a string,
   with no warning, on every route that uses it (#1189).
 
-### Changed
+#### Changed
 - The component index line no longer shows `theme:` or a `background_image` filename; both props are
   retired on every component (#1163).
 
-### Tests
+#### Tests
 - `tests/AiContextStoredShapeTest.php` (new): each atypical shape at unit level, the retired props,
   the unchanged output for well-formed values, and the chat context built end to end over stored pages
   (stored bytes unchanged).
 - `tests/PostsPageCompositionTest.php`: the shared loop over list, map, int, float and boolean
   components, the posts page rendered end to end around such a band, and the write path refusing it.
 
-## `wp pp validate site` now checks the header and footer (#1204)
+### `wp pp validate site` now checks the header and footer (#1204)
 
 **A header or footer advisory now fails the gate.** `wp pp validate site` used to check Custom CSS
 conflicts and every composition page, and never looked at the header and footer styling
@@ -258,10 +381,11 @@ preset write envelopes now deliver their findings in the same order as a page re
 "capped" row first, then the other warnings, then the notes. So 100 notes can no longer push a
 warning past the 100-entry cut. A cut list now names `wp pp validate site` for the rest.
 
-### What changes for you
+#### What changes for you
 
 - A site with a header or footer advisory now exits 1 from `wp pp validate site`. Fix the value with
-  `update_site_option` on `pp_site_udc` (or the preset the finding names) and run it again.
+  `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with
+  `save_preset`, and run it again.
 - Header and footer findings cannot be acknowledged yet (#1220). A judgment call there, such as an
   unchecked `_css` property, is printed with `[no key: ...]` saying so, and keeps failing until the
   value changes.
@@ -270,7 +394,7 @@ warning past the 100-entry cut. A cut list now names `wp pp validate site` for t
 - The section does not re-check the stored header and footer map against the write rules, the way a
   page's item 5 does. A map stored by a raw option write is reported only through its advisories.
 
-### Fixed
+#### Fixed
 
 - `wp pp validate site` reads the header and footer findings and fails on them (#1204).
 - The chrome and preset write envelopes keep a gating warning ahead of the informational notes, so a
@@ -278,13 +402,13 @@ warning past the 100-entry cut. A cut list now names `wp pp validate site` for t
 - A cut chrome or preset findings list names `wp pp validate site`, which lists it whole, instead of
   `wp pp operate inspect` (#1204).
 
-### Docs
+#### Docs
 
 - `ai-instructions/validate-site.md` (item 6, the header and footer section),
   `ai-instructions/operating-loop.md`, `docs/reference-apply-cli.md`,
   `docs/AI_IMPLEMENTATION_RECIPES.md` and `AI_CONTEXT.md` describe the new section and its limits.
 
-### Tests
+#### Tests
 
 - `tests/ChromeSiteGateTest.php`: the command fails end to end on a header advisory written through
   `update_site_option`; notes pass; a skipped report fails; unknown severities gate; the no-key line;
