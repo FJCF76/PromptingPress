@@ -308,6 +308,11 @@ class ChatPageListPermissionTest extends TestCase
     public function testTheDropdownWithNoPagesShowsNoPagesFound(): void
     {
         $this->assertSame('<option value="">No pages found.</option>', pp_ai_chat_page_select_options([]));
+
+        // Core's own words and translation: the call carries no text domain. The bootstrap's
+        // translation stub ignores the domain, so the statement is pinned instead.
+        $code = self::codeOnly(file_get_contents(dirname(__DIR__) . '/lib/ai-chat.php'));
+        $this->assertSame(1, preg_match_all("/esc_html__\\('No pages found\\.'\\)/", $code), 'core text domain');
     }
 
     /**
