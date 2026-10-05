@@ -13,6 +13,13 @@ All notable changes to PromptingPress are documented here.
   any other page the request gets the chat's usual permission refusal, right after the chat's
   own permission check and before any provider, message or page work, and the chat shows that refusal instead of retrying in compatibility mode. Nothing
   changes for an editor or administrator working on pages they can edit.
+- **Chat: the page list shows the pages you can work on.** The chat's page selector and the
+  page list the AI is given now hold only the pages the signed-in user can edit, the same check
+  each chat turn already makes on the page it names. With none, the selector reads WordPress's
+  own "No pages found." and sending says so instead of asking for a selection, and the AI is
+  told "None you can edit." ("No pages exist yet." stays for a user who sees every page, on a
+  site with none). Reading a page's current version answers a page that does not exist the same
+  way as one the user may not edit. Nothing changes for an editor or administrator.
 
 ### Tests
 
@@ -21,6 +28,13 @@ All notable changes to PromptingPress are documented here.
   one. The test bootstrap's capability stub accepts a per-object grant.
   `pp-ai-chat-stream-refusal.test.js` pins that a refused stream request is shown and not
   retried through the non-streaming endpoint, while a server error still falls back.
+- `ChatPageListPermissionTest` pins the filtered list, the prompt's page inventory for a user
+  with some, all and no editable pages (each in its own process, because the page list is
+  memoised per process), the empty-list wording rule, the prompt byte budget for a filtered list,
+  the selector markup (escaped, and its empty state), that every page-list read in the chat and
+  the AI context goes through the filter, and the version read's single answer for missing and
+  forbidden pages. `pp-ai-chat-page-list-empty.test.js` pins the empty-list message. The test
+  bootstrap gains `__()` / `esc_html__()` stubs.
 
 ## [v2.0.2] — 2026-10-05 — v2 Sprint 5, the 2.0.2 trust & confidentiality fix cycle: a "latest posts" homepage shows your posts and a visit writes nothing, composed pages honour post passwords, `wp pp validate site` checks the header and footer, a grid `update_component` items patch can no longer silently drop a card design, a stored title or image that is a list or an object no longer breaks the chat context, a non-string stored component no longer warns on render, and the docs say exactly what `wp pp operate inspect` writes (#1219; #1173, #1204, #1163, #1189, #1118, #1119)
 
