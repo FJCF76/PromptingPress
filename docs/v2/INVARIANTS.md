@@ -129,7 +129,7 @@ The four §6 seeds all survive verification and are folded in below (I1, I4, I21
 
 60, 166, 384, 500, 505, 541, 555, 556, 570, 571, 574, 586, 587, 588, 590, 591, 592, 609, 610, 618, 639, 658, 670, 678, 698, 727, 776, 863, 892, 893, 894, 895, 896, 899, 901, 903, 905, 906, 907
 
-Notes: #901 is the Sprint-0 acceptance case itself. #900/#906 (the T6 grammar pair) and #610 (measure slots can't take a token reference) are answered outright by §3.3's unified grammar owner and §3.1's `@name` references — #900 is nevertheless kept above as an invariant carrier (see judgment calls). #907/#903 are the archetypes the §2 structural-CSS boundary lint exists to prevent. #570 stays open as the v1 decision record; its 27 rulings are styling-baseline rulings and do not re-enter (the two non-styling ones — the no-alias posture and the site-wide-retheme class of need — are carried by I36 and by §3.4).
+Notes: #901 is the Sprint-0 acceptance case itself. #900/#906 (the T6 grammar pair) and #610 (measure slots can't take a token reference) are answered outright by §3.3's unified grammar owner and §3.1's `@name` references — #900 is nevertheless kept above as an invariant carrier (see judgment calls). #907/#903 are the archetypes the §2 structural-CSS boundary lint exists to prevent. #570 is closed as superseded; its consolidated v1 decision record lives at `docs/history/570-decision-record.md`, and its still-binding rulings remain restated in their authoritative v2 documents; its 27 rulings are styling-baseline rulings and do not re-enter (the two non-styling ones — the no-alias posture and the site-wide-retheme class of need — are carried by I36 and by §3.4).
 
 # ORTHOGONAL-DEFERRED (27)
 
@@ -155,7 +155,7 @@ Nature: i18n (#904, #949), advisory acknowledgment (#902, #684), editor UX (#646
 8. **#791 — classified ORTHOGONAL** with reservation: two of its three defects are pure geometry, but "the truncation notice looks like a finding" is a truth defect. If the UDC work re-renders the findings rows, that third clause belongs under I23.
 9. **#498 — classified ORTHOGONAL**, but under the §2 fresh-build/no-migration policy it is moot (the install is rebuilt) — recommend closing it outright rather than carrying it.
 10. **#589 — classified ORTHOGONAL** (a component content-model design question), though it contains a reject-never-coerce instance (a scalar row silently cast to a one-cell row). That instance is covered generically by I34; the shape question itself was to be re-asked when `table` was rebuilt. **table was rebuilt at #1066 and the question was NOT re-asked**, correctly: that rebuild moved table's styling from slots to roles and touched no prop, so the row-of-rows CONTENT model is exactly as it was. #589 stays open and orthogonal, and it no longer has a scheduled prompt — whoever picks it up is choosing to, rather than being carried there by a rebuild.
-11. **#570 / #141 asymmetry:** #570 is DIES (it is the v1 styling-baseline decision record); #141 is PROGRAM/META (the gate archive). Both stay open as records; neither re-enters as work.
+11. **#570 / #141 asymmetry:** #570 is DIES (it is the v1 styling-baseline decision record); #141 is PROGRAM/META (the gate archive). Per the owner's 2026-10-06 ruling, DIES records are CLOSED as superseded once their durable decisions are consolidated (#570's consolidated record: `docs/history/570-decision-record.md`; still-binding rulings remain restated in their authoritative v2 documents); neither re-enters as work.
 
 ---
 
