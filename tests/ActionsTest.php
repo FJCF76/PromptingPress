@@ -3144,6 +3144,22 @@ class ActionsTest extends TestCase
         $GLOBALS['_pp_test_store']['is_singular'] = true;
         $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
         $this->assertSame('', pp_seo_document_title_override(''));
+
+        // Markup around whitespace strips to whitespace only: still no title text.
+        pp_update_seo_meta($id, ['seo_title' => '<b> </b><br> ']);
+        $this->assertSame('Default', pp_seo_document_title_override('Default'));
+    }
+
+    public function testSeoDocumentTitleOverrideStripsLikeCoreAtAStrayLessThan(): void
+    {
+        // strip_tags() is core's own post-title stripper, and it drops everything
+        // after a '<' that could open a tag. Documented in the CHANGELOG; an
+        // encoded &lt; is the way to keep the character.
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['seo_title' => 'Love <3 cats']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        $this->assertSame('Love ', pp_seo_document_title_override('Default'));
     }
 
     public function testSeoCanonicalUrlOverrideReturnsOverrideWhenSet(): void

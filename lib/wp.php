@@ -7882,13 +7882,14 @@ function pp_seo_meta_description_tag(): void {
  * then esc_html() (what core hooks to document_title; it does not double-encode
  * an entity that is already valid, so a stored `&amp;` stays once-encoded). The
  * two are called directly rather than through apply_filters('document_title'),
- * so the escaping does not depend on core's default filters still being hooked.
+ * so the escaping does not depend on esc_html still being hooked to that filter
+ * (esc_html()'s own `esc_html` filter still runs, as it does everywhere in core).
  * Core's typography filters (wptexturize, capital_P_dangit) are deliberately not
  * applied: this is an explicit override, and its punctuation is the operator's.
  *
- * A stored value that is nothing but markup has no text left after stripping;
- * that returns $title unchanged, so core assembles its own title as if no
- * override were set.
+ * A stored value with no visible text left after stripping (only markup, or
+ * markup and whitespace) returns $title unchanged, so core assembles its own
+ * title as if no override were set, rather than rendering a blank <title>.
  */
 function pp_seo_document_title_override(string $title): string {
     if (!is_singular()) {
@@ -7903,7 +7904,7 @@ function pp_seo_document_title_override(string $title): string {
         return $title;
     }
     $safe = esc_html(strip_tags($seo_title));
-    return $safe !== '' ? $safe : $title;
+    return trim($safe) !== '' ? $safe : $title;
 }
 
 /**

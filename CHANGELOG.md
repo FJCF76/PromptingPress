@@ -73,15 +73,16 @@ is not encoded a second time.
 - Tags are removed and their text is kept: `<b>Sale</b> today` displays as `Sale today`.
 - Anything after a `<` that starts a tag is removed, as WordPress does to a post title, so
   `Love <3 cats` displays as `Love `. Write `&lt;3` if you need the character.
-- A `seo_title` that is only markup (`<b></b>`) now falls back to the page's default title
-  instead of leaving `<title>` empty.
+- A `seo_title` with no visible text (only markup such as `<b></b>`, or only spaces) now falls
+  back to the page's default title instead of leaving `<title>` blank.
 - Curly-quote and "WordPress" capitalisation rewrites are not applied, so the title keeps the
   punctuation you typed.
 
 ### Tests
 - Unit: a `seo_title` with a `</title><script>` breakout, `&`, an apostrophe and quotes,
-  written through `update_seo_meta`, comes back stripped and escaped. A markup-only value falls
-  back to the default title. Both were red on main.
+  written through `update_seo_meta`, comes back stripped and escaped. A value with no visible
+  text falls back to the default title. Both were red on main. The stray-`<` truncation is
+  pinned too.
 - E2E (WordPress 7.0 and 7.1.2): the rendered page's `<title>` is
   `Tom &amp; Jerry &amp; Co&#039;s &quot;Show&quot;…` (the stored `&amp;` is encoded once), the
   injected script is not in the page and does not run. Red on main, where the head carried a
