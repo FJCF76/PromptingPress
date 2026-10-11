@@ -131,9 +131,15 @@ function ppChatApplyVersionMap(pageBaselines, versions) {
  * True when a server error payload is the structured composition_conflict
  * envelope (#404 req.7). Drives the Re-read & re-preview conflict state instead
  * of a generic error line.
+ *
+ * OWN PROPERTY (#924): a planted `Object.prototype.error_code` would otherwise turn every
+ * error payload without an own code into a conflict card asserting the page changed under
+ * the operator, on both the apply and the undo paths. Same idiom as the batch readers.
  */
 function ppChatIsCompositionConflict(errData) {
-    return !!(errData && typeof errData === 'object' && errData.error_code === 'composition_conflict');
+    return !!(errData && typeof errData === 'object'
+        && Object.prototype.hasOwnProperty.call(errData, 'error_code')
+        && errData.error_code === 'composition_conflict');
 }
 
 /**
@@ -174,9 +180,20 @@ function ppChatIsCompositionConflict(errData) {
  * a competing repair made it READABLE after the handler admitted the carve-out,
  * closing the exemption before the executor re-checked it. Narrow either way,
  * and a null index is not how anyone should find out.
+ *
+ * OWN PROPERTY (#924), for the reason its siblings state: wp-admin loads third-party JS in
+ * this realm, so `Object.prototype.failed_at` is reachable, and an inherited one is not
+ * evidence about this envelope. Without the check, a refusal-shaped envelope with no own
+ * `failed_at` — the `undefined` arm this guard deliberately accepts — inherits a planted
+ * `0`, stops testing as the refusal, and falls through to the executed-failure exit: the
+ * "no step ran" rows are lost and refreshTouchedBaselines() runs for a batch that never
+ * started. An absent-or-inherited key IS the shape `undefined` already stood for, so this
+ * changes nothing on a clean envelope. The shipped #749 refusal sets `failed_at: null` as
+ * an own key and was never affected.
  */
 function ppChatBatchWasRefusedUpFront(batch) {
     if (!batch || batch.ok) return false;
+    if (!Object.prototype.hasOwnProperty.call(batch, 'failed_at')) return true;
     return batch.failed_at === null || batch.failed_at === undefined;
 }
 
@@ -191,11 +208,31 @@ function ppChatBatchWasRefusedUpFront(batch) {
  * classify as "not a conflict", which sends a conflicting batch to the executed-failure exit
  * and re-masks the very card #853 unmasked. That is the one "tidy-up" this cluster cannot
  * survive, so it is written down rather than left to be rediscovered.
+ *
+ * OWN PROPERTY ON BOTH FIELDS (#924), which is a different question from readability and
+ * does not breach the rule above. ppChatBatchStepsReadable() asks about SHAPE, and that is
+ * the question this classifier must not ask; an own-property check asks about PROVENANCE,
+ * and rejects an INHERITED `steps` or `failed_at` while leaving an object-shaped own `steps`
+ * classifying exactly as before. Without it, `Object.prototype.steps` and
+ * `Object.prototype.failed_at` planted together made `{ok: false}` — an envelope with
+ * neither field of its own — classify as a conflict, and the operator got a card asserting
+ * the page changed under them over a batch that reported no such thing. Same idiom, same
+ * reason, as every sibling reader of these two fields.
  */
 function ppChatBatchHitConflict(batch) {
-    if (!batch || batch.ok || batch.failed_at === null || batch.failed_at === undefined) return false;
-    var failed = batch.steps && batch.steps[batch.failed_at];
-    return !!(failed && failed.error_code === 'composition_conflict');
+    if (!batch || batch.ok) return false;
+    if (!Object.prototype.hasOwnProperty.call(batch, 'failed_at')
+        || !Object.prototype.hasOwnProperty.call(batch, 'steps')) return false;
+    if (batch.failed_at === null || batch.failed_at === undefined) return false;
+    // The member is read only at an OWN index: an index past the end of the list would
+    // otherwise fall through to a planted `Object.prototype[N]`.
+    var failed = batch.steps && Object.prototype.hasOwnProperty.call(batch.steps, batch.failed_at)
+        ? batch.steps[batch.failed_at]
+        : null;
+    // The failing step's own code, by the same provenance test: a step result with no
+    // `error_code` of its own must not inherit a planted 'composition_conflict'.
+    return !!(failed && Object.prototype.hasOwnProperty.call(failed, 'error_code')
+        && failed.error_code === 'composition_conflict');
 }
 
 /**
@@ -213,6 +250,8 @@ function ppChatBatchHitConflict(batch) {
  * which routes a conflicting batch away from the card #853 exists to make reachable. So the
  * rule is not "every read of `steps` goes through here" — it is "every CLAIM about the steps
  * does", and a classifier that only needs one member is allowed the narrower question.
+ * (Narrower about shape, not about provenance: since #924 it does require `steps` to be the
+ * envelope's OWN key, the half of this predicate that says nothing about shape.)
  *
  * `Array.isArray` is the whole test, deliberately the same one `ppChatRollbackErrorReport()`
  * applies to the channel beside it. `$results` in pp_ai_execute_batch() (lib/actions.php) is
@@ -408,13 +447,12 @@ function ppChatBatchAccountsForAllSteps(batch, proposedCount) {
  *                                   question about the batch rather than about a step, and
  *                                   its answer picks an exit rather than printing a number.
  *
- * THE SECOND ONE CARRIES A KNOWN GAP, named here rather than left for someone to read the
- * exemption as a clean bill of health: it reads `failed_at` with plain property access, so a
- * planted `Object.prototype.failed_at` makes an envelope with no own one stop testing as the
- * #749 refusal and lose that card. Pre-existing, untouched by this change, and filed —
- * closing it means editing a landed guard on evidence this issue does not carry. What #872
- * does change is the consequence: the exit it falls through to now degrades to the stated
- * unknown instead of printing the fabricated "Error on step 1" it used to.
+ * EXEMPT FROM THE INTEGER CHECK, NOT FROM PROVENANCE. Both used to read `failed_at` with
+ * plain property access, which let a planted `Object.prototype.failed_at` suppress the #749
+ * refusal card on an envelope with no own key, and — with a planted `steps` beside it —
+ * forge a conflict card. #924 closed both with the own-property check every other reader
+ * of this field applies, so the rule now holds of the whole file: no reader of `failed_at`
+ * takes an inherited value as this envelope's.
  *
  * @param  {object|null}  batch  The batch envelope.
  * @return {number|null}         The index, or null when the envelope names no usable one.
@@ -450,7 +488,7 @@ function ppChatBatchFailedStepIndex(batch) {
  * TWO NEIGHBOURS THAT LOOK LIKE CALLERS AND MUST NOT BECOME ONES, named here because
  * "the one spelling of this line" is otherwise an invitation to fold them in:
  *
- *   the !resp.success branch   spells the same prefix over `(resp.data && resp.data.error)
+ *   the !resp.success branch   spells the same prefix over `(resp.data && <own> resp.data.error)
  *                              || resp.data || 'Unknown error'` — a THIRD fallback, to the
  *                              payload itself, that exists because a pre-execution refusal
  *                              can arrive as a bare string. Folding it in would silently
@@ -899,6 +937,14 @@ function ppChatRollbackRowClass(item) {
  * non-array (an older payload, a key that arrived as a string) degrades to "nothing to
  * report" rather than to an exception, and non-string members are dropped rather than
  * String()-ed into '[object Object]'.
+ *
+ * OWN PROPERTY ON ALL THREE KEYS (#924). The pre-execution conflict payloads
+ * (composition_conflict, missing_expected_version — lib/ai-chat.php) reach this function
+ * through showConflictState() and honestly carry NONE of them, so an inherited
+ * `Object.prototype.rollback_errors` would be read as this payload's report: the card where
+ * nothing ran would claim "Some changes could not be reverted." and draw someone else's rows
+ * as the rollback's. Every batch envelope pp_ai_execute_batch() returns sets all three as
+ * own keys, so nothing changes for an honest batch.
  */
 function ppChatRollbackErrorReport(batch) {
     var report = {
@@ -908,10 +954,12 @@ function ppChatRollbackErrorReport(batch) {
         total: 0,
         reported: 0,
         readable: false,
-        rolledBack: !!(batch && batch.rolled_back)
+        rolledBack: !!(batch && Object.prototype.hasOwnProperty.call(batch, 'rolled_back') && batch.rolled_back)
     };
 
-    var raw = batch && batch.rollback_errors;
+    var raw = batch && Object.prototype.hasOwnProperty.call(batch, 'rollback_errors')
+        ? batch.rollback_errors
+        : null;
     if (!Array.isArray(raw)) return report;
 
     // THE KINDS ARE READ AS DEFENSIVELY AS THE MESSAGES, and for the same structural
@@ -928,7 +976,8 @@ function ppChatRollbackErrorReport(batch) {
     // real failed revert drawn as a harmless protection. Today's executor cannot produce a
     // mismatch (both keys are projections of one traversal, lib/actions.php), so failing
     // closed costs nothing against real data and removes the whole class.
-    var rawKinds = (batch && Array.isArray(batch.rollback_error_kinds)
+    var rawKinds = (batch && Object.prototype.hasOwnProperty.call(batch, 'rollback_error_kinds')
+        && Array.isArray(batch.rollback_error_kinds)
         && batch.rollback_error_kinds.length === raw.length)
         ? batch.rollback_error_kinds
         : [];
@@ -2373,9 +2422,9 @@ var PP_CHAT_UNDO_FAILURE_CLASS = 'pp-ai-undo-failure';
  * Nothing reachable sends whitespace anyway: every message on this path is a server literal.
  *
  * NOT FOLDED IN WITH THE TRANSCRIPT LINE that reads the same field for a failed BATCH
- * (`'Error: ' + ((resp.data && resp.data.error) || resp.data || 'Unknown error')`,
- * executeProposal). They ask one question and give two different answers to the unusable
- * case: that line prints 'Unknown error' as a status message, this returns null so the card
+ * (`'Error: ' + ((resp.data && <own> resp.data.error) || resp.data || 'Unknown error')`,
+ * executeProposal, where `<own>` is #924's own-property check). They ask one question and
+ * give two different answers to the unusable case: that line prints 'Unknown error' as a status message, this returns null so the card
  * draws NOTHING rather than an empty red bar under a link that already says "Undo failed".
  * Sharing a reader would have to pick one of those, and picking this one would change what
  * an unreadable batch payload prints on a path #749 owns. Two readers, stated, beats one
@@ -2385,6 +2434,9 @@ var PP_CHAT_UNDO_FAILURE_CLASS = 'pp-ai-undo-failure';
  * and _pp_clean_reflected_text on the PHP side): cut to max - 3 and mark it, so the result
  * never exceeds the stated budget.
  *
+ * OWN `error` (#924), the same provenance test the batch line applies: a payload with no
+ * `error` of its own draws nothing rather than an inherited string in the server's voice.
+ *
  * @param  {*}             data  resp.data from a failed pp_ai_execute.
  * @return {string|null}         The message to draw, or null for "say nothing".
  */
@@ -2393,7 +2445,8 @@ function ppChatUndoFailureText(data) {
 
     if (ppChatIsNonEmptyString(data)) {
         raw = data;
-    } else if (ppChatIsPlainObject(data) && ppChatIsNonEmptyString(data.error)) {
+    } else if (ppChatIsPlainObject(data) && Object.prototype.hasOwnProperty.call(data, 'error')
+        && ppChatIsNonEmptyString(data.error)) {
         raw = data.error;
     }
 
@@ -2763,9 +2816,16 @@ function ppChatAppendRollbackErrors(card, report) {
  * Read defensively for the same reason every other envelope read in this file is: the
  * payload is JSON off the wire, and a `.substring` on a non-string would throw inside the
  * fetch handler and take the rest of the failure rendering down with it (#663's lesson).
+ *
+ * OWN PROPERTY (#924), and the note is the field where it matters most: the server writes
+ * `model_note` only on the refusals it means the model to see, so an honest payload very
+ * often has none — and a planted `Object.prototype.model_note` would then offer a repair
+ * affordance the server never offered and push someone else's text into the model's
+ * context as the server's. A bare-string payload reads no own key, as before.
  */
 function ppChatModelNote(payload) {
-    if (!payload || typeof payload.model_note !== 'string') return null;
+    if (!payload || !Object.prototype.hasOwnProperty.call(payload, 'model_note')) return null;
+    if (typeof payload.model_note !== 'string') return null;
 
     return payload.model_note === '' ? null : payload.model_note;
 }
@@ -4166,8 +4226,13 @@ function ppChatAppendValidationItems(container, items, className) {
                 // error-message path instead: re-reading the page cannot fix bytes
                 // nobody can decode, so offering "Re-read & re-preview" would send
                 // the operator round a loop that ends where it started.
+                // OWN PROPERTY (#924), and a string payload is the case it is for:
+                // 'Permission denied.' arrives as a bare string, and `'...'.error_code`
+                // resolves through String.prototype to Object.prototype — so a planted
+                // code would hand a permission refusal the conflict card.
                 if (ppChatIsCompositionConflict(resp.data)
-                    || (resp.data && resp.data.error_code === 'missing_expected_version')) {
+                    || (resp.data && Object.prototype.hasOwnProperty.call(resp.data, 'error_code')
+                        && resp.data.error_code === 'missing_expected_version')) {
                     // The payload travels so the card can say whether anything ran (#797).
                     // Both refusals here are pre-execution and carry no `steps`, which is
                     // exactly the evidence "Nothing was applied." rests on — passing them
@@ -4183,7 +4248,12 @@ function ppChatAppendValidationItems(container, items, className) {
                     // The 'Error: ' prefix is this file's prose and is not counted against
                     // the budget — the same rule PP_CHAT_RENDER_ERROR_MAX states for its
                     // own prefix. Only the server's span is bounded (#793).
-                    addStatusMessage('Error: ' + ppChatBoundReflectedText((resp.data && resp.data.error) || resp.data || 'Unknown error'), true);
+                    // OWN `error` (#924): the bare-string refusals reach this line, and an
+                    // inherited `error` would replace the server's own words in a
+                    // role="alert" line — the reason ppChatBatchUnknownErrorText() states.
+                    addStatusMessage('Error: ' + ppChatBoundReflectedText((resp.data
+                        && Object.prototype.hasOwnProperty.call(resp.data, 'error')
+                        && resp.data.error) || resp.data || 'Unknown error'), true);
                 }
                 return;
             }
@@ -4253,8 +4323,14 @@ function ppChatAppendValidationItems(container, items, className) {
                     if (stepResult && stepResult.ok) {
                         stepEl.classList.add('pp-ai-step-done');
                         var step = steps[i];
-                        step._validation = stepResult.validation || null;
-                        step._staleWarnings = stepResult.stale_warnings || null;
+                        // OWN KEYS ONLY (#924). The server leaves both OUT on purpose —
+                        // `validation` only exists on a step with a post_id, `stale_warnings`
+                        // only when non-empty — so on an honest site-level step an inherited
+                        // value would forge the post-apply validation card or its warnings.
+                        step._validation = (Object.prototype.hasOwnProperty.call(stepResult, 'validation')
+                            && stepResult.validation) || null;
+                        step._staleWarnings = (Object.prototype.hasOwnProperty.call(stepResult, 'stale_warnings')
+                            && stepResult.stale_warnings) || null;
                         applied.push(step);
                     } else {
                         stepEl.classList.add('pp-ai-step-failed');
@@ -4478,10 +4554,15 @@ function ppChatAppendValidationItems(container, items, className) {
             // a smaller one. Degrading to the stated unknown is the answer #853 already
             // established for this class, and coins no vocabulary for a distinction the
             // chat cannot convey anyway (#664).
-            var failedResult = (stepsReadable && failedIndex !== null) ? batch.steps[failedIndex] : null;
+            // Own index only (#924): a short list must not hand a planted `Object.prototype[N]`
+            // the failing step's voice.
+            var failedResult = (stepsReadable && failedIndex !== null
+                && Object.prototype.hasOwnProperty.call(batch.steps, failedIndex)) ? batch.steps[failedIndex] : null;
             var message = failedIndex === null
                 ? ppChatBatchUnknownErrorText(batch)
-                : 'Error on step ' + (failedIndex + 1) + ': ' + ppChatBoundReflectedText((failedResult && failedResult.error) || 'Unknown error');
+                : 'Error on step ' + (failedIndex + 1) + ': ' + ppChatBoundReflectedText((failedResult
+                    && Object.prototype.hasOwnProperty.call(failedResult, 'error')
+                    && failedResult.error) || 'Unknown error');
             message += ppChatRollbackSentence(rollback);
             ppChatAppendRollbackErrors(card, rollback);
             offerRepair(card, ppChatModelNote(batch));

@@ -227,7 +227,12 @@ class ChatReflectedTextBoundTest extends \PHPUnit\Framework\TestCase
             ],
             'the batch up-front refusal status line' => [
                 'the batch up-front refusal',
-                '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*\(\s*resp\.data\s*&&\s*resp\.data\.error\s*\)/',
+                // Tolerant of the guard's spelling between `(resp.data` and `resp.data.error)`
+                // (#924 put an own-property check there), strict about the bound and the field —
+                // the "pin the property, not one spelling of it" rule the entry below states.
+                // One level of balanced parens only, so the match cannot cross the bound call's
+                // own closing paren and accept a render that ends the bound early.
+                '/addStatusMessage\(\s*\'Error: \'\s*\+\s*ppChatBoundReflectedText\(\s*\(\s*resp\.data\b(?:[^;()]|\([^()]*\))*?resp\.data\.error\s*\)/',
             ],
             // The shared refusal sentence itself. TOLERANT OF THE GUARD'S SPELLING, STRICT
             // ABOUT THE BOUND, which is this file's own "pin the property, not one spelling
