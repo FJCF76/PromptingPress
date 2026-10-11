@@ -691,7 +691,10 @@ because it disables a mechanism, not because it looked risky.
 **What is NOT on this list, deliberately:** every resource-bearing property
 (`background-image`, `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion
 because **no value may name an external resource** — `_pp_forbidden_css_construct()` refuses
-`url()`, `image-set()`, `image()` and `src()` alike, ahead of everything. Excluding the
+`url()`, `image-set()`, `image()` and `src()` alike, ahead of everything. The ban is on the
+**class**, not on the spellings: any function whose name ends in `url`, `image-set`, `image`,
+`src` or `expression`, whatever prefix precedes it (`-webkit-image()`, `-webkit-src()`), is
+refused (#1121; before it, a lookbehind let both prefixed spellings through). Excluding the
 properties as well would be theatre: it would suggest the property was the risk when the
 value always was.
 

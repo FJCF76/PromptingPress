@@ -350,6 +350,15 @@ class UdcScopedSheetTest extends TestCase
                   'cross-fade(a, b)', 'foo(1)', '-webkit-gradient(linear)', 'url(#a) , url(https://x)', 'url( #a"'] as $value) {
             $this->assertNotNull($this->validate(['selector' => '.x', 'css' => ['mask' => $value]]), "{$value} must be refused");
         }
+        // #1121: the prefixed spellings. On the scoped sheet the function allow-list runs
+        // ahead of the external-resource gate (pp_layer3_value_problem() first), so the
+        // allow-list is what refuses them here, and that is what this pins; the class
+        // rule behind it is pinned in UdcRawCssTest and ContentPredicateTest.
+        foreach (['-webkit-image("https://x.test/a.png")', '-webkit-src("https://x.test/a")'] as $value) {
+            $error = $this->validate(['selector' => '.x', 'css' => ['mask' => $value]]);
+            $this->assertInstanceOf(\WP_Error::class, $error, "{$value} must be refused");
+            $this->assertStringContainsString('not on the admitted CSS function list', $error->get_error_message(), $value);
+        }
         foreach (['url(#grad)', "url('#g')", 'url( "#g" )'] as $value) {
             $this->assertNull($this->validate(['selector' => '.x', 'css' => ['fill' => $value]]), "{$value}: a same-document fragment (P-13)");
         }
