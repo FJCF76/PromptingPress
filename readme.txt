@@ -1,7 +1,7 @@
 === PromptingPress ===
 Contributors: fjcf76
 Requires at least: 7.0
-Tested up to: 7.0
+Tested up to: 7.1.2
 Stable tag: 2.1.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later

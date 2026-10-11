@@ -1070,6 +1070,13 @@ class InvariantTest extends TestCase
             '.wp-env.json `core` must be a pinned WordPress/WordPress#<version> tag (#1245).'
         );
         $runtime = substr((string) $env['core'], strlen('WordPress/WordPress#'));
+        // Policy: "Tested up to" follows the runtime pin (production's core).
+        $this->assertSame(
+            $runtime,
+            $this->wpHeader($root . '/style.css', 'Tested up to'),
+            '"Tested up to" must equal the runtime pin (.wp-env.json core); move them together '
+            . 'when production upgrades (#1245).'
+        );
         $this->assertNotSame(
             $floor,
             $runtime,
