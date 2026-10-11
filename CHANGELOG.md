@@ -4,6 +4,58 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [Unreleased] — v2.1.1 security hardening (in progress)
+
+### The external-resource ban is enforced as a class: `-webkit-image()` and `-webkit-src()` are refused (#1121)
+
+**Behaviour change, stricter: some CSS values that were accepted are now refused.** The rule "no
+value may name an external resource" used to be enforced as a list of five spellings, and a
+lookbehind let two vendor-prefixed ones through. `mask-image: -webkit-image("https://…")` and
+`-webkit-src("https://…")` on an untyped `_css` property were accepted and written into the band's
+style sheet verbatim. No browser implements either spelling, so nothing was ever fetched, but the
+code did not do what its own documentation promised.
+
+Any CSS function whose name **ends in** `url`, `image-set`, `image`, `src` or `expression` is now
+refused, whatever prefix comes before it. That covers every value in a design token, a slot, a
+Layer-2 `_css` or `_tokens` map, the scoped sheet and a content `style` attribute.
+
+**Now refused that was accepted:**
+- `-webkit-image(...)`, `-webkit-src(...)` and any other prefixed spelling (`-moz-image(...)`).
+- Any function name ending in one of those words, such as `my-image(...)`.
+- In a Layer-2 value, a quoted name that ends in one of those words followed by a paren, such as
+  `"Brand-Image (Pro)"` inside a `font-family` list.
+- `-webkit-url(#a)`. Before, the same-document `url(#a)` exception rewrote its tail and let it
+  through.
+- In an SVG prose attribute (`aria-label`, `title`), only a vendor-prefixed spelling such as
+  `aria-label="-webkit-image(x)"`. Ordinary text such as "Product image (front view)" or "Upload
+  image(s)" is still admitted.
+
+Nothing shipped is affected: no design token, slot default, role default or documented snippet uses
+any of these names. A stored value that carries one is now refused at write and is not emitted at
+render, like any other refused value. The release close runs a stored-content sweep.
+
+### Fixed
+- `_pp_forbidden_css_construct()` and the Layer-3 SVG attribute gate read one class pattern,
+  `_pp_external_resource_function_pattern()` (lib/apply.php), so the two sites cannot drift apart.
+  The pattern is linear (boundary-anchored and possessive), and a PCRE error now refuses the value
+  instead of reading as "clean".
+- The P-13 same-document `url(#id)` rewrite (content `style` attribute and the scoped sheet) starts
+  only at an identifier boundary.
+
+### Docs
+- LAYER-2 contract §6.0, the LAYER-3 contract (Δ1 values, §6.7 and the value gate list), the
+  styling tutorial and the code docblocks state the class.
+
+### Tests
+- Layer 2: both issue probes and their class (case, whitespace, nesting, other vendors, `my-image`)
+  are refused at write and dropped from storage. These were red on main.
+- Layer 3: SVG prose and CSS attributes, the `style` attribute and the scoped sheet refuse the
+  prefixed spellings, and prose with a space or plural stays admitted.
+- A source-level check that both gates call the single owner.
+- A linearity and fail-closed test, including a no-JIT child process.
+
+---
+
 ## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)
 
 **TL;DR: what you write into a page is checked when you save it, and what is saved is what the page shows.**
