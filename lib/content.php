@@ -1641,7 +1641,10 @@ function pp_content_style_losses(string $value): array {
         }
         // P-13: a same-document fragment reference names nothing outside the document, so
         // it bypasses the "no url()" rule exactly as Δ1's attribute branch does.
-        $probe = preg_replace('/url\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.\-]{0,63}\1\s*\)/i', 'none', $val) ?? $val;
+        // Anchored at an identifier start, non-ASCII name bytes included (#1121):
+        // `-webkit-url(#a)` and `ñurl(#a)` are not `url(#a)`, and
+        // rewriting its tail would leave `-webkit-none`, which no gate below refuses.
+        $probe = preg_replace('/(?<![A-Za-z0-9_\x80-\xFF-])url\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.\-]{0,63}\1\s*\)/i', 'none', $val) ?? $val;
         $forbidden = _pp_forbidden_css_construct($probe);
         if ($forbidden !== null) {
             $reasons[] = sprintf('"%s" value %s (E7)', $prop, $forbidden);
@@ -1670,8 +1673,9 @@ function pp_content_style_losses(string $value): array {
  * pp_layer3_css_functions() in lib/css-layer3.php, which the scoped sheet (3B) reads too, so
  * the two Layer-3 CSS channels cannot admit different functions. This name stays for the
  * content gate's call sites. The url() family is not in the list: a same-document `url(#id)`
- * is admitted by its own rule (P-13), and every other url(), image(), image-set(), src(),
- * element() and -moz-element() is refused, as is any function the list does not name.
+ * is admitted by its own rule (P-13), and every other url(), image(), image-set(), src()
+ * (any prefixed spelling too, #1121), element() and -moz-element() is refused, as is any
+ * function the list does not name.
  */
 function pp_content_css_functions(): array {
     return pp_layer3_css_functions();
@@ -1775,12 +1779,33 @@ function pp_content_svg_value_loss(string $attr, string $value): ?string {
         return 'SVG attribute values may not contain control characters, < > { } ; \\ or comment delimiters (Δ1)';
     }
     // Every way a value can name an external resource, not only `url(`: the shared CSS
-    // gate's function set (image-set(), image() and src() take a bare-string URL), plus
-    // expression() and a javascript: scheme. Checked after CSS unescaping and with
-    // whitespace removed, so neither an escape nor a space hides one.
-    $unescaped = strtolower(preg_replace('/\s+/', '', _pp_css_unescape($value)) ?? $value);
-    if (preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|@import|javascript:/', $unescaped, $m)) {
-        return sprintf('"%s" is refused in an SVG attribute value; only a same-document url(#id) on a reference attribute is admitted (Δ1)', $m[0]);
+    // gate's function CLASS (image-set(), image() and src() take a bare-string URL, and
+    // any prefixed spelling such as -webkit-image() is refused with them, #1121), plus
+    // @import and a javascript: scheme. It runs on every attribute, the prose ones
+    // (title, aria-*) included: they skip the CSS function allow-list below, so this is
+    // the only function-level check they meet. Two views of the CSS-unescaped value, so
+    // an escape hides nothing:
+    //
+    //   1. THE TOKEN VIEW, whitespace kept: the class itself, read from its one owner,
+    //      _pp_external_resource_function_pattern() in lib/apply.php, so this gate and
+    //      the Layer-2 one cannot drift apart. A name immediately followed by `(` — the
+    //      CSS function token — with any prefix (#1121). Whitespace is kept here on
+    //      purpose: removing it first glues prose into a name ("Product image (front
+    //      view)" -> `productimage(`), and a name, a space and a paren is no call in CSS.
+    //      On a PROSE attribute, which no engine parses as CSS, only the vendor-prefixed
+    //      spellings are added (`-webkit-image(`), so "Upload image(s)" is still text.
+    //   2. THE WHITESPACE-REMOVED VIEW: the bare spellings exactly as this gate refused
+    //      them before #1121, plus javascript: (a URL scheme survives embedded
+    //      whitespace) and @import. Kept unchanged so #1121 only ever tightens this gate.
+    // A PCRE error (false) refuses, never admits.
+    $unescaped = strtolower(_pp_css_unescape($value));
+    $joined    = preg_replace('/\s+/', '', $unescaped) ?? $unescaped;
+    $class     = '/' . _pp_external_resource_function_pattern(_pp_content_is_text_attribute($attr)) . '\(/';
+    $m         = [];
+    if (preg_match($class, $unescaped, $m) !== 0
+        || preg_match('/url\(|image-set\(|(?<![a-z-])image\(|(?<![a-z-])src\(|expression\(|@import|javascript:/', $joined, $m) !== 0) {
+        return sprintf('"%s" is refused in an SVG attribute value; only a same-document url(#id) on a reference attribute is admitted (Δ1)',
+            _pp_content_reflect($m[0] ?? $attr, 40));
     }
     $function = _pp_content_is_text_attribute($attr) ? null : _pp_content_unlisted_css_function(_pp_css_unescape($value));
     if ($function !== null) {

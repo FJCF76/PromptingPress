@@ -1990,22 +1990,84 @@ function _pp_forbidden_css_construct(string $value): ?string {
     // carrying no `url(` at all and clear a gate whose whole job was to stop that.
     // Widened to the intent rather than to the token.
     //
-    // `image-set\s*\(` also covers `-webkit-image-set(`, which contains it. The
-    // lookbehinds on `image` and `src` keep the ban to the function names themselves
-    // so an ordinary hyphenated identifier is untouched.
+    // THE BAN IS ON THE CLASS, NOT ON FIVE SPELLINGS (#1121). Any function whose
+    // name ENDS in one of those names is refused, whatever precedes it — a vendor
+    // prefix (`-webkit-image(`, `-webkit-src(`, `-webkit-image-set(`) or any other
+    // run (`my-image(`). The class is owned by _pp_external_resource_function_pattern()
+    // below, which the Layer-3 SVG attribute gate reads too, so the two sites cannot
+    // drift apart again. See that function for why the suffix is the class.
     //
     // `cross-fade()` and `paint()` are deliberately NOT here: cross-fade's arguments
     // are themselves images, which now cannot name a URL, and paint() references a
     // registered worklet rather than a location. Banning them would cost capability
-    // and buy nothing.
+    // and buy nothing. Neither name ends in a banned one, so the suffix rule leaves
+    // both alone.
     //
     // SAFE-DIRECTION WIDENING, verified: no shipped design token, slot default, role
     // default or documented snippet uses any of these functions, so nothing that
     // validates today stops validating.
-    if (preg_match('/url\s*\(|image-set\s*\(|(?<![a-z-])image\s*\(|(?<![a-z-])src\s*\(|expression\s*\(|@import/i', $value)) {
-        return 'must not name an external resource: no url(), image-set(), image(), src(), expression(), or @import';
+    //
+    // FAIL CLOSED: preg_match() returns false on a PCRE error (a backtrack or JIT stack
+    // limit), and a gate that read false as "no match" would accept the value. Anything
+    // but a clean 0 is a refusal.
+    if (preg_match('/' . _pp_external_resource_function_pattern() . '\s*\(|@import/i', $value) !== 0) {
+        return 'must not name an external resource: no url(), image-set(), image(), src(), expression() or any prefixed spelling of them (such as -webkit-image()), and no @import';
     }
     return null;
+}
+
+/**
+ * THE EXTERNAL-RESOURCE FUNCTION CLASS, as one regex fragment (#1121): a function
+ * NAME ending in `url`, `image-set`, `image`, `src` or `expression`, with any
+ * prefix — vendor (`-webkit-`, `-moz-`) or otherwise. The fragment is the name only;
+ * each reader appends its own `(` rule, because the two read different views of the
+ * value (below). The match includes the prefix, so a caller that reflects it names
+ * the whole function name the author wrote.
+ *
+ * WHY THE SUFFIX IS THE CLASS. The rule this enforces is "no value may name an
+ * external resource". It used to be enforced as named spellings: `(?<![a-z-])`
+ * lookbehinds on `image(` and `src(` kept `-webkit-image("https://…")` and
+ * `-webkit-src("https://…")` out of the ban while the unguarded `image-set(` branch
+ * already caught `-webkit-image-set(`. No shipping engine implements either
+ * prefixed spelling today, so there was no measured egress — but a vendor spelling
+ * that later gains an implementation would have turned the gap into a live fetch,
+ * and the docblocks promised the class. Prefixed spellings are how engines ship
+ * these functions (`-webkit-image-set()` preceded `image-set()`), so the honest
+ * boundary is every spelling ending in the resource function's name.
+ *
+ * WHAT IT COSTS. A function whose name merely ends in one of these words
+ * (`my-image(`) is refused too. No CSS function a stylesheet can use today ends in
+ * `url`, `image`, `src`, `expression` or `image-set` other than the resource
+ * functions themselves (`-moz-image-rect(` and `cross-fade(` do not end in one), and
+ * no shipped token, slot default, role default or documented snippet uses such a
+ * name. Fail-closed: a future legitimate function so named is refused visibly at
+ * write, never silently.
+ *
+ * HOW IT MATCHES, AND WHY IT IS SHAPED SO. A match starts only where an identifier
+ * run starts (`(?<![a-z0-9_-])`), takes the whole run possessively (`*+`, no giving
+ * back) and then asks, by lookbehind, whether the run ENDS in a resource name. That
+ * is linear in the input. The naive spelling, an unanchored `[a-z0-9_-]*` before the
+ * name alternation, decides the same matches but backtracks quadratically on a long
+ * identifier run: measured at ~75 s for 50 KB without PCRE JIT, and with JIT it hits
+ * pcre.backtrack_limit near 900 KB, where preg_match() returns false — which an
+ * unchecked caller reads as "clean". Both readers also treat false as a refusal.
+ * A non-ASCII byte is not in the run class, so `ñimage(` is still judged at `image(`.
+ *
+ * Two readers, one owner:
+ *   _pp_forbidden_css_construct()  lib/apply.php    raw CSS value (escapes are already
+ *       refused); appends `\s*\(`, the conservative reading it always had.
+ *   pp_content_svg_value_loss()    lib/content.php  CSS-unescaped, lowercased, whitespace
+ *       KEPT; appends `\(`, the CSS function token itself. On a CSS-bearing attribute it
+ *       uses the full class. On a PROSE attribute (aria-label, title: no engine parses
+ *       them as CSS) it uses $prefixed_only: the vendor-prefixed spellings the class
+ *       adds, on top of that gate's pre-#1121 check — so "Upload image(s)" and "Product
+ *       image (front view)" stay admitted and `-webkit-image(` does not.
+ *
+ * @param  bool   $prefixed_only Only runs that begin with a vendor prefix, `-name-`.
+ * @return string A regex fragment with no delimiters, no flags and no `(`.
+ */
+function _pp_external_resource_function_pattern(bool $prefixed_only = false): string {
+    return '(?<![a-z0-9_-])' . ($prefixed_only ? '-[a-z0-9_]++-' : '') . '[a-z0-9_-]*+(?<=url|image-set|image|src|expression)';
 }
 
 /**

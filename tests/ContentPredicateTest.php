@@ -234,6 +234,123 @@ class ContentPredicateTest extends TestCase
         $this->assertStringContainsString('viewBox="0 0 1 1"', pp_content_sanitize('<svg viewbox="0 0 1 1"></svg>', 'rich')['html']);
     }
 
+    /**
+     * #1121 ON LAYER 3: a prefixed resource function spelling is refused by the
+     * EXTERNAL-RESOURCE gate on every Layer-3 channel, not merely caught later by the
+     * function allow-list.
+     *
+     * Red on main, each row for its own reason:
+     *   - a PROSE attribute (title, aria-label) skips the CSS function allow-list, so on
+     *     main `-webkit-image(...)` there was ADMITTED — the external-resource regex was
+     *     the only check it met, and its `(?<![a-z-])` lookbehind let the prefix through;
+     *   - a CSS-bearing SVG attribute (mask) and a `style` attribute were refused on main
+     *     only because `-webkit-image` is not on the allow-list. Pinning the reason keeps
+     *     the class rule load-bearing here too: dropping it again would no longer be
+     *     masked by the allow-list.
+     */
+    public function testAPrefixedResourceFunctionIsRefusedByTheExternalResourceGateOnLayer3(): void
+    {
+        $url = '&quot;https://evil.example/x.png&quot;';
+        foreach ([
+            'svg prose attribute, aria-label on svg' => ['<svg aria-label="-webkit-image(' . $url . ')"></svg>', 'D1', '"-webkit-image(" is refused'],
+            'svg prose attribute, aria-label' => ['<svg><rect aria-label="-webkit-src(' . $url . ')"/></svg>', 'D1', '"-webkit-src(" is refused'],
+            'svg CSS attribute, mask'         => ['<svg><rect mask="-webkit-image(' . $url . ')"/></svg>', 'D1', '"-webkit-image(" is refused'],
+            'style attribute'                 => ['<div style="mask-image: -webkit-image(' . $url . ')">x</div>', 'D3', 'must not name an external resource'],
+            'style attribute, -webkit-src'    => ['<div style="border-image-source: -webkit-src(' . $url . ')">x</div>', 'D3', 'must not name an external resource'],
+        ] as $why => [$refused, $clause, $fragment]) {
+            $hit = array_values(array_filter($this->losses($refused), static fn ($l) => $l['clause'] === $clause));
+            $this->assertNotSame([], $hit, "expected {$clause} for {$why}: {$refused}");
+            $this->assertStringContainsString($fragment, implode(' | ', array_column($hit, 'message')), $why);
+        }
+        // Red-proofed the other way, on prose attributes: a word, a SPACE and a paren is
+        // ordinary accessible text, not a function call, and must stay admitted (each row
+        // was admitted on main; a whitespace-stripping suffix match refused all three).
+        $this->assertAdmitted('<svg aria-label="Product image (front view)"><rect aria-label="Data src (2024)"/><rect aria-label="Revenue (2024)"/></svg>');
+        $this->assertAdmitted('<svg aria-label="an image"><rect aria-label="background-image is decorative"/></svg>');
+        // Prose attributes take only the vendor-prefixed spellings on top of the gate's
+        // pre-#1121 check: a plural, a glued word and a hyphenated word are all text, and
+        // all three were admitted on main.
+        $this->assertAdmitted('<svg aria-label="Upload image(s)"><rect aria-label="Background-image(optional)"/><rect aria-label="productimage(front)"/></svg>');
+        // The prose addition is the VENDOR shape, `-name-`, not any leading hyphen.
+        $this->assertAdmitted('<svg aria-label="see -image(s)"><rect aria-label="Click the -src( button"/></svg>');
+        $this->assertRefused('<svg aria-label="-moz-src(x)"></svg>', 'D1');
+        // A CSS-bearing attribute takes the whole class, a non-vendor run included.
+        $hit = array_values(array_filter($this->losses('<svg><rect mask="my-image(x)"/></svg>'), static fn ($l) => $l['clause'] === 'D1'));
+        $this->assertStringContainsString('"my-image(" is refused', implode(' | ', array_column($hit, 'message')));
+    }
+
+    /**
+     * #1121 adversarial F6: P-13's fragment rewrite must not shelter a prefixed spelling.
+     * On main `-webkit-url(#a)` had its `url(#a)` tail rewritten to `none`, leaving
+     * `-webkit-none`, which cleared both the external-resource gate and the allow-list.
+     */
+    public function testTheFragmentRewriteDoesNotShelterAPrefixedUrlSpelling(): void
+    {
+        // A non-ASCII byte is a CSS name character too: `ñurl(#a)` is not `url(#a)`.
+        foreach (['-webkit-url(#a)', 'ñurl(#a)'] as $spelling) {
+            $hit = array_values(array_filter($this->losses('<div style="mask-image: ' . $spelling . '">x</div><svg><mask id="a"/></svg>'),
+                static fn ($l) => $l['clause'] === 'D3'));
+            $this->assertStringContainsString('must not name an external resource', implode(' | ', array_column($hit, 'message')), $spelling);
+        }
+        $this->assertAdmitted('<div style="mask-image: none, url(#a)">x</div><svg><mask id="a"/></svg>', 'rich', [],
+            'a fragment after a comma is still rewritten');
+        $this->assertAdmitted('<div style="mask-image: url(#a)">x</div><svg><mask id="a"/></svg>', 'rich', [],
+            'the plain fragment reference itself is still P-13 admitted');
+    }
+
+    /**
+     * #1121 performance F1/F2: the class must stay LINEAR and fail closed. The first
+     * spelling of the suffix rule (an unanchored `[a-z0-9_-]*` before the names)
+     * backtracked quadratically — ~3 s for 10 KB without PCRE JIT — and with JIT it hit
+     * the backtrack limit near 900 KB, where preg_match() returned false and the gate
+     * read false as clean, ACCEPTING a url() after the run.
+     */
+    public function testTheExternalResourceClassIsLinearAndFailsClosed(): void
+    {
+        $hostile = str_repeat('a', 1000000) . ' url(https://evil.example/x)';
+        $this->assertNotNull(_pp_forbidden_css_construct($hostile), 'a long identifier run must not hide a url()');
+
+        if (!function_exists('shell_exec') || PHP_BINARY === '' || PHP_SAPI !== 'cli') {
+            $this->markTestSkipped('needs a PHP CLI child process for the no-JIT timing half');
+        }
+        // Without JIT, in a child process: a runtime ini_set() cannot un-JIT a pattern this
+        // process already compiled. lib/apply.php loads standalone (functions only).
+        // Measured: the unanchored spelling takes ~2.8 s on 10 KB here; this one ~4 ms on 64 KiB.
+        $script = 'define("ABSPATH", "/"); require ' . var_export(dirname(__DIR__) . '/lib/apply.php', true) . ';'
+            . '$t = microtime(true); $r = _pp_forbidden_css_construct(str_repeat("a", 65536) . " url(x)");'
+            . 'echo ($r !== null ? "refused" : "ACCEPTED") . " " . round(microtime(true) - $t, 3);';
+        $out = (string) shell_exec(escapeshellarg(PHP_BINARY) . ' -n -d pcre.jit=0 -r ' . escapeshellarg($script) . ' 2>&1');
+        $this->assertMatchesRegularExpression('/^refused (\d+(\.\d+)?)$/', trim($out), "child output: {$out}");
+        $this->assertLessThan(2.0, (float) explode(' ', trim($out))[1],
+            'without JIT a 64 KiB identifier run must cost milliseconds (the quadratic spelling: minutes)');
+    }
+
+    /**
+     * ONE OWNER FOR THE CLASS (#1121). The behaviour pins above catch a site that loses
+     * the class; this catches a site that INLINES today's copy of it, which would pass
+     * every behaviour pin and then silently miss the next widening of the helper.
+     */
+    public function testBothExternalResourceGatesReadTheClassFromItsOneOwner(): void
+    {
+        foreach (['_pp_forbidden_css_construct', 'pp_content_svg_value_loss'] as $gate) {
+            $fn     = new \ReflectionFunction($gate);
+            $source = implode('', array_slice(file($fn->getFileName()), $fn->getStartLine() - 1,
+                $fn->getEndLine() - $fn->getStartLine() + 1));
+            // Code only: a comment naming the helper must not satisfy this.
+            $code = '';
+            foreach (token_get_all('<?php ' . $source) as $token) {
+                if (!is_array($token) || !in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    $code .= is_array($token) ? $token[1] : $token;
+                }
+            }
+            $this->assertMatchesRegularExpression('/_pp_external_resource_function_pattern\s*\(/', $code,
+                "{$gate} must CALL the external-resource class owner, not carry a copy");
+            $source = $code;
+            $this->assertDoesNotMatchRegularExpression('/\(\?<=[^)]*url|image\|src|src\|expression/', $source,
+                "{$gate} carries an inlined copy of the class");
+        }
+    }
+
     /** T-18 under P-18: an unlisted-in-the-contract but valid static SVG construct passes. */
     public function testDelta1IsSpecDerivedNotTheContractsPrintedList(): void
     {

@@ -328,17 +328,47 @@ class UdcRawCssTest extends TestCase
         $this->assertNull($this->validate(['background-repeat' => 'no-repeat']),
             'and an ordinary hyphenated identifier containing neither function must be untouched');
 
-        // THE LOOKBEHINDS ARE LOAD-BEARING, and nothing pinned them. `image(` and `src(`
-        // are banned as WHOLE function names, so `(?<![a-z-])` is what stops the ban
-        // swallowing any function whose name merely ENDS in one of them. Dropping both
-        // lookbehinds left the suite byte-identical in the /ship coverage audit's mutation
-        // run — a silent capability loss, which is the failure direction a security gate
-        // is least likely to have its hand caught in.
+        // THE BAN IS ON THE CLASS, NOT ON FIVE SPELLINGS (#1121). `(?<![a-z-])`
+        // lookbehinds once kept `image(` and `src(` to the bare names, which left
+        // `-webkit-image("https://…")` and `-webkit-src("https://…")` ACCEPTED and emitted
+        // verbatim while every docblock promised the class. Any function whose name ENDS
+        // in a resource function's name is now refused, so `my-image(` goes with them —
+        // the inverse of what this test used to pin, and on purpose.
+        //
+        // What the suffix rule must NOT swallow is a function that merely CONTAINS one of
+        // the names: cross-fade() (contains no banned suffix) and -moz-image-rect()
+        // (contains `image` but does not end in it) stay outside the ban.
         $this->assertNull($this->validate(['mask-image' => 'cross-fade(linear-gradient(red, blue) 50%, linear-gradient(blue, red))']),
-            'cross-fade() names no external resource; the ban is on `image(`, not on any '
-            . 'function whose name happens to contain it');
-        $this->assertNull($this->validate(['mix-blend-mode' => 'my-image(1)']),
-            'and a hyphenated function ending in `image(` is not `image(`');
+            'cross-fade() names no external resource; the ban is on names ENDING in `image`, '
+            . 'not on any function whose name happens to contain it');
+        $this->assertNull($this->validate(['mix-blend-mode' => '-moz-image-rect(none, 0, 0, 0, 0)']),
+            'a name containing `image` mid-word is not a resource function spelling');
+    }
+
+    /**
+     * #1121: THE PREFIXED SPELLINGS ARE IN THE CLASS. Red on main for every row: the
+     * `(?<![a-z-])` lookbehinds accepted each of these on an untyped `_css` property and
+     * emitted them into the band's sheet verbatim.
+     */
+    public function testAPrefixedResourceFunctionSpellingIsRefusedAsTheClass(): void
+    {
+        $spellings = [
+            'the issue probe, -webkit-image()'  => ['mask-image' => '-webkit-image("https://evil.example/x.png")'],
+            'the issue probe, -webkit-src()'    => ['mask-image' => '-webkit-src("https://evil.example/x")'],
+            'any other vendor, -moz-image()'    => ['list-style-image' => '-moz-image("https://evil.example/x.png")'],
+            'case folded, -WEBKIT-IMAGE()'      => ['mask-image' => '-WEBKIT-IMAGE("https://evil.example/x.png")'],
+            'whitespace before the paren'       => ['border-image-source' => '-webkit-src ("https://evil.example/x")'],
+            'a non-vendor run, my-image()'      => ['mix-blend-mode' => 'my-image(1)'],
+            'nested, inside an admitted call'   => ['mask-image' => 'cross-fade(-webkit-image("https://evil.example/x.png") 50%, none)'],
+        ];
+        foreach ($spellings as $why => $map) {
+            $error = $this->validate($map);
+            $this->assertInstanceOf(\WP_Error::class, $error, "must be refused at write: {$why}");
+            $this->assertStringContainsString('must not name an external resource', $error->get_error_message(),
+                "and refused by the external-resource gate, not by some other rule: {$why}");
+            $this->assertSame('', $this->emit(['answer' => [PP_UDC_CSS_KEY => $map]]),
+                "and a STORED copy must never reach the sheet (raw meta, restore #233): {$why}");
+        }
     }
 
     /**

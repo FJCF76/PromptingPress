@@ -19,7 +19,8 @@
 /**
  * The CSS functions a scoped value may call: DEFAULT-DENY (#1242's ruling for every Layer-3
  * CSS channel). The url() family is absent on purpose: a same-document `url(#id)` is
- * admitted by its own rule (P-13), and every other url(), image(), image-set(), src(),
+ * admitted by its own rule (P-13), and every other url(), image(), image-set(), src()
+ * (prefixed spellings too: the shared class, _pp_external_resource_function_pattern(), #1121),
  * element(), -moz-element(), paint(), attr() and symbols() is refused, as is any function
  * this list does not name, because an unknown function is an unreviewed way to fetch,
  * read or print something.
@@ -81,8 +82,13 @@ function pp_layer3_text_bearing_properties(): array {
         'block-ellipsis', 'line-clamp'];
 }
 
-/** P-13's fragment-only url(): Δ1's regex, matched anywhere in a value and replaced for the gates. */
-const PP_LAYER3_FRAGMENT_URL = '/url\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.-]{0,63}\1\s*\)/i';
+/**
+ * P-13's fragment-only url(): Δ1's regex, matched anywhere in a value and replaced for the gates.
+ * Anchored at an identifier start, non-ASCII name bytes included (#1121): `-webkit-url(#a)` and
+ * `ñurl(#a)` are not `url(#a)`, and rewriting its
+ * tail would leave `-webkit-none` for the gates to admit.
+ */
+const PP_LAYER3_FRAGMENT_URL = '/(?<![A-Za-z0-9_\x80-\xFF-])url\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.-]{0,63}\1\s*\)/i';
 
 /**
  * The properties on which a fragment url() REFERENCES AN ELEMENT, and so names nothing outside
