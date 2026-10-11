@@ -54,6 +54,40 @@ render, like any other refused value. The release close runs a stored-content sw
 - A source-level check that both gates call the single owner.
 - A linearity and fail-closed test, including a no-JIT child process.
 
+### A page's `seo_title` renders in `<title>` as text, not as markup (#914)
+
+**Behaviour change: markup stored in a `seo_title` no longer reaches the page.** The per-page
+`seo_title` (set with `update_seo_meta`) replaces the page's `<title>`. WordPress skips its own
+escaping when a theme supplies the whole title, and the theme did not escape it either, so a
+stored `seo_title` was written into `<head>` exactly as stored. A value such as
+`Pricing</title><script>…</script>` closed the title and ran the script. Only users who can run
+`update_seo_meta` (Editor and above) can set the field, so this was privileged stored content,
+but it was the one SEO field that did not escape where it is written out.
+
+The theme now treats `seo_title` the way WordPress treats a post title before it goes into
+`<title>`: HTML tags are removed, then the rest is HTML-escaped. Plain titles are unaffected.
+`&`, quotes and apostrophes display as typed, and an entity that is already encoded (`&amp;`)
+is not encoded a second time.
+
+**What changes for a stored value:**
+- Tags are removed and their text is kept: `<b>Sale</b> today` displays as `Sale today`.
+- Anything after a `<` that starts a tag is removed, as WordPress does to a post title, so
+  `Love <3 cats` displays as `Love `. Write `&lt;3` if you need the character.
+- A `seo_title` with no visible text (only markup such as `<b></b>`, or only spaces) now falls
+  back to the page's default title instead of leaving `<title>` blank.
+- Curly-quote and "WordPress" capitalisation rewrites are not applied, so the title keeps the
+  punctuation you typed.
+
+### Tests
+- Unit: a `seo_title` with a `</title><script>` breakout, `&`, an apostrophe and quotes,
+  written through `update_seo_meta`, comes back stripped and escaped. A value with no visible
+  text falls back to the default title. Both were red on main. The stray-`<` truncation is
+  pinned too.
+- E2E (WordPress 7.0 and 7.1.2): the rendered page's `<title>` is
+  `Tom &amp; Jerry &amp; Co&#039;s &quot;Show&quot;…` (the stored `&amp;` is encoded once), the
+  injected script is not in the page and does not run. Red on main, where the head carried a
+  live `<script>` after the early `</title>`.
+
 ---
 
 ## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)

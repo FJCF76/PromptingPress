@@ -172,6 +172,45 @@ test.describe('Action Layer CLI', () => {
     expect(content).toBe(description);
     expect(content).not.toContain('u00e1');
   });
+
+  test('update_seo_meta seo_title renders as escaped text in <title> (#914)', async ({ page }) => {
+    // A stored seo_title reaches <title> through the pre_get_document_title
+    // short-circuit, which skips core's own escaping. The value carries a
+    // </title> breakout with a script, plain punctuation, and an entity that is
+    // already encoded. Real WordPress esc_html() does not double-encode, which
+    // the unit harness's stub cannot show, so the once-encoded half is pinned here.
+    const seoTitle = `Tom & Jerry &amp; Co's "Show"</title><script>window.__pp914=1</script>`;
+    const runId = ppOperateInspect();
+
+    ppPreflight(runId);
+    const createResult = ppAction('create_page', {
+      title: 'E2E SEO Title Escape Test',
+      composition: [{ component: 'hero', props: { title: 'Seed Hero' } }],
+    }, runId);
+    expect(createResult.ok).toBe(true);
+    pageId = (createResult.target as any).post_id;
+
+    ppPreflight(runId, pageId);
+    const seoResult = ppAction('update_seo_meta', {
+      post_id: pageId,
+      meta: { seo_title: seoTitle },
+    }, runId);
+    expect(seoResult.ok).toBe(true);
+
+    const pubResult = ppAction('publish_page', { post_id: pageId }, runId);
+    expect(pubResult.ok).toBe(true);
+
+    const response = await page.goto(`/?page_id=${pageId}`);
+    const html = await response!.text();
+
+    // Markup stripped, punctuation once-encoded, the stored &amp; not re-encoded.
+    expect(html).toContain(
+      '<title>Tom &amp; Jerry &amp; Co&#039;s &quot;Show&quot;window.__pp914=1</title>',
+    );
+    expect(html).not.toContain('<script>window.__pp914');
+    expect(await page.title()).toBe(`Tom & Jerry & Co's "Show"window.__pp914=1`);
+    expect(await page.evaluate(() => (window as any).__pp914)).toBeUndefined();
+  });
 });
 
 /**
