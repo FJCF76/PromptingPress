@@ -3106,6 +3106,46 @@ class ActionsTest extends TestCase
         $this->assertSame('Default Title', pp_seo_document_title_override('Default Title'));
     }
 
+    // ── #914: the seo_title sink is escaped like core's own title ───────────
+    // pre_get_document_title short-circuits wp_get_document_title() and core's
+    // _wp_render_title_tag() echoes the return into <title> as-is, so the filter's
+    // return value IS the <title> body. Core's own path for a post title is
+    // strip_tags (single_post_title) then esc_html (document_title); the override
+    // applies the same two itself. Written through the real action, the authoring
+    // path an Editor uses from the chat or the CLI.
+
+    public function testSeoDocumentTitleOverrideNeutralizesStoredMarkup(): void
+    {
+        $id = pp_create_page('Page', 'draft');
+        $result = pp_execute_action('update_seo_meta', [
+            'post_id' => $id,
+            'meta'    => ['seo_title' => 'Tom & Jerry\'s "Show"</title><script>alert(1)</script><b>Live</b>'],
+        ]);
+        $this->assertTrue($result['ok']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+
+        $title = pp_seo_document_title_override('');
+
+        // Tags stripped (core's single_post_title treatment), then the remaining
+        // text entity-encoded for the HTML context (core's document_title esc_html).
+        $this->assertSame('Tom &amp; Jerry&#039;s &quot;Show&quot;alert(1)Live', $title);
+        $this->assertStringNotContainsString('<', $title);
+        $this->assertStringNotContainsString('>', $title);
+    }
+
+    public function testSeoDocumentTitleOverrideFallsBackWhenOnlyMarkupWasStored(): void
+    {
+        // A seo_title that is nothing but markup has no title text left once the
+        // tags are stripped. Returning '' tells core to assemble its own title, so
+        // the page keeps a real <title> rather than an empty one.
+        $id = pp_create_page('Page', 'draft');
+        pp_update_seo_meta($id, ['seo_title' => '<b></b><script></script>']);
+        $GLOBALS['_pp_test_store']['is_singular'] = true;
+        $GLOBALS['_pp_test_store']['queried_object_id'] = $id;
+        $this->assertSame('', pp_seo_document_title_override(''));
+    }
+
     public function testSeoCanonicalUrlOverrideReturnsOverrideWhenSet(): void
     {
         $id = pp_create_page('Page', 'draft');

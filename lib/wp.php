@@ -7799,16 +7799,15 @@ function pp_update_seo_meta(int $post_id, array $meta) {
  * caller that does.
  *
  * WHERE A RESTORED VALUE ENDS UP, ALL FOUR SINKS, because an enumeration that stops at the
- * reassuring ones is worse than none. Three escape: pp_seo_meta_description_tag() uses
- * esc_attr(); the og/twitter tags escape at _pp_emit_social_meta() and drop anything that
- * escapes to empty; and canonical_url has exactly ONE reader,
- * pp_seo_canonical_url_override() on core's get_canonical_url filter, where core's
- * rel_canonical() runs esc_url() at output. The FOURTH DOES NOT:
- * pp_seo_document_title_override() returns seo_title into `pre_get_document_title`, which
- * short-circuits wp_get_document_title() before core assembles anything, and
- * _wp_render_title_tag() echoes that straight into <title>. So for seo_title the safety
- * argument is NOT an escaper, and must not be written as though it were — it is the one
- * below.
+ * reassuring ones is worse than none. All four escape at the sink: pp_seo_meta_description_tag()
+ * uses esc_attr(); the og/twitter tags escape at _pp_emit_social_meta() and drop anything that
+ * escapes to empty; canonical_url has exactly ONE reader, pp_seo_canonical_url_override() on
+ * core's get_canonical_url filter, where core's rel_canonical() runs esc_url() at output; and
+ * seo_title, which pp_seo_document_title_override() returns into the `pre_get_document_title`
+ * short-circuit that _wp_render_title_tag() echoes into <title> as-is, is stripped of tags and
+ * esc_html()'d by that override itself before it is returned (#914; until then this fourth sink
+ * did not escape at all). The escapers are a second line, not the argument this carve-out rests
+ * on — that is the one below, and it holds without them.
  *
  * THE STATE IT RETURNS TO IS THE STATE IT CAME FROM, and that is what actually carries this
  * carve-out. Every value this path can write was read out of this same row moments earlier
@@ -7875,6 +7874,21 @@ function pp_seo_meta_description_tag(): void {
  * override, if set. Hooked to the pre_get_document_title filter in
  * functions.php — returning a non-empty value here short-circuits
  * wp_get_document_title()'s own title-parts assembly entirely.
+ *
+ * THIS RETURN IS THE <title> BODY, SO THIS IS THE SINK (#914). The short-circuit
+ * returns before core runs its own treatment, and _wp_render_title_tag() echoes
+ * the value between the tags as-is. So the override applies core's treatment of
+ * a post title itself: strip_tags() (what core hooks to single_post_title) and
+ * then esc_html() (what core hooks to document_title; it does not double-encode
+ * an entity that is already valid, so a stored `&amp;` stays once-encoded). The
+ * two are called directly rather than through apply_filters('document_title'),
+ * so the escaping does not depend on core's default filters still being hooked.
+ * Core's typography filters (wptexturize, capital_P_dangit) are deliberately not
+ * applied: this is an explicit override, and its punctuation is the operator's.
+ *
+ * A stored value that is nothing but markup has no text left after stripping;
+ * that returns $title unchanged, so core assembles its own title as if no
+ * override were set.
  */
 function pp_seo_document_title_override(string $title): string {
     if (!is_singular()) {
@@ -7885,7 +7899,11 @@ function pp_seo_document_title_override(string $title): string {
         return $title;
     }
     $seo_title = pp_get_seo_meta($post_id)['seo_title'];
-    return $seo_title !== '' ? $seo_title : $title;
+    if ($seo_title === '') {
+        return $title;
+    }
+    $safe = esc_html(strip_tags($seo_title));
+    return $safe !== '' ? $safe : $title;
 }
 
 /**
