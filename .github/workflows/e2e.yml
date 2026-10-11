@@ -1,4 +1,24 @@
-name: E2E (WordPress 7.0)
+name: E2E
+
+# TWO CORE LEGS (#1245). The job runs as a matrix, one leg per WordPress core:
+#   - floor   -> the declared minimum ("Requires at least" in style.css and
+#                readme.txt). Proves the theme still works on the oldest core it
+#                claims to support.
+#   - runtime -> the core production runs (promptingpress.com). Proves the live
+#                pins (tests/e2e/content-predicate.spec.ts: T-1 core `post` list,
+#                P-16 bail set, T-9) and the rest of the suite against the parser,
+#                kses tables and capability semantics that actually serve users.
+# Both legs run the FULL suite and report separate checks, "e2e (floor)" and
+# "e2e (runtime)". The names deliberately carry no version, so bumping a pin
+# never renames a (future) required check. Either one red makes the PR red. A
+# floor/runtime disagreement is a finding to fix, never a choice of which leg
+# to believe. Each leg also fails closed if wp-env booted any core other than
+# the one it is named for ("Verify the leg's core"). Standing policy (README "Continuous integration"):
+# the runtime pin follows production core whenever production upgrades; the
+# floor pin moves only when the owner raises "Requires at least".
+# tests/InvariantTest.php::testE2eMatrixPinsFloorAndRuntimeCores keeps the
+# matrix, .wp-env.json and the style.css/readme.txt headers coherent.
+#
 
 # E2E runs the FULL Playwright suite on EVERY trigger. There is deliberately no
 # @smoke-only gate: a test that cannot block a merge is a test that can go red and
@@ -16,9 +36,9 @@ name: E2E (WordPress 7.0)
 #   - nightly cron -> FULL suite. KEEP THIS TRIGGER. It is not made redundant by
 #                     the two above, because it is the only run that fires when NO
 #                     code changed. That makes it the one that attributes a new
-#                     red to ENVIRONMENT drift (a wp-env image rebuild, a
-#                     WordPress 7.0 point release, a transitive npm dependency)
-#                     rather than to a code regression.
+#                     red to ENVIRONMENT drift (a wp-env image rebuild, a moved
+#                     core tag, a transitive npm dependency) rather than to a
+#                     code regression.
 #   - manual       -> FULL suite via workflow_dispatch.
 #
 # Cost, measured 2026-08-18 (run 32188773768 @smoke vs run 32110581111 full suite):
@@ -36,9 +56,12 @@ name: E2E (WordPress 7.0)
 # today; sharding changes which specs are co-resident and in what order, and this
 # suite has never been proven order-independent. Revisit if that changes.
 #
-# Making the check REQUIRED is a manual repo-admin step (branch protection on main
-# requiring "E2E (WordPress 7.0) / e2e" + "ai-ready-check"); the fine-grained PAT
-# cannot set branch protection. No open issue tracks it — #82 covered adding the
+# The cost figures above are PER LEG. The two legs run on separate runners in
+# parallel, so wall time per PR is unchanged; runner minutes double (#1245).
+#
+# Making the checks REQUIRED is a manual repo-admin step (branch protection on main
+# requiring BOTH "e2e (floor)" and "e2e (runtime)" + "ai-ready-check"); the
+# fine-grained PAT cannot set branch protection. No open issue tracks it — #82 covered adding the
 # pull_request trigger and is closed — so TODOS.md carries it. Until branch
 # protection is set, this workflow makes a red test VISIBLE on a PR but cannot
 # itself make it unmergeable.
@@ -62,7 +85,25 @@ on:
 
 jobs:
   e2e:
+    name: e2e (${{ matrix.leg }})
     runs-on: ubuntu-latest
+    strategy:
+      # Both legs always finish: a red floor leg must not cancel the runtime leg
+      # (or vice versa), or a divergence between them would be hidden.
+      fail-fast: false
+      matrix:
+        include:
+          - leg: floor
+            wp: '7.0'
+            core: WordPress/WordPress#7.0
+          - leg: runtime
+            wp: '7.1.2'
+            core: WordPress/WordPress#7.1.2
+    # WP_ENV_CORE overrides .wp-env.json's `core` (@wordpress/env
+    # lib/config/get-config-from-environment-vars.js). It is set at JOB level so
+    # every wp-env call in the leg (start, run, stop) resolves the same core.
+    env:
+      WP_ENV_CORE: ${{ matrix.core }}
     steps:
       - uses: actions/checkout@v4
 
@@ -108,7 +149,7 @@ jobs:
       # The original error always stays visible in the grouped log; the retry
       # never hides it. Behaviour is pinned by
       # tests/InvariantTest.php::testWpEnvStartRetryIsBoundedAndFailsClosed.
-      - name: Start wp-env (WordPress 7.0)
+      - name: Start wp-env
         run: |
           attempts=3
           for attempt in $(seq 1 "${attempts}"); do
@@ -129,12 +170,24 @@ jobs:
           echo "wp-env failed to start after ${attempts} attempts. The original error is in the grouped logs above."
           exit 1
 
-      # A fresh CI env installs WP at the pinned 7.0 with a matching DB, so this is
-      # normally a no-op. It is kept as a defensive step + documentation: bumping
+      # A fresh CI env installs WP at the leg's pinned core with a matching DB, so
+      # this is normally a no-op. It is kept as a defensive step + documentation: bumping
       # wp-env core over an EXISTING database leaves a stale db_version and every
       # admin page redirects to upgrade.php until the DB is upgraded.
       - name: Ensure DB matches core
         run: npx wp-env run cli wp core update-db
+
+      # Fail closed if this leg is not running the core it is named for. The live
+      # pins (content-predicate.spec.ts) pick their snapshot from whatever core
+      # answers, so a leg that silently booted the other core (an override in a
+      # run block, a wp-env change to WP_ENV_CORE handling) would otherwise pass
+      # green under the wrong name and hide exactly the divergence #1245 exists
+      # to surface.
+      - name: Verify the leg's core
+        run: |
+          booted="$(npx wp-env run cli wp core version 2>/dev/null | tr -d '[:space:]')"
+          echo "Leg ${{ matrix.leg }}: expected WordPress ${{ matrix.wp }}, booted '${booted}'."
+          test "${booted}" = "${{ matrix.wp }}"
 
       # No event branching and no --grep: every trigger runs every test. Any
       # narrowing added here would re-open the #697 blind spot, so
@@ -147,7 +200,9 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results-${{ github.run_id }}
+          # Per leg: both legs share run_id, and upload-artifact@v4 refuses a
+          # second artifact with the same name in one run.
+          name: playwright-results-${{ github.run_id }}-${{ matrix.leg }}
           path: |
             test-results/
             playwright-report/

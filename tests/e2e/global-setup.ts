@@ -11,6 +11,16 @@ setup('authenticate as admin', async ({ page }) => {
   // fresh CI wp-env does NOT auto-activate the mounted theme (a local env may
   // already have it active from prior use), so without this the specs fail with
   // "'pp' is not a registered wp command".
+  // Bring the DB schema up to the running core. A local env first created on an
+  // older core keeps its db_version when the core pin moves up (#1245: the local
+  // default moved 7.0 -> 7.1.2), and every admin page then redirects to
+  // upgrade.php, so the login below never reaches wp-admin. A no-op when current.
+  // (It cannot DOWNGRADE a database: switch to an older core from a clean env.)
+  execSync(
+    'npx wp-env run cli wp core update-db',
+    { cwd: process.cwd(), stdio: 'ignore' }
+  );
+
   execSync(
     'npx wp-env run cli wp theme activate PromptingPress',
     { cwd: process.cwd(), stdio: 'ignore' }

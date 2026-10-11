@@ -1,8 +1,8 @@
 # WordPress 7.1.2 HTML API (test fixture)
 
 Verbatim copies of `wp-includes/html-api/*.php` and `wp-includes/class-wp-token-map.php`
-from WordPress 7.1.2 (`$wp_version = '7.1.2'`, the version production runs; downloaded from
-github.com/WordPress/WordPress tag 7.1.2).
+from WordPress 7.1.2 (`$wp_version = '7.1.2'`, the version production runs and the CI runtime pin, #1245; downloaded from
+github.com/WordPress/WordPress tag 7.1.2, commit 160387b7312c9407c7fe4b1d3dd2055206749a34).
 GPL-2.0-or-later, the same licence as the theme.
 
 Test-only (`tests/` is excluded from the release zip by `.distignore`). `tests/bootstrap.php`

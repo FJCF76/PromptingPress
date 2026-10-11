@@ -2138,8 +2138,9 @@ if (!function_exists('wp_clear_scheduled_hook')) {
 // the real WordPress 7.0 classes, vendored test-only into tests/fixtures/wp-html-api-7.0
 // (see its README). A stub here would test the stub: the predicate's security depends on
 // the tree builder's exact HTML5 behaviour (integration points, implied end tags, the
-// bail set P-16 pins). ContentTableDriftTest pins the fixture's version against
-// .wp-env.json, and the E2E suite re-runs the bail set against live core.
+// bail set P-16 pins). ContentTableDriftTest pins both vendored versions against the CI
+// floor ("Requires at least") and runtime (.wp-env.json) cores (#1245), and each E2E leg
+// re-runs the bail set against its live core.
 if (!function_exists('__')) {
     function __($text, $domain = 'default') { return $text; }
 }
@@ -2196,9 +2197,10 @@ if (!function_exists('wp_scrub_utf8')) {
     }
 }
 if (!class_exists('WP_HTML_Processor')) {
-    // PP_TEST_HTML_API picks the vendored core version (default 7.0, the version .wp-env.json
-    // pins); tests/fixtures/content/bail-set-runner.php runs the P-16 pin under 7.1.2 too,
-    // the version production runs, in a separate process.
+    // PP_TEST_HTML_API picks the vendored core version (default 7.0, the CI floor pin,
+    // "Requires at least"); tests/fixtures/content/bail-set-runner.php runs the P-16 pin
+    // under 7.1.2 too, the CI runtime pin and the version production runs (#1245), in a
+    // separate process.
     $_pp_html_api_version = getenv('PP_TEST_HTML_API') ?: '7.0';
     if (!preg_match('/^[0-9.]+\z/', $_pp_html_api_version) || !is_dir(__DIR__ . '/fixtures/wp-html-api-' . $_pp_html_api_version)) {
         throw new RuntimeException('PP_TEST_HTML_API names no vendored HTML API: ' . $_pp_html_api_version);

@@ -11,7 +11,8 @@
  *   P-16  the parser-bail set, measured on the vendored WordPress 7.0 parser, equals the
  *         stored snapshot; the E2E suite re-measures it on live core, so a WordPress upgrade
  *         that moves the boundary fails a test and is read, never absorbed.
- *   The vendored HTML API is the version .wp-env.json pins.
+ *   The vendored HTML APIs are the two cores CI pins (#1245): the floor ("Requires at
+ *         least") and the runtime (production's core, the .wp-env.json default).
  */
 
 use PHPUnit\Framework\TestCase;
@@ -85,25 +86,50 @@ class ContentTableDriftTest extends TestCase
         }
     }
 
-    public function testTheVendoredHtmlApiIsTheVersionWpEnvPins(): void
+    /**
+     * #1245: CI runs two core legs, the floor ("Requires at least") and the runtime
+     * (production's core, which .wp-env.json pins as the local default). Each must have
+     * its own vendored HTML API, P-16 snapshot and core `post` snapshot (the T-1 file
+     * content-predicate.spec.ts reads for that live version), so moving either pin
+     * without them fails in PHPUnit instead of only in one E2E leg.
+     */
+    public function testTheVendoredHtmlApisAreTheVersionsCiPins(): void
     {
-        $env = json_decode((string) file_get_contents(dirname(__DIR__) . '/.wp-env.json'), true);
-        $this->assertSame('WordPress/WordPress#7.0', $env['core']);
-        $this->assertDirectoryExists(__DIR__ . '/fixtures/wp-html-api-7.0');
-        $this->assertStringContainsString('7.0', (string) file_get_contents(__DIR__ . '/fixtures/wp-html-api-7.0/README.md'));
-        $this->assertStringContainsString("\$wp_version = '7.1.2'", (string) file_get_contents(__DIR__ . '/fixtures/wp-html-api-7.1.2/README.md'));
+        $root = dirname(__DIR__);
+        $this->assertSame(1, preg_match('/^Requires at least:\s*(\S+)\s*$/m', (string) file_get_contents($root . '/style.css'), $m));
+        $floor = $m[1];
+        $env   = json_decode((string) file_get_contents($root . '/.wp-env.json'), true);
+        $this->assertSame(1, preg_match('/^WordPress\/WordPress#(\S+)$/', (string) ($env['core'] ?? ''), $m));
+        $runtime = $m[1];
+
+        $this->assertSame(
+            [$floor, $runtime],
+            array_values(array_map(static fn (array $row) => $row[0], self::htmlApiVersions())),
+            'htmlApiVersions() must be exactly [floor, runtime]; a pin moved without its P-16 snapshot.'
+        );
+        foreach ([$floor, $runtime] as $version) {
+            $this->assertDirectoryExists(__DIR__ . "/fixtures/wp-html-api-{$version}");
+            $this->assertStringContainsString(
+                "\$wp_version = '{$version}'",
+                (string) file_get_contents(__DIR__ . "/fixtures/wp-html-api-{$version}/README.md")
+            );
+            // Mirrors the path rule in tests/e2e/content-predicate.spec.ts T-1.
+            $this->assertFileExists($version === '7.0'
+                ? $root . '/lib/content-tables/core-post-wp-7.0.json'
+                : __DIR__ . "/fixtures/content/core-post-wp-{$version}.json");
+        }
     }
 
     /**
-     * P-16 against BOTH truths (2026-10-05 ruling on T3a 7A question 3): the version CI pins
-     * (7.0) and the version production runs (7.1.2). Each is measured in its own process,
+     * P-16 against BOTH truths (2026-10-05 ruling on T3a 7A question 3): the CI floor pin
+     * (7.0, "Requires at least") and the CI runtime pin (7.1.2, production's core, #1245). Each is measured in its own process,
      * since two versions of one core class cannot share a PHP process. Where they differ
      * (7.1's tree builder keeps what WordPress 7.0 drops inside <select>), the refusal
      * follows the runtime parser, and the two snapshots record both.
      */
     public static function htmlApiVersions(): array
     {
-        return ['WordPress 7.0 (CI pin)' => ['7.0'], 'WordPress 7.1.2 (production)' => ['7.1.2']];
+        return ['WordPress 7.0 (floor pin)' => ['7.0'], 'WordPress 7.1.2 (runtime pin, production)' => ['7.1.2']];
     }
 
     /** @dataProvider htmlApiVersions */

@@ -779,11 +779,19 @@ class InvariantTest extends TestCase
             . 'gate off pull requests and a `continue-on-error:` can make a red suite report '
             . 'green, neither of which touches the command this test reads (#697).'
         );
-        $this->assertDoesNotMatchRegularExpression(
-            '/^  e2e:\R(?:\s+\w[\w-]*:.*\R)*?\s+if:/m',
-            $workflow,
-            'The `e2e` job must not carry a job-level `if:` — it would skip every step, '
-            . 'including the gate, while each individual step still looks correct (#697).'
+        // The JOB's own keys, as an allowlist. A job-level `if:` skips every step,
+        // including the gate, while each step still looks correct; a job-level
+        // `continue-on-error:` (the usual "experimental leg" shape, e.g.
+        // `${{ matrix.leg == 'floor' }}`) lets a red leg report green. This used to
+        // be a regex chained over `key:` lines, which went blind below the first
+        // comment or list line once the job grew a matrix (#1245), so the keys are
+        // now read by indent like stepKeys().
+        $this->assertSame(
+            ['name', 'runs-on', 'strategy', 'env', 'steps'],
+            $this->jobKeys($workflow, 'e2e'),
+            'The `e2e` job must declare only name/runs-on/strategy/env/steps. A job-level '
+            . '`if:` takes the gate off pull requests and a `continue-on-error:` makes a red '
+            . 'leg report green (#697, #1245).'
         );
 
         // ALLOWLIST, not blocklist. Asserting "does not contain --grep" is the
@@ -1019,7 +1027,192 @@ class InvariantTest extends TestCase
         }
     }
 
+    // ── The E2E job runs on BOTH the floor and the runtime core (#1245) ────
+
+    /**
+     * #1245: CI and every local wp-env run pinned WordPress 7.0 while production
+     * ran 7.1.2, so the live-core pins (content-predicate.spec.ts T-1/P-16/T-9)
+     * never met the parser and kses tables that actually serve users.
+     *
+     * The fix is a two-leg matrix with a standing policy: the FLOOR leg is the
+     * declared minimum ("Requires at least"), the RUNTIME leg is production's
+     * core, which is also the local default in .wp-env.json. Those facts live in
+     * four files (e2e.yml's matrix, .wp-env.json, and the headers of style.css and
+     * readme.txt), and nothing else ties them together. This pins them as one:
+     * a leg dropped, a pin moved alone, `fail-fast` re-enabled (which cancels
+     * the other leg and hides a floor/runtime divergence), or the core override
+     * detached from the matrix all fail here instead of shipping green.
+     */
+    public function testE2eMatrixPinsFloorAndRuntimeCores(): void
+    {
+        $root     = $this->themeRoot;
+        $workflow = (string) file_get_contents($root . '/.github/workflows/e2e.yml');
+
+        // The floor: "Requires at least", identical in both headers.
+        $floor = $this->wpHeader($root . '/style.css', 'Requires at least');
+        $this->assertSame(
+            $floor,
+            $this->wpHeader($root . '/readme.txt', 'Requires at least'),
+            'style.css and readme.txt must declare the same "Requires at least" (#1245).'
+        );
+        $this->assertSame(
+            $this->wpHeader($root . '/style.css', 'Tested up to'),
+            $this->wpHeader($root . '/readme.txt', 'Tested up to'),
+            'style.css and readme.txt must declare the same "Tested up to" (#1245).'
+        );
+
+        // The runtime: the local default core in .wp-env.json.
+        $env = json_decode((string) file_get_contents($root . '/.wp-env.json'), true);
+        $this->assertIsArray($env, '.wp-env.json must be valid JSON.');
+        $this->assertMatchesRegularExpression(
+            '/^WordPress\/WordPress#\d+\.\d+(\.\d+)?$/',
+            (string) ($env['core'] ?? ''),
+            '.wp-env.json `core` must be a pinned WordPress/WordPress#<version> tag (#1245).'
+        );
+        $runtime = substr((string) $env['core'], strlen('WordPress/WordPress#'));
+        $this->assertNotSame(
+            $floor,
+            $runtime,
+            'The runtime pin equals the floor pin. If production really runs the floor '
+            . 'version, collapse to one leg deliberately; otherwise .wp-env.json drifted (#1245).'
+        );
+
+        // ALLOWLIST of the whole `strategy:` block, built from the two facts
+        // above. An extra leg, an `exclude:`, a third core, `max-parallel: 1`, or
+        // `fail-fast: true` each change these lines and fail the assertion.
+        $this->assertSame(
+            [
+                'fail-fast: false',
+                'matrix:',
+                'include:',
+                '- leg: floor',
+                "wp: '{$floor}'",
+                "core: WordPress/WordPress#{$floor}",
+                '- leg: runtime',
+                "wp: '{$runtime}'",
+                "core: WordPress/WordPress#{$runtime}",
+            ],
+            $this->yamlBlockLines($this->jobBody($workflow, 'e2e'), 'strategy', 4, true),
+            "e2e.yml's matrix must be exactly the floor leg (Requires at least = {$floor}) and the "
+            . "runtime leg (.wp-env.json = {$runtime}), with fail-fast off so both legs always "
+            . 'report (#1245).'
+        );
+
+        // Each leg must actually boot its own core: WP_ENV_CORE comes from the
+        // matrix at JOB level (so start, run and stop agree), and nothing else
+        // in the workflow names it. Counting every non-comment mention, not just
+        // the `KEY:` form, also catches a shell override inside a run block
+        // (`WP_ENV_CORE=... npm run env:start`) and a `$GITHUB_ENV` write.
+        $this->assertSame(
+            ['WP_ENV_CORE: ${{ matrix.core }}'],
+            $this->yamlBlockLines($this->jobBody($workflow, 'e2e'), 'env', 4, true),
+            'The e2e job must set exactly `WP_ENV_CORE: ${{ matrix.core }}` at job level (#1245).'
+        );
+        $code = implode("\n", array_filter(
+            preg_split('/\R/', $workflow) ?: [],
+            static fn (string $l): bool => !str_starts_with(ltrim($l), '#')
+        ));
+        $this->assertSame(
+            1,
+            preg_match_all('/\bWP_ENV_CORE\b/', $code),
+            'WP_ENV_CORE must appear in exactly one place outside comments; any other '
+            . 'mention can boot a different core than the leg is named for (#1245).'
+        );
+
+        // And the leg proves it at run time: the booted core must equal matrix.wp.
+        // Same protection as the Run E2E gate: only name/run keys (a step-level
+        // `if:` or `continue-on-error:` would neuter it) and the exact script (a
+        // trailing `|| true` would too).
+        $workflowPath = $this->themeRoot . '/.github/workflows/e2e.yml';
+        $this->assertSame(
+            ['name', 'run'],
+            $this->stepKeys($workflowPath, "Verify the leg's core"),
+            "The \"Verify the leg's core\" step must declare only `name:` and `run:` (#1245)."
+        );
+        $this->assertSame(
+            [
+                'booted="$(npx wp-env run cli wp core version 2>/dev/null | tr -d \'[:space:]\')"',
+                'echo "Leg ${{ matrix.leg }}: expected WordPress ${{ matrix.wp }}, booted \'${booted}\'."',
+                'test "${booted}" = "${{ matrix.wp }}"',
+            ],
+            array_values(array_filter(
+                array_map('trim', preg_split('/\R/', $this->extractRunBlock($workflowPath, "Verify the leg's core")) ?: []),
+                static fn (string $l): bool => $l !== ''
+            )),
+            "The \"Verify the leg's core\" step must fail closed when the booted core differs (#1245)."
+        );
+
+        // The check name is the leg only. A version in the name would rename a
+        // required check on every pin bump, leaving PRs waiting on a check that
+        // never reports until branch protection is edited by hand.
+        $this->assertMatchesRegularExpression(
+            '/^    name: e2e \(\$\{\{ matrix\.leg \}\}\)$/m',
+            $workflow,
+            'The e2e job name must be `e2e (${{ matrix.leg }})` (#1245).'
+        );
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * A WordPress file-header value ("Requires at least", "Tested up to") from a
+     * style.css or readme.txt header. Fails, rather than returning '', when absent.
+     */
+    private function wpHeader(string $path, string $field): string
+    {
+        $this->assertSame(
+            1,
+            preg_match('/^' . preg_quote($field, '/') . ':\s*(\S+)\s*$/m', (string) file_get_contents($path), $m),
+            basename($path) . " must declare a \"{$field}\" header."
+        );
+
+        return $m[1];
+    }
+
+    /**
+     * The lines of one job under `jobs:` (two-space indent), header line excluded,
+     * up to the next two-space-indent key. Scoping reads to the job keeps a key of
+     * the same name in another job (or the `on:` block) from being read instead.
+     */
+    private function jobBody(string $workflow, string $job): string
+    {
+        $out = [];
+        $in  = false;
+        foreach (preg_split('/\R/', $workflow) ?: [] as $line) {
+            if (preg_match('/^  ' . preg_quote($job, '/') . ':\s*$/', $line)) {
+                $in = true;
+                continue;
+            }
+            if ($in && preg_match('/^ {0,2}\S/', $line) && !str_starts_with(ltrim($line), '#')) {
+                break;
+            }
+            if ($in) {
+                $out[] = $line;
+            }
+        }
+        $this->assertNotEmpty($out, "e2e.yml must keep a `{$job}:` job.");
+
+        return implode("\n", $out);
+    }
+
+    /**
+     * The KEY NAMES a job declares at its own (four-space) indent, in order. Any
+     * other non-comment line at that indent (a quoted key such as `'if':`, a merge
+     * key `<<:`) is returned verbatim, so an allowlist comparison fails on it
+     * instead of skipping it.
+     */
+    private function jobKeys(string $workflow, string $job): array
+    {
+        $keys = [];
+        foreach (preg_split('/\R/', $this->jobBody($workflow, $job)) ?: [] as $line) {
+            if (!preg_match('/^    \S/', $line) || str_starts_with(ltrim($line), '#')) {
+                continue;
+            }
+            $keys[] = preg_match('/^    (\w[\w-]*):/', $line, $m) ? $m[1] : trim($line);
+        }
+
+        return $keys;
+    }
 
     /**
      * The trimmed, non-empty lines nested under a two-space-indented mapping key
@@ -1027,23 +1220,24 @@ class InvariantTest extends TestCase
      * caller can assert the whole thing as an allowlist, which is what catches a
      * qualifier nobody thought to ban.
      */
-    private function yamlBlockLines(string $workflow, string $key): array
+    private function yamlBlockLines(string $workflow, string $key, int $indent = 2, bool $skipComments = false): array
     {
         $lines = preg_split('/\R/', $workflow) ?: [];
         $out   = [];
         $in    = false;
+        $pad   = str_repeat(' ', $indent);
 
         foreach ($lines as $line) {
-            if (preg_match('/^  ' . preg_quote($key, '/') . ':\s*$/', $line)) {
+            if (preg_match('/^' . $pad . preg_quote($key, '/') . ':\s*$/', $line)) {
                 $in = true;
                 continue;
             }
             if ($in) {
-                // Any line at two-space indent or shallower ends this block.
-                if (trim($line) === '') {
+                // Any line at the key's indent or shallower ends this block.
+                if (trim($line) === '' || ($skipComments && str_starts_with(trim($line), '#'))) {
                     continue;
                 }
-                if (!preg_match('/^   /', $line)) {
+                if (!preg_match('/^' . $pad . ' /', $line)) {
                     break;
                 }
                 $out[] = trim($line);
@@ -1065,10 +1259,14 @@ class InvariantTest extends TestCase
         $keys            = ['name'];
 
         foreach ($body as $line) {
-            // Only keys at the step's own key indent (two past the `- `).
-            if (preg_match('/^' . preg_quote($indent, '/') . '  (\w[\w-]*):/', $line, $m)) {
-                $keys[] = $m[1];
+            // Only lines at the step's own key indent (two past the `- `). A plain
+            // key is recorded by name; anything else there (a quoted key such as
+            // `'if':`, a merge key `<<:`) is recorded verbatim, so an allowlist
+            // fails on it instead of skipping it (#1245, same rule as jobKeys()).
+            if (!preg_match('/^' . preg_quote($indent, '/') . '  \S/', $line) || str_starts_with(ltrim($line), '#')) {
+                continue;
             }
+            $keys[] = preg_match('/^' . preg_quote($indent, '/') . '  (\w[\w-]*):/', $line, $m) ? $m[1] : trim($line);
         }
 
         return $keys;
