@@ -122,6 +122,73 @@ batch `error` already were. Other reads remain and are tracked on #924.
 - `tests/ChatReflectedTextBoundTest.php`: the refusal-line pin accepts any spelling of the guard
   and stays strict about the bound (balanced parens, so an early-closed bound does not match).
 
+### Input of the wrong type is refused by name instead of crashing the request (#913, #931, #935)
+
+**Behaviour change: input of the wrong type is refused by name. Most of it used to crash the
+request (HTTP 500); a few SEO values used to be stored, and are now refused.** In three places a
+value of the wrong type got past a presence check and reached code that requires a specific type.
+Where PHP stopped the request with a fatal error, the caller now gets a readable refusal and, in a
+batch, the earlier steps are rolled back.
+
+- **A required action parameter sent as `null`** (#931). For example
+  `update_page_title` with `"title": null`, or any page action with `"post_id": null`. At least
+  21 required parameters across the action registry crashed this way: `post_id` on the page
+  actions, plus `title`, `slug`, `from`, `meta`, `composition` and `order`. The validator now refuses it
+  before the action runs, with `invalid_param_type` and
+  `Param "title" must be string, got null. Action "update_page_title" requires it, and null does
+  not count as a value.` The same rule applies to the design applies (`Apply "…" requires it`).
+  - **In a batch** this was worse than a 500. The crash skipped the rollback, so the steps
+    before it stayed applied. Now the step is refused like any other invalid step, and the
+    batch rolls back.
+  - **The error code changes for the required nulls that were already refused.** They used to
+    get a code from the action's own check (for example `empty_title` on `create_page`,
+    `empty_name` on `create_menu`, `invalid_option` on `update_site_option`, `invalid_menu`,
+    `invalid_composition`). Every required param sent as `null` now answers `invalid_param_type`.
+  - An **optional** parameter sent as `null` still means "not sent". For example,
+    `expected_version: null` is still a write without a version check.
+- **An `update_seo_meta` value that is not a string** (#913). For example
+  `"meta": {"seo_title": ["a"]}`. A list or object crashed the validator. All non-string values
+  are now refused with `invalid_seo_meta_type` and
+  `SEO meta "seo_title" must be a string, got array. Send an empty string to clear it.`
+  - **Stricter: some values that used to be stored are now refused.** `null` was accepted under
+    every key, and numbers and `true`/`false` under every key except `canonical_url`. A caller
+    that sent `"seo_title": null` to clear a field must send `""`.
+  - `canonical_url` already refused numbers and booleans, with `invalid_canonical_url`. They now
+    get `invalid_seo_meta_type`, because the type check runs first.
+  - A batch rollback still puts back whatever the page stored before the batch, including a
+    value of another type that was written to the database directly.
+- **An editor request whose `composition` field is not text** (#935). A client that sends
+  `composition[]=x` to the editor's save, preview or publish request now gets the same
+  `Invalid JSON.` refusal as any other unreadable body. Publish refuses rather than publishing
+  the stored composition without the one that was sent.
+
+Rendering is unchanged. A `seo_title` stored directly in the database as `null` still renders
+the page's default title, with the PHP deprecation notice recorded in #914.
+
+### Fixed
+- `pp_validate_action()` (lib/actions.php) and `pp_validate_apply()` (lib/apply.php) refuse a
+  `null` value for a required parameter. An optional `null` is still treated as absent.
+- `_pp_validate_seo_meta()` (lib/wp.php) checks that every value is a string before the length
+  and URL rules read it. The check sits below the restore bypass (#875), so restores are
+  unaffected.
+- `_pp_editor_composition_field()` (lib/admin.php) reads `composition` for the save, preview
+  and publish handlers and reports a value that is not text, so each handler refuses it.
+
+### Tests
+- `tests/TypedInputRefusalTest.php`: a null for every required parameter in the action and
+  apply registries; a batch whose second step sends `title: null` is refused at that step and
+  its first step is rolled back; every non-string under every SEO key is refused through the
+  action, while strings and the empty-string clear still land; the restore path and the batch
+  rollback still write a stored non-string back; the #914 render behaviour for a stored `null`;
+  the editor save handler and the shared field reader. Red on main: the null title, the batch,
+  the SEO validator, the restore path and the editor save all threw a `TypeError`, and on main the
+  batch left its first step applied.
+- `tests/e2e/typed-input-refusal.spec.ts` (WordPress 7.0 and 7.1.2): `composition[]=x` sent to
+  save, preview and publish gets `{"success":false,"data":"Invalid JSON."}`, and the page stays a
+  draft. Red on main, where all three returned 500.
+- `EmptyPageTitleWriteRefusalTest`: the test that recorded the #931 crash now checks that
+  `create_page` and `update_page_title` both refuse a null title with `invalid_param_type`.
+
 ---
 
 ## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)
