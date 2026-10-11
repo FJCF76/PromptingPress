@@ -1,7 +1,7 @@
 # WordPress 7.0 HTML API (test fixture)
 
 Verbatim copies of `wp-includes/html-api/*.php` and `wp-includes/class-wp-token-map.php`
-from WordPress 7.0 (`$wp_version = '7.0'`, the core `.wp-env.json` pins:
+from WordPress 7.0 (`$wp_version = '7.0'`, the CI floor pin, "Requires at least" (#1245):
 `WordPress/WordPress#7.0`, commit b16cd68ea199838d8f9daf0ff7e3f35042ba0ad0).
 GPL-2.0-or-later, the same licence as the theme.
 
