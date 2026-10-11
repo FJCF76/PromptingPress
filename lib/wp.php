@@ -7705,8 +7705,8 @@ function pp_get_seo_meta(int $post_id): array {
  * draws is the one the batch rollback's site_options arm already states in as many words:
  * only VALUE validation is bypassed. The KEY ALLOWLIST below is the authorization half —
  * it decides which meta this theme owns at all — so it runs first and always runs. What
- * the flag skips is the three rules that judge a value's CONTENT: the URL shape and the
- * two length caps.
+ * the flag skips is the rules that judge a VALUE: its type (a string, #913), the URL shape
+ * and the length caps (meta_description 320; seo_title/og_title/twitter_title 200).
  *
  * WHY A RESTORE NEEDS THAT. A value stored under an older rule (or written raw) round-
  * trips out of pp_get_seo_meta() into the batch snapshot, and re-judging it on the way
@@ -7727,6 +7727,29 @@ function _pp_validate_seo_meta(array $meta, bool $bypass_value_validation = fals
     }
     if ($bypass_value_validation) {
         return true;
+    }
+    // EVERY VALUE IS A STRING, CHECKED BEFORE ANY RULE THAT READS ONE (#913). The allowlist
+    // above judges keys only, and the two length caps below call strlen(), which is typed
+    // `string`: an array or object under an allowed key used to fatal this validator with a
+    // TypeError instead of answering. null, int, bool and float are refused too, by the same
+    // rule: each field is text, and a non-string either fatals a reader or is stored and read
+    // back as something other than text (a stored null reaches the <title> override as a
+    // deprecated coercion, #914). An empty string is how a field is cleared.
+    //
+    // A VALUE RULE, SO IT SITS BELOW THE RESTORE BYPASS (#875). A restore replays what
+    // pp_get_seo_meta() read out of this row moments earlier, including a raw-written
+    // non-string, and #233 says current rules never block putting back what was stored.
+    foreach ($meta as $key => $value) {
+        if (!is_string($value)) {
+            return new WP_Error(
+                'invalid_seo_meta_type',
+                sprintf(
+                    'SEO meta "%s" must be a string, got %s. Send an empty string to clear it.',
+                    $key,
+                    get_debug_type($value)
+                )
+            );
+        }
     }
     if (isset($meta['canonical_url']) && $meta['canonical_url'] !== '' && !filter_var($meta['canonical_url'], FILTER_VALIDATE_URL)) {
         return new WP_Error('invalid_canonical_url', 'canonical_url must be a valid URL, or an empty string to clear it.');
@@ -7813,9 +7836,11 @@ function pp_update_seo_meta(int $post_id, array $meta) {
  * carve-out. Every value this path can write was read out of this same row moments earlier
  * by pp_get_seo_meta(), so a restore cannot put the page into a shape it was not already in
  * before the batch ran — it reaches no byte the page was not already rendering. The bypass
- * grants no new value space either: the rules it skips are a URL shape and three length
- * caps, and none of them was ever an HTML filter, so nothing storable becomes storable that
- * was not before. Where the pre-batch shape was itself broken — a raw-written non-string
+ * grants no new value space either: the rules it skips are a string type check (#913), a URL
+ * shape and the length caps (meta_description 320; the three titles 200). None of them was
+ * ever an HTML filter, and every value it can write was already in this row, so nothing
+ * storable becomes storable that was not before. Where the pre-batch shape was itself
+ * broken — a raw-written non-string
  * under an allowed key, which pp_get_seo_meta() passes straight through — the restore
  * reproduces the breakage rather than inventing it, and #233 is explicit that preserving
  * what was stored beats quietly rewriting it.
