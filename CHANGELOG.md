@@ -88,6 +88,40 @@ is not encoded a second time.
   injected script is not in the page and does not run. Red on main, where the head carried a
   live `<script>` after the early `</title>`.
 
+### The chat reads only a response's own fields when it picks a card (#924)
+
+**No behaviour change for a real server response.** The chat decides which card to show after
+Apply (refused before step 1, page changed, rollback report, repair offer) from fields in the
+server's response. Several of those reads also accepted a value inherited from
+`Object.prototype`. wp-admin runs other plugins' JavaScript in the same page, so any
+prototype-pollution bug in one of them could plant such a value. A planted value could hide the
+"refused before step 1" card, show a "this page changed" card over a batch that reported no
+conflict or over a plain "Permission denied.", offer a repair the server never offered and send
+its text to the model, claim "Some changes could not be reverted." on a card where nothing ran,
+or turn a clean apply into a "rendered page validation failed" card. The fields listed below are
+now read only when the response carries them itself, as `steps`, the failed step index and the
+batch `error` already were. Other reads remain and are tracked on #924.
+
+### Fixed
+- `ppChatBatchWasRefusedUpFront()` and `ppChatBatchHitConflict()` (assets/js/pp-ai-chat.js)
+  check `failed_at` and `steps` as own keys, and the conflict check reads the failing step only
+  at an own index and only its own `error_code`. It still accepts an object-shaped `steps`, as
+  #853 requires.
+- The same check on `error_code` (`ppChatIsCompositionConflict()` and the
+  `missing_expected_version` test), `error` on the refusal line, on the failing step (read only
+  at an own index of `steps`) and in
+  `ppChatUndoFailureText()`, `model_note` (`ppChatModelNote()`), `rolled_back`,
+  `rollback_errors` and `rollback_error_kinds` (`ppChatRollbackErrorReport()`), and a step's
+  `validation` and `stale_warnings`.
+
+### Tests
+- `tests/js/pp-ai-chat-envelope-own-property.test.js`: each reader with the relevant keys planted
+  on `Object.prototype`, and eight Apply flows through the real card. 18 of 21 were red on main;
+  the other 3 check that the response's own fields still win. Planted keys are removed after every
+  test.
+- `tests/ChatReflectedTextBoundTest.php`: the refusal-line pin accepts any spelling of the guard
+  and stays strict about the bound (balanced parens, so an early-closed bound does not match).
+
 ---
 
 ## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)
