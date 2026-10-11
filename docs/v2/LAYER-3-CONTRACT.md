@@ -673,7 +673,11 @@ and a value the gate does not admit is refused, never passed through.
     `Loss`. Otherwise the attribute takes its literal under the rule below.
   - **Every other admitted attribute value** passes: no control characters; no `<`, `>`,
     `{`, `}`, `;`, `\`; no comment delimiters; the text `url(`, `expression(` and `javascript:`
-    refused (ASCII case-insensitive, after entity decoding). No per-attribute byte cap
+    refused (ASCII case-insensitive, after entity decoding). Since #1121 the resource-function
+    class is refused too: on a CSS-bearing attribute any function token whose name ends in
+    `url`, `image-set`, `image`, `src` or `expression` (`-webkit-image(`, `my-image(`); on a
+    prose attribute (`aria-*`, `title`, …) only the vendor-prefixed spellings
+    (`-webkit-image(`), so text such as "Upload image(s)" stays admitted. No per-attribute byte cap
     (**M-15**: the 4 096-byte cap is dropped, because M-8's per-prop bound carries the DoS
     argument and a path's `d` is long).
   - **Precedent carried over from `_pp_svg_content_is_safe()`** (`lib/wp.php:3398` when measured; `3765` on 2026-10-05): `xml:base`
@@ -747,7 +751,8 @@ and a value the gate does not admit is refused, never passed through.
     refuses `var()` in a text-bearing property (fail-closed). A custom-property name is outside §2′.1's charset (it begins `--`), so it passes
     its own byte-specified name gate, which the implementation pins (scheduled: v2.1.0);
   - the **value** passes the same **security** gates `_css` values pass:
-    `_pp_forbidden_css_construct()` (no `url()`, `image-set()`, `image()`, `src()`,
+    `_pp_forbidden_css_construct()` (no `url()`, `image-set()`, `image()`, `src()` or any
+    prefixed spelling of them such as `-webkit-image()` (#1121),
     `expression()`, `@import`, `{ } ; < >`, backslash, control characters, comment
     delimiters), `_pp_udc_delimiters_balanced()`, and no `!important`;
   - **except one `url()` form (P-13, ratified 2026-10-04):** a same-document fragment
@@ -1369,8 +1374,8 @@ band; the table sits beside the constants in lib/udc.php): with them each band p
 
 Attribute selectors are admitted. They are safe **because** no declaration value, in `_css`,
 in the scoped sheet or in a content `style` attribute, can name an external resource
-(`url()`, `image-set()`, `image()`, `src()`, `@import` are all refused ahead of every other
-check).
+(`url()`, `image-set()`, `image()`, `src()`, any prefixed spelling of them such as
+`-webkit-image()` (#1121), and `@import` are all refused ahead of every other check).
 
 **Any future relaxation of that rule, anywhere in the program, must re-review 3B's attribute
 selectors in the same change.** This clause exists so the dependency cannot be forgotten.

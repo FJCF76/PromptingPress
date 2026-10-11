@@ -2213,8 +2213,10 @@ function pp_get_style_recipes(string $component_name): array {
  *   1. A conservative reject set applied to every value regardless of type —
  *      `{ } ; < >`, backslash escapes, control characters, the CSS comment
  *      delimiters `/ *` / `* /`, and every construct that can name an EXTERNAL
- *      RESOURCE: `url(`, `image-set(`, `image(`, `src(`, plus `expression(` and
- *      `@import`.
+ *      RESOURCE: `url(`, `image-set(`, `image(`, `src(`, `expression(` and any
+ *      prefixed spelling of them (`-webkit-image(`; the class is any function name
+ *      ENDING in one, owned by `_pp_external_resource_function_pattern()`, #1121),
+ *      plus `@import`.
  *
  *      THIS COMMENT USED TO SAY THE OPPOSITE, AND WAS WRONG (#1079). It named
  *      three constructs, stated explicitly that `image-set()` and `src()` "also
@@ -2225,9 +2227,9 @@ function pp_get_style_recipes(string $component_name): array {
  *      Layer 2 shipped a channel where an UNTYPED value reaches CSS source text
  *      verbatim: `image-set()` takes a bare string as its image, so a value could
  *      name a third-party host while containing no `url(` at all. Found by the
- *      pre-landing security pass and closed in the shared predicate. The set is a
- *      literal list AND it now covers the class its name implies — do not
- *      re-narrow it on the old argument. Since #579 this is
+ *      pre-landing security pass and closed in the shared predicate. The set now
+ *      covers the class its name implies, prefixed spellings included (#1121) —
+ *      do not re-narrow it on the old argument. Since #579 this is
  *      the SHARED set (`_pp_forbidden_css_construct`, lib/apply.php) the write
  *      engine applies too, not a second, stricter copy of it. It is the sole line
  *      of defense for a (hypothetical) slot with no declared type.

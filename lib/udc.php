@@ -962,7 +962,8 @@ const PP_UDC_CSS_KEY = '_css';
  * WHAT IS DELIBERATELY ABSENT: every resource-bearing property (`background-image`,
  * `cursor`, `mask`, `filter`, `border-image`, …). They need no exclusion because NO
  * VALUE MAY NAME AN EXTERNAL RESOURCE — _pp_forbidden_css_construct() refuses `url()`,
- * `image-set()`, `image()` and `src()` alike, ahead of everything.
+ * `image-set()`, `image()` and `src()` alike, and every prefixed spelling of them
+ * (`-webkit-image()`, #1121), ahead of everything.
  *
  * THAT PREMISE WAS ONCE FALSE AND THE COMMENT SAID IT ANYWAY, which is why it is
  * spelled out now. The gate banned the token `url(` and this docblock cited it as
