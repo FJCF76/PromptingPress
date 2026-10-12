@@ -27,7 +27,8 @@ before it.
   `invalid_param_type` naming its path.
 
 ### ⚠️ Behaviour changes
-- Item values that were converted to the right type before are now refused by name: a quoted
+- Item values that were converted to the right type, or silently treated as not sent, before
+  are now refused by name: a quoted
   `page_id` such as `"12"`, a float, a boolean, an empty string `""` or `false` as `page_id`, and a
   number or boolean as `url` or `label`. Send a JSON integer for `page_id` and strings for `url`
   and `label`. Absent fields and `null` are unaffected.
@@ -37,9 +38,10 @@ before it.
   the item field types and the refusal.
 
 ### Tests
-- `tests/SetMenuItemTypeValidationTest.php`: every malformed item shape (non-string label, non-string
-  url, non-int page_id, a malformed or non-object child, a grandchild) is refused by name through
-  validate, preview and execute with every menu unchanged; null fields and well-typed items still
+- `tests/SetMenuItemTypeValidationTest.php`: a non-string label, a non-string url and a non-int
+  page_id, on a top-level item and on a child, are refused by name through validate, preview and
+  execute with every menu unchanged; the existing non-object-child and grandchild refusals still
+  answer first, also before any change; null fields and well-typed items still
   build; the chat transport path applies the same rule; and two batch tests show that a mistyped
   `set_menu` step rolls back the earlier steps and leaves the menu as it was.
 
