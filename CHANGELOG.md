@@ -6,6 +6,55 @@ All notable changes to PromptingPress are documented here.
 
 ## [Unreleased] — v2.1.1 security hardening (in progress)
 
+### WP-CLI and agent writes honor `DISALLOW_UNFILTERED_HTML`, as WordPress does
+
+**Behaviour change, stricter, and only on installs that set `DISALLOW_UNFILTERED_HTML` to true.**
+The 2.1.0 notes disclosed that WP-CLI, including agents and scripts that use `wp pp operate`,
+always wrote and vouched for the wider content set, even on an install that sets
+`DISALLOW_UNFILTERED_HTML`. That is no longer so. When the constant is defined and true,
+WordPress gives no user the `unfiltered_html` capability, and a WP-CLI or agent write now gets the
+same core `post` parity as every web user on that install: markup beyond core's `post` list is
+refused by name (clause `unfiltered_html`), never stripped, and a write records nothing for the
+wider set. The constant is read exactly as core reads it (defined and truthy).
+
+**No change on any other install.** Without the constant, or with it false, WP-CLI writes and
+vouches for the wider set exactly as in 2.1.0. Stored content is not touched: a value an earlier
+write vouched for keeps rendering as it did.
+
+**What a hardened install's agents will meet.** A band that a write changes is checked whole, so on
+such an install a WP-CLI or agent edit to a band that still holds markup beyond core's `post` list
+(written by WP-CLI before this release, or by anyone before the constant was set) is refused by name, even when the edit itself changes only the title.
+This is the rule every web user there already has. Reduce that band's content to core's set in the
+same write, or leave the band unchanged: a band a write does not change is not checked again, so
+edits to other bands on the page still land.
+
+On a hardened install, the route for re-recording a verification marker (#1249) records at core's
+`post` level only, so a value beyond that set cannot be re-recorded and keeps rendering at core
+parity. See `ai-instructions/validate-site.md`.
+
+### Fixed
+- `pp_content_write_tier()` (lib/content.php) returns `core` for a WP-CLI run when
+  `DISALLOW_UNFILTERED_HTML` is defined and true. Every tier reader goes through it: the write
+  gate, the stored-intent marker and the editor preview.
+
+### Docs
+- `ai-instructions/validate-site.md` (the two-write re-record route) and
+  `docs/reference-apply-cli.md` (`content_construct_excluded`): the `DISALLOW_UNFILTERED_HTML`
+  case.
+
+### Tests
+- `tests/ContentWriteTierDisallowTest.php`, each case in its own process (the constants cannot be
+  undefined): with WP-CLI and the constant true (or `1`), the tier is `core`, widened constructs are
+  refused with clause `unfiltered_html`, nothing is stored, an admitted value carries no
+  widened-set marker, and the re-record route refuses the widened bytes (red on main, where every
+  one landed at the full tier). With the constant false, `0` or absent, the full tier, the stored
+  bytes and the markers are as on main. On a hardened install a CLI edit to a band holding widened
+  content is refused, and an edit to another band still lands.
+- `tests/e2e/content-write-tier.spec.ts` (both core legs): a real `wp` run on live core, with
+  `DISALLOW_UNFILTERED_HTML` defined for that one run through WP-CLI's `--exec`, gets the `core`
+  tier (core itself denies the administrator `unfiltered_html`), the widened write is refused and
+  nothing is vouched; without the constant the run keeps the full tier.
+
 ### The external-resource ban is enforced as a class: `-webkit-image()` and `-webkit-src()` are refused (#1121)
 
 **Behaviour change, stricter: some CSS values that were accepted are now refused.** The rule "no
@@ -215,7 +264,8 @@ under `AUTH_KEY` and `AUTH_SALT`, and a record that does not verify is treated a
   under `content_stripped_at_render` (clause `unverified` for a title, `unfiltered_html` for a
   body). Re-saving the same bytes does not re-record a marker; write the value twice through a
   checked write (changed, then back to its original bytes), as a user with `unfiltered_html` or
-  from WP-CLI. See `ai-instructions/validate-site.md`.
+  from WP-CLI (on an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI too writes at core's
+  `post` level). See `ai-instructions/validate-site.md`.
 
 Nothing is signed on upgrade, and nothing is deleted: signing whatever the database held at upgrade
 time would make any record planted before it valid. The signature does not cover the theme version,
