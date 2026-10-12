@@ -316,13 +316,14 @@ so a markup title renders as markup and full-tier content renders with the wider
 too. A marker without a valid signature vouches for nothing: the value renders exactly as if no
 checked write had admitted it. `wp pp content census` lists each one (a title as `unverified`,
 rendered as text; a body as `unfiltered_html`, rendered without what only a trusted write may
-carry). `check page` and `validate site` report only the body ones, as
-`content_stripped_at_render`: an unverified title fails neither, so the census is the only place
-it shows. Every marker stored
+carry, or a title whose markup went beyond core's `post` set). `check page` and `validate site`
+report the `unfiltered_html` rows, as `content_stripped_at_render`: an `unverified` title fails
+neither, so the census is the only place it shows. Every marker stored
 before #1249 reads this way, and none is signed on upgrade. The census also lists content stored
-before the content check that nothing ever vouched for: compare with a census saved on 2.1.0 and
-re-record only the new rows, because re-recording an old one widens it (and for an old row the
-finding's advice to remove what it names stands). Re-saving the same bytes does not
+before the content check that nothing ever vouched for: compare with a census saved on 2.1.0 (before
+the theme files are replaced) and re-record only the new rows, after reading each value, because
+re-recording an old one widens it (and for an old row the finding's advice to remove what it names
+stands). Re-saving the same bytes does not
 re-record one, because a checked write only vouches for what it sends as NEW bytes. To re-record
 a value, write it twice through a checked write as a user with `unfiltered_html` (or from WP-CLI):
 once changed (for example `update_component` with the prop altered), then back to its original
@@ -335,8 +336,8 @@ On an install that sets `DISALLOW_UNFILTERED_HTML` to true, no user and no WP-CL
 refused by name (clause `unfiltered_html`) and keeps rendering at core parity.
 Rolling the theme back to 2.1.0 stops reading the signed markers: a page whose markers a 2.1.1
 write recorded renders unvouched there (other pages render as before), and a checked write there
-that admits new markup deletes all of that page's stored markers. After rolling forward, run
-`wp pp content census` and re-record every row it lists for that page the same way.
+that admits new markup deletes all of that page's stored markers. Save the census before rolling
+back; after rolling forward, re-record only the rows that are new compared with it.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 

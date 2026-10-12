@@ -71,9 +71,10 @@ schedules one background content census.
   stored before this release is unsigned, so the value it covered renders as if no checked write
   had admitted it: a markup title as plain text, full-tier content without what only a trusted
   write may carry. `wp pp content census` lists each one (clause `unverified` for a title,
-  `unfiltered_html` for a body). `wp pp check page` and `wp pp validate site` report only the body
-  ones, as `content_stripped_at_render`; a title that rendered as markup on 2.1.0 and now renders as
-  text fails neither command, so the census is the only place it shows. Re-saving the same bytes does not re-record a marker. The steps are under Upgrading.
+  `unfiltered_html` for a body, or for a title whose markup went beyond core's `post` set).
+  `wp pp check page` and `wp pp validate site` report the `unfiltered_html` rows, as
+  `content_stripped_at_render`; an `unverified` title fails neither command, so the census is the
+  only place it shows. Re-saving the same bytes does not re-record a marker. The steps are under Upgrading.
 - **CLI and agent writes honor `DISALLOW_UNFILTERED_HTML`** (only on installs that set it to
   true). Markup beyond core's `post` list is refused by name (clause `unfiltered_html`), and an
   edit to a band that still holds such markup is refused even when the edit changes only the title;
@@ -93,6 +94,9 @@ which writes only the `pp_content_census*` options; on a site with a lot of stor
 batch can take several seconds of server time. Its admin notice lists only props that render
 empty, so values whose markers no longer verify do not add to it.
 
+0. **Before replacing the theme files**, while still on 2.1.0, save the content census:
+   `wp pp content census --format=json > census-2.1.0.json`. Step 3 needs it; it cannot be made
+   afterwards.
 1. Run `wp pp integrity check` after replacing the theme files; it must report them safe. If you
    use `wp pp readiness`, run `wp pp readiness status`, and only once the integrity check is safe
    run `wp pp readiness rebaseline`.
@@ -101,44 +105,52 @@ empty, so values whose markers no longer verify do not add to it.
    the rest). For each one that is still intentional, run
    `wp pp readiness acknowledge <finding-key> --note="<why>"`, which signs a new row for it. Remove
    the rest with `wp pp readiness unacknowledge <finding-key>`.
-3. **Verification markers.** Before upgrading, while still on 2.1.0, save the census:
-   `wp pp content census --format=json > census-2.1.0.json`. After upgrading run
-   `wp pp content census` (it writes nothing). Re-record only the rows with clause `unverified` (a
-   title that now renders as plain text) or `unfiltered_html` (content that now renders without
-   what only a trusted write may carry) that are NEW compared with that file: those are values a
-   checked write vouched for on 2.1.0. A row already on the 2.1.0 census is content stored before
-   the content check that nothing ever vouched for; re-recording it would widen it (a title would
-   start rendering its tags as markup), so leave it unless you want that, and for those rows the
+3. **Verification markers.** Run `wp pp content census --format=json` (it writes nothing; the JSON
+   carries each row's `path`) and compare it with `census-2.1.0.json`. A row that is NEW, with
+   clause `unverified` (a title that now renders as plain text) or `unfiltered_html` (content that
+   now renders without what only a trusted write may carry), is a value a marker vouched for on
+   2.1.0. Read each such value before re-recording it: the old markers were unsigned, so a marker
+   written straight into the database looked the same as a real one, and re-recording signs
+   whatever you choose to keep. A row already on the 2.1.0 census is content stored before the
+   content check that nothing ever vouched for; re-recording it would widen it (a title would start
+   rendering its tags as markup), so leave it unless you want that, and for those rows the
    finding's advice to remove what it names stands. Without a saved baseline, re-record only values
-   you know a checked write admitted on 2.1.0. `wp pp check page`
-   reports only the `unfiltered_html` ones, as `content_stripped_at_render`; it does not list
-   unverified titles. Write each value twice through a checked write, as a user with
-   `unfiltered_html` (in the editor) or from WP-CLI: once changed, then back to its original bytes.
-   The second write records it signed. If the same value appears more than once on the page, change
-   every copy before writing any of them back. For a new `unfiltered_html` row, do this rather than
-   what the finding's own message suggests ("Edit the prop to remove ..."): that advice is for
-   content that predates the content check, and following it here deletes content you meant to
-   keep. A page keeps its last 10 composition-history entries and each write adds one, so save
-   any history you still need first, or change all of a band's values in one write and restore
-   them in a second. The first write puts the changed value on the live page until the second
-   lands, so copy the prop's exact stored bytes first and do this outside peak traffic. The second
-   write is checked in full under this release's rules, so a value 2.1.0 admitted can be refused
-   there; if it is, restore the page at once with `wp pp apply restore-composition --run-id=<uuid>`
-   (the value then keeps rendering unvouched) and remove what the refusal names before retrying.
-   On an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI writes at core's
-   `post` level too: widened content cannot be re-recorded there, and an edit to a band that still
-   holds it is refused, even a title-only edit (see Known issues). From WP-CLI, for a band title:
+   you know a checked write admitted on 2.1.0. `wp pp check page` reports the `unfiltered_html`
+   rows as `content_stripped_at_render` (titles included); it does not list `unverified` titles.
+
+   To re-record a value, write it twice through a checked write, as a user with `unfiltered_html`
+   (in the editor) or from WP-CLI: once changed, then back to its original bytes. The second write
+   records it signed. If the same value appears more than once on the page, change every copy
+   before writing any of them back. For a new `unfiltered_html` row, do this rather than what the
+   finding's own message suggests ("Edit the prop to remove ..."): that advice is for content that
+   predates the content check, and following it here deletes content you meant to keep. A page
+   keeps its last 10 composition-history entries and each write adds one, so save any history you
+   still need first (`wp pp operate composition-history --post_id=<id>`), or change all of a band's
+   values in one write and restore them in a second. The first write puts the changed value on the
+   live page until the second lands, so do this outside peak traffic. On an install that sets
+   `DISALLOW_UNFILTERED_HTML`, WP-CLI writes at core's `post` level too: widened content cannot be
+   re-recorded there, and an edit to a band that still holds it is refused, even a title-only edit
+   (see Known issues).
+
+   From WP-CLI, for a band title, use one run per page and build the parameters from a file, so the
+   stored bytes reach the write exactly (quotes, backslashes and newlines included):
    ```
-   wp pp operate inspect                                   # prints a run id
+   wp pp operate inspect                                   # prints a run id (valid 2 hours)
    wp pp apply preflight --run-id=<uuid> --post_id=<id>
-   wp pp action execute update_component --run-id=<uuid> \
-     --params='{"post_id":<id>,"component_index":<i>,"props":{"title":"<any other text>"}}'
-   wp pp action execute update_component --run-id=<uuid> \
-     --params='{"post_id":<id>,"component_index":<i>,"props":{"title":"<the original bytes>"}}'
+   wp pp operate inspect-composition --post_id=<id>        # copy the stored title from here
+   # changed.json: {"post_id":<id>,"component_index":<i>,"props":{"title":"<any other text>"}}
+   # original.json: the same, with the stored title as a JSON string
+   wp pp action execute update_component --run-id=<uuid> --params="$(cat changed.json)"
+   wp pp action execute update_component --run-id=<uuid> --params="$(cat original.json)"
    ```
    No new preflight is needed between the two writes. If the first execute warns that it could not
-   refresh the freshness baseline, run `wp pp apply preflight` again before the second. Then run `wp pp content census` again: the rows for that value
-   are gone.
+   refresh the freshness baseline, run `wp pp apply preflight` again before the second. The second
+   write is checked in full under this release's rules, so a value 2.1.0 admitted can be refused
+   there; if it is, run `wp pp apply restore-composition --run-id=<uuid>` at once with the same run
+   (it puts back every page that run touched, as it was at its preflight; the value then keeps
+   rendering unvouched), and remove what the refusal names before retrying. If the run has expired,
+   restore the page from `wp pp operate composition-history` instead. Then run
+   `wp pp content census` again: the rows for that value are gone.
 4. **Judgment calls.** Like every theme update, this one re-opens acknowledged judgment calls. For
    each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
    still judge intentional run `wp pp check acknowledge` with the key it prints now and a note. Do
@@ -150,13 +162,15 @@ empty, so values whose markers no longer verify do not add to it.
    it: send the value, omit an optional parameter, or send `""` to clear an SEO field.
 
 **Rolling back to 2.1.0.** Before rolling back, list the pages whose `seo_title`, `og_title` or
-`twitter_title` contains `<` (`wp post meta get <id> _pp_seo_meta` prints a page's stored SEO meta) and clear or
-fix them, because 2.1.0 writes `seo_title` into
+`twitter_title` contains `<` and clear or fix them; this lists them site-wide:
+`wp db query "SELECT post_id FROM $(wp db prefix)postmeta WHERE meta_key='_pp_seo_meta' AND meta_value LIKE '%<%'"`.
+Do it because 2.1.0 writes `seo_title` into
 `<title>` as markup. 2.1.0 does not read the signed marker format: a page whose markers a 2.1.1
 write recorded (every page you re-recorded in step 3) renders unvouched there (markup titles as
 text, full-tier content at core parity); other pages render as before. A checked write on 2.1.0
-that admits new markup to such a page deletes all of its stored markers, so after rolling forward
-run `wp pp content census` and re-record every row it lists for that page. Acknowledged judgment
+that admits new markup to such a page deletes all of its stored markers. Save the census on 2.1.1
+before rolling back (`wp pp content census --format=json > census-2.1.1.json`); after rolling
+forward again, re-record, as in step 3, only the rows that are new compared with that file. Acknowledged judgment
 calls are keyed to the theme version: rows made on 2.1.1 do not apply on 2.1.0, and 2.1.0 rows
 apply again only if you kept them. 2.1.0 honors readiness acknowledgements without checking a
 signature, so the old rows apply again if you kept them. 2.1.0 accepts the CSS spellings this release refuses, and answers untyped input as before
@@ -505,8 +519,9 @@ under `AUTH_KEY` and `AUTH_SALT`, and a record that does not verify is treated a
   as if no checked write had admitted it: a markup title as text, full-tier content without what
   only a trusted write may carry. `wp pp content census` lists each one (clause `unverified` for a
   title, `unfiltered_html` for a body). `wp pp check page` and `wp pp validate site` report only the
-  body ones, as `content_stripped_at_render`; an unverified title fails neither, so the census is
-  the only place it shows. Re-saving the same bytes does not re-record a marker; write the value twice through a
+  `unfiltered_html` rows (a title too, when its markup went beyond core's `post` set), as
+  `content_stripped_at_render`; an `unverified` title fails neither, so the census is the only
+  place it shows. Re-saving the same bytes does not re-record a marker; write the value twice through a
   checked write (changed, then back to its original bytes), as a user with `unfiltered_html` or
   from WP-CLI (on an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI too writes at core's
   `post` level). See `ai-instructions/validate-site.md`.
