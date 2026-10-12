@@ -3756,7 +3756,8 @@ const PP_ADVISORY_ACK_META = '_pp_acknowledged_advisories';
  * Judgment calls only: a pair the engine names but cannot measure, the raw-CSS escape hatch,
  * and the composition smells. Deliberately absent: every "value does not paint" finding
  * (`udc_*_shadowed_*`, `udc_overlay_without_image`, `udc_css_overrides_group_value`,
- * `udc_unused_band_token`), `udc_findings_capped`, errors, and the informational
+ * `udc_unused_band_token`), `udc_findings_capped`, `udc_check_not_run` (a check that could not
+ * run is a malfunction, not a judgment call, #1222), errors, and the informational
  * `udc_token_minted` (which never gates in the first place). Also absent for 2.0.1:
  * `udc_overlay_accent_off_scrim` (cycle-3 ruling B). Its judgment includes the photo behind the
  * scrim, and four review cycles found four ways that photo escaped a hand-enumerated
@@ -4281,7 +4282,9 @@ function _pp_advisory_key_head(string $key): string {
  * `acknowledged` (with `ack_note` and `ack_at`) and stops gating. A stored key that matches no
  * present finding is STALE when a finding it could have judged is present and gating: the same
  * type on the same band (on the page, for a run smell), or a keyless finding of that type there.
- * It is ORPHANED otherwise (the finding is gone; inert). A stored row with no note acknowledges
+ * It is HELD when its check could not run on that band (a `udc_check_not_run` row names it,
+ * #1222): kept, not applied, never "remove it". It is ORPHANED otherwise (the finding is gone;
+ * inert). A stored row with no note acknowledges
  * nothing and is listed as `unnoted`. A row whose signature is missing or does not verify
  * (#1214) acknowledges nothing either, is never STALE or ORPHANED, and is listed as `unsigned`
  * with `ack_ignored` naming which.
@@ -4289,7 +4292,7 @@ function _pp_advisory_key_head(string $key): string {
  * @param  int     $post_id      The page.
  * @param  array   $composition  Its stored composition.
  * @param  array[] $smells       The warning findings.
- * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[], unsigned: array[]}
+ * @return array{smells: array[], acknowledged: array[], stale: array[], orphaned: array[], held: array[], unnoted: array[], unsigned: array[]}
  */
 function pp_partition_acknowledged_advisories(int $post_id, array $composition, array $smells): array {
     // ONE CLASSIFIER (#1214): the same one pp_acknowledged_advisories() returns the trusted rows
@@ -4311,6 +4314,36 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
     $acked   = [];
     $matched = [];
     $open    = [];
+    // A CHECK THAT COULD NOT RUN CANNOT ORPHAN WHAT IT JUDGES (#1222, 7A ruling Q1 = B). A
+    // `udc_check_not_run` row names its check; an acknowledgement of that check on that band
+    // is HELD, never ORPHANED: its finding is not "gone", it was not looked for, and the
+    // ORPHANED advice ("remove it") would delete a correct, signed row. Only acknowledgeable
+    // check names are read, and only as keys into this map.
+    //
+    // PER BAND ONLY. An acknowledgement belongs to a band id, so a not-run row on a band with no
+    // usable id holds nothing (no acknowledgement can be keyed to that band).
+    //
+    // PAST THE BUDGET, EVERY ONE. The engine stops writing these rows at PP_UDC_MAX_EMIT_DROPS,
+    // so a band past that point may have a check that did not run and no row naming it. When the
+    // budget is spent (exactly that many rows), every unmatched acknowledgement of a check the
+    // engine guards is held rather than orphaned: unknown is never "gone".
+    $held_open    = [];
+    $not_run_rows = 0;
+    foreach ($smells as $finding) {
+        if (!is_array($finding) || ($finding['type'] ?? null) !== 'udc_check_not_run') {
+            continue;
+        }
+        $not_run_rows++;
+        if (!is_string($finding['check'] ?? null)
+            || !in_array($finding['check'], pp_acknowledgeable_finding_types(), true)) {
+            continue;
+        }
+        $band = _pp_advisory_band($composition, $finding);
+        if ($band !== null) {
+            $held_open[$finding['check'] . ':' . $band['id']] = true;
+        }
+    }
+    $not_run_capped = $not_run_rows >= PP_UDC_MAX_EMIT_DROPS;
     foreach ($smells as $finding) {
         $result = is_array($finding)
             ? _pp_advisory_key_or_reason($post_id, $composition, $finding, $context, $digest, $bands)
@@ -4341,6 +4374,7 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
     }
     $stale    = [];
     $orphaned = [];
+    $held     = [];
     foreach ($stored as $key => $entry) {
         if (isset($matched[$key])) {
             continue;
@@ -4349,11 +4383,15 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
         $type = (string) strstr($key, ':', true);
         if (isset($open[_pp_advisory_key_head($key)]) || isset($open[$type])) {
             $stale[] = $row;
+        } elseif (isset($held_open[_pp_advisory_key_head($key)])
+            || ($not_run_capped && in_array($type, pp_udc_guarded_check_types(), true))) {
+            $row['ack_check'] = $type;
+            $held[]           = $row;
         } else {
             $orphaned[] = $row;
         }
     }
-    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned, 'unnoted' => $unnoted, 'unsigned' => $unsigned];
+    return ['smells' => $active, 'acknowledged' => $acked, 'stale' => $stale, 'orphaned' => $orphaned, 'held' => $held, 'unnoted' => $unnoted, 'unsigned' => $unsigned];
 }
 
 /**

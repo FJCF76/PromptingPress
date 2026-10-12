@@ -1918,19 +1918,20 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  * @param  array    $composition  Decoded composition array.
  * @param  int|null $post_id      The page it belongs to, for the page-aware posts-page
  *                                findings (#1181); null reports page-blind.
- * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[], unnoted: array[], unsigned: array[]}
+ * @return array{errors: array[], smells: array[], info: array[], styling: array[], acknowledged: array[], stale: array[], orphaned: array[], held: array[], unnoted: array[], unsigned: array[]}
  *         With a $post_id, `smells` excludes the page's acknowledged advisories (moved to
  *         `acknowledged`), and `stale` / `orphaned` list acknowledgements that no longer match
- *         (#1194 A2); `unnoted` lists stored rows without a note, and `unsigned` stored rows
- *         whose signature is missing or does not verify (#1214), which acknowledge nothing.
- *         Page-blind, the five acknowledgement buckets are empty.
+ *         (#1194 A2); `held` lists acknowledgements whose check could not run (#1222); `unnoted`
+ *         lists stored rows without a note, and `unsigned` stored rows whose signature is missing
+ *         or does not verify (#1214), which acknowledge nothing.
+ *         Page-blind, the six acknowledgement buckets are empty.
  */
 function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): array {
     $buckets = _pp_cli_diagnostics_buckets(_pp_composition_findings($composition, $post_id));
     // ACKNOWLEDGED ADVISORIES STOP GATING (#1194 A2). Only a page-aware call can read a page's
     // acknowledgements; a page-blind one reports them as absent, so it can only be stricter.
     $acks = $post_id === null
-        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'unnoted' => [], 'unsigned' => []]
+        ? ['smells' => $buckets['smells'], 'acknowledged' => [], 'stale' => [], 'orphaned' => [], 'held' => [], 'unnoted' => [], 'unsigned' => []]
         : pp_partition_acknowledged_advisories($post_id, $composition, $buckets['smells']);
     return [
         'errors'       => $buckets['errors'],
@@ -1940,6 +1941,7 @@ function _pp_cli_page_diagnostics(array $composition, ?int $post_id = null): arr
         'acknowledged' => $acks['acknowledged'],
         'stale'        => $acks['stale'],
         'orphaned'     => $acks['orphaned'],
+        'held'         => $acks['held'],
         'unnoted'      => $acks['unnoted'],
         'unsigned'     => $acks['unsigned'],
     ];
@@ -2118,7 +2120,8 @@ function _pp_cli_print_acknowledge_hint(int $post_id, array $smells): void {
 /**
  * A page's acknowledged, stale and orphaned acknowledgements (#1194 A2). Acknowledged ones pass
  * the gate and are listed with their note; a stale one's finding is back in the smells above
- * (what was judged changed); an orphaned one is inert and can be removed. Stored rows that
+ * (what was judged changed); an orphaned one is inert and can be removed; a held one's check
+ * could not run (#1222), so it is kept and never offered for removal. Stored rows that
  * acknowledge nothing (no note, or no valid signature, #1214) are listed as ignored.
  */
 function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void {
@@ -2136,6 +2139,15 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
             . ': what it judged has changed (its band, or the whole page for a run smell; a design token, the site udc '
             . 'map, the Additional CSS, the front-page settings or the theme version), so its finding, or another of its type '
             . 'there, is listed above again. Review it, and acknowledge the new key if it is still intentional.');
+    }
+    foreach ($diagnostics['held'] ?? [] as $row) {
+        // #1222 (7A ruling Q1 = B): never "remove it". The check did not run, so nothing says
+        // the judged finding is gone; deleting the row would lose a correct acknowledgement.
+        WP_CLI::line('  - HELD acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
+            . ': the ' . _pp_cli_printable((string) ($row['ack_check'] ?? '')) . ' check it judged could not run on '
+            . 'its band (see the udc_check_not_run lines above; past their limit a band may have no line of its own), '
+            . 'so this command cannot tell whether its finding is still there. It is kept, not applied, until the '
+            . 'check can run again. Do not remove it.');
     }
     foreach ($diagnostics['orphaned'] ?? [] as $row) {
         WP_CLI::line('  - orphaned acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])

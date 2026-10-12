@@ -1852,6 +1852,15 @@ if (!function_exists('wp_get_attachment_url')) {
         if (!empty($GLOBALS['_pp_test_store']['attachment_url_missing'][$attachment_id])) {
             return false;
         }
+        // Tests can make the lookup THROW, carrying the given message, by listing the id in
+        // ['attachment_url_throws'] — a data-driven way to make pp_udc_compile_band() throw
+        // from inside the findings engine without a production seam (#1222). Only while a
+        // compile is on the stack: the write gate's value validator resolves the same id, and
+        // a throw there would refuse the fixture write instead of reaching the engine.
+        if (isset($GLOBALS['_pp_test_store']['attachment_url_throws'][$attachment_id])
+            && in_array('pp_udc_compile_band', array_column(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 'function'), true)) {
+            throw new \RuntimeException((string) $GLOBALS['_pp_test_store']['attachment_url_throws'][$attachment_id]);
+        }
         return 'https://example.com/wp-content/uploads/image-' . $attachment_id . '.jpg';
     }
 }
