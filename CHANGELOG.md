@@ -14,7 +14,9 @@ records that were trusted by their presence alone (readiness acknowledgements an
 say which values a trusted write admitted) are now signed, so the ones made before this release
 must be recorded again once. On installs that set `DISALLOW_UNFILTERED_HTML`, WP-CLI and agents get
 the same content limits as every web user. A styling check that cannot run now fails validation
-instead of disappearing from the report. Nothing stored is changed or deleted by the update.
+instead of disappearing from the report. No content, composition or setting is changed by the
+update; the first wp-admin visit afterwards only clears the theme's stored integrity result and
+schedules one background content census.
 
 ### Highlights
 
@@ -83,7 +85,12 @@ instead of disappearing from the report. Nothing stored is changed or deleted by
 
 ### Upgrading
 
-This is a theme-only update. It needs no migration and changes nothing stored when it is installed.
+This is a theme-only update. It needs no migration and changes no content, composition or setting.
+The first wp-admin visit by an administrator afterwards clears the stored `wp pp integrity check`
+result (it belonged to 2.1.0) and schedules one content census through WP-Cron, in 1 MiB batches,
+which writes only the `pp_content_census*` options; on a site with a lot of stored content each
+batch can take several seconds of server time. Its admin notice lists only props that render
+empty, so values whose markers no longer verify do not add to it.
 
 1. Run `wp pp integrity check` after replacing the theme files; it must report them safe. If you
    use `wp pp readiness`, run `wp pp readiness status`, and only once the integrity check is safe
@@ -100,7 +107,14 @@ This is a theme-only update. It needs no migration and changes nothing stored wh
    unverified titles. Write each value twice through a checked write, as a user with
    `unfiltered_html` (in the editor) or from WP-CLI: once changed, then back to its original bytes.
    The second write records it signed. If the same value appears more than once on the page, change
-   every copy before writing any of them back. From WP-CLI, for a band title:
+   every copy before writing any of them back. For an `unfiltered_html` row, do this rather than
+   what the finding's own message suggests ("Edit the prop to remove ..."): that advice is for
+   content that predates the content check, and following it here deletes content you meant to
+   keep. A page keeps its last 10 composition-history entries and each write adds one, so save
+   any history you still need first, or change all of a band's values in one write and restore
+   them in a second. On an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI writes at core's
+   `post` level too: widened content cannot be re-recorded there, and an edit to a band that still
+   holds it is refused, even a title-only edit (see Known issues). From WP-CLI, for a band title:
    ```
    wp pp operate inspect                                   # prints a run id
    wp pp apply preflight --run-id=<uuid> --post_id=<id>
@@ -110,8 +124,7 @@ This is a theme-only update. It needs no migration and changes nothing stored wh
      --params='{"post_id":<id>,"component_index":<i>,"props":{"title":"<the original bytes>"}}'
    ```
    No new preflight is needed between the two writes. If the first execute warns that it could not
-   refresh the freshness baseline, run `wp pp apply preflight` again before the second. Each write
-   adds a composition-history entry. Then run `wp pp content census` again: the rows for that value
+   refresh the freshness baseline, run `wp pp apply preflight` again before the second. Then run `wp pp content census` again: the rows for that value
    are gone.
 4. **Judgment calls.** Like every theme update, this one re-opens acknowledged judgment calls. For
    each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
@@ -134,8 +147,12 @@ unescaped, accepts the CSS spellings this release refuses, and answers untyped i
 
 - `content_stripped_at_render` cannot be acknowledged, so a page whose widened content
   (`unfiltered_html`) is not re-recorded (Upgrading, step 3) keeps failing `wp pp validate site`.
-  An unverified title fails nothing and is listed only by `wp pp content census`. Header and footer
-  (`pp_site_udc`) findings cannot be acknowledged either (#1220).
+  An unverified title fails nothing and is listed only by `wp pp content census`. On an install
+  that sets `DISALLOW_UNFILTERED_HTML`, widened content cannot be re-recorded at all, so those pages
+  keep failing until the widened markup is removed. The `content_stripped_at_render` message still
+  says to remove what it names, which is the wrong advice for a value an earlier checked write
+  vouched for (Upgrading, step 3). Header and footer (`pp_site_udc`) findings cannot be
+  acknowledged either (#1220).
 - A `seo_title` carrying markup is accepted at write and stripped at render rather than refused by
   name; the Open Graph and Twitter title fallback shows its tags as literal (escaped) text while
   `<title>` shows the same value with its tags removed; and a title made only of a non-breaking, zero-width or
