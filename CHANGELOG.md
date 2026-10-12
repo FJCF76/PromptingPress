@@ -43,8 +43,8 @@ instead of disappearing from the report. Nothing stored is changed or deleted by
   engine throws, the report now carries a `udc_check_not_run` warning naming the check, and
   `wp pp validate site` and `wp pp check page` fail until it can run. An acknowledgement of that
   check is held, not reported as orphaned.
-- **E2E runs on both the WordPress floor (7.0) and production core (7.1.2)** (#1245), and "Tested
-  up to" is now 7.1.2.
+- **E2E runs on both the WordPress floor (7.0) and 7.1.2, the newest core it is tested on**
+  (#1245), and "Tested up to" is now 7.1.2.
 
 ### ⚠️ Behaviour changes
 
@@ -68,9 +68,10 @@ instead of disappearing from the report. Nothing stored is changed or deleted by
   `wp pp readiness status` lists the row as an ignored acknowledgement. Every verification marker
   stored before this release is unsigned, so the value it covered renders as if no checked write
   had admitted it: a markup title as plain text, full-tier content without what only a trusted
-  write may carry. `wp pp check page` and `wp pp content census` report each one under
-  `content_stripped_at_render` (clause `unverified` for a title, `unfiltered_html` for a body).
-  Re-saving the same bytes does not re-record a marker. The steps are under Upgrading.
+  write may carry. `wp pp content census` lists each one (clause `unverified` for a title,
+  `unfiltered_html` for a body). `wp pp check page` and `wp pp validate site` report only the body
+  ones, as `content_stripped_at_render`; a title that rendered as markup on 2.1.0 and now renders as
+  text fails neither command, so the census is the only place it shows. Re-saving the same bytes does not re-record a marker. The steps are under Upgrading.
 - **CLI and agent writes honor `DISALLOW_UNFILTERED_HTML`** (only on installs that set it to
   true). Markup beyond core's `post` list is refused by name (clause `unfiltered_html`), and an
   edit to a band that still holds such markup is refused even when the edit changes only the title;
@@ -87,15 +88,19 @@ This is a theme-only update. It needs no migration and changes nothing stored wh
 1. Run `wp pp integrity check` after replacing the theme files; it must report them safe. If you
    use `wp pp readiness`, run `wp pp readiness status`, and only once the integrity check is safe
    run `wp pp readiness rebaseline`.
-2. **Readiness acknowledgements.** `wp pp readiness status` prints one `ignored acknowledgement`
-   line per row made before this release. For each one that is still intentional, run
+2. **Readiness acknowledgements.** `wp pp readiness status` prints an `ignored acknowledgement`
+   line for each row made before this release (up to 50; run it again after handling them to see
+   the rest). For each one that is still intentional, run
    `wp pp readiness acknowledge <finding-key> --note="<why>"`, which signs a new row for it. Remove
    the rest with `wp pp readiness unacknowledge <finding-key>`.
-3. **Verification markers.** Run `wp pp content census` (it writes nothing) or
-   `wp pp check page --post_id=<id>`. For each `content_stripped_at_render` row with clause
-   `unverified` or `unfiltered_html`, write the value twice through a checked write, as a user with
+3. **Verification markers.** Run `wp pp content census` (it writes nothing). Each row with clause
+   `unverified` (a title that now renders as plain text) or `unfiltered_html` (content that now
+   renders without what only a trusted write may carry) needs re-recording. `wp pp check page`
+   reports only the `unfiltered_html` ones, as `content_stripped_at_render`; it does not list
+   unverified titles. Write each value twice through a checked write, as a user with
    `unfiltered_html` (in the editor) or from WP-CLI: once changed, then back to its original bytes.
-   The second write records it signed. From WP-CLI, for a band title:
+   The second write records it signed. If the same value appears more than once on the page, change
+   every copy before writing any of them back. From WP-CLI, for a band title:
    ```
    wp pp operate inspect                                   # prints a run id
    wp pp apply preflight --run-id=<uuid> --post_id=<id>
@@ -104,8 +109,10 @@ This is a theme-only update. It needs no migration and changes nothing stored wh
    wp pp action execute update_component --run-id=<uuid> \
      --params='{"post_id":<id>,"component_index":<i>,"props":{"title":"<the original bytes>"}}'
    ```
-   Each write adds a composition-history entry. Then run `wp pp check page --post_id=<id>` again:
-   the `unverified` / `unfiltered_html` rows for that value are gone.
+   No new preflight is needed between the two writes. If the first execute warns that it could not
+   refresh the freshness baseline, run `wp pp apply preflight` again before the second. Each write
+   adds a composition-history entry. Then run `wp pp content census` again: the rows for that value
+   are gone.
 4. **Judgment calls.** Like every theme update, this one re-opens acknowledged judgment calls. For
    each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
    still judge intentional run `wp pp check acknowledge` with the key it prints now and a note. Do
@@ -117,7 +124,7 @@ This is a theme-only update. It needs no migration and changes nothing stored wh
 
 **Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so every marker vouches
 for nothing there (markup titles render as text, full-tier content at core parity), and a checked
-write made on 2.1.0 replaces the page's markers with an unsigned list: after rolling forward again,
+write made on 2.1.0 that admits new markup replaces the page's markers with an unsigned list: after rolling forward again,
 re-record those values as in step 3. 2.1.0 honors readiness acknowledgements without checking a
 signature, so the old rows apply again if you kept them. 2.1.0 writes `seo_title` into `<title>`
 unescaped, accepts the CSS spellings this release refuses, and answers untyped input as before
@@ -125,12 +132,13 @@ unescaped, accepts the CSS spellings this release refuses, and answers untyped i
 
 ### Known issues (rolled up)
 
-- `content_stripped_at_render` cannot be acknowledged, so a page whose verification markers are
-  not re-recorded (Upgrading, step 3) keeps failing `wp pp validate site`. Header and footer
+- `content_stripped_at_render` cannot be acknowledged, so a page whose widened content
+  (`unfiltered_html`) is not re-recorded (Upgrading, step 3) keeps failing `wp pp validate site`.
+  An unverified title fails nothing and is listed only by `wp pp content census`. Header and footer
   (`pp_site_udc`) findings cannot be acknowledged either (#1220).
 - A `seo_title` carrying markup is accepted at write and stripped at render rather than refused by
   name; the Open Graph and Twitter title fallback shows its tags as literal (escaped) text while
-  `<title>` falls back to the default title; and a title made only of a non-breaking, zero-width or
+  `<title>` shows the same value with its tags removed; and a title made only of a non-breaking, zero-width or
   ideographic space still renders blank-looking (#1269).
 - A batch step whose executor throws skips the rollback and returns a 500 (#1272).
 - The chat preview renders a `null` parameter as the string "null", while Apply refuses it with
@@ -141,7 +149,7 @@ unescaped, accepts the CSS spellings this release refuses, and answers untyped i
 
 ### Itemized changes
 
-#### E2E runs on the WordPress floor and on production core (#1245)
+#### E2E runs on the WordPress floor (7.0) and on 7.1.2 (#1245)
 
 ##### Changed
 - `.github/workflows/e2e.yml` runs the full E2E suite twice in parallel, `e2e (floor)` on
@@ -245,9 +253,9 @@ parity. See `ai-instructions/validate-site.md`.
 - `tests/ContentWriteTierDisallowTest.php`, each case in its own process (the constants cannot be
   undefined): with WP-CLI and the constant true (or `1`), the tier is `core`, widened constructs are
   refused with clause `unfiltered_html`, nothing is stored, an admitted value carries no
-  widened-set marker, and the re-record route refuses the widened bytes (red on main, where every
+  widened-set marker, and the re-record route refuses the widened bytes (these failed on 2.1.0, where every
   one landed at the full tier). With the constant false, `0` or absent, the full tier, the stored
-  bytes and the markers are as on main. On a hardened install a CLI edit to a band holding widened
+  bytes and the markers are as on 2.1.0. On a hardened install a CLI edit to a band holding widened
   content is refused, and an edit to another band still lands.
 - `tests/e2e/content-write-tier.spec.ts` (both core legs): a real `wp` run on live core, with
   `DISALLOW_UNFILTERED_HTML` defined for that one run through WP-CLI's `--exec`, gets the `core`
@@ -296,7 +304,7 @@ render, like any other refused value.
 
 ##### Tests
 - Layer 2: both issue probes and their class (case, whitespace, nesting, other vendors, `my-image`)
-  are refused at write and dropped from storage. These were red on main.
+  are refused at write and dropped from storage. These failed on 2.1.0.
 - Layer 3: SVG prose and CSS attributes, the `style` attribute and the scoped sheet refuse the
   prefixed spellings, and prose with a space or plural stays admitted.
 - A source-level check that both gates call the single owner.
@@ -329,11 +337,11 @@ is not encoded a second time.
 ##### Tests
 - Unit: a `seo_title` with a `</title><script>` breakout, `&`, an apostrophe and quotes,
   written through `update_seo_meta`, comes back stripped and escaped. A value with no visible
-  text falls back to the default title. Both were red on main. The stray-`<` truncation is
+  text falls back to the default title. Both failed on 2.1.0. The stray-`<` truncation is
   pinned too.
 - E2E (WordPress 7.0 and 7.1.2): the rendered page's `<title>` is
   `Tom &amp; Jerry &amp; Co&#039;s &quot;Show&quot;…` (the stored `&amp;` is encoded once), the
-  injected script is not in the page and does not run. Red on main, where the head carried a
+  injected script is not in the page and does not run. These failed on 2.1.0, where the head carried a
   live `<script>` after the early `</title>`.
 
 #### The chat reads only a response's own fields when it picks a card (#924)
@@ -364,7 +372,7 @@ batch `error` already were. Other reads remain; #924's implementation record lis
 
 ##### Tests
 - `tests/js/pp-ai-chat-envelope-own-property.test.js`: each reader with the relevant keys planted
-  on `Object.prototype`, and eight Apply flows through the real card. 18 of 21 were red on main;
+  on `Object.prototype`, and eight Apply flows through the real card. 18 of 21 failed on 2.1.0;
   the other 3 check that the response's own fields still win. Planted keys are removed after every
   test.
 - `tests/ChatReflectedTextBoundTest.php`: the refusal-line pin accepts any spelling of the guard
@@ -428,12 +436,12 @@ the page's default title, with the PHP deprecation notice recorded in #914.
   its first step is rolled back; every non-string under every SEO key is refused through the
   action, while strings and the empty-string clear still land; the restore path and the batch
   rollback still write a stored non-string back; the #914 render behaviour for a stored `null`;
-  the editor save handler and the shared field reader. Red on main: the null title, the batch,
-  the SEO validator, the restore path and the editor save all threw a `TypeError`, and on main the
+  the editor save handler and the shared field reader. These failed on 2.1.0: the null title, the batch,
+  the SEO validator, the restore path and the editor save all threw a `TypeError`, and on 2.1.0 the
   batch left its first step applied.
 - `tests/e2e/typed-input-refusal.spec.ts` (WordPress 7.0 and 7.1.2): `composition[]=x` sent to
   save, preview and publish gets `{"success":false,"data":"Invalid JSON."}`, and the page stays a
-  draft. Red on main, where all three returned 500.
+  draft. These failed on 2.1.0, where all three returned 500.
 - `EmptyPageTitleWriteRefusalTest`: the test that recorded the #931 crash now checks that
   `create_page` and `update_page_title` both refuse a null title with `invalid_param_type`.
 
@@ -459,9 +467,10 @@ under `AUTH_KEY` and `AUTH_SALT`, and a record that does not verify is treated a
   that is not shaped like a key the theme mints is named by its length only).
 - Every verification marker stored before this release is unsigned, so the value it covered renders
   as if no checked write had admitted it: a markup title as text, full-tier content without what
-  only a trusted write may carry. `wp pp check page` and `wp pp content census` report each one
-  under `content_stripped_at_render` (clause `unverified` for a title, `unfiltered_html` for a
-  body). Re-saving the same bytes does not re-record a marker; write the value twice through a
+  only a trusted write may carry. `wp pp content census` lists each one (clause `unverified` for a
+  title, `unfiltered_html` for a body). `wp pp check page` and `wp pp validate site` report only the
+  body ones, as `content_stripped_at_render`; an unverified title fails neither, so the census is
+  the only place it shows. Re-saving the same bytes does not re-record a marker; write the value twice through a
   checked write (changed, then back to its original bytes), as a user with `unfiltered_html` or
   from WP-CLI (on an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI too writes at core's
   `post` level). See `ai-instructions/validate-site.md`.
@@ -474,7 +483,8 @@ unchanged.
 
 **Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so after a rollback every
 marker vouches for nothing there (markup titles render as text, full-tier content at core parity),
-and a checked write made on 2.1.0 replaces the page's markers with an unsigned list. After rolling
+and a checked write made on 2.1.0 that admits new markup replaces the page's markers with an
+unsigned list. After rolling
 forward again those pages need their values re-recorded as above. 2.1.0 also honors readiness
 acknowledgements without checking a signature, as it did before.
 
@@ -495,14 +505,14 @@ acknowledgements without checking a signature, as it did before.
 
 ##### Tests
 - `tests/ReadinessFindingsTest.php`: an unsigned row acknowledges nothing and is listed as ignored
-  (red on main, where it suppressed the warning in preflight and in the nav-readiness check); a
+  (these failed on 2.1.0, where it suppressed the warning in preflight and in the nav-readiness check); a
   tampered row, a row moved to another key, rotated salts and another site read as `invalid`; a
   broken `wp_hash()` reads as `unverifiable` and refuses to acknowledge; the command signs, keeps the
   other rows byte for byte, re-acknowledging signs an unsigned row, and `status` prints the routes;
   the envelope's fields are pinned (no theme version).
 - `tests/ContentRenderTest.php`: a marker list in the pre-signing format, an unsigned object, a
   tampered list, a list signed for another page, site or salt, and a broken `wp_hash()` all render
-  the title as text and the body at core parity (red on main, where the bare list widened both); a
+  the title as text and the body at core parity (these failed on 2.1.0, where the bare list widened both); a
   checked write records a signed list and carries an unverified marker without signing it; the
   envelope's fields are pinned (no theme version). Existing fixtures that planted raw markers or
   readiness rows now store signed ones.
