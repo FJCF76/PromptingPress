@@ -817,12 +817,16 @@ function pp_content_clause_text(string $clause): string {
 // power WordPress gives only to users with `unfiltered_html`. A writer without it gets core
 // parity: what kses would have admitted, judged by the same walk and refused by name (clause
 // unfiltered_html), never stripped. WP-CLI runs with server-level access, as every other
-// PromptingPress CLI gate treats it (_pp_cli_require_apply_cap()).
+// PromptingPress CLI gate treats it (_pp_cli_require_apply_cap()), EXCEPT on an install that
+// sets DISALLOW_UNFILTERED_HTML: WordPress then denies unfiltered_html to every user, and a
+// CLI or agent write gets the same core parity. The constant is read exactly as core's
+// map_meta_cap() reads it (wp-includes/capabilities.php: defined and truthy). The web path
+// needs no such check: current_user_can() already answers false there.
 
 /** 'full' when the writing user may write the widened set, else 'core'. */
 function pp_content_write_tier(): string {
     if (defined('WP_CLI') && WP_CLI) {
-        return 'full';
+        return defined('DISALLOW_UNFILTERED_HTML') && DISALLOW_UNFILTERED_HTML ? 'core' : 'full';
     }
     return function_exists('current_user_can') && current_user_can('unfiltered_html') ? 'full' : 'core';
 }
