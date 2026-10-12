@@ -2208,7 +2208,7 @@ if (!function_exists('wp_scrub_utf8')) {
 if (!class_exists('WP_HTML_Processor')) {
     // PP_TEST_HTML_API picks the vendored core version (default 7.0, the CI floor pin,
     // "Requires at least"); tests/fixtures/content/bail-set-runner.php runs the P-16 pin
-    // under 7.1.2 too, the CI runtime pin and the version production runs (#1245), in a
+    // under 7.1.3 too, the CI runtime pin and the version production runs (#1245), in a
     // separate process.
     $_pp_html_api_version = getenv('PP_TEST_HTML_API') ?: '7.0';
     if (!preg_match('/^[0-9.]+\z/', $_pp_html_api_version) || !is_dir(__DIR__ . '/fixtures/wp-html-api-' . $_pp_html_api_version)) {

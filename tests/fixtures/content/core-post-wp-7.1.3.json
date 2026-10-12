@@ -1,5 +1,5 @@
 {
- "source": "WordPress 7.1.2 wp_kses_allowed_html('post') (kses.php $allowedposttags after _wp_add_global_attributes), unfiltered. The deployed core's list; tests/ContentTableDriftTest.php pins that the admission table admits all of it (P-17: core widening defaults to admit-unless-\u00a74).",
+ "source": "WordPress 7.1.3 wp_kses_allowed_html('post') (kses.php $allowedposttags after _wp_add_global_attributes), unfiltered. The deployed core's list; tests/ContentTableDriftTest.php pins that the admission table admits all of it (P-17: core widening defaults to admit-unless-\u00a74).",
  "tags": {
   "a": {
    "aria-controls": true,
