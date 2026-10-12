@@ -5572,7 +5572,7 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
         }
     }
     foreach (pp_udc_composition_findings($udc_items, (int) $post_id) as $disclosure) {
-        $findings[] = [
+        $row = [
             'type'     => $disclosure['type'],
             // INFORMATIONAL DISCLOSURES DO NOT GATE (#1194, ruling D1 = A). See
             // pp_informational_finding_types(): the one owner of which types say
@@ -5581,6 +5581,12 @@ function _pp_composition_findings(array $items, ?int $post_id = null): array {
             'message'  => $disclosure['message'],
             'index'    => $disclosure['index'],
         ];
+        // `udc_check_not_run` names the check that could not run (#1222): the acknowledgement
+        // partition reads it to hold, not orphan, an acknowledgement of that check.
+        if (($disclosure['type'] ?? null) === 'udc_check_not_run' && is_string($disclosure['check'] ?? null)) {
+            $row['check'] = $disclosure['check'];
+        }
+        $findings[] = $row;
     }
 
     // THE PLUGIN-BOUNDARY DISCLOSURE (LAYER-3-CONTRACT.md P-23 / P-9, #1242 T3a): content

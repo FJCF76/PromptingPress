@@ -9769,6 +9769,80 @@ function _pp_udc_preset_values_shadowed_entries(array $fragment, array $role_def
 }
 
 /**
+ * The checks pp_udc_composition_findings() guards with a `udc_check_not_run` row (#1222): the
+ * literal `check` names its five call sites pass. The acknowledgement partition reads it to hold,
+ * rather than orphan, an acknowledgement of one of them once the row budget is spent.
+ *
+ * @return string[]
+ */
+function pp_udc_guarded_check_types(): array {
+    return [
+        'udc_overlay_accent_off_scrim',
+        'udc_role_ink_over_own_surface',
+        'udc_overlay_without_image',
+        'udc_band_value_shadowed_by_role_default',
+        'udc_css_overrides_group_value',
+    ];
+}
+
+/**
+ * A CHECK THAT COULD NOT RUN IS A FINDING, NEVER A SILENCE (#1222, invariant I29).
+ *
+ * Every arm of pp_udc_composition_findings() that compiles a band guards the compile with
+ * its own `catch (\Throwable)`, so one band's unexpected throw cannot take the whole report
+ * (or the write it rides on) down. Those guards used to log and carry on with an empty
+ * result, so the check's findings were simply missing: the report looked complete and
+ * `wp pp validate site` passed a band nothing had judged. The only outer guard is the chrome
+ * and preset one (pp_udc_site_findings(), which turns a throw into `findings_skipped`); the
+ * page path has none (#1278), and neither sees a throw a check guard here swallowed.
+ *
+ * Each guard now also appends one `udc_check_not_run` row. It is not informational, so
+ * pp_finding_severity() makes it a warning and every gate that fails on warnings fails on
+ * it: `check page`, `validate site` (pages and the header/footer section), and every write
+ * envelope reports it. It is not in pp_acknowledgeable_finding_types(): a check that did not
+ * run is a malfunction, not a judgment call, so there is nothing to acknowledge.
+ *
+ * FIXED SHAPE. The message names the check by the finding type it would have produced (a
+ * literal at each call site, never data), the component (a registry name every sibling
+ * finding names too), and the band by `index`. The exception's text goes to the PHP error
+ * log, as it always did, and nowhere else: it can carry stored values, paths or library
+ * internals, and this message reaches the operator, the chat and the model.
+ *
+ * BOUNDED like every gating arm: one shared budget of PP_UDC_MAX_EMIT_DROPS rows per call,
+ * and a `udc_findings_capped` row naming this type when it is spent.
+ *
+ * @param array[]  $findings   The report being built; one row is appended unless the budget is spent.
+ * @param int      $spent      The call's `udc_check_not_run` budget counter.
+ * @param string   $check      The finding type the failed check reports (a literal).
+ * @param string   $component  The band's (or chrome entry's) component name.
+ * @param int|null $index      The band's composition index; null when the walk has no list offset.
+ */
+function _pp_udc_record_check_not_run(array &$findings, int &$spent, string $check, string $component, $index): void {
+    // A name outside the guarded list is a call-site bug (pinned by UdcCheckNotRunTest); the
+    // row is still written, because a check that did not run must never go unreported.
+    if ($spent >= PP_UDC_MAX_EMIT_DROPS) {
+        return;
+    }
+    $spent++;
+    $findings[] = [
+        'type'    => 'udc_check_not_run',
+        'message' => sprintf(
+            // SUBJECT-NEUTRAL: this engine also builds the header and footer report, where the
+            // component is not a band (the findings_skipped / udc_findings_capped precedent).
+            'Component "%s": the %s check could not run here, so this report does not cover what it checks. '
+            . 'Validation fails until it can run; the cause is in the PHP error log.',
+            $component,
+            $check
+        ),
+        'index'   => is_int($index) ? $index : null,
+        // The check, as a key (7A ruling Q1 = B): the page acknowledgement path reads it to
+        // HOLD an acknowledgement of that check on this band rather than calling it orphaned.
+        // Always the literal the call site passes, never derived from the exception or data.
+        'check'   => $check,
+    ];
+}
+
+/**
  * @param array $items    The composition.
  * @param int   $post_id  Its page, when known: the presence probe renders content with the
  *                        page's vouched tier (#1242 T3b); 0 renders every value at core parity.
@@ -9827,6 +9901,9 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
     // string prop counts 0 cards, so 25 bands just under the per-band bound were 12.5 MB of parsing. The
     // call parses at most this much in total; see _pp_udc_rendered_roles().
     $presence_markup_left  = PP_UDC_PRESENCE_MARKUP_CALL;
+    // #1222: the budget for `udc_check_not_run`, the row a guarded check that threw leaves
+    // behind (see _pp_udc_record_check_not_run()).
+    $not_run_disclosed     = 0;
 
     foreach ($items as $i => $item) {
         if (!is_array($item)) {
@@ -10118,6 +10195,7 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
                 error_log('PromptingPress: off-scrim findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
                 $band_compiled = null;
                 $band_drops    = [];
+                _pp_udc_record_check_not_run($findings, $not_run_disclosed, 'udc_overlay_accent_off_scrim', $component, $i);
             }
         }
         // The marker's own predicate, from the one accessor both read: some width paints a
@@ -10704,6 +10782,7 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
                 }
             } catch (\Throwable $e) {
                 error_log('PromptingPress: own-surface findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
+                _pp_udc_record_check_not_run($findings, $not_run_disclosed, 'udc_role_ink_over_own_surface', $component, $i);
             }
         }
 
@@ -10761,6 +10840,7 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
                     . ': ' . get_class($e) . ': ' . $e->getMessage()
                 );
                 $overlay_drops = [];
+                _pp_udc_record_check_not_run($findings, $not_run_disclosed, 'udc_overlay_without_image', $component, $i);
             }
         }
         foreach ($overlay_drops as $drop) {
@@ -10820,6 +10900,9 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
             } catch (\Throwable $e) {
                 error_log('PromptingPress: band-shadow findings probe failed for band ' . (string) $item['id'] . ': ' . get_class($e) . ': ' . $e->getMessage());
                 $band_emitted_here = null;
+                // The raw-map fallback below still runs, but it is the read R1-A found
+                // incomplete, so the report cannot vouch for this check either.
+                _pp_udc_record_check_not_run($findings, $not_run_disclosed, 'udc_band_value_shadowed_by_role_default', $component, $i);
             }
         }
         // A REST-STATE FINDING (ruling 1 = A, /ship api-contract). A colour the band sets only in a state is
@@ -11022,7 +11105,7 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
             // Compiled at most once per band, only when a collision is about to be reported (a compile that throws is
             // logged once and not retried). A band with no usable id emits nothing at all, so there is no compile to
             // read: the old wording stands there, as it does when the compile fails.
-            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, &$raw_probe_failed, $item, $band_has_id, $role_name): ?bool {
+            $raw_compiled = static function (string $state_key, string $raw_property) use (&$band_compiled, &$band_drops, &$raw_probe_failed, &$findings, &$not_run_disclosed, $item, $band_has_id, $role_name, $component, $i): ?bool {
                 if (!$band_has_id || $raw_probe_failed) {
                     return null;
                 }
@@ -11035,6 +11118,9 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
                         $raw_probe_failed = true;
                         $band_compiled    = null;
                         $band_drops       = [];
+                        // The collision is still reported, in the wording that does not read the
+                        // compile, which #1141 found can be false; the report says so (#1222).
+                        _pp_udc_record_check_not_run($findings, $not_run_disclosed, 'udc_css_overrides_group_value', $component, $i);
                         return null;
                     }
                 }
@@ -11373,6 +11459,7 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
         'udc_item_value_shadowed_by_role_default'                            => $item_disclosed,
         'udc_css_overrides_group_value and udc_css_unchecked_property'       => $css_disclosed,
         'udc_unused_band_token'                                              => $unused_disclosed,
+        'udc_check_not_run'                                                  => $not_run_disclosed,
     ];
     // FIRST, NOT LAST (orchestrator rulings, cycles 2 and 3): every bounded report keeps its
     // head, and a row appended after its arm's 200 entries was always past the 100-entry cut.
@@ -11387,10 +11474,13 @@ function pp_udc_composition_findings(array $items, int $post_id = 0): array {
                     // SUBJECT-NEUTRAL AND ROUTE-FREE (cycle-2 security): this engine also builds
                     // the chrome and preset envelopes, which have no page and no `check page`
                     // route, so the row names neither (the findings_skipped precedent).
-                    'This report reached the %d-finding limit for %s, so more of them may exist than are listed. '
-                    . 'Fix the ones listed, then read the report again to see the rest.',
+                    'This report reached the %d-finding limit for %s, so more of them may exist than are listed. %s',
                     PP_UDC_MAX_EMIT_DROPS,
-                    $types
+                    $types,
+                    // A check that could not run is not fixed by editing what it lists (#1222).
+                    $types === 'udc_check_not_run'
+                        ? 'Once the checks can run again, read the report again to see the rest.'
+                        : 'Fix the ones listed, then read the report again to see the rest.'
                 ),
                 'index'   => null,
             ];
