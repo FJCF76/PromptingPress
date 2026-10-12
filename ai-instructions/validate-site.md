@@ -144,6 +144,9 @@ This checks:
      escapes its container, markup the parser cannot verify, a prop over the size cap), the
      prop without the refused construct, or a title as plain text. Edit the prop to remove
      what it names (re-sending it unchanged is not checked again). `wp pp content census` lists every such prop on the site.
+     Exception: when an earlier checked write vouched for the value and its marker no longer
+     verifies (#1249), re-record it instead of removing it; see "Readiness acknowledgements and
+     stored verification markers are signed" below.
    - `content_duplicate_id` — LAYER 3: one id authored in the content of two bands; links and
      references bind to the first. Give each band its own id.
    - `content_not_checked` — LAYER 3: the page holds more stored content than one page view

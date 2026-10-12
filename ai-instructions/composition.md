@@ -73,7 +73,7 @@ next. The rule (#439):
 |----------|-------|--------------------|
 | **Rich HTML** (Layer 3) | `section.body`, `faq.items[].answer`, `table.rows[][]` cells, `embed.content`, `hero.proof`, `custom.markup` (plus the island attributes), a `rich` island | Post markup: paragraphs, lists, headings, links, `strong`/`em`, plus inline SVG and MathML, `picture` and `srcset`. `section.body` and `faq.items[].answer` are the main prose surfaces; a `table` **cell** takes the same contract (its `headers` and `caption` do not — those are plain text); `embed.content` is additionally passed through `do_shortcode()` after the content check, which is why shortcode brackets survive (shortcode output is plugin output, outside the check); `hero.proof` is a free-form trust-signal panel. |
 | **Inline HTML** (`a, strong, em, br, span, sup, sub, small, mark, code`) | `cta.body`, `grid.items[].text`, `testimonials.items[].quote`, an `inline` island | Supporting copy with a link or light emphasis, e.g. `Read our <a href="/terms">terms</a>.` No block elements: a write with `<p>`, `<ul>` or `<h2>` here is refused. |
-| **Titles and headings** (the inline set without `a`) | every `title`, `subheading`, `section.panel_heading`, `grid.items[].title` | Text, or light inline markup such as `H<sub>2</sub>O` or `<em>fast</em>`. No links. A literal `<` is written `&lt;`. Markup renders as markup only when a checked write admitted it: a title stored before Layer 3 keeps rendering as the text it was until it is edited (re-sending it unchanged does not re-check it). |
+| **Titles and headings** (the inline set without `a`) | every `title`, `subheading`, `section.panel_heading`, `grid.items[].title` | Text, or light inline markup such as `H<sub>2</sub>O` or `<em>fast</em>`. No links. A literal `<` is written `&lt;`. Markup renders as markup only when a checked write admitted it: a title stored before Layer 3 keeps rendering as the text it was until it is edited (re-sending it unchanged does not re-check it). The record of that admission is signed (#1249): one stored before signing vouches for nothing, so such a title renders as text until it is re-recorded (`ai-instructions/validate-site.md`). |
 | **Plain text** (escaped) | Eyebrows, `button_text`, `button2_text`, `stats.items[].label`, `stats.items[].number`, `grid.items[].bullets[]`, `testimonials.items[].author`, `faq.items[].question`, `table.headers[]`, `table.caption`, `logos.items[].label`, `section.body_items[]`, `section.panel_body`, `section.panel_items[]`, a `plain` island (the default kind), and all URLs | Text only. Any `<...>` renders as visible characters, not markup. Note `table` splits its contract: **cells** are rich, **headers and caption** are plain. |
 
 Every content contract is checked at write: content with `script`, `style`, `iframe`,
@@ -84,7 +84,9 @@ over 65,536 bytes is refused with `content_too_large`. In a title, write a liter
 (a restore, an old page) that the check refuses is reported as `content_stripped_at_render`
 (a warning naming the band, the prop, the construct and the rule; a prop whose markup escapes
 its container or cannot be verified renders EMPTY, a title renders as plain text). Edit the
-prop to remove what it names. `wp pp content census` lists every such prop on the site. A link in a supporting-text prop is normal marketing copy — write it
+prop to remove what it names, unless an earlier checked write vouched for the value and its
+marker no longer verifies (#1249): re-record that value instead, as
+`ai-instructions/validate-site.md` describes. `wp pp content census` lists every such prop on the site. A link in a supporting-text prop is normal marketing copy — write it
 as real HTML (`<a href="...">`), not as escaped source, and never put a link in a
 plain-text prop (it will show as literal `<a href=...>` text on the page).
 
