@@ -2419,6 +2419,9 @@ mechanism silently:
     `wp_allowed_protocols()` URLs, and a `style` that core's `safecss_filter_attr()` leaves
     whole. Anything beyond that is refused by name (clause `unfiltered_html`), never stripped.
     WP-CLI writes with server-level access, as PromptingPress's other CLI gates treat it.
+    *Note 2026-10-12 (v2.1.1): WP-CLI receives the narrow/core-parity tier when
+    `DISALLOW_UNFILTERED_HTML` is enabled; the sentence above describes the default,
+    non-hardened install.*
 13. **`title_accent` on a parsed title (P-2).** *Ruled 2026-10-05 (§3.3; the "Sprint-6 mechanics rulings record" in #1242's body):* it
     operates on the parsed tree and wraps whole text nodes only, never substring-splitting raw
     bytes (implementation: T3b). *Implemented (T3b):* the accent's decoded text is matched in
@@ -2455,6 +2458,8 @@ mechanism silently:
     `lib/content-render.php`): reset at validation start, stamped to the judged composition and
     the action's page, spent on every exit; only bytes sent as NEW are vouched ("edit it, not
     re-save it"). The same marker carries the render tier (ruling Q1, `f` entries).
+    *Note 2026-10-12 (v2.1.1): verification markers are now signed; unsigned markers are not
+    accepted as verification.*
 18. **M-2's over-budget stored band.** The Sprint-6 record refuses an over-budget unmatched
     stored band with `content_too_large`, which blocks the write; §2.6 and T-14 say a stored
     band never blocks an edit to another band. Which governs.
