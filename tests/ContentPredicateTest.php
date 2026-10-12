@@ -707,7 +707,7 @@ class ContentPredicateTest extends TestCase
         // Inside <select> the refusal follows the RUNTIME parser (ruling on T3a 7A question
         // 3): WordPress 7.0's tree builder drops these (P-16), 7.1's builds them and the
         // element's own rule refuses them. Either way they are refused; the per-version
-        // truth is pinned in ContentTableDriftTest. Run this file with PP_TEST_HTML_API=7.1.2
+        // truth is pinned in ContentTableDriftTest. Run this file with PP_TEST_HTML_API=7.1.3
         // to see the other side.
         foreach ([
             ['<select style="appearance:base-select"><svg><a><animate attributeName="href" values="javascript:alert(1)"/><text>c</text></a></svg></select>', 'E5'],

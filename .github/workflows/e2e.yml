@@ -97,8 +97,8 @@ jobs:
             wp: '7.0'
             core: WordPress/WordPress#7.0
           - leg: runtime
-            wp: '7.1.2'
-            core: WordPress/WordPress#7.1.2
+            wp: '7.1.3'
+            core: WordPress/WordPress#7.1.3
     # WP_ENV_CORE overrides .wp-env.json's `core` (@wordpress/env
     # lib/config/get-config-from-environment-vars.js). It is set at JOB level so
     # every wp-env call in the leg (start, run, stop) resolves the same core.

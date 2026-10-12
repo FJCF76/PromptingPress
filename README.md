@@ -450,22 +450,22 @@ composer install && composer test
 npm install && npm test
 ```
 
-**E2E specs** — composition editor round-trip (including the serialization gate), editor preview isolation, post-apply validation, the action-layer CLI, AI chat streaming/apply, concurrent token-override writes serialized behind a real MySQL advisory lock, and rendered-layout proof (style slots and component geometry measured in the browser, where the full cascade decides the outcome), run with Playwright against a live WordPress instance (requires Docker). The local default is the core production runs, **WordPress 7.1.2** (`.wp-env.json`):
+**E2E specs** — composition editor round-trip (including the serialization gate), editor preview isolation, post-apply validation, the action-layer CLI, AI chat streaming/apply, concurrent token-override writes serialized behind a real MySQL advisory lock, and rendered-layout proof (style slots and component geometry measured in the browser, where the full cascade decides the outcome), run with Playwright against a live WordPress instance (requires Docker). The local default is the core production runs, **WordPress 7.1.3** (`.wp-env.json`):
 
 ```bash
-npm run env:start   # boot wp-env container (WordPress 7.1.2, the runtime pin)
+npm run env:start   # boot wp-env container (WordPress 7.1.3, the runtime pin)
 npm run test:e2e    # Playwright against http://localhost:8889
 npm run env:stop
 ```
 
-To run the floor leg locally, override the core for one session: `WP_ENV_CORE=WordPress/WordPress#7.0 npm run env:start` (keep the variable set for every `wp-env` call in that session). Moving an existing wp-env database UP to a newer core leaves a stale `db_version` (every admin page redirects to `upgrade.php`); the E2E global setup runs `wp core update-db` for that. Moving DOWN (7.1.2 to the 7.0 floor) cannot be repaired that way, so start the floor from a clean environment: `npx wp-env clean all`.
+To run the floor leg locally, override the core for one session: `WP_ENV_CORE=WordPress/WordPress#7.0 npm run env:start` (keep the variable set for every `wp-env` call in that session). Moving an existing wp-env database UP to a newer core leaves a stale `db_version` (every admin page redirects to `upgrade.php`); the E2E global setup runs `wp core update-db` for that. Moving DOWN (7.1.3 to the 7.0 floor) cannot be repaired that way, so start the floor from a clean environment: `npx wp-env clean all`.
 
 **Continuous integration** — `composer test` + `npm test` run on every push to `main` and gate every release before the ZIP is built, so a failing test can't reach a published theme. End-to-end runs in CI too: the **full** Playwright suite on every pull request, on every push to `main`, and nightly, once per WordPress core leg, as the checks `e2e (floor)` and `e2e (runtime)` (non-blocking until branch protection marks both required):
 
 | Leg | Core | Why |
 |---|---|---|
 | **floor** | WordPress 7.0 | the declared minimum ("Requires at least") still works |
-| **runtime** | WordPress 7.1.2 | the core production runs: the live pins see the parser, kses tables and capability semantics that actually serve users |
+| **runtime** | WordPress 7.1.3 | the core production runs: the live pins see the parser, kses tables and capability semantics that actually serve users |
 
 The PHP and JS unit suites run once: they stub WordPress (Brain\Monkey, jsdom) rather than boot it. The one piece of real core they load, the vendored HTML API, is already measured at both pinned versions inside PHPUnit. Standing policy for the two pins: the **runtime** pin follows production core whenever production upgrades (and "Tested up to" in `style.css` and `readme.txt` follows it); the **floor** pin moves only when the owner raises "Requires at least". Either leg red makes the PR red, and both are meant to block a merge once branch protection requires them (see `TODOS.md`). If they disagree, that divergence is a failing finding to fix, never a choice of which leg to believe. Each leg also fails closed if it booted any core other than the one it is named for. `tests/InvariantTest.php` keeps the matrix, `.wp-env.json` and the two headers in step. The `@smoke` tag still exists for fast local runs, but it no longer defines what CI gates on — a test that cannot block a merge is a test that can go red and stay red.
 

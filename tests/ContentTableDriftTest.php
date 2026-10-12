@@ -122,14 +122,14 @@ class ContentTableDriftTest extends TestCase
 
     /**
      * P-16 against BOTH truths (2026-10-05 ruling on T3a 7A question 3): the CI floor pin
-     * (7.0, "Requires at least") and the CI runtime pin (7.1.2, production's core, #1245). Each is measured in its own process,
+     * (7.0, "Requires at least") and the CI runtime pin (7.1.3, production's core, #1245). Each is measured in its own process,
      * since two versions of one core class cannot share a PHP process. Where they differ
      * (7.1's tree builder keeps what WordPress 7.0 drops inside <select>), the refusal
      * follows the runtime parser, and the two snapshots record both.
      */
     public static function htmlApiVersions(): array
     {
-        return ['WordPress 7.0 (floor pin)' => ['7.0'], 'WordPress 7.1.2 (runtime pin, production)' => ['7.1.2']];
+        return ['WordPress 7.0 (floor pin)' => ['7.0'], 'WordPress 7.1.3 (runtime pin, production)' => ['7.1.3']];
     }
 
     /** @dataProvider htmlApiVersions */
@@ -152,7 +152,7 @@ class ContentTableDriftTest extends TestCase
     public function testTheTwoVersionsDifferExactlyWhereRecorded(): void
     {
         $a = json_decode((string) file_get_contents(__DIR__ . '/fixtures/content/p16-bail-set-wp-7.0.json'), true)['cases'];
-        $b = json_decode((string) file_get_contents(__DIR__ . '/fixtures/content/p16-bail-set-wp-7.1.2.json'), true)['cases'];
+        $b = json_decode((string) file_get_contents(__DIR__ . '/fixtures/content/p16-bail-set-wp-7.1.3.json'), true)['cases'];
         $differ = [];
         foreach ($a as $n => $case) {
             $this->assertSame($case['input'], $b[$n]['input']);
@@ -167,22 +167,22 @@ class ContentTableDriftTest extends TestCase
         ], $differ);
     }
 
-    /** T-1 for the deployed core: everything WordPress 7.1.2's `post` list admits, the table admits (P-17). */
+    /** T-1 for the deployed core: everything WordPress 7.1.3's `post` list admits, the table admits (P-17). */
     public function testT1TheTableAdmitsEverythingTheDeployedCoreAdmits(): void
     {
-        $core712 = json_decode((string) file_get_contents(__DIR__ . '/fixtures/content/core-post-wp-7.1.2.json'), true)['tags'];
+        $coreRuntime = json_decode((string) file_get_contents(__DIR__ . '/fixtures/content/core-post-wp-7.1.3.json'), true)['tags'];
         $table   = pp_content_html_table();
         $globals = pp_content_html_global_attributes() + ['data-*' => true];
-        foreach ($core712 as $tag => $attrs) {
+        foreach ($coreRuntime as $tag => $attrs) {
             if (in_array($tag, self::E3_E4, true)) {
                 continue;
             }
-            $this->assertArrayHasKey($tag, $table, "7.1.2 admits <{$tag}>");
+            $this->assertArrayHasKey($tag, $table, "7.1.3 admits <{$tag}>");
             foreach ($attrs as $attr => $_) {
                 if (in_array($attr, self::E9, true)) {
                     continue;
                 }
-                $this->assertTrue(isset($table[$tag][$attr]) || isset($globals[$attr]), "7.1.2 admits {$attr} on <{$tag}>");
+                $this->assertTrue(isset($table[$tag][$attr]) || isset($globals[$attr]), "7.1.3 admits {$attr} on <{$tag}>");
             }
         }
     }
