@@ -330,9 +330,10 @@ advice to remove what it names. Each write adds a composition-history entry (a p
 On an install that sets `DISALLOW_UNFILTERED_HTML` to true, no user and no WP-CLI run has
 `unfiltered_html`, so this route records at core's `post` level only: a value beyond that set is
 refused by name (clause `unfiltered_html`) and keeps rendering at core parity.
-Rolling the theme back to 2.1.0 stops reading the signed markers (every value renders as
-unvouched there), and a checked write there that admits new markup replaces them with an
-unsigned list: after rolling forward, re-record those values the same way.
+Rolling the theme back to 2.1.0 stops reading the signed markers: a page whose markers a 2.1.1
+write recorded renders unvouched there (other pages render as before), and a checked write there
+that admits new markup deletes all of that page's stored markers. After rolling forward, run
+`wp pp content census` and re-record every row it lists for that page the same way.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 

@@ -29,9 +29,9 @@ schedules one background content census.
   `Pricing</title><script>…</script>` can no longer close the title and run a script.
 - **Wrong-type input is refused by name** (#913, #931, #935). A required action parameter sent as
   `null` gets `invalid_param_type`, a non-string SEO value gets `invalid_seo_meta_type`, and an
-  editor save, preview or publish whose `composition` is not text gets `Invalid JSON.`. These used to
-  crash the request with HTTP 500, and in a batch the steps before the crash stayed applied; now the
-  batch rolls back.
+  editor save, preview or publish whose `composition` is not text gets `Invalid JSON.`. Most of these
+  used to crash the request with HTTP 500 (a few non-string SEO values were stored instead), and in
+  a batch the steps before the crash stayed applied; now the batch rolls back.
 - **Readiness acknowledgements and verification markers are signed** (#1249), the same way page
   acknowledgements have been since 2.1.0 (#1214): `wp_hash()` (sha256) under `AUTH_KEY` and
   `AUTH_SALT`. A record that does not verify counts as absent.
@@ -86,8 +86,9 @@ schedules one background content census.
 ### Upgrading
 
 This is a theme-only update. It needs no migration and changes no content, composition or setting.
-The first wp-admin visit by an administrator afterwards clears the stored `wp pp integrity check`
-result (it belonged to 2.1.0) and schedules one content census through WP-Cron, in 1 MiB batches,
+The first wp-admin page load afterwards, by any logged-in user, clears the stored
+`wp pp integrity check` result (it belonged to 2.1.0); the first one by an administrator schedules
+one content census through WP-Cron, in 1 MiB batches,
 which writes only the `pp_content_census*` options; on a site with a lot of stored content each
 batch can take several seconds of server time. Its admin notice lists only props that render
 empty, so values whose markers no longer verify do not add to it.
@@ -112,7 +113,12 @@ empty, so values whose markers no longer verify do not add to it.
    content that predates the content check, and following it here deletes content you meant to
    keep. A page keeps its last 10 composition-history entries and each write adds one, so save
    any history you still need first, or change all of a band's values in one write and restore
-   them in a second. On an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI writes at core's
+   them in a second. The first write puts the changed value on the live page until the second
+   lands, so copy the prop's exact stored bytes first and do this outside peak traffic. The second
+   write is checked in full under this release's rules, so a value 2.1.0 admitted can be refused
+   there; if it is, restore the page at once with `wp pp apply restore-composition --run-id=<uuid>`
+   (the value then keeps rendering unvouched) and remove what the refusal names before retrying.
+   On an install that sets `DISALLOW_UNFILTERED_HTML`, WP-CLI writes at core's
    `post` level too: widened content cannot be re-recorded there, and an edit to a band that still
    holds it is refused, even a title-only edit (see Known issues). From WP-CLI, for a band title:
    ```
@@ -129,18 +135,24 @@ empty, so values whose markers no longer verify do not add to it.
 4. **Judgment calls.** Like every theme update, this one re-opens acknowledged judgment calls. For
    each page you had acknowledged, run `wp pp check page --post_id=<id>`, and for each advisory you
    still judge intentional run `wp pp check acknowledge` with the key it prints now and a note. Do
-   this after step 3, because a write to a band re-opens its acknowledgements. Remove the old rows
-   with the command printed on their own lines.
+   this after step 3, because a write to a band re-opens its acknowledgements. Keep the old rows
+   until you are sure you will not roll back: they apply nothing on 2.1.1, and 2.1.0 honors them
+   again. Then remove each with `wp pp check unacknowledge --post_id=<id> --key=<its key>`.
 5. Run `wp pp validate site`.
 6. If an agent or script sends `null` for a required parameter or a non-string SEO value, change
    it: send the value, omit an optional parameter, or send `""` to clear an SEO field.
 
-**Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so every marker vouches
-for nothing there (markup titles render as text, full-tier content at core parity), and a checked
-write made on 2.1.0 that admits new markup replaces the page's markers with an unsigned list: after rolling forward again,
-re-record those values as in step 3. 2.1.0 honors readiness acknowledgements without checking a
-signature, so the old rows apply again if you kept them. 2.1.0 writes `seo_title` into `<title>`
-unescaped, accepts the CSS spellings this release refuses, and answers untyped input as before
+**Rolling back to 2.1.0.** Before rolling back, list the pages whose `seo_title`, `og_title` or
+`twitter_title` contains `<` (`wp post meta get <id> _pp_seo_meta` prints a page's stored SEO meta) and clear or
+fix them, because 2.1.0 writes `seo_title` into
+`<title>` as markup. 2.1.0 does not read the signed marker format: a page whose markers a 2.1.1
+write recorded (every page you re-recorded in step 3) renders unvouched there (markup titles as
+text, full-tier content at core parity); other pages render as before. A checked write on 2.1.0
+that admits new markup to such a page deletes all of its stored markers, so after rolling forward
+run `wp pp content census` and re-record every row it lists for that page. Acknowledged judgment
+calls are keyed to the theme version: rows made on 2.1.1 do not apply on 2.1.0, and 2.1.0 rows
+apply again only if you kept them. 2.1.0 honors readiness acknowledgements without checking a
+signature, so the old rows apply again if you kept them. 2.1.0 accepts the CSS spellings this release refuses, and answers untyped input as before
 (most of it with an HTTP 500).
 
 ### Known issues (rolled up)
