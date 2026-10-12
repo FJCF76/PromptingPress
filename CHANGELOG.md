@@ -6,6 +6,61 @@ All notable changes to PromptingPress are documented here.
 
 ## [Unreleased] — v2.1.1 security hardening (in progress)
 
+### A styling check that cannot run now fails the gate instead of disappearing (#1222)
+
+**Behaviour change, stricter: `wp pp validate site` and `wp pp check page` can newly fail where
+they used to pass.** Several checks inside the styling findings engine compile a band before they
+judge it, and each guards that compile so one bad band cannot take the whole report down. When
+the compile threw, the guard logged it and carried on with nothing, so that check's findings were
+missing and nothing in the report said so: a page could pass a gate that had not judged it.
+
+Each of those guards now also adds one `udc_check_not_run` warning, on the band, naming the check
+by the finding type it reports and the component, for example: `Component "cta": the
+udc_overlay_accent_off_scrim check could not run here, so this report does not cover what it
+checks. Validation fails until it can run; the cause is in the PHP error log.` The message has a
+fixed shape: the exception's own text still goes to the PHP error log and nowhere else. It is a
+warning, so it fails `validate site` (pages and the header and footer section) and `check page`,
+and write, restore and chrome envelopes report it like any other warning (including the 100-entry
+cut those envelopes apply, whose tail names the complete report); it cannot be acknowledged,
+because a check that did not run is a malfunction, not a design judgment. No shipped input is known to reach it; it exists for the
+unexpected throw. The five checks covered: `udc_overlay_accent_off_scrim`,
+`udc_role_ink_over_own_surface`, `udc_overlay_without_image`,
+`udc_band_value_shadowed_by_role_default` and `udc_css_overrides_group_value` (the last two still
+report what their fallback read finds, and now say the full check did not run). Bounded at 200
+rows per report, with a `udc_findings_capped` row past that. On a page report each row also
+carries a `check` key holding that same check name.
+
+**An acknowledgement of a check that could not run is HELD, not orphaned.** `wp pp check page`
+used to call such an acknowledgement ORPHANED ("its finding is gone ... remove it"), which would
+delete a correct, signed row. It now lists it as HELD: kept, not applied, with no removal route,
+until the check runs again, when it applies again under the usual rules. Held is per band; once
+the 200-row budget is spent, every unmatched acknowledgement of a guarded check is held, because a
+band past the budget may have no row of its own. A reading of STALE still comes first.
+
+### Fixed
+- `pp_udc_composition_findings()` (lib/udc.php): every in-engine `catch (\Throwable)` around a band
+  compile appends a `udc_check_not_run` row via `_pp_udc_record_check_not_run()`, with its own
+  budget in the capped-row table. `_pp_composition_findings()` (lib/actions.php) carries its `check`
+  key; `pp_partition_acknowledged_advisories()` (lib/operate.php) returns a `held` bucket, printed
+  by `check page` and `validate site` (lib/cli.php).
+
+### Docs
+- `ai-instructions/validate-site.md` lists `udc_check_not_run`, drops the "tracked in #1222"
+  caveat from the header and footer section, and names it among the findings that cannot be
+  acknowledged; `ai-instructions/operating-loop.md` names it beside `findings_truncated` and
+  `findings_skipped`.
+
+### Tests
+- `tests/UdcCheckNotRunTest.php`: a compile made to throw (a test-only switch in the bootstrap
+  `wp_get_attachment_url()` stub, active only while a compile is on the stack) yields one row per
+  stopped check, no exception text in any finding, the cause in the error log, the bound and its
+  capped row, a gating warning on the page assembler, a failing `check page` / `validate site`
+  page, the row on the write envelope, a failing header and footer section, the row's band index
+  and literal `check` key, no acknowledgement, and an acknowledgement held (not orphaned) while its
+  check cannot run and applied again once it can: per band, past the row budget, and after a
+  stale reading. Run against the previous code the same file fails 16 of 17: the band reported
+  nothing and the page passed.
+
 ### WP-CLI and agent writes honor `DISALLOW_UNFILTERED_HTML`, as WordPress does
 
 **Behaviour change, stricter, and only on installs that set `DISALLOW_UNFILTERED_HTML` to true.**

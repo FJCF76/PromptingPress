@@ -131,6 +131,12 @@ This checks:
      adds one. It comes first in every report that can be cut to 100 entries (the write, restore and chrome envelopes), so a truncated report still carries it; this command and `check page` are never cut and list it with the other smells. It is a warning and fails this command
      until you have fixed enough of the listed ones to see the rest: a page whose warnings
      were cut off is not a verified-clean page (#1194).
+   - `udc_check_not_run` — one of the checks above could not run on this band (the message
+     names it by the finding type it reports, and the component), so the report does not cover
+     what that check judges. It is a malfunction, not a judgment about your design, and it cannot
+     be acknowledged. It fails this command until the check can run; the cause is in the PHP error
+     log (when the site logs errors), so report it to whoever maintains the site rather than
+     guessing at an edit (#1222).
 
    - `content_stripped_at_render` — LAYER 3 (#1242): stored content from before the content
      check that the page renders differently from how it is stored. The message names the
@@ -148,7 +154,7 @@ This checks:
    informational notes still makes `wp pp validate site` exit non-zero, unless it
    is one of the judgment calls you have verified and acknowledged (below).
 5. **Composition validity** — findings from the same write-time rules that would reject a normal edit: a missing required prop, an unknown prop key — or, since #643, an unknown field inside an `items[]` entry — an out-of-set enum value, a wrong-typed value, template-owned chrome in the body, duplicate authored ids. These are ERRORS, not advisories, and they also make `wp pp validate site` exit non-zero (#622).
-6. **Header and footer styling** (#1204) — the `pp_site_udc` findings, printed second, under `--- Site chrome (header and footer) ---`. It is the same list a chrome write returns in its `findings` (`update_site_option` on `pp_site_udc`), read from the stored map, so a header or footer advisory you did not fix at write time is still caught here. It checks the header and footer for these findings only; unlike item 5 for a page, it does not re-check the stored map against the write rules. Every warning fails this command (`udc_unused_band_token`, `udc_css_unchecked_property`, `udc_findings_capped` and every other item-4 warning a header or footer can raise), a `severity: info` note (`udc_token_minted`) is printed and never fails, and a report that could not be built at all (`findings_skipped`) fails rather than reading as clean (a single check inside the engine that fails is logged and its findings are missing without a row; tracked in #1222). Lines carry no `index` (a header or footer is not a band on a page); the message names the component. These findings cannot be acknowledged yet (#1220): fix the value with `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with `save_preset`. Fix them BEFORE you acknowledge page judgment calls: every `pp_site_udc` write changes the site context each page acknowledgement fingerprints, so it re-opens all of them (see below). A chrome write whose `findings` list was cut at 100 names this command for the rest.
+6. **Header and footer styling** (#1204) — the `pp_site_udc` findings, printed second, under `--- Site chrome (header and footer) ---`. It is the same list a chrome write returns in its `findings` (`update_site_option` on `pp_site_udc`), read from the stored map, so a header or footer advisory you did not fix at write time is still caught here. It checks the header and footer for these findings only; unlike item 5 for a page, it does not re-check the stored map against the write rules. Every warning fails this command (`udc_unused_band_token`, `udc_css_unchecked_property`, `udc_findings_capped` and every other item-4 warning a header or footer can raise), a `severity: info` note (`udc_token_minted`) is printed and never fails, a report that could not be built at all (`findings_skipped`) fails rather than reading as clean, and so does a single check inside the engine that could not run (`udc_check_not_run`, #1222). Lines carry no `index` (a header or footer is not a band on a page); the message names the component. These findings cannot be acknowledged yet (#1220): fix the value with `update_site_option` on `pp_site_udc`, or, when the finding names a preset, the preset with `save_preset`. Fix them BEFORE you acknowledge page judgment calls: every `pp_site_udc` write changes the site context each page acknowledgement fingerprints, so it re-opens all of them (see below). A chrome write whose `findings` list was cut at 100 names this command for the rest.
 
 Item 5 is the one to read first when a page misbehaves. Before the vocabulary freeze (#603/#604/#605/#606) the read path canonicalized retired prop and value names, so a page written under the old vocabulary validated clean; it no longer does, and that break is deliberate. What changed in #622 is that the read-only diagnostics REPORT it. A page carrying pre-freeze names now shows up here instead of looking healthy right up until its next edit is refused. Fix it by authoring the canonical names — the error message names the undeclared keys the item is carrying and lists the props the component actually declares — or, for a key inside an `items[]` entry, names the item and lists the fields that component's entries accept (#643). That holds for the missing-required message at both depths too, so a renamed prop OR a renamed item field is named alongside what is missing, in one message. Never re-add a compatibility shim; the shipped starter composition and freshly authored content are clean and keep this command at exit 0.
 
@@ -191,8 +197,8 @@ What cannot be acknowledged: a header or footer finding (item 6; acknowledgement
 a page, so the chrome section prints `[no key: ...]` beside a judgment call there, #1220), an error,
 an informational note (it never fails anyway), and every
 finding that says a value does not paint (`udc_*_shadowed_*`, `udc_overlay_without_image`,
-`udc_css_overrides_group_value`, `udc_unused_band_token`) or that the list was cut
-(`udc_findings_capped`). A value that does not paint is never intentional: delete it instead. An
+`udc_css_overrides_group_value`, `udc_unused_band_token`), that the list was cut
+(`udc_findings_capped`) or that a check could not run (`udc_check_not_run`). A value that does not paint is never intentional: delete it instead. An
 accent over a scrim (`udc_overlay_accent_off_scrim`) cannot be acknowledged yet either: that judgment
 includes the photo, which the key cannot yet follow reliably (#1211). Fix it by setting the accent's
 `typography.color` yourself, as the finding says.
@@ -223,6 +229,12 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
 - **Orphaned**: the finding is gone (you fixed it). The acknowledgement is inert now, but it counts
   again if these exact bytes return (a history restore, an undo); `check page` lists it so you can
   remove it with `unacknowledge`.
+- **Held**: the check it judged could not run on that band (a `udc_check_not_run` line names it,
+  or, past that type's 200-line limit, the `udc_findings_capped` line for `udc_check_not_run`
+  covers it, #1222), so nothing says whether its finding is still there. `check page` and `validate site` list
+  it as HELD: kept,
+  not applied, and the page fails on the not-run line. Do NOT remove it; once the check runs again
+  it applies again (or reads stale or orphaned as above).
 - Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
   state.
 
