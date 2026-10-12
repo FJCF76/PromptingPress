@@ -151,11 +151,38 @@ class ContentWriteTierDisallowTest extends TestCase
         $post_id = pp_create_page('Legacy', 'draft');
         // Raw meta, no marker: what an unsigned (pre-#1249) or rolled-back page holds.
         update_post_meta($post_id, '_pp_composition', wp_slash(wp_json_encode([$this->section($widened)])));
+        $this->assertStringNotContainsString('display:grid', $this->render($post_id), 'unvouched: it renders at core parity');
 
         $this->assertTrue($this->write($post_id, '<p>changed</p>')['ok'], 'the first write (changed) lands');
         $back = $this->write($post_id, $widened);
         $this->assertFalse($back['ok'], 'the second write (back to the widened bytes) is refused');
         $this->assertStringContainsString('unfiltered_html', $back['error'] ?? '');
         $this->assertArrayNotHasKey(pp_content_value_hash($widened), pp_content_vouched($post_id)['f']);
+    }
+
+    /**
+     * Disclosed in the CHANGELOG: on a hardened install a CLI edit to a band whose content an
+     * earlier write left beyond core's set is refused whole (the changed band is judged whole,
+     * as for any web user without unfiltered_html); a band the write does not change is not
+     * re-checked (M-2), so an edit elsewhere on the page still lands.
+     */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testOnAHardenedInstallACliEditToABandHoldingWidenedContentIsRefused(): void
+    {
+        self::boot(true);
+        $widened = $this->section('<p style="display:grid">x</p>');
+        $post_id = pp_create_page('Widened band', 'draft');
+        update_post_meta($post_id, '_pp_composition', wp_slash(wp_json_encode([$widened, $this->section('<p>other</p>')])));
+
+        $retitled = $widened;
+        $retitled['props']['title'] = 'Retitled';
+        $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$retitled, $this->section('<p>other</p>')]]);
+        $this->assertFalse($result['ok'], 'the edited band still holds widened content');
+        $this->assertStringContainsString('unfiltered_html', $result['error'] ?? '');
+
+        $result = pp_execute_action('update_composition', ['post_id' => $post_id, 'composition' => [$widened, $this->section('<p>other, edited</p>')]]);
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertSame('<p style="display:grid">x</p>', pp_get_composition($post_id)[0]['props']['body'], 'the untouched band is kept as stored');
     }
 }
