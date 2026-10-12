@@ -286,8 +286,33 @@ change from one process to the next: `check acknowledge` reports success, but ev
 lists the row as not verifying. Rolling the theme back to a version without signing stops the
 check: there, any noted row whose key matches that version's findings counts again, signed or not
 (including a row written straight into post meta). Any acknowledge or unacknowledge run there
-drops the signatures; after rolling forward, those rows read as unsigned. The readiness
-acknowledgements (`wp pp readiness acknowledge`) are a separate store and are not signed.
+drops the signatures; after rolling forward, those rows read as unsigned.
+
+**Readiness acknowledgements and stored verification markers are signed the same way (#1249).**
+`wp pp readiness acknowledge` signs its row (over the key, note, timestamp and site), and
+`wp pp readiness status` lists a row that does not verify as an ignored acknowledgement, with
+the same reasons and the same routes as above: for a row with no signature (every readiness
+acknowledgement made before #1249), `wp pp readiness acknowledge <key> --note="..."` to
+re-acknowledge it, or `wp pp readiness unacknowledge <key>` to remove it. The same rows are
+listed in the preflight's `findings.ignored_acknowledgements` (at most 50, counted in
+`ignored_acknowledgements_total`). A stored key not shaped like one the theme mints is never
+shown, only its length: read the option (`wp option get pp_acknowledged_findings
+--format=json`) before acting on it.
+
+The marker a checked write stores beside a page's content (which values a trusted write admitted,
+so a markup title renders as markup and full-tier content renders with the wider set) is signed
+too. A marker without a valid signature vouches for nothing: the value renders exactly as if no
+checked write had admitted it, and `check page` / `wp pp content census` report it under
+`content_stripped_at_render` (a title as `unverified`, rendered as text; a body as
+`unfiltered_html`, rendered without what only a trusted write may carry). Every marker stored
+before #1249 reads this way, and none is signed on upgrade. Re-saving the same bytes does not
+re-record one, because a checked write only vouches for what it sends as NEW bytes. To re-record
+a value, write it twice through a checked write as a user with `unfiltered_html` (or from WP-CLI):
+once changed (for example `update_component` with the prop altered), then back to its original
+bytes; the second write records it signed.
+Rolling the theme back to 2.1.0 stops reading the signed markers (every value renders as
+unvouched there), and a checked write there replaces them with an unsigned list: after rolling
+forward, re-record those values the same way.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
 
@@ -387,7 +412,7 @@ a footer with no menu by design), record it as intentional with
 `wp pp readiness acknowledge <finding-key>` (optionally `--note`). It then reports
 as acknowledged instead of a warning, and is reversible with
 `wp pp readiness unacknowledge <finding-key>`. Only configuration findings are
-acknowledgeable. See `operating-loop.md` -> PREFLIGHT for the full class model and
+acknowledgeable. The row is signed; one that does not verify acknowledges nothing (#1249, above). See `operating-loop.md` -> PREFLIGHT for the full class model and
 the grouped `findings` block (`wp pp readiness status` gives a read-only view).
 
 It is scoped to the locations the template actually renders, not to anything a

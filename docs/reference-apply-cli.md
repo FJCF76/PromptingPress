@@ -867,7 +867,7 @@ Readiness/preflight warnings carry a **class** and a sanctioned **next action**,
 | `configuration` | Site-state gap resolvable through a safe surface (e.g. an unassigned menu location) | Fix through the surface (e.g. `set_menu`), **or** acknowledge as intentional |
 | `capability` | An environment tool is missing or misconfigured (e.g. a screenshot browser, #497 — the finding's `state` is `unavailable` or `broken`) | Run the finding's next action (e.g. `wp pp screenshot doctor`) |
 
-Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`). Those page acknowledgements are signed with the site's salts and verified on every read (#1214); the readiness acknowledgements below are a separate store and are not signed.
+Only **findings** carry a class; passing/healthy rows and hard preconditions do not. Only **configuration** findings are acknowledgeable here. Composition advisories that are judgment calls have their own route, `wp pp check acknowledge` (#1194; see `ai-instructions/validate-site.md`). Those page acknowledgements are signed with the site's salts and verified on every read (#1214); the readiness acknowledgements below are a separate store, signed the same way since #1249.
 
 ### `wp pp readiness status` (read-only)
 
@@ -887,7 +887,7 @@ wp pp readiness rebaseline
 
 ### `wp pp readiness acknowledge <finding-key> [--note=<text>]`
 
-Records a configuration finding as intentional (e.g. a deliberately menu-less footer). It then reports as `acknowledged` instead of an active warning, and drops out of the post-apply warning list. Rejects any key that is not a currently-present configuration finding (run `status` to see valid keys).
+Records a configuration finding as intentional (e.g. a deliberately menu-less footer). It then reports as `acknowledged` instead of an active warning, and drops out of the post-apply warning list. Rejects any key that is not a currently-present configuration finding (run `status` to see valid keys). Since #1249 the row is signed with the site's salts (`wp_hash()`, sha256) over its key, note, timestamp and site, and verified on every read; the command refuses when `wp_hash()` gives no salted sha256 signature. A stored row that does not verify (no signature: every row written before #1249, or one written straight into the option; changed after it was written; or signed under other salts) acknowledges nothing: its finding stays an active warning, `status` prints it as an ignored acknowledgement with the reason and route (`acknowledge` it again if still intentional, or `unacknowledge` it), and preflight lists it in `findings.ignored_acknowledgements`. Pre-#1249 rows are not signed on upgrade; re-acknowledge them.
 
 ```bash
 wp pp readiness acknowledge nav_readiness:footer:no_menu --note="footer is deliberately menu-less"
