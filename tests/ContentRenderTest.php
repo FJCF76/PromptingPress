@@ -33,7 +33,8 @@ class ContentRenderTest extends TestCase
 
     protected function tearDown(): void
     {
-        unset($GLOBALS['post'], $GLOBALS['_pp_test_user_caps']);
+        unset($GLOBALS['post'], $GLOBALS['_pp_test_user_caps'], $GLOBALS['_pp_test_salts'],
+            $GLOBALS['_pp_test_wp_hash_returns'], $GLOBALS['_pp_test_blog_id']);
         parent::tearDown();
     }
 
@@ -56,8 +57,14 @@ class ContentRenderTest extends TestCase
      */
     private function vouch(int $post_id, array $values): void
     {
-        update_post_meta($post_id, PP_CONTENT_VERIFIED_META,
-            wp_json_encode(array_map(static fn ($v) => 'f' . pp_content_value_hash($v), $values)));
+        $this->storeSignedMarkers($post_id, array_map(static fn ($v) => 'f' . pp_content_value_hash($v), $values));
+    }
+
+    /** Stores a marker list signed as the one writer signs it (#1249 companion). */
+    private function storeSignedMarkers(int $post_id, array $list): void
+    {
+        update_post_meta($post_id, PP_CONTENT_VERIFIED_META, wp_json_encode(
+            ['v' => PP_CONTENT_VERIFIED_SIG_VERSION, 'list' => $list, 'sig' => _pp_content_verified_signature($post_id, $list)]));
     }
 
     /** The page's bands, rendered by the theme's own band loop. */
@@ -297,14 +304,14 @@ class ContentRenderTest extends TestCase
         for ($n = 0; $n < PP_CONTENT_VERIFIED_MAX; $n++) {
             $old[] = 'f' . pp_content_value_hash('old ' . $n);
         }
-        update_post_meta($post_id, PP_CONTENT_VERIFIED_META, wp_json_encode($old));
+        $this->storeSignedMarkers($post_id, $old);
         $band = $this->section('<p>b</p>', ['title' => 'Kept <em>k</em>']);
         pp_content_note_vouches(pp_content_band_vouches($band, [], 'full'), pp_content_composition_scope([$band]));
         pp_content_bind_vouch_target($post_id);
         pp_content_record_verified($post_id, [$band]);
         pp_content_end_vouch_action();
         $set = pp_content_vouched($post_id);
-        $this->assertCount(PP_CONTENT_VERIFIED_MAX, json_decode(get_post_meta($post_id, PP_CONTENT_VERIFIED_META, true), true), 'bounded');
+        $this->assertCount(PP_CONTENT_VERIFIED_MAX, json_decode(get_post_meta($post_id, PP_CONTENT_VERIFIED_META, true), true)['list'], 'bounded');
         $this->assertArrayHasKey(pp_content_value_hash('Kept <em>k</em>'), $set['h'], 'the composition\'s own heading is kept as markup');
         $this->assertArrayHasKey(pp_content_value_hash('<p>b</p>'), $set['f'], 'and its body for the widened set');
     }
@@ -809,5 +816,203 @@ class ContentRenderTest extends TestCase
         $this->assertStringNotContainsString('<svg', $html, 'markup no trusted, checked write vouched for renders at core parity');
         $this->vouch($id, [$markup]);
         $this->assertStringContainsString('<circle cx="2" cy="2" r="1"/>', $this->render($id), 'vouched, it renders widened');
+    }
+
+    // ── Signed verification markers (#1249 companion: the #1214 mechanism) ────────────
+
+    /** A page holding one markup title and one widened body, both legacy bytes. */
+    private function markerPage(string $u): array
+    {
+        $title = 'Marked <em>t</em> ' . $u;
+        $body = '<p>Icon ' . $u . ' <svg viewBox="0 0 4 4"><circle cx="2" cy="2" r="1"/></svg></p>';
+        $id = $this->page([$this->section($body, ['title' => $title])]);
+        return [$id, ['h' . pp_content_value_hash($title), 'f' . pp_content_value_hash($body)], $u];
+    }
+
+    private function assertRendersNarrow(int $id, string $u, string $why): void
+    {
+        $html = $this->render($id);
+        $this->assertStringContainsString('Marked &lt;em&gt;t&lt;/em&gt; ' . $u, $html, $why . ': the title renders as text');
+        $this->assertStringNotContainsString('<circle', $html, $why . ': the body renders at core parity');
+        $this->assertSame(['h' => [], 'f' => []], pp_content_vouched($id), $why);
+    }
+
+    /**
+     * RED-PROOF: markers written straight into the meta in the pre-signing format (a bare
+     * list, as every marker stored before signing and every planted marker is) vouch for
+     * nothing: the stored content renders exactly as if it had never been vouched. On main
+     * the same bytes widened the render.
+     */
+    public function testAnUnsignedMarkerListVouchesForNothing(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode($list));
+        $this->assertRendersNarrow($id, $u, 'a bare list');
+        $c = pp_content_vouched_classified($id);
+        $this->assertSame('unsigned', $c['ignored']);
+        $this->assertSame($list, $c['unverified']);
+        $this->assertSame(['unverified', 'unfiltered_html'], array_column(pp_content_census([$id]), 'clause'),
+            'the census reports what renders narrower: the title as text, the body stripped');
+    }
+
+    public function testASignedMarkerListWidensAndATamperedOneDoesNot(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        $this->storeSignedMarkers($id, $list);
+        $html = $this->render($id);
+        $this->assertStringContainsString('Marked <em>t</em> ' . $u, $html, 'premise: signed, the title is markup');
+        $this->assertStringContainsString('<circle cx="2" cy="2" r="1"/>', $html, 'and the body widened');
+
+        // An entry added to a signed list without re-signing it.
+        $row = json_decode(get_post_meta($id, PP_CONTENT_VERIFIED_META, true), true);
+        $row['list'][] = 'f' . str_repeat('a', 32);
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode($row));
+        $this->assertRendersNarrow($id, $u, 'a tampered list');
+        $this->assertSame('invalid', pp_content_vouched_classified($id)['ignored']);
+    }
+
+    public function testAnObjectWithoutASignatureOrWithAGarbageEntryVouchesForNothing(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode(['v' => 1, 'list' => $list]));
+        $this->assertRendersNarrow($id, $u, 'no signature');
+        $this->assertSame('unsigned', pp_content_vouched_classified($id)['ignored']);
+
+        $signed = ['v' => 1, 'list' => $list, 'sig' => _pp_content_verified_signature($id, $list)];
+        $signed['list'][] = ['not a string'];
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode($signed));
+        $this->assertRendersNarrow($id, $u, 'an entry the writer never writes');
+    }
+
+    public function testAListSignedForAnotherPageSiteOrSaltVouchesForNothing(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode(
+            ['v' => 1, 'list' => $list, 'sig' => _pp_content_verified_signature($id + 1, $list)]));
+        $this->assertRendersNarrow($id, $u, 'copied from another page');
+
+        [$id2, $list2, $u2] = $this->markerPage(uniqid());
+        $this->storeSignedMarkers($id2, $list2);
+        $GLOBALS['_pp_test_salts'] = ['auth' => 'rotated'];
+        $this->assertRendersNarrow($id2, $u2, 'rotated salts');
+        unset($GLOBALS['_pp_test_salts']);
+
+        // Read once on its own site (it widens), then from another: the memo is per site.
+        [$id3, $list3, $u3] = $this->markerPage(uniqid());
+        $this->storeSignedMarkers($id3, $list3);
+        $this->assertStringContainsString('Marked <em>t</em> ' . $u3, $this->render($id3), 'premise: it verifies here');
+        $GLOBALS['_pp_test_blog_id'] = 3;
+        $this->assertRendersNarrow($id3, $u3, 'another site');
+    }
+
+    public function testABrokenWpHashVouchesForNothingAndRecordsNothingWithoutFatal(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        $this->storeSignedMarkers($id, $list);
+        $GLOBALS['_pp_test_wp_hash_returns'] = '';
+        $this->assertRendersNarrow($id, $u, 'unverifiable');
+        $this->assertSame('unverifiable', pp_content_vouched_classified($id)['ignored']);
+
+        $before = get_post_meta($id, PP_CONTENT_VERIFIED_META, true);
+        $result = pp_execute_action('update_composition', ['post_id' => $id, 'composition' => [
+            $this->section('<p>b</p>', ['title' => 'New <em>n</em> ' . $u]),
+        ]]);
+        $this->assertTrue($result['ok'], 'the write itself still lands');
+        $this->assertSame($before, get_post_meta($id, PP_CONTENT_VERIFIED_META, true), 'no unsigned marker was recorded');
+        $this->assertStringContainsString('New &lt;em&gt;n&lt;/em&gt; ' . $u, $this->render($id));
+    }
+
+    /**
+     * The re-record route: a gated write that sends the value as new bytes records it SIGNED;
+     * the unverified markers it finds are carried inert and never signed by that write.
+     */
+    public function testAGatedWriteRecordsSignedAndCarriesUnverifiedMarkersInert(): void
+    {
+        $u = uniqid();
+        $planted = 'h' . pp_content_value_hash('Planted <em>p</em> ' . $u);
+        $id = $this->page([$this->section('<p>b</p>', ['title' => 'Planted <em>p</em> ' . $u])]);
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode([$planted]));
+        $stored = pp_get_composition($id);
+        $stored[] = $this->section('<p>c</p>', ['title' => 'Fresh <em>f</em> ' . $u]);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored])['ok']);
+
+        $row = json_decode(get_post_meta($id, PP_CONTENT_VERIFIED_META, true), true);
+        $this->assertSame(PP_CONTENT_VERIFIED_SIG_VERSION, $row['v']);
+        $this->assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', $row['sig']);
+        $this->assertContains('h' . pp_content_value_hash('Fresh <em>f</em> ' . $u), $row['list'], 'the new value is signed');
+        $this->assertNotContains($planted, $row['list'], 'the planted marker is never signed');
+        $this->assertSame([$planted], $row['unverified'], 'it is carried, not silently dropped');
+        $html = $this->render($id);
+        $this->assertStringContainsString('Fresh <em>f</em> ' . $u, $html);
+        $this->assertStringContainsString('Planted &lt;em&gt;p&lt;/em&gt; ' . $u, $html);
+    }
+
+    /**
+     * THE DOCUMENTED RE-RECORD ROUTE for a marker stored before signing: re-sending the same
+     * bytes does not re-record it (stored-intent rule); writing the value changed and then back
+     * through update_component does, signed.
+     */
+    public function testAnUnsignedMarkerIsReRecordedByTheTwoWriteRouteOnly(): void
+    {
+        [$id, $list, $u] = $this->markerPage(uniqid());
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode($list));
+        $title = 'Marked <em>t</em> ' . $u;
+        $write = static fn (string $t) => pp_execute_action('update_component',
+            ['post_id' => $id, 'component_index' => 0, 'props' => ['title' => $t]]);
+
+        $r = $write($title);
+        $this->assertTrue($r['ok'], $r['error'] ?? '');
+        $this->assertRendersNarrow($id, $u, 'the same bytes re-sent');
+
+        $this->assertTrue($write('Marked t ' . $u)['ok']);
+        $this->assertTrue($write($title)['ok']);
+        $this->assertStringContainsString('Marked <em>t</em> ' . $u, $this->render($id), 'changed, then back: signed');
+        $this->assertSame('', pp_content_vouched_classified($id)['ignored']);
+    }
+
+    /** Carried markers survive later writes; past the bound they are the first to go. */
+    public function testCarriedMarkersSurviveLaterWritesUntilTheBound(): void
+    {
+        $u = uniqid();
+        $planted = 'h' . pp_content_value_hash('Planted <em>p</em> ' . $u);
+        $id = $this->page([$this->section('<p>b</p>', ['title' => 'Planted <em>p</em> ' . $u])]);
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode([$planted]));
+        foreach (['One', 'Two'] as $n) {
+            $stored = pp_get_composition($id);
+            $stored[] = $this->section('<p>' . $n . '</p>', ['title' => $n . ' <em>x</em> ' . $u]);
+            $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored])['ok']);
+        }
+        $row = json_decode(get_post_meta($id, PP_CONTENT_VERIFIED_META, true), true);
+        $this->assertSame([$planted], $row['unverified'] ?? null, 'still carried after a second write');
+        $this->assertNotContains($planted, $row['list']);
+
+        // A full signed list leaves no room: the carried marker is dropped by the bound.
+        $full = [];
+        for ($n = 0; $n < PP_CONTENT_VERIFIED_MAX; $n++) {
+            $full[] = 'f' . pp_content_value_hash('old ' . $n);
+        }
+        $this->storeSignedMarkers($id, $full);
+        $raw = json_decode(get_post_meta($id, PP_CONTENT_VERIFIED_META, true), true);
+        $raw['unverified'] = [$planted];
+        update_post_meta($id, PP_CONTENT_VERIFIED_META, wp_json_encode($raw));
+        $stored = pp_get_composition($id);
+        $stored[] = $this->section('<p>Three</p>', ['title' => 'Three <em>x</em> ' . $u]);
+        $this->assertTrue(pp_execute_action('update_composition', ['post_id' => $id, 'composition' => $stored])['ok']);
+        $row = json_decode(get_post_meta($id, PP_CONTENT_VERIFIED_META, true), true);
+        $this->assertCount(PP_CONTENT_VERIFIED_MAX, $row['list']);
+        $this->assertArrayNotHasKey('unverified', $row, 'the bound counts carried markers too');
+    }
+
+    /**
+     * SCOPING PIN: the signature covers exactly purpose, envelope version, site, page and the
+     * list (the #1214 envelope with the list in place of the row), NOT the theme version, so a
+     * theme update never re-opens a signed marker.
+     */
+    public function testTheMarkerEnvelopeCoversExactlyTheseFieldsAndNotTheThemeVersion(): void
+    {
+        $envelope = json_decode((string) _pp_content_verified_envelope(7, ['h' . str_repeat('0', 32)]), true);
+        $this->assertSame(['purpose', 'v', 'site', 'post', 'list'], array_keys($envelope));
+        $this->assertSame('pp-content-verified', $envelope['purpose']);
+        $this->assertNotContains(PP_VERSION, $envelope);
     }
 }

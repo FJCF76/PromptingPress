@@ -2192,6 +2192,65 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
 }
 
 /**
+ * Prints the stored readiness acknowledgements that acknowledge nothing (#1249), in the
+ * shapes `wp pp check page` uses for an ignored page acknowledgement (#1214), with the
+ * readiness commands. A stored key is site data under nobody's validation: it is echoed (and
+ * put into a suggested command) only when it has the plain shape of the theme's own keys,
+ * otherwise only its length is printed. This store has no key-less removal route (#1214's
+ * `--malformed` is page-scoped), so the line points at the raw option instead. Silent when
+ * there are none.
+ *
+ * @param array[] $ignored  pp_ignored_finding_acknowledgements().
+ */
+function _pp_cli_print_ignored_readiness_acknowledgements(array $ignored, int $total = 0): void {
+    foreach ($ignored as $row) {
+        $raw = $row['finding_key'] ?? null;
+        // UNTRUSTED BYTES (#1214's rule for this store's copy): a stored key is never shown or
+        // put into a suggested command unless it has the plain shape the theme's own keys have
+        // (pp_readiness_ack_key_is_plain()). Any other key is named by its length only.
+        if (!is_string($raw) || !pp_readiness_ack_key_is_plain($raw)) {
+            WP_CLI::line('  - ignored acknowledgement with an unusual key (' . (int) ($row['key_bytes'] ?? 0)
+                . ' bytes, not shown: not a key this theme mints): it acknowledges nothing. Do not copy its stored '
+                . 'bytes into a command; read them first with wp option get pp_acknowledged_findings --format=json, '
+                . 'and remove the row once you know what it is.');
+            continue;
+        }
+        $key = $raw;
+        switch ($row['ack_ignored'] ?? '') {
+            case 'malformed':
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': what is stored under this key is not an '
+                    . 'acknowledgement row, so it acknowledges nothing. Remove it with wp pp readiness unacknowledge ' . $key);
+                break;
+            case 'unsigned':
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': it carries no signature, so it acknowledges '
+                    . 'nothing (it was written before acknowledgements were signed, or around '
+                    . '`wp pp readiness acknowledge`). If the state is still intentional, '
+                    . 'acknowledge it again with wp pp readiness acknowledge ' . $key . ' --note="..."; '
+                    . 'otherwise remove it with wp pp readiness unacknowledge ' . $key);
+                break;
+            case 'unverifiable':
+                // NO ROUTE: re-acknowledging is refused in this state, and removing the row would
+                // destroy an acknowledgement that verifies again once signatures work.
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': this site cannot check its signature '
+                    . '(wp_hash() gives no salted sha256 signature here, which `wp pp readiness acknowledge` also '
+                    . 'refuses on), so it acknowledges nothing until that is fixed. Fix wp_hash(); do not remove this '
+                    . 'row: it may be a valid acknowledgement that verifies again once signatures work.');
+                break;
+            default:
+                WP_CLI::line('  - ignored acknowledgement ' . $key . ': its signature does not verify on this site, so '
+                    . 'it acknowledges nothing (it was changed after it was written or copied from another key or site, the '
+                    . 'site\'s salts changed, the database was copied from an environment with other salts, or a '
+                    . 'plugin that replaces wp_hash() differs between where it was signed and this run). Before '
+                    . 'acting, rule out a salt or plugin difference: such a row is valid where it was signed. Only if it '
+                    . 'is not a valid row is it removed with `wp pp readiness unacknowledge` and its key.');
+        }
+    }
+    if ($total > count($ignored)) {
+        WP_CLI::line('  - ' . ($total - count($ignored)) . ' more ignored acknowledgement(s) not listed.');
+    }
+}
+
+/**
  * Prints a page's INFORMATIONAL findings (#1194), under a header that says they never fail.
  *
  * Shared by `wp pp check page` and `wp pp validate site` so the two commands say the same
@@ -3523,6 +3582,8 @@ class PP_Readiness_Command {
         $findings = $result['findings'];
 
         _pp_cli_emit_json($findings);
+        _pp_cli_print_ignored_readiness_acknowledgements($findings['ignored_acknowledgements'] ?? [],
+            (int) ($findings['ignored_acknowledgements_total'] ?? 0));
 
         $active = (int) ($findings['active_warnings'] ?? 0);
         $ack    = (int) ($findings['acknowledged'] ?? 0);
@@ -3604,8 +3665,23 @@ class PP_Readiness_Command {
         }
 
         $note = isset($assoc_args['note']) ? (string) $assoc_args['note'] : '';
-        $acks = pp_acknowledged_findings();
-        $acks[$key] = ['acknowledged_at' => date('c'), 'note' => $note];
+        // SIGNED (#1249): the only writer of a row that counts. The other rows are kept as
+        // stored, signed or not; this write never signs them (that would launder them).
+        $at  = date('c');
+        if (_pp_readiness_ack_envelope($key, $note, $at) === null) {
+            // Said as what it is: the note's bytes, not the site's signing.
+            WP_CLI::error('The note is not valid UTF-8, so the acknowledgement could not be signed and nothing was written. '
+                . 'Retype the note and retry.');
+        }
+        $sig = _pp_readiness_ack_signature($key, $note, $at);
+        if ($sig === null) {
+            WP_CLI::error('The acknowledgement could not be signed with this site\'s salts (wp_hash() gave no '
+                . 'salted sha256 signature), so nothing was written: an unsigned row would acknowledge nothing. '
+                . 'Check that wp_hash() is not overridden, then retry.');
+        }
+        $acks = get_option('pp_acknowledged_findings', []);
+        $acks = is_array($acks) ? $acks : [];
+        $acks[$key] = ['acknowledged_at' => $at, 'note' => $note, 'sig' => $sig];
         update_option('pp_acknowledged_findings', $acks);
 
         WP_CLI::success('Acknowledged configuration finding "' . $key . '" as intentional. '
@@ -3631,7 +3707,11 @@ class PP_Readiness_Command {
             WP_CLI::error('A finding-key is required.');
         }
 
-        $acks = pp_acknowledged_findings();
+        // UNVERIFIED BY DESIGN (#1249): a row the read side ignores (no valid signature) is
+        // still removable here, so cleanup never needs a raw option edit. The raw option, so
+        // the other rows are written back byte for byte.
+        $acks = get_option('pp_acknowledged_findings', []);
+        $acks = is_array($acks) ? $acks : [];
         if (!isset($acks[$key])) {
             // Same pre-membership echo as `acknowledge` (#647): this branch is exactly the
             // one where $key matched nothing, so nothing has vouched for its bytes.
