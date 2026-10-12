@@ -319,7 +319,10 @@ rendered as text; a body as `unfiltered_html`, rendered without what only a trus
 carry). `check page` and `validate site` report only the body ones, as
 `content_stripped_at_render`: an unverified title fails neither, so the census is the only place
 it shows. Every marker stored
-before #1249 reads this way, and none is signed on upgrade. Re-saving the same bytes does not
+before #1249 reads this way, and none is signed on upgrade. The census also lists content stored
+before the content check that nothing ever vouched for: compare with a census saved on 2.1.0 and
+re-record only the new rows, because re-recording an old one widens it (and for an old row the
+finding's advice to remove what it names stands). Re-saving the same bytes does not
 re-record one, because a checked write only vouches for what it sends as NEW bytes. To re-record
 a value, write it twice through a checked write as a user with `unfiltered_html` (or from WP-CLI):
 once changed (for example `update_component` with the prop altered), then back to its original

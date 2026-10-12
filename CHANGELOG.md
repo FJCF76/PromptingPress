@@ -101,14 +101,21 @@ empty, so values whose markers no longer verify do not add to it.
    the rest). For each one that is still intentional, run
    `wp pp readiness acknowledge <finding-key> --note="<why>"`, which signs a new row for it. Remove
    the rest with `wp pp readiness unacknowledge <finding-key>`.
-3. **Verification markers.** Run `wp pp content census` (it writes nothing). Each row with clause
-   `unverified` (a title that now renders as plain text) or `unfiltered_html` (content that now
-   renders without what only a trusted write may carry) needs re-recording. `wp pp check page`
+3. **Verification markers.** Before upgrading, while still on 2.1.0, save the census:
+   `wp pp content census --format=json > census-2.1.0.json`. After upgrading run
+   `wp pp content census` (it writes nothing). Re-record only the rows with clause `unverified` (a
+   title that now renders as plain text) or `unfiltered_html` (content that now renders without
+   what only a trusted write may carry) that are NEW compared with that file: those are values a
+   checked write vouched for on 2.1.0. A row already on the 2.1.0 census is content stored before
+   the content check that nothing ever vouched for; re-recording it would widen it (a title would
+   start rendering its tags as markup), so leave it unless you want that, and for those rows the
+   finding's advice to remove what it names stands. Without a saved baseline, re-record only values
+   you know a checked write admitted on 2.1.0. `wp pp check page`
    reports only the `unfiltered_html` ones, as `content_stripped_at_render`; it does not list
    unverified titles. Write each value twice through a checked write, as a user with
    `unfiltered_html` (in the editor) or from WP-CLI: once changed, then back to its original bytes.
    The second write records it signed. If the same value appears more than once on the page, change
-   every copy before writing any of them back. For an `unfiltered_html` row, do this rather than
+   every copy before writing any of them back. For a new `unfiltered_html` row, do this rather than
    what the finding's own message suggests ("Edit the prop to remove ..."): that advice is for
    content that predates the content check, and following it here deletes content you meant to
    keep. A page keeps its last 10 composition-history entries and each write adds one, so save
@@ -510,11 +517,11 @@ so later theme updates do not re-open signed records; rotating the salts or copy
 an environment with other salts does (fail closed: record again). The limits #1214 discloses apply
 unchanged.
 
-**Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so after a rollback every
-marker vouches for nothing there (markup titles render as text, full-tier content at core parity),
-and a checked write made on 2.1.0 that admits new markup replaces the page's markers with an
-unsigned list. After rolling
-forward again those pages need their values re-recorded as above. 2.1.0 also honors readiness
+**Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so after a rollback a
+page whose markers a 2.1.1 write recorded renders unvouched there (markup titles as text, full-tier
+content at core parity); other pages render as before. A checked write made on 2.1.0 that admits
+new markup to such a page deletes all of its stored markers, so after rolling forward again run
+`wp pp content census` and re-record every row it lists for that page. 2.1.0 also honors readiness
 acknowledgements without checking a signature, as it did before.
 
 ##### Fixed
