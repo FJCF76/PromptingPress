@@ -23,7 +23,7 @@ write vouched for keeps rendering as it did.
 
 **What a hardened install's agents will meet.** A band that a write changes is checked whole, so on
 such an install a WP-CLI or agent edit to a band that still holds markup beyond core's `post` list
-(written from WP-CLI before this release, or before the constant was set) is refused by name, even when the edit itself changes only the title.
+(written by WP-CLI before this release, or by anyone before the constant was set) is refused by name, even when the edit itself changes only the title.
 This is the rule every web user there already has. Reduce that band's content to core's set in the
 same write, or leave the band unchanged: a band a write does not change is not checked again, so
 edits to other bands on the page still land.
