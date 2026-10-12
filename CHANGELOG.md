@@ -21,6 +21,13 @@ wider set. The constant is read exactly as core reads it (defined and truthy).
 vouches for the wider set exactly as in 2.1.0. Stored content is not touched: a value an earlier
 write vouched for keeps rendering as it did.
 
+**What a hardened install's agents will meet.** A band that a write changes is checked whole, so on
+such an install a WP-CLI or agent edit to a band that still holds markup beyond core's `post` list
+(written earlier from WP-CLI) is refused by name, even when the edit itself changes only the title.
+This is the rule every web user there already has. Reduce that band's content to core's set in the
+same write, or leave the band unchanged: a band a write does not change is not checked again, so
+edits to other bands on the page still land.
+
 On a hardened install, the route for re-recording a verification marker (#1249) records at core's
 `post` level only, so a value beyond that set cannot be re-recorded and keeps rendering at core
 parity. See `ai-instructions/validate-site.md`.
@@ -41,7 +48,12 @@ parity. See `ai-instructions/validate-site.md`.
   refused with clause `unfiltered_html`, nothing is stored, an admitted value carries no
   widened-set marker, and the re-record route refuses the widened bytes (red on main, where every
   one landed at the full tier). With the constant false, `0` or absent, the full tier, the stored
-  bytes and the markers are as on main.
+  bytes and the markers are as on main. On a hardened install a CLI edit to a band holding widened
+  content is refused, and an edit to another band still lands.
+- `tests/e2e/content-write-tier.spec.ts` (both core legs): a real `wp` run on live core, with
+  `DISALLOW_UNFILTERED_HTML` defined for that one run through WP-CLI's `--exec`, gets the `core`
+  tier (core itself denies the administrator `unfiltered_html`), the widened write is refused and
+  nothing is vouched; without the constant the run keeps the full tier.
 
 ### The external-resource ban is enforced as a class: `-webkit-image()` and `-webkit-src()` are refused (#1121)
 
