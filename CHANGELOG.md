@@ -4,6 +4,47 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
+## [v2.1.2] — 2026-10-12 — menu items are validated by type before any change is made
+
+**`set_menu` now checks the type of every menu item field (including dropdown children) and
+refuses a mistyped one by name before it changes anything.** A link's `page_id` must be a JSON
+integer, and its `url` and `label` must be strings. Anything else, such as a list where a label
+should be or a quoted number where a page id should be, is answered with `invalid_param_type` and
+the exact field path (`Param "items[0].children[1].label" must be string, got array.`). The
+existing menu stays as it was.
+
+This continues the type-validation line of v2.1.1 (#913, #931, #935), which refused untyped input
+by name on top-level params. `set_menu` takes its items as one nested list, so that check could not
+see inside it. Each item now gets the same rule, with the types `add_menu_item` declares for the
+same three fields. As at the top-level check, an absent field or a `null` counts as not sent. The
+refusal happens at validation, so preview, execute, WP-CLI and the chat all answer the same way.
+In a batch, a refused `set_menu` step fails that step, and the existing rollback undoes the steps
+before it.
+
+### Fixed
+- `set_menu` validates `page_id` (int), `url` (string) and `label` (string) on every item and every
+  dropdown child before any change is made, and refuses a mistyped field with
+  `invalid_param_type` naming its path.
+
+### ⚠️ Behaviour changes
+- Item values that were converted to the right type before are now refused by name: a quoted
+  `page_id` such as `"12"`, a float, a boolean, an empty string `""` or `false` as `page_id`, and a
+  number or boolean as `url` or `label`. Send a JSON integer for `page_id` and strings for `url`
+  and `label`. Absent fields and `null` are unaffected.
+
+### Docs
+- The `set_menu` action semantics, `AI_CONTEXT.md` and `ai-instructions/website-building.md` state
+  the item field types and the refusal.
+
+### Tests
+- `tests/SetMenuItemTypeValidationTest.php`: every malformed item shape (non-string label, non-string
+  url, non-int page_id, a malformed or non-object child, a grandchild) is refused by name through
+  validate, preview and execute with every menu unchanged; null fields and well-typed items still
+  build; the chat transport path applies the same rule; and two batch tests show that a mistyped
+  `set_menu` step rolls back the earlier steps and leaves the menu as it was.
+
+---
+
 ## [v2.1.1] — 2026-10-12 — v2 Sprint 7, the 2.1.1 security-hardening cycle: the external-resource ban is enforced as a class, a page's `seo_title` renders as text, input of the wrong type is refused by name, readiness acknowledgements and verification markers are signed, WP-CLI and agent writes honor `DISALLOW_UNFILTERED_HTML`, the chat reads only a response's own fields, and a styling check that cannot run fails the gate (#1121, #914, #913, #931, #935, #1249, #924, #1222, #1245)
 
 **TL;DR: the theme checks more of what it is given, refuses by name what it cannot accept, and no
