@@ -310,6 +310,9 @@ re-record one, because a checked write only vouches for what it sends as NEW byt
 a value, write it twice through a checked write as a user with `unfiltered_html` (or from WP-CLI):
 once changed (for example `update_component` with the prop altered), then back to its original
 bytes; the second write records it signed.
+On an install that sets `DISALLOW_UNFILTERED_HTML` to true, no user and no WP-CLI run has
+`unfiltered_html`, so this route records at core's `post` level only: a value beyond that set is
+refused by name (clause `unfiltered_html`) and keeps rendering at core parity.
 Rolling the theme back to 2.1.0 stops reading the signed markers (every value renders as
 unvouched there), and a checked write there replaces them with an unsigned list: after rolling
 forward, re-record those values the same way.
