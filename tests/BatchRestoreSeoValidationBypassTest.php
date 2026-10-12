@@ -489,8 +489,9 @@ class BatchRestoreSeoValidationBypassTest extends TestCase
      * THE ONE SHAPE THE BYPASS GENUINELY ADMITS THAT THE VALUE RULES DID NOT: a NON-STRING
      * under an allowed key. pp_get_seo_meta() passes it through (array_intersect_key does
      * not type-check), so a raw-written row can hold one and the snapshot captures it; the
-     * forward path refuses it (filter_var says no for canonical_url, and strlen() TypeErrors
-     * on the capped fields), and under bypass it is written back verbatim.
+     * forward path refuses it by name (invalid_seo_meta_type since #913; before that,
+     * strlen() TypeErrored on the capped fields), and under bypass it is written back
+     * verbatim, because the type rule is a VALUE rule and sits below the bypass.
      *
      * PINNED AS VERBATIM ON PURPOSE, per #233 policy item 3 — never silently strip or
      * rewrite what a snapshot holds. The value was in this row before the batch and it is in
@@ -498,7 +499,7 @@ class BatchRestoreSeoValidationBypassTest extends TestCase
      * saying plainly that such a row is ALREADY hazardous on the render path
      * (pp_seo_canonical_url_override() and pp_seo_document_title_override() both declare
      * `: string` returns): the restore reproduces that hazard, it does not introduce it, and
-     * the forward-path half of the same class is tracked separately as #913.
+     * the forward-path half of the same class was #913 (TypedInputRefusalTest).
      */
     public function testANonStringUnderAnAllowedKeyIsRestoredVerbatim(): void
     {

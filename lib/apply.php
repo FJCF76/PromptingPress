@@ -70,6 +70,20 @@ function pp_validate_apply(string $name, array $params) {
                 sprintf('Apply "%s" requires param "%s".', $name, $param_name)
             );
         }
+        // A required param sent as null is refused by name, the same rule and wording as
+        // pp_validate_action() (#931): presence alone used to let it past this type check.
+        // An optional null still means "not sent".
+        if (!empty($param_def['required']) && $params[$param_name] === null) {
+            return new WP_Error(
+                'invalid_param_type',
+                sprintf(
+                    'Param "%s" must be %s, got null. Apply "%s" requires it, and null does not count as a value.',
+                    $param_name,
+                    $param_def['type'] ?? 'string',
+                    $name
+                )
+            );
+        }
         if (array_key_exists($param_name, $params) && $params[$param_name] !== null) {
             $expected_type = $param_def['type'] ?? 'string';
             $actual_type   = gettype($params[$param_name]);

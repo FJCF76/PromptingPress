@@ -430,8 +430,9 @@ class EmptyPageTitleWriteRefusalTest extends TestCase
             $this->assertFalse(_pp_title_is_blank($real),
                 sprintf('%s is a title', var_export($real, true)));
         }
-        // Non-strings are not this predicate's business — that scope boundary is what
-        // leaves null to #931 instead of letting trim()'s deprecated coercion decide it.
+        // Non-strings are not this predicate's business: a null title is a TYPE fault,
+        // refused at pp_validate_action() since #931, never a blank one decided by trim()'s
+        // deprecated null coercion.
         foreach ([null, 42, true, false, []] as $non_string) {
             $this->assertFalse(_pp_title_is_blank($non_string),
                 sprintf('%s is not a blank STRING', var_export($non_string, true)));
@@ -439,40 +440,31 @@ class EmptyPageTitleWriteRefusalTest extends TestCase
     }
 
     /**
-     * THE ONE INPUT THEY DIVERGE ON, asserted so the divergence is a recorded decision
-     * rather than a gap the walk above happens not to cover.
+     * THE INPUT THEY USED TO DIVERGE ON, now answered the same way by both (#931).
      *
-     * `null` is exempted from pp_validate_action()'s type check
-     * (`$params[$param_name] !== null`), so it reaches each validate closure raw.
-     * create_page calls `trim($params['title'])` bare, which returns '' while raising
-     * E_DEPRECATED, so it answers `empty_title`. update_page_title guards with
-     * `is_string()` and lets null fall through to the typed writer, where it throws —
-     * which is #931, filed separately because the cause is the registry-wide null gate,
-     * not the title rule.
-     *
-     * Closing null HERE was considered and rejected: a local guard on one of many
-     * affected actions would make #931 look closed while every other typed executor
-     * stayed exposed, and it would do so by depending on a deprecated coercion. This test
-     * exists so that when #931 is fixed at the gate, the fix has an assertion telling it
-     * this line is one of the places to revisit.
+     * Before #931, pp_validate_action() exempted null from its type check, so a null
+     * title reached each validate closure raw: create_page's bare trim() turned it into
+     * `empty_title` through a deprecated coercion, while update_page_title let it fall
+     * through to the typed writer, which threw a TypeError. Since #931 the gate refuses a
+     * null REQUIRED param by name before either closure runs, so both actions answer
+     * `invalid_param_type`, neither writes, and neither reaches trim() or the writer.
+     * Null is a type fault, not a blank title, so it is NOT `empty_title` on either.
      */
-    public function testNullIsDeliberatelyLeftToIssue931(): void
+    public function testNullTitleIsRefusedAtTheGateByBothTitleActions(): void
     {
         $post_id = pp_create_page('Original title', 'publish');
+        $pages_before = count($GLOBALS['_pp_test_store']['posts']);
 
-        $threw = false;
-        try {
-            pp_execute_action('update_page_title', ['post_id' => $post_id, 'title' => null]);
-        } catch (TypeError $e) {
-            $threw = true;
-            $this->assertStringContainsString('must be of type string, null given', $e->getMessage());
+        $updated = pp_execute_action('update_page_title', ['post_id' => $post_id, 'title' => null]);
+        $created = pp_execute_action('create_page', ['title' => null]);
+
+        foreach (['update_page_title' => $updated, 'create_page' => $created] as $action => $result) {
+            $this->assertFalse($result['ok'], "{$action} refuses a null title");
+            $this->assertSame('invalid_param_type', $result['error_code'],
+                "{$action} refuses it as a type fault, not as empty_title");
+            $this->assertStringContainsString('Param "title" must be string, got null', $result['error']);
         }
-
-        $this->assertTrue($threw,
-            'null still reaches the typed writer and throws (#931). If this now returns a WP_Error,'
-            . ' #931 was fixed — re-read the is_string() guard in update_page_title\'s validate closure'
-            . ' and the divergence note in §5, which may no longer be needed.');
-        $this->assertSame('Original title', get_the_title($post_id),
-            'and nothing was written on the way to the throw');
+        $this->assertSame('Original title', get_the_title($post_id), 'nothing was retitled');
+        $this->assertCount($pages_before, $GLOBALS['_pp_test_store']['posts'], 'and no page was created');
     }
 }

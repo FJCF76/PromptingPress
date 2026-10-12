@@ -86,6 +86,29 @@ function pp_validate_action(string $name, array $params) {
                 sprintf('Action "%s" requires param "%s".', $name, $param_name)
             );
         }
+        // A REQUIRED PARAM SENT AS null IS REFUSED BY NAME HERE (#931). Presence above is
+        // array_key_exists(), so a present null used to satisfy it and then skip the type
+        // check below, and every executor behind a required param is typed: the null reached
+        // it and fataled with a TypeError. In a batch that throw escaped the step loop before
+        // the rollback, leaving earlier steps applied. Refusing here, before any action code
+        // runs, turns the fatal into an ordinary validate-stage rejection, so a batch fails
+        // the step and rolls back like any other refused step.
+        //
+        // AN OPTIONAL PARAM SENT AS null STILL MEANS "NOT SENT", deliberately. That is a
+        // contract callers rely on (expected_version null = an unconditional write, see
+        // pp_ai_execute_batch()), and every optional null was measured to reach an executor
+        // that already treats it as absent. Only `required` changes.
+        if (!empty($param_def['required']) && $params[$param_name] === null) {
+            return new WP_Error(
+                'invalid_param_type',
+                sprintf(
+                    'Param "%s" must be %s, got null. Action "%s" requires it, and null does not count as a value.',
+                    $param_name,
+                    $param_def['type'] ?? 'string',
+                    $name
+                )
+            );
+        }
         if (array_key_exists($param_name, $params) && $params[$param_name] !== null) {
             $expected_type = $param_def['type'] ?? 'string';
             $actual_type   = gettype($params[$param_name]);
@@ -4803,16 +4826,13 @@ pp_register_action('update_page_title', [
         //
         // THE PREDICATE IS SHARED WITH THE #121 FAIL-SAFE in pp_execute_action(), so the
         // rule and the guard that backs it up cannot drift — see _pp_title_is_blank().
-        // Its is_string() arm is a scope boundary, not belt-and-braces: a non-null
-        // non-string is already refused by pp_validate_action()'s type check, so the only
-        // value reaching here non-string is NULL, which that check exempts
-        // (`$params[$param_name] !== null`). Bare trim(null) returns '' while raising
-        // E_DEPRECATED, so treating null as blank would silently convert #931's null
-        // TypeError into an empty_title refusal on this one action, through a deprecated
-        // coercion, while the registry-wide gate stayed open everywhere else. #931 owns
-        // null; this rule owns blankness. The divergence from create_page on that ONE
-        // input is deliberate and is asserted, not merely tolerated, by
-        // EmptyPageTitleWriteRefusalTest §5.
+        // Its is_string() arm keeps null out of the BLANK verdict. Since #931 no
+        // non-string reaches here through pp_validate_action(): a non-null non-string
+        // fails its type check, and a null `title` (required) is refused there by name
+        // with invalid_param_type, on this action and on create_page alike. The arm stays
+        // so that a direct caller of this closure can never have trim()'s deprecated null
+        // coercion decide the verdict: null is a type fault, not a blank title, and the
+        // two refusals say different things. Pinned by EmptyPageTitleWriteRefusalTest §5.
         //
         // IT LIVES HERE AND NOT IN pp_update_page_title(), which is load-bearing rather
         // than stylistic. Since #857 that helper is ALSO the batch rollback's
@@ -4901,7 +4921,7 @@ pp_register_action('update_seo_meta', [
     // Page metadata: needs only that the page EXISTS, not a populated composition (#358).
     'requires_composition' => false,
     'description' => 'Sets page-specific SEO metadata: meta_description, seo_title (overrides the rendered <title> tag), canonical_url, and the per-page social-title overrides og_title and twitter_title (#468). og_title overrides the Open Graph title for this page (falls back to seo_title, then the post title); twitter_title overrides the Twitter-card title (falls back to the og_title chain). Both are optional and capped at 200 chars like seo_title. There is no per-page og_description (the page meta_description already fills og:description, falling back to the site-wide pp_og_default_description) or per-page og_image (set the site-wide pp_og_image via update_site_option). The first-class, safe-surface alternative to hand-patching theme PHP for per-page metadata (#41).',
-    'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it. Accepted keys: meta_description, seo_title, canonical_url, og_title, twitter_title. Rejects an unsaved auto-draft target (auto_draft): save the page first.',
+    'semantics'   => 'Patch. meta is shallow-merged into existing SEO metadata; unspecified keys are left unchanged. Set a key to "" to clear it. Every value must be a string: null, a number, a boolean, a list or an object is refused with invalid_seo_meta_type (#913). Accepted keys: meta_description, seo_title, canonical_url, og_title, twitter_title. Rejects an unsaved auto-draft target (auto_draft): save the page first.',
     'params'      => [
         'post_id' => ['type' => 'int',   'required' => true],
         'meta'    => ['type' => 'array', 'required' => true],
@@ -7420,15 +7440,15 @@ function _pp_menu_item_title(array $item): string {
  * relaxation of the rule would still let `"   "` through and promote the draft,
  * recreating #121 with a space in it. Neither caller can drift now.
  *
- * WHY IT DOES NOT ALSO SERVE create_page, which applies the same rule to the same field
- * and is the reason this predicate is spelled the way it is. create_page calls
- * `trim($params['title'])` BARE, so `null` reaches trim(), returns '' with an
- * E_DEPRECATED, and is refused as blank. Routing it through this guard would silently
- * CHANGE that action's null behaviour as a side effect of a title fix on a different
- * action. The two are held together by
- * EmptyPageTitleWriteRefusalTest::testCreatePageAndUpdatePageTitleAgreeOnEveryTitleInput()
- * instead — a tripwire over a shared input list, which is the level the agreement is
- * actually wanted at. The one input they diverge on is asserted there as a decision.
+ * WHY IT DOES NOT ALSO SERVE create_page, which applies the same rule to the same field.
+ * create_page calls `trim($params['title'])` bare. Before #931 a null title reached that
+ * trim(), returned '' with an E_DEPRECATED and was refused as blank, so routing it through
+ * this guard would have changed that action's null behaviour as a side effect. Since #931
+ * pp_validate_action() refuses a null required param before either validate closure runs,
+ * so both actions answer null the same way (invalid_param_type) and the bare trim() never
+ * sees it. The two are held together by
+ * EmptyPageTitleWriteRefusalTest::testCreatePageAndUpdatePageTitleAgreeOnEveryTitleInput(),
+ * a tripwire over a shared input list.
  *
  * ASCII WHITESPACE ONLY, stated because trim() is not Unicode-aware and the boundary is
  * easy to misread. U+00A0 (no-break space), U+3000 (ideographic space), U+200B (zero
@@ -7438,11 +7458,10 @@ function _pp_menu_item_title(array $item): string {
  * on a shape nothing has measured. Recorded rather than discovered later, and pinned by
  * testUnicodeBlanksAreAcceptedBecauseTrimIsAsciiOnly().
  *
- * NON-STRINGS ARE NOT BLANK. Only `null` can reach a `type: "string"` param as a
- * non-string (pp_validate_action() exempts null from its type check and rejects every
- * other mismatch), and null is #931's, not this rule's — see the note at the validate
- * closure. Returning false here keeps that fall-through explicit instead of letting
- * trim()'s deprecated null coercion decide it.
+ * NON-STRINGS ARE NOT BLANK. Through pp_validate_action() no non-string reaches a
+ * required `type: "string"` param at all (a null is refused there by name since #931,
+ * every other mismatch by the type check). Returning false here keeps a direct caller's
+ * null a type question rather than letting trim()'s deprecated null coercion call it blank.
  *
  * @param  mixed $title  Raw authored title param.
  * @return bool          True when the title must be refused as blank.

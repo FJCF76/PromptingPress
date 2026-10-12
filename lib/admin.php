@@ -5557,6 +5557,31 @@ function _pp_editor_error_payload(array $result): array {
 }
 
 /**
+ * The `composition` field of an editor AJAX body, unslashed, or NULL when the field was
+ * sent as something other than a string (#935).
+ *
+ * Before #935 the three editor endpoints (save, preview, publish) read this field with an
+ * isset() guard only, and stripslashes() is typed `string`. A client sending `composition[]=x`
+ * puts an ARRAY in $_POST, and the handler fataled with a TypeError instead of answering
+ * with the `Invalid JSON.` refusal the editor's saveErrorMessage() is written against.
+ * Every caller now refuses on NULL with that same refusal.
+ *
+ * NULL means "sent, but not text", and it is deliberately not folded into $absent. The
+ * publish handler reads an absent field as "no composition to save, publish as stored";
+ * mapping a malformed field onto that would publish without saving, silently.
+ *
+ * @param  array  $post    $_POST-shaped input.
+ * @param  string $absent  What the caller uses when the field is not sent at all.
+ * @return string|null     The unslashed field, $absent, or null for a non-string field.
+ */
+function _pp_editor_composition_field(array $post, string $absent): ?string {
+    if (!isset($post['composition'])) {
+        return $absent;
+    }
+    return is_string($post['composition']) ? stripslashes($post['composition']) : null;
+}
+
+/**
  * Core logic for the editor-save AJAX handler, extracted from the
  * wp_ajax_pp_save_composition closure so it is directly unit-testable (#864).
  *
@@ -5589,7 +5614,12 @@ function _pp_save_composition_response(array $post): array {
         return ['ok' => false, 'data' => 'Insufficient permissions.'];
     }
 
-    $raw     = isset($post['composition']) ? stripslashes($post['composition']) : '';
+    // A non-string field (composition[]=x) is refused here, before stripslashes() could
+    // fatal on it (#935).
+    $raw = _pp_editor_composition_field($post, '');
+    if ($raw === null) {
+        return ['ok' => false, 'data' => 'Invalid JSON.'];
+    }
     $decoded = json_decode($raw, true);
 
     if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
@@ -6100,7 +6130,11 @@ add_action('wp_ajax_pp_preview_composition', function () {
         wp_send_json_error('Insufficient permissions.');
     }
 
-    $raw         = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '[]';
+    // A non-string field is refused, not fataled on (#935).
+    $raw = _pp_editor_composition_field($_POST, '[]');
+    if ($raw === null) {
+        wp_send_json_error('Invalid JSON.');
+    }
     $composition = json_decode($raw, true);
 
     if (!is_array($composition)) {
@@ -6377,7 +6411,12 @@ add_action('wp_ajax_pp_publish_page', function (): void {
     // Save composition first (short-circuit: if save fails, publish never fires). The CAS
     // (#13) rides on this save step: a composition_conflict here returns before publish_page
     // runs, so a stale editor can't publish over an interleaved write.
-    $raw = isset($_POST['composition']) ? stripslashes($_POST['composition']) : '';
+    // A non-string field is refused, never read as "nothing to save" (#935): that would
+    // publish the stored composition while dropping the one the editor sent.
+    $raw = _pp_editor_composition_field($_POST, '');
+    if ($raw === null) {
+        wp_send_json_error('Invalid JSON.');
+    }
     if ($raw !== '') {
         $decoded = json_decode($raw, true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
