@@ -181,10 +181,142 @@ function pp_check_drift(): array {
 // by re-baselining and capability gaps by installing the tool — neither is a
 // deliberate site-state choice, so neither can be "marked intentional".
 
+// SIGNED (#1249, the #1214 mechanism applied to this store). `wp pp readiness acknowledge`
+// signs each row it writes: wp_hash(sha256) under the site's auth salts
+// (_pp_advisory_hmac()), over exact JSON (_pp_advisory_json()) of a purpose tag, an
+// envelope version, the site, the finding key, the note and the timestamp. The signature is
+// verified at READ time in _pp_classify_acknowledged_findings(), the one reader every
+// consumer goes through (preflight, `wp pp readiness status`, the post-apply warnings). A row
+// with no signature, or one that does not verify, acknowledges nothing: its finding keeps
+// reporting as an active warning, and the row is listed as ignored (preflight
+// `findings.ignored_acknowledgements`, and a line in `wp pp readiness status`). Rows written
+// before #1249 carry no signature and are NOT signed on upgrade (that would turn every row
+// planted before the upgrade into a valid one): they are re-acknowledged. Like #1214's
+// signature, this one does not cover the theme version, so a theme update does not re-open a
+// signed row; rotating the salts or copying the database to an environment with other salts
+// does (fail closed, re-acknowledge). The LIMITS of #1214 apply unchanged (see the
+// acknowledgement design note further down): anyone who can run code here can sign, salts
+// kept in the options table are readable by a database writer, and a signature cannot tell a
+// replay of a row that `unacknowledge` removed.
+
+/** Version of what a readiness acknowledgement signature covers; a change to the envelope bumps it. */
+const PP_READINESS_ACK_SIG_VERSION = 1;
+
 /**
- * The stored map of acknowledged findings (#496).
+ * The stored acknowledgement rows, UNVERIFIED (#1249): finding_key => ['acknowledged_at' =>
+ * string, 'note' => string, 'sig' => string ('' = none)], plus `malformed` => true for an
+ * entry that is not a row. Every stored row: the classifier's input, never a gate input on
+ * its own. The write path (`wp pp readiness
+ * acknowledge` / `unacknowledge`) reads the raw option instead and changes only the key it
+ * names: a row the read side ignores is neither dropped by a later acknowledge of another
+ * key nor re-signed by one (that would launder it).
+ */
+function _pp_stored_acknowledged_findings(): array {
+    $stored = get_option('pp_acknowledged_findings', []);
+    if (!is_array($stored)) {
+        return [];
+    }
+    $out = [];
+    foreach ($stored as $key => $entry) {
+        // Every stored row is kept, so none is dropped silently: a key PHP cast to an int
+        // (a planted '123') is read as its string, and an entry that is not a row, or a row
+        // under an empty key, is marked `malformed` (it can never verify).
+        $row = is_array($entry) ? $entry : [];
+        $out[(string) $key] = [
+            'acknowledged_at' => is_string($row['acknowledged_at'] ?? null) ? $row['acknowledged_at'] : '',
+            'note'            => is_string($row['note'] ?? null) ? $row['note'] : '',
+            'sig'             => is_string($row['sig'] ?? null) ? $row['sig'] : '',
+        ] + (is_array($entry) && (string) $key !== '' ? [] : ['malformed' => true]);
+    }
+    return $out;
+}
+
+/**
+ * Whether a stored readiness key has the plain shape of the keys the theme mints (#1249):
+ * a lowercase check name, then `:`-separated parts of letters, digits, `_`, `.`, `,`, `-`,
+ * at most 200 bytes. Only such a key is reflected (in the preflight JSON, and in a suggested
+ * command): any other stored key may carry a writer's payload, so it is named by its length.
+ */
+function pp_readiness_ack_key_is_plain(string $key): bool {
+    return preg_match('/\A[a-z][A-Za-z0-9_:.,-]{0,199}\z/', $key) === 1;
+}
+
+/** How many ignored readiness rows the read surfaces list; the rest are counted. */
+const PP_IGNORED_ACK_MAX = 50;
+
+/**
+ * The exact bytes a readiness acknowledgement signature covers (#1249), or null when they
+ * cannot be encoded exactly (invalid UTF-8 from a raw write): such a row can never verify.
+ * The same envelope as a page acknowledgement's (#1214) without the page: this store is
+ * site-wide. The key, note and timestamp are all covered, so no field can be swapped and a
+ * row cannot be moved to another key or to another site of a network.
+ */
+function _pp_readiness_ack_envelope(string $key, string $note, string $acknowledged_at): ?string {
+    return _pp_advisory_json([
+        'purpose' => 'pp-readiness-ack',
+        'v'       => PP_READINESS_ACK_SIG_VERSION,
+        'site'    => _pp_advisory_ack_site(),
+        'key'     => $key,
+        'note'    => $note,
+        'at'      => $acknowledged_at,
+    ]);
+}
+
+/** The signature `wp pp readiness acknowledge` writes for one row (#1249), or null when none can be made. */
+function _pp_readiness_ack_signature(string $key, string $note, string $acknowledged_at): ?string {
+    $envelope = _pp_readiness_ack_envelope($key, $note, $acknowledged_at);
+    return $envelope === null ? null : _pp_advisory_hmac($envelope);
+}
+
+/**
+ * Sorts the stored readiness acknowledgements by what they may do (#1249): THE verifying
+ * reader of the store. `unsigned` holds every row that acknowledges nothing, with
+ * `ack_ignored` naming why, as _pp_classify_acknowledged_advisories() does (#1214):
+ * `malformed` (not an acknowledgement row at all, or stored under an empty key), `unsigned`
+ * (no signature: written before #1249 or around the command), `unverifiable` (wp_hash()
+ * gives no usable sha256 signature here), `invalid` (does not verify: changed
+ * after it was written, bytes that cannot be encoded exactly, copied from another key or
+ * site, or signed under other salts). `trusted` holds the rest; only those acknowledge.
  *
- * Shape: finding_key => ['acknowledged_at' => ISO8601, 'note' => string].
+ * @return array{trusted: array, unsigned: array}  key => row; an ignored row carries `ack_ignored`.
+ */
+function _pp_classify_acknowledged_findings(): array {
+    $out = ['trusted' => [], 'unsigned' => []];
+    foreach (_pp_stored_acknowledged_findings() as $key => $entry) {
+        $key = (string) $key;
+        if (!empty($entry['malformed'])) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'malformed'];
+            continue;
+        }
+        if ($entry['sig'] === '') {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'unsigned'];
+            continue;
+        }
+        $envelope = _pp_readiness_ack_envelope($key, $entry['note'], $entry['acknowledged_at']);
+        if ($envelope === null) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'invalid'];
+            continue;
+        }
+        $expected = _pp_advisory_hmac($envelope);
+        if ($expected === null) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'unverifiable'];
+            continue;
+        }
+        if (!hash_equals($expected, $entry['sig'])) {
+            $out['unsigned'][$key] = $entry + ['ack_ignored' => 'invalid'];
+            continue;
+        }
+        $out['trusted'][$key] = $entry;
+    }
+    return $out;
+}
+
+/**
+ * The VERIFIED acknowledged findings (#496, signed since #1249).
+ *
+ * Shape: finding_key => ['acknowledged_at' => ISO8601, 'note' => string, 'sig' => hex].
+ * Only rows whose signature verifies (_pp_classify_acknowledged_findings()); an unsigned,
+ * tampered or corrupt row reads as none, so it can only make the report stricter.
  * READ-ONLY accessor — never writes. The explicit `wp pp readiness acknowledge`
  * / `unacknowledge` commands are the only writers, honoring the standing
  * read-only-status rule (status/preflight never mutate).
@@ -192,13 +324,41 @@ function pp_check_drift(): array {
  * @return array
  */
 function pp_acknowledged_findings(): array {
-    $stored = get_option('pp_acknowledged_findings', []);
-    return is_array($stored) ? $stored : [];
+    return _pp_classify_acknowledged_findings()['trusted'];
+}
+
+/**
+ * The stored rows that acknowledge nothing (#1249), for the read surfaces: one entry per row,
+ * `finding_key`, `key_bytes`, `ack_ignored` (malformed | unsigned | unverifiable | invalid) and
+ * `acknowledged_at`. BOUNDED BY STORED DATA: at most PP_IGNORED_ACK_MAX rows ($total says how
+ * many there are), and stored bytes are reflected only in a plain shape: a key that is not
+ * plain (pp_readiness_ack_key_is_plain()) reads as `finding_key` null, named by `key_bytes`,
+ * and a timestamp that is not a plain date-time reads as ''.
+ *
+ * @param  int|null $total  Set to the number of ignored rows stored.
+ * @return list<array{finding_key: ?string, key_bytes: int, ack_ignored: string, acknowledged_at: string}>
+ */
+function pp_ignored_finding_acknowledgements(?int &$total = null): array {
+    $rows  = _pp_classify_acknowledged_findings()['unsigned'];
+    $total = count($rows);
+    $out   = [];
+    foreach (array_slice($rows, 0, PP_IGNORED_ACK_MAX, true) as $key => $entry) {
+        $key   = (string) $key;
+        $at    = (string) $entry['acknowledged_at'];
+        $out[] = [
+            'finding_key'     => pp_readiness_ack_key_is_plain($key) ? $key : null,
+            'key_bytes'       => strlen($key),
+            'ack_ignored'     => $entry['ack_ignored'],
+            'acknowledged_at' => preg_match('/\A[0-9][0-9T:+.Z-]{0,39}\z/', $at) === 1 ? $at : '',
+        ];
+    }
+    return $out;
 }
 
 /**
  * Stamps `acknowledged` (+ note/timestamp) onto configuration findings whose
- * finding_key is recorded in pp_acknowledged_findings() (#496).
+ * finding_key is recorded in pp_acknowledged_findings() (#496), the verified rows only
+ * (#1249).
  *
  * Central, single-pass enrichment so acknowledgement logic lives in ONE place
  * rather than being scattered across each finding source. Pure w.r.t. the
@@ -998,6 +1158,10 @@ function pp_preflight(array $context = [], ?array $drift = null): array {
     // pp_preflight() stays read-only.
     $checks   = pp_apply_finding_acknowledgements($checks);
     $findings = pp_classify_findings($checks);
+    // SAID, NOT SILENT (#1249): stored rows that acknowledge nothing (no valid signature)
+    // are listed, so an operator can re-acknowledge or remove them.
+    $findings['ignored_acknowledgements']       = pp_ignored_finding_acknowledgements($ignored_total);
+    $findings['ignored_acknowledgements_total'] = $ignored_total;
 
     return [
         'ok'       => $all_pass,
@@ -3576,8 +3740,10 @@ function pp_patch_composition(int $post_id, string $selector_string, string $val
 //          acknowledged (the key binds it). Salts that WordPress cannot keep (none in
 //          wp-config.php and an options table it cannot write) change per process: the command
 //          then reports success, but every later read lists the row as ignored. The readiness
-//          acknowledgements (option `pp_acknowledged_findings`, #496) are a separate store and
-//          are not signed. wp_hash() is pluggable: an override is held to the sha256 shape and
+//          acknowledgements (option `pp_acknowledged_findings`, #496) are a separate store,
+//          signed the same way since #1249 (the SIGNED note above PP_READINESS_ACK_SIG_VERSION);
+//          so are the stored verification markers (`_pp_content_verified`,
+//          lib/content-render.php). wp_hash() is pluggable: an override is held to the sha256 shape and
 //          refused when it returns the unsalted digest, but one that keeps the shape and
 //          ignores the salt makes every row forgeable, and nothing here can tell.
 

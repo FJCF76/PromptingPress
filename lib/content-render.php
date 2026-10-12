@@ -36,7 +36,10 @@
  * (`_pp_content_verified`). A heading stored before the gate (`The <span> element`, written
  * as text) therefore keeps rendering as the text it was, even though it would pass the
  * predicate today; a heading that FAILS the predicate renders fully escaped too, and is
- * listed by the census. Restores (#233) and raw meta writes never add a hash.
+ * listed by the census. Restores (#233) and raw meta writes never add a hash: the stored
+ * markers are signed with the site's salts like an acknowledgement (#1214's mechanism), and
+ * a marker whose signature is missing or does not verify vouches for nothing
+ * (pp_content_vouched_classified()).
  *
  * NO try/catch here (§2.4). The legacy path (_pp_content_legacy_html()) does enter kses, so
  * every catch that can enclose a component render re-hooks `pre_kses` in its `finally`
@@ -330,13 +333,75 @@ function pp_content_value_hash(string $value): string {
  *   h  a title or heading whose markup a gated write admitted (it renders as markup);
  *   f  a content value a FULL-tier gated write admitted (it renders with the widened set;
  *      every other stored value renders at core `post` parity, ruling Q1).
- * Stored as one JSON list of 33-character entries (kind + hash). Decoded once per stored
- * value: the memo is keyed by the meta row's exact bytes.
+ * VERIFIED markers only (pp_content_vouched_classified()): a marker whose signature is
+ * missing or does not verify vouches for nothing, so its value renders exactly as if it had
+ * never been vouched.
  *
  * @return array{h: array<string,true>, f: array<string,true>}
  */
 function pp_content_vouched(int $post_id): array {
-    $none = ['h' => [], 'f' => []];
+    return pp_content_vouched_classified($post_id)['trusted'];
+}
+
+/** Version of what a stored-marker signature covers; a change to the envelope bumps it. */
+const PP_CONTENT_VERIFIED_SIG_VERSION = 1;
+
+/**
+ * The exact bytes a page's stored-marker signature covers (#1249 companion: the #1214
+ * mechanism): a purpose tag, the envelope version, the site, the page and the signed list of
+ * 33-character entries (kind + hash), in stored order. Like an acknowledgement's signature it
+ * does not cover the theme version. Null when the list cannot be encoded exactly.
+ */
+function _pp_content_verified_envelope(int $post_id, array $list): ?string {
+    return _pp_advisory_json([
+        'purpose' => 'pp-content-verified',
+        'v'       => PP_CONTENT_VERIFIED_SIG_VERSION,
+        'site'    => _pp_advisory_ack_site(),
+        'post'    => $post_id,
+        'list'    => array_values($list),
+    ]);
+}
+
+/** The signature the one marker writer stores for a list, or null when none can be made. */
+function _pp_content_verified_signature(int $post_id, array $list): ?string {
+    $envelope = _pp_content_verified_envelope($post_id, $list);
+    return $envelope === null ? null : _pp_advisory_hmac($envelope);
+}
+
+/** The well-formed 33-character entries of a decoded list, in order (anything else is dropped). */
+function _pp_content_verified_entries($list): array {
+    $out = [];
+    foreach (is_array($list) ? $list : [] as $entry) {
+        if (is_string($entry) && preg_match('/\A[hf][0-9a-f]{32}\z/', $entry) === 1) {
+            $out[] = $entry;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Reads a page's stored markers and sorts them by what they may do: THE verifying reader of
+ * `_pp_content_verified`, which the render, the census and the commit all go through.
+ *
+ * Stored as JSON `{"v":1,"list":[...],"sig":"<hex>","unverified":[...]}`: `sig` signs `list`
+ * (_pp_content_verified_envelope()); `unverified` carries, inert, markers that were stored
+ * without a valid signature (kept, never re-signed). Anything else is unverified, with
+ * `ignored` naming why, as an ignored acknowledgement does (#1214): `unsigned` (a bare list,
+ * the format before signing, or no signature: written before signing or around the writer),
+ * `unverifiable` (wp_hash() gives no usable sha256 signature here) or `invalid` (does not
+ * verify: changed after it was written, copied from another page or site, or signed under
+ * other salts). Only `trusted` markers vouch. $fresh skips the memo (the writer classifies
+ * under its lock, so a result from before a salt or wp_hash() change in the same long process
+ * never decides what it signs). Decoded once per stored value otherwise: the memo is
+ * keyed by the meta row's exact bytes.
+ *
+ * @return array{trusted: array{h: array<string,true>, f: array<string,true>}, unverified: list<string>, ignored: string}
+ *         `ignored`: why the stored list vouches for nothing ('' when it verifies or is empty),
+ *         for diagnostics and tests; the operator-facing report of what renders narrower is
+ *         the census (`content_stripped_at_render`), which reads the trusted sets.
+ */
+function pp_content_vouched_classified(int $post_id, bool $fresh = false): array {
+    $none = ['trusted' => ['h' => [], 'f' => []], 'unverified' => [], 'ignored' => ''];
     if ($post_id < 1) {
         return $none;
     }
@@ -345,17 +410,47 @@ function pp_content_vouched(int $post_id): array {
     if (!is_string($raw) || $raw === '') {
         return $none;
     }
-    if (isset($memo[$post_id]) && $memo[$post_id][0] === $raw) {
-        return $memo[$post_id][1];
+    // Keyed by the exact bytes AND the site they are verified for (the site is signed in),
+    // held apart so the hit test compares the same refcounted string, never a fresh copy.
+    $site = _pp_advisory_ack_site();
+    if (!$fresh && isset($memo[$post_id]) && $memo[$post_id][0] === $site && $memo[$post_id][1] === $raw) {
+        return $memo[$post_id][2];
     }
-    $list = json_decode($raw, true);
+    $decoded = json_decode($raw, true);
     $out = $none;
-    foreach (is_array($list) ? $list : [] as $entry) {
-        if (is_string($entry) && preg_match('/^([hf])([0-9a-f]{32})\z/', $entry, $m)) {
-            $out[$m[1]][$m[2]] = true;
+    if (is_array($decoded) && pp_is_list($decoded)) {
+        // The format before signing: every entry is unverified.
+        $out['unverified'] = _pp_content_verified_entries($decoded);
+        $out['ignored'] = $out['unverified'] === [] ? '' : 'unsigned';
+    } elseif (is_array($decoded)) {
+        $list = _pp_content_verified_entries($decoded['list'] ?? null);
+        $carried = _pp_content_verified_entries($decoded['unverified'] ?? null);
+        $sig = is_string($decoded['sig'] ?? null) ? $decoded['sig'] : '';
+        $ignored = '';
+        if ($list !== []) {
+            if ($sig === '' || ($decoded['list'] ?? null) !== $list) {
+                // No signature, or a list holding anything the writer never writes.
+                $ignored = $sig === '' ? 'unsigned' : 'invalid';
+            } else {
+                $expected = _pp_content_verified_signature($post_id, $list);
+                if ($expected === null) {
+                    $ignored = 'unverifiable';
+                } elseif (!hash_equals($expected, $sig)) {
+                    $ignored = 'invalid';
+                }
+            }
         }
+        if ($ignored === '') {
+            foreach ($list as $entry) {
+                $out['trusted'][$entry[0]][substr($entry, 1)] = true;
+            }
+            $out['unverified'] = $carried;
+        } else {
+            $out['unverified'] = array_values(array_unique(array_merge($list, $carried)));
+        }
+        $out['ignored'] = $ignored;
     }
-    $memo[$post_id] = [$raw, $out];
+    $memo[$post_id] = [$site, $raw, $out];
     return $out;
 }
 
@@ -496,8 +591,10 @@ function pp_content_note_vouches(array $vouches, ?string $scope = null): void {
 /**
  * The commit half: called by pp_update_composition() under its lock, after it stores the
  * composition. Records what the gate vouched for in this write that the stored composition
- * holds, and consumes the registry. Keeps the earlier entries, newest first, bounded (entries
- * the composition no longer holds are the first to go).
+ * holds, and consumes the registry. Keeps the earlier entries that verify, newest first,
+ * bounded (entries the composition no longer holds are the first to go), and signs the list.
+ * Earlier entries that do not verify are carried, inert and unsigned, under `unverified` in
+ * the space the bound leaves. When no signature can be made, nothing is written.
  */
 function pp_content_record_verified(int $post_id, array $composition): void {
     $noted = pp_content_reset_vouches();
@@ -527,8 +624,13 @@ function pp_content_record_verified(int $post_id, array $composition): void {
     if (function_exists('wp_cache_delete')) {
         wp_cache_delete($post_id, 'post_meta');
     }
+    // SIGNED: only markers that verify now are carried into the signed list. A stored marker
+    // that does not verify is carried INERT under `unverified` and never signed here (that
+    // would turn a planted marker into a valid one); only a gated write that sends its value
+    // as new bytes vouches for it again.
+    $stored = pp_content_vouched_classified($post_id, true);
     $old = [];
-    foreach (pp_content_vouched($post_id) as $kind => $set) {
+    foreach ($stored['trusted'] as $kind => $set) {
         foreach (array_keys($set) as $hash) {
             $old[] = $kind . $hash;
         }
@@ -539,7 +641,19 @@ function pp_content_record_verified(int $post_id, array $composition): void {
         $rest = array_values(array_filter($list, static fn ($e) => !isset($present[substr($e, 1)])));
         $list = array_slice(array_merge($keep, $rest), 0, PP_CONTENT_VERIFIED_MAX);
     }
-    update_post_meta($post_id, PP_CONTENT_VERIFIED_META, wp_json_encode($list));
+    $sig = _pp_content_verified_signature($post_id, $list);
+    if ($sig === null) {
+        // FAIL CLOSED: no signature can be made here (wp_hash()), so nothing is recorded and
+        // the stored row stays as it was; the new values render as unvouched.
+        return;
+    }
+    $unverified = array_values(array_diff($stored['unverified'], $list));
+    $unverified = array_slice($unverified, 0, max(0, PP_CONTENT_VERIFIED_MAX - count($list)));
+    $row = ['v' => PP_CONTENT_VERIFIED_SIG_VERSION, 'list' => $list, 'sig' => $sig];
+    if ($unverified !== []) {
+        $row['unverified'] = $unverified;
+    }
+    update_post_meta($post_id, PP_CONTENT_VERIFIED_META, wp_json_encode($row));
 }
 
 /**

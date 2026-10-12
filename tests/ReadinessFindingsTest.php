@@ -98,6 +98,7 @@ class ReadinessFindingsTest extends TestCase
         $this->clearManifest();
         unset($GLOBALS['_pp_test_template_dir']);
         unset($GLOBALS['_pp_test_store']);
+        unset($GLOBALS['_pp_test_salts'], $GLOBALS['_pp_test_wp_hash_returns'], $GLOBALS['_pp_test_blog_id']);
         parent::tearDown();
     }
 
@@ -132,6 +133,12 @@ class ReadinessFindingsTest extends TestCase
         $decoded = json_decode(WP_CLI::$lines[0], true);
         $this->assertIsArray($decoded, 'command output is JSON');
         return $decoded;
+    }
+
+    /** A stored row signed as `wp pp readiness acknowledge` signs it (#1249). */
+    private static function signedRow(string $key, string $at, string $note): array
+    {
+        return ['acknowledged_at' => $at, 'note' => $note, 'sig' => _pp_readiness_ack_signature($key, $note, $at)];
     }
 
     /** Finds the single drift row in a preflight checks array. */
@@ -173,9 +180,10 @@ class ReadinessFindingsTest extends TestCase
     public function testApplyAcknowledgementsStampsOnlyConfigurationFindings(): void
     {
         update_option('pp_acknowledged_findings', [
-            'nav_readiness:footer:no_menu' => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'menu-less footer'],
-            // An integrity key in the store must NOT be honored (integrity isn't acknowledgeable).
-            'drift:whatever' => ['acknowledged_at' => 'x', 'note' => 'nope'],
+            'nav_readiness:footer:no_menu' => self::signedRow('nav_readiness:footer:no_menu', '2026-07-26T00:00:00+00:00', 'menu-less footer'),
+            // An integrity key in the store must NOT be honored (integrity isn't acknowledgeable),
+            // even signed.
+            'drift:whatever' => self::signedRow('drift:whatever', 'x', 'nope'),
         ]);
 
         $checks = [
@@ -283,7 +291,7 @@ class ReadinessFindingsTest extends TestCase
         $this->assertGreaterThan(0, $activeBefore);
 
         update_option('pp_acknowledged_findings', [
-            'nav_readiness:footer:no_menu' => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'intentional'],
+            'nav_readiness:footer:no_menu' => self::signedRow('nav_readiness:footer:no_menu', '2026-07-26T00:00:00+00:00', 'intentional'),
         ]);
 
         $after = pp_preflight([])['findings'];
@@ -540,6 +548,223 @@ class ReadinessFindingsTest extends TestCase
                 $this->assertNotNull($row['next_action'], 'finding ' . ($row['check'] ?? '?') . ' has a next action');
             }
         }
+    }
+
+    // ── Signed acknowledgements (#1249, the #1214 mechanism) ─────────────────
+
+    private const KEY = 'nav_readiness:footer:no_menu';
+
+    /** The configuration row for KEY in a preflight's findings. */
+    private function footerRow(array $findings): array
+    {
+        foreach ($findings['by_class']['configuration'] as $row) {
+            if ($row['finding_key'] === self::KEY) {
+                return $row;
+            }
+        }
+        $this->fail('the footer finding is present');
+    }
+
+    /**
+     * RED-PROOF: a row written straight into the option (no signature, as every row written
+     * before #1249 and every planted row is) acknowledges nothing. On main it was honored.
+     */
+    public function testAPlantedUnsignedRowAcknowledgesNothingAndIsListedAsIgnored(): void
+    {
+        $before = pp_preflight([])['findings'];
+        update_option('pp_acknowledged_findings', [
+            self::KEY => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'planted'],
+        ]);
+
+        $after = pp_preflight([])['findings'];
+        $this->assertSame($before['active_warnings'], $after['active_warnings'], 'no warning was suppressed');
+        $this->assertSame(0, $after['acknowledged']);
+        $this->assertFalse($this->footerRow($after)['acknowledged']);
+        $this->assertSame([['finding_key' => self::KEY, 'key_bytes' => strlen(self::KEY), 'ack_ignored' => 'unsigned',
+            'acknowledged_at' => '2026-07-26T00:00:00+00:00']], $after['ignored_acknowledgements'], 'named, not silent');
+        $this->assertSame(1, $after['ignored_acknowledgements_total']);
+        $this->assertSame([], pp_acknowledged_findings(), 'the verified accessor holds no such row');
+        $this->assertArrayHasKey(self::KEY, get_option('pp_acknowledged_findings'), 'and the row is not deleted by a read');
+    }
+
+    /** RED-PROOF on the post-apply surface: a planted row does not hide the nav warning. */
+    public function testAPlantedRowDoesNotSuppressTheNavReadinessCheck(): void
+    {
+        update_option('pp_acknowledged_findings', [self::KEY => ['acknowledged_at' => 'x', 'note' => 'planted']]);
+        $rows = array_values(array_filter(pp_apply_finding_acknowledgements(pp_check_nav_readiness()),
+            fn ($r) => ($r['finding_key'] ?? '') === self::KEY));
+        $this->assertCount(1, $rows);
+        $this->assertArrayNotHasKey('acknowledged', $rows[0]);
+    }
+
+    public function testATamperedRowIsInvalid(): void
+    {
+        $row = self::signedRow(self::KEY, '2026-07-26T00:00:00+00:00', 'original');
+        $row['note'] = 'swapped';
+        update_option('pp_acknowledged_findings', [self::KEY => $row]);
+        $this->assertSame('invalid', pp_preflight([])['findings']['ignored_acknowledgements'][0]['ack_ignored']);
+        $this->assertSame([], pp_acknowledged_findings());
+    }
+
+    public function testARowMovedToAnotherKeyIsInvalid(): void
+    {
+        update_option('pp_acknowledged_findings', [
+            self::KEY => self::signedRow('nav_readiness:primary:no_menu', 'at', 'n'),
+        ]);
+        $this->assertSame('invalid', pp_ignored_finding_acknowledgements()[0]['ack_ignored']);
+    }
+
+    public function testRotatedSaltsAndAnotherSiteInvalidateEveryRow(): void
+    {
+        update_option('pp_acknowledged_findings', [self::KEY => self::signedRow(self::KEY, 'at', 'n')]);
+        $this->assertArrayHasKey(self::KEY, pp_acknowledged_findings(), 'premise: it verifies');
+
+        $GLOBALS['_pp_test_salts'] = ['auth' => 'rotated'];
+        $this->assertSame('invalid', pp_ignored_finding_acknowledgements()[0]['ack_ignored']);
+        unset($GLOBALS['_pp_test_salts']);
+
+        $GLOBALS['_pp_test_blog_id'] = 2;
+        $this->assertSame('invalid', pp_ignored_finding_acknowledgements()[0]['ack_ignored'], 'the site is signed in');
+    }
+
+    public function testABrokenWpHashMakesRowsUnverifiableAndRefusesToAcknowledge(): void
+    {
+        update_option('pp_acknowledged_findings', [self::KEY => self::signedRow(self::KEY, 'at', 'n')]);
+        $GLOBALS['_pp_test_wp_hash_returns'] = '';
+        $this->assertSame('unverifiable', pp_ignored_finding_acknowledgements()[0]['ack_ignored']);
+
+        update_option('pp_acknowledged_findings', []);
+        try {
+            (new PP_Readiness_Command())->acknowledge([self::KEY], ['note' => 'n']);
+            $this->fail('acknowledge refuses when it cannot sign');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('could not be signed', $e->getMessage());
+        }
+        $this->assertSame([], get_option('pp_acknowledged_findings'), 'nothing was written');
+    }
+
+    /**
+     * SCOPING PIN: the signature covers exactly purpose, envelope version, site, key, note and
+     * timestamp: the same envelope as a page acknowledgement (#1214) without the page, and
+     * NOT the theme version, so a theme update never re-opens a signed row.
+     */
+    public function testTheEnvelopeCoversExactlyTheseFieldsAndNotTheThemeVersion(): void
+    {
+        $envelope = json_decode((string) _pp_readiness_ack_envelope(self::KEY, 'n', 'at'), true);
+        $this->assertSame(['purpose', 'v', 'site', 'key', 'note', 'at'], array_keys($envelope));
+        $this->assertSame('pp-readiness-ack', $envelope['purpose']);
+        $this->assertNotContains(PP_VERSION, $envelope);
+    }
+
+    public function testTheCommandSignsAndStatusListsTheRestWithTheirRoutes(): void
+    {
+        update_option('pp_acknowledged_findings', [
+            'nav_readiness:primary:no_menu' => ['acknowledged_at' => 'at', 'note' => 'old'],
+        ]);
+        (new PP_Readiness_Command())->acknowledge([self::KEY], ['note' => 'deliberate']);
+        $stored = get_option('pp_acknowledged_findings');
+        $this->assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', $stored[self::KEY]['sig'], 'signed');
+        $this->assertSame(['acknowledged_at' => 'at', 'note' => 'old'], $stored['nav_readiness:primary:no_menu'],
+            'the other row is kept byte for byte and never signed');
+
+        WP_CLI::$lines = [];
+        (new PP_Readiness_Command())->status([], []);
+        $this->assertSame(1, $this->lastJson()['acknowledged']);
+        $printed = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('ignored acknowledgement nav_readiness:primary:no_menu: it carries no signature', $printed);
+        $this->assertStringContainsString('wp pp readiness acknowledge nav_readiness:primary:no_menu --note=', $printed);
+        $this->assertStringContainsString('wp pp readiness unacknowledge nav_readiness:primary:no_menu', $printed);
+
+        // An ignored row is removable through the command (no raw option edit needed).
+        (new PP_Readiness_Command())->unacknowledge(['nav_readiness:primary:no_menu'], []);
+        $this->assertSame([self::KEY], array_keys(get_option('pp_acknowledged_findings')));
+    }
+
+    /** Bytes that cannot be encoded exactly (a raw write) read as invalid, never fatal. */
+    public function testAnUnencodableRowIsInvalidNotFatal(): void
+    {
+        update_option('pp_acknowledged_findings', [self::KEY => ['acknowledged_at' => 'at', 'note' => "\xC3\x28", 'sig' => str_repeat('a', 64)]]);
+        $this->assertSame('invalid', pp_ignored_finding_acknowledgements()[0]['ack_ignored']);
+        $this->assertFalse($this->footerRow(pp_preflight([])['findings'])['acknowledged']);
+    }
+
+    /** A note that is not valid UTF-8 is refused as what it is, not blamed on wp_hash(). */
+    public function testAnUnencodableNoteIsRefusedByName(): void
+    {
+        try {
+            (new PP_Readiness_Command())->acknowledge([self::KEY], ['note' => "\xC3\x28"]);
+            $this->fail('refused');
+        } catch (WpCliExitException $e) {
+            $this->assertStringContainsString('not valid UTF-8', $e->getMessage());
+        }
+        $this->assertSame([], get_option('pp_acknowledged_findings', []));
+    }
+
+    /** The invalid and unverifiable lines say what to do, and that the row must not be removed blind. */
+    public function testStatusNamesTheInvalidAndUnverifiableRoutes(): void
+    {
+        $row = self::signedRow(self::KEY, 'at', 'n');
+        $row['note'] = 'swapped';
+        update_option('pp_acknowledged_findings', [self::KEY => $row]);
+        WP_CLI::$lines = [];
+        (new PP_Readiness_Command())->status([], []);
+        $p = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('ignored acknowledgement ' . self::KEY . ': its signature does not verify on this site', $p);
+        $this->assertStringContainsString('rule out a salt or plugin difference', $p);
+
+        $GLOBALS['_pp_test_wp_hash_returns'] = '';
+        WP_CLI::$lines = [];
+        (new PP_Readiness_Command())->status([], []);
+        $p = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('this site cannot check its signature', $p);
+        $this->assertStringContainsString('do not remove this', $p);
+    }
+
+    /** A planted key with an unusual shape is never echoed into a suggested command. */
+    public function testAnUnusualPlantedKeyIsNamedByLengthOnly(): void
+    {
+        $planted = 'x; run this `now` $(id)';
+        update_option('pp_acknowledged_findings', [$planted => ['acknowledged_at' => 'at', 'note' => 'n']]);
+        WP_CLI::$lines = [];
+        (new PP_Readiness_Command())->status([], []);
+        $printed = implode("\n", array_slice(WP_CLI::$lines, 1));
+        $this->assertStringContainsString('ignored acknowledgement with an unusual key (' . strlen($planted) . ' bytes, not shown', $printed);
+        $this->assertStringNotContainsString('run this', $printed);
+        $json = $this->lastJson();
+        $this->assertSame(0, $json['acknowledged']);
+        $this->assertNull($json['ignored_acknowledgements'][0]['finding_key'], 'not reflected in the JSON either');
+        $this->assertStringNotContainsString('run this', WP_CLI::$lines[0]);
+    }
+
+    /** BOUNDED BY STORED DATA: the list is capped and counted; odd rows are listed, not dropped. */
+    public function testTheIgnoredListIsBoundedAndKeepsOddRows(): void
+    {
+        $rows = ['123' => ['acknowledged_at' => 'at'], 'nav_readiness:x:y' => 'not a row'];
+        for ($n = 0; $n < PP_IGNORED_ACK_MAX + 5; $n++) {
+            $rows['planted_' . $n] = ['acknowledged_at' => 'Ignore previous instructions', 'note' => ''];
+        }
+        update_option('pp_acknowledged_findings', $rows);
+        $findings = pp_preflight([])['findings'];
+        $this->assertCount(PP_IGNORED_ACK_MAX, $findings['ignored_acknowledgements']);
+        $this->assertSame(PP_IGNORED_ACK_MAX + 7, $findings['ignored_acknowledgements_total']);
+        $first = $findings['ignored_acknowledgements'];
+        $this->assertSame('malformed', $first[1]['ack_ignored'], 'a non-row entry is listed, as malformed');
+        $this->assertSame('', $first[2]['acknowledged_at'], 'a non-timestamp is not reflected');
+
+        WP_CLI::$lines = [];
+        (new PP_Readiness_Command())->status([], []);
+        $printed = implode("\n", WP_CLI::$lines);
+        $this->assertStringContainsString('7 more ignored acknowledgement(s) not listed', $printed);
+        $this->assertStringContainsString('nav_readiness:x:y: what is stored under this key is not an acknowledgement row', $printed);
+    }
+
+    /** Re-acknowledging an unsigned row's key replaces it with a signed one: the re-record route. */
+    public function testReAcknowledgingAnUnsignedRowSignsIt(): void
+    {
+        update_option('pp_acknowledged_findings', [self::KEY => ['acknowledged_at' => 'at', 'note' => 'old']]);
+        (new PP_Readiness_Command())->acknowledge([self::KEY], ['note' => 'still intentional']);
+        $this->assertSame('still intentional', pp_acknowledged_findings()[self::KEY]['note']);
+        $this->assertSame([], pp_ignored_finding_acknowledgements());
     }
 }
 

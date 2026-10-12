@@ -189,6 +189,75 @@ the page's default title, with the PHP deprecation notice recorded in #914.
 - `EmptyPageTitleWriteRefusalTest`: the test that recorded the #931 crash now checks that
   `create_page` and `update_page_title` both refuse a null title with `invalid_param_type`.
 
+### Readiness acknowledgements and stored verification markers are signed (#1249)
+
+**Behaviour change, stricter: readiness acknowledgements and the stored verification markers made
+before this release count for nothing until they are recorded again.** Since 2.1.0 the page
+acknowledgements (`wp pp check acknowledge`) are signed with the site's salts and checked on every
+read (#1214). Two other stored records were still trusted by their presence alone: the readiness
+acknowledgements (`wp pp readiness acknowledge`, the `pp_acknowledged_findings` option) and the
+markers a checked write stores beside a page's content to record which values a trusted write
+admitted (`_pp_content_verified`). Both are now signed the same way, with `wp_hash()` (sha256)
+under `AUTH_KEY` and `AUTH_SALT`, and a record that does not verify is treated as absent.
+
+**What you will see after upgrading:**
+- Every readiness acknowledgement made before this release is unsigned. Its finding reports as an
+  active warning again, and `wp pp readiness status` lists the row as an ignored acknowledgement
+  with the reason (the same reasons as #1214: no signature, does not verify, cannot be checked
+  here). Re-acknowledge the ones that are still intentional with
+  `wp pp readiness acknowledge <finding-key> --note="..."`, or remove one with
+  `wp pp readiness unacknowledge <finding-key>`. Preflight lists the same rows in
+  `findings.ignored_acknowledgements` (at most 50, with `ignored_acknowledgements_total`; a key
+  that is not shaped like a key the theme mints is named by its length only).
+- Every verification marker stored before this release is unsigned, so the value it covered renders
+  as if no checked write had admitted it: a markup title as text, full-tier content without what
+  only a trusted write may carry. `wp pp check page` and `wp pp content census` report each one
+  under `content_stripped_at_render` (clause `unverified` for a title, `unfiltered_html` for a
+  body). Re-saving the same bytes does not re-record a marker; write the value twice through a
+  checked write (changed, then back to its original bytes), as a user with `unfiltered_html` or
+  from WP-CLI. See `ai-instructions/validate-site.md`.
+
+Nothing is signed on upgrade, and nothing is deleted: signing whatever the database held at upgrade
+time would make any record planted before it valid. The signature does not cover the theme version,
+so later theme updates do not re-open signed records; rotating the salts or copying the database to
+an environment with other salts does (fail closed: record again). The limits #1214 discloses apply
+unchanged.
+
+**Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so after a rollback every
+marker vouches for nothing there (markup titles render as text, full-tier content at core parity),
+and a checked write made on 2.1.0 replaces the page's markers with an unsigned list. After rolling
+forward again those pages need their values re-recorded as above. 2.1.0 also honors readiness
+acknowledgements without checking a signature, as it did before.
+
+### Fixed
+- `pp_apply_finding_acknowledgements()` honors only rows whose signature verifies
+  (`_pp_classify_acknowledged_findings()`), so preflight, `wp pp readiness status` and the
+  post-apply warning list agree. `wp pp readiness acknowledge` signs its row and refuses when
+  `wp_hash()` gives no salted sha256 signature; `unacknowledge` can remove an ignored row. Both
+  write back the other rows byte for byte and never sign them.
+- `pp_content_vouched()` returns only verified markers (`pp_content_vouched_classified()`); the
+  render, the census and the commit read through it. The one marker writer signs the list it
+  stores, carries markers that do not verify unsigned and inert, and records nothing when no
+  signature can be made.
+
+### Docs
+- `ai-instructions/validate-site.md` and `docs/reference-apply-cli.md`: the signed readiness
+  acknowledgements, the ignored-row routes, and how to re-record a verification marker.
+
+### Tests
+- `tests/ReadinessFindingsTest.php`: an unsigned row acknowledges nothing and is listed as ignored
+  (red on main, where it suppressed the warning in preflight and in the nav-readiness check); a
+  tampered row, a row moved to another key, rotated salts and another site read as `invalid`; a
+  broken `wp_hash()` reads as `unverifiable` and refuses to acknowledge; the command signs, keeps the
+  other rows byte for byte, re-acknowledging signs an unsigned row, and `status` prints the routes;
+  the envelope's fields are pinned (no theme version).
+- `tests/ContentRenderTest.php`: a marker list in the pre-signing format, an unsigned object, a
+  tampered list, a list signed for another page, site or salt, and a broken `wp_hash()` all render
+  the title as text and the body at core parity (red on main, where the bare list widened both); a
+  checked write records a signed list and carries an unverified marker without signing it; the
+  envelope's fields are pinned (no theme version). Existing fixtures that planted raw markers or
+  readiness rows now store signed ones.
+
 ---
 
 ## [v2.1.0] — 2026-10-05 — v2 Sprint 6, Layer 3, the content-freedom contract: content is checked when it is written (refused by name, never silently stripped), what a trusted writer saves renders as written, every band takes a scoped style sheet, a new `custom` band carries your own HTML with editable islands, `wp pp content census` lists stored content that renders differently, and the editor preview and the chat are hardened (#1242; #1214, #1200, #1122)

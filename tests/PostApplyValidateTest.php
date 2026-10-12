@@ -578,7 +578,8 @@ class PostApplyValidateTest extends TestCase
 
         // Acknowledge it → the warning is gone from the report.
         update_option('pp_acknowledged_findings', [
-            'nav_readiness:footer:no_menu' => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'intentional'],
+            'nav_readiness:footer:no_menu' => ['acknowledged_at' => '2026-07-26T00:00:00+00:00', 'note' => 'intentional',
+                'sig' => _pp_readiness_ack_signature('nav_readiness:footer:no_menu', 'intentional', '2026-07-26T00:00:00+00:00')],
         ]);
         $after = pp_post_apply_validate($this->postId);
         $navAfter = array_filter($after['warnings'], fn($w) => $w['check'] === 'nav_readiness');
