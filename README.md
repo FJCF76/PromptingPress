@@ -67,7 +67,7 @@ PromptingPress goes the other direction:
 
 ### Requirements
 
-- WordPress 7.0+
+- WordPress 7.0+ (single-site; WordPress multisite is untested and unsupported)
 - PHP 8.0+
 - No build step — vanilla PHP, CSS, and JS
 

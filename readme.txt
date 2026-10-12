@@ -11,6 +11,8 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 An AI-first WordPress theme built for clarity. PromptingPress uses a component-based rendering system with typed props, machine-readable schemas, and a single AI_CONTEXT.md that maps the entire site. Designed so AI agents can build, modify, and maintain WordPress sites through structured composition data.
 
+PromptingPress is a single-site theme; WordPress multisite is untested and unsupported.
+
 == Installation ==
 
 1. Download the theme ZIP file from the GitHub releases page.
