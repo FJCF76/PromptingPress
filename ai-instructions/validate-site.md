@@ -314,19 +314,23 @@ shown, only its length: read the option (`wp option get pp_acknowledged_findings
 The marker a checked write stores beside a page's content (which values a trusted write admitted,
 so a markup title renders as markup and full-tier content renders with the wider set) is signed
 too. A marker without a valid signature vouches for nothing: the value renders exactly as if no
-checked write had admitted it, and `check page` / `wp pp content census` report it under
-`content_stripped_at_render` (a title as `unverified`, rendered as text; a body as
-`unfiltered_html`, rendered without what only a trusted write may carry). Every marker stored
+checked write had admitted it. `wp pp content census` lists each one (a title as `unverified`,
+rendered as text; a body as `unfiltered_html`, rendered without what only a trusted write may
+carry). `check page` and `validate site` report only the body ones, as
+`content_stripped_at_render`: an unverified title fails neither, so the census is the only place
+it shows. Every marker stored
 before #1249 reads this way, and none is signed on upgrade. Re-saving the same bytes does not
 re-record one, because a checked write only vouches for what it sends as NEW bytes. To re-record
 a value, write it twice through a checked write as a user with `unfiltered_html` (or from WP-CLI):
 once changed (for example `update_component` with the prop altered), then back to its original
-bytes; the second write records it signed.
+bytes; the second write records it signed. If the same value appears more than once on the page,
+change every copy before writing any of them back.
 On an install that sets `DISALLOW_UNFILTERED_HTML` to true, no user and no WP-CLI run has
 `unfiltered_html`, so this route records at core's `post` level only: a value beyond that set is
 refused by name (clause `unfiltered_html`) and keeps rendering at core parity.
 Rolling the theme back to 2.1.0 stops reading the signed markers (every value renders as
-unvouched there), and a checked write there replaces them with an unsigned list: after rolling
+unvouched there), and a checked write there that admits new markup replaces them with an
+unsigned list: after rolling
 forward, re-record those values the same way.
 
 **Addressing (#726).** `check page` and `validate page` each take `--post_id=<id>` and nothing else (`validate site` is site-scoped and takes no page address) — a numeric post ID in canonical decimal form. `00019`, `19abc`, `1.5` and a bare `--post_id` are refused by name rather than silently read as some other page, and a slug or URL is never resolved. A refusal always names the flag, shows the corrected shape, and never tells you a flag you just typed is missing. Full contract: `docs/reference-apply-cli.md`.
