@@ -536,8 +536,9 @@ unchanged.
 **Rolling back to 2.1.0.** 2.1.0 does not read the signed marker format, so after a rollback a
 page whose markers a 2.1.1 write recorded renders unvouched there (markup titles as text, full-tier
 content at core parity); other pages render as before. A checked write made on 2.1.0 that admits
-new markup to such a page deletes all of its stored markers, so after rolling forward again run
-`wp pp content census` and re-record every row it lists for that page. 2.1.0 also honors readiness
+new markup to such a page deletes all of its stored markers, so save the census before rolling back
+and, after rolling forward again, re-record, as in Upgrading step 3, only the rows that are new
+compared with it. 2.1.0 also honors readiness
 acknowledgements without checking a signature, as it did before.
 
 ##### Fixed
