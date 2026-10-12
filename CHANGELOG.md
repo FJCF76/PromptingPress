@@ -105,8 +105,9 @@ empty, so values whose markers no longer verify do not add to it.
    the rest). For each one that is still intentional, run
    `wp pp readiness acknowledge <finding-key> --note="<why>"`, which signs a new row for it. Remove
    the rest with `wp pp readiness unacknowledge <finding-key>`.
-3. **Verification markers.** Run `wp pp content census --format=json` (it writes nothing; the JSON
-   carries each row's `path`) and compare it with `census-2.1.0.json`. A row that is NEW, with
+3. **Verification markers.** Run `wp pp content census --format=json` (it writes nothing; each row
+   names its `post_id`, `band`, `component`, `prop`, `outcome` and `clause`) and compare it with
+   `census-2.1.0.json`. A row that is NEW, with
    clause `unverified` (a title that now renders as plain text) or `unfiltered_html` (content that
    now renders without what only a trusted write may carry), is a value a marker vouched for on
    2.1.0. Read each such value before re-recording it: the old markers were unsigned, so a marker
