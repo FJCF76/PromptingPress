@@ -7218,7 +7218,7 @@ if (!defined('PP_MENU_MAX_CHILDREN')) {
 pp_register_action('set_menu', [
     'scope'       => 'site',
     'description' => 'Declaratively sets a menu\'s full item list and (optionally) its location in one call. Creates the menu if a menu with this name does not already exist; replaces all its existing items with the given list. Each item may carry an optional "children" array of the same {page_id} or {url, label} shape to render as a one-level dropdown submenu (max one level of nesting; a child cannot itself have children).',
-    'semantics'   => 'Replace. Each item in items is either {"page_id": int} or {"url": string, "label": string}, in the order given, and may include a "children" array of further items (same shape) to nest as a dropdown — exactly one level deep. Existing items on the (possibly pre-existing) menu are removed first.',
+    'semantics'   => 'Replace. Each item in items is either {"page_id": int} or {"url": string, "label": string}, in the order given, and may include a "children" array of further items (same shape) to nest as a dropdown — exactly one level deep. Item fields are typed: page_id must be a JSON integer (a quoted number such as "12" is refused), url and label must be strings; for this type check only an absent or null field is skipped. A value of any other type is refused before set_menu changes anything, with invalid_param_type unless an earlier structural check (children shape, children count, nesting depth, or an earlier item) refuses the request first. Existing items on the (possibly pre-existing) menu are removed first.',
     'params'      => [
         'name'     => ['type' => 'string', 'required' => true],
         'items'    => ['type' => 'array',  'required' => true],
@@ -7391,6 +7391,34 @@ pp_register_action('set_menu', [
 function _pp_validate_menu_item($item, string $label) {
     if (!is_array($item)) {
         return new WP_Error('invalid_item', sprintf('%s must be an object.', $label));
+    }
+    // THE ITEM'S LINK FIELDS ARE TYPE-CHECKED BEFORE THE LINK RULES BELOW READ THEM, and
+    // before set_menu changes anything. (The set_menu validator's own depth check on a
+    // child's `children` runs first; it refuses too, just under nesting_too_deep.) The
+    // #931 param gate in pp_validate_action() types top-level params only; an item's
+    // fields are nested inside the `items` array and opaque to it. So the item gets the
+    // same rule here, with the same code (invalid_param_type) and a message that names the
+    // field by its item path ("items[0].children[1].label") instead of a top-level param
+    // name. The declared types are the ones add_menu_item declares for the same three
+    // fields (page_id int, url string, label string). For this type check only absence or
+    // a present null means "not sent", exactly as an optional null does at the gate; any
+    // other value, "" included, must have the declared type (the link rules below then
+    // apply their own empty() test to typed values). The rule reads the decoded
+    // item as it arrives: a quoted number is a string here, because the chat transport's
+    // numeric-string cast (pp_ai_coerce_params) applies to top-level params only.
+    // `children` is not in this table: the set_menu validator owns that field
+    // (invalid_children on a top-level item, nesting_too_deep on a child).
+    foreach (['page_id' => 'int', 'url' => 'string', 'label' => 'string'] as $field => $expected) {
+        if (!array_key_exists($field, $item) || $item[$field] === null) {
+            continue;
+        }
+        $ok = $expected === 'int' ? is_int($item[$field]) : is_string($item[$field]);
+        if (!$ok) {
+            return new WP_Error(
+                'invalid_param_type',
+                sprintf('Param "%s.%s" must be %s, got %s.', $label, $field, $expected, gettype($item[$field]))
+            );
+        }
     }
     $has_page = !empty($item['page_id']);
     $has_url  = !empty($item['url']);
