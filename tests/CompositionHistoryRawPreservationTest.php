@@ -937,8 +937,10 @@ class CompositionHistoryRawPreservationTest extends TestCase
 
     /**
      * THE SECOND CHANNEL THE SMOKE FATALED. The chat's "Undo these changes" link runs the
-     * same action through pp_ai_execute_batch(), which has no fatal handler of its own —
-     * an uncaught TypeError there takes the AJAX request down, not one step of it.
+     * same action through pp_ai_execute_batch(), which had no fatal handler of its own when
+     * this was written — an uncaught TypeError there took the AJAX request down, not one step
+     * of it. Since #1272 a throw becomes a generic `internal_error` step instead; the typed
+     * refusal pinned here is still the answer, because it names the cause.
      */
     public function testTheChatBatchExecutorGetsTheRefusalRatherThanAFatal(): void
     {
@@ -1654,8 +1656,10 @@ class CompositionHistoryRawPreservationTest extends TestCase
 
     /**
      * THE SECOND CHANNEL THE ISSUE NAMED. The chat's "Undo these changes" link runs the
-     * same action through pp_ai_execute_batch(), which has no fatal handler of its own — an
-     * uncaught TypeError there takes the whole AJAX request down, not one step of it.
+     * same action through pp_ai_execute_batch(), which had no fatal handler of its own when
+     * this was written — an uncaught TypeError there took the whole AJAX request down, not one
+     * step of it. Since #1272 a throw becomes a generic `internal_error` step instead; the
+     * typed refusal pinned here is still the answer, because it names the cause.
      *
      * @dataProvider nonReplayableListProvider
      */
