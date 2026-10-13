@@ -68,8 +68,11 @@ before it.
 - A request to `pp_save_composition` or `pp_publish_page` that carries an `expected_version`
   which is not a non-negative whole number (an array, an empty string, `"1.9"`, `"-1"`,
   `"12abc"`) is now refused with `invalid_param_type` instead of saving without the conflict
-  check (#1274). This holds on a publish with an empty composition too. Send a whole number, or
-  leave the field out for an unconditional save.
+  check (#1274). This holds on a publish with an empty composition too (such a publish still
+  runs no conflict check for a well-formed baseline, as before; #1290). An empty
+  `expected_version=` is refused too, so a script that sent an empty or null baseline to mean
+  "no check" must leave the field out instead. Send a whole number, or leave the field out for
+  an unconditional save.
 
 ### Docs
 - The `set_menu` action semantics, `AI_CONTEXT.md` and `ai-instructions/website-building.md` state
@@ -111,9 +114,11 @@ before it.
   real save handler refuses each malformed baseline with no write and no version change; and
   the honest paths are pinned unchanged (not sent saves unconditionally, a stale baseline
   conflicts, a current one saves). `tests/ActionsTest.php` now pins the refusal instead of the
-  old read-as-absent behavior. `tests/e2e/typed-input-refusal.spec.ts` sends
-  `expected_version[]=x` to save and publish on a real WordPress and checks both are refused
-  by name, the page stays a draft and its composition is unchanged.
+  old read-as-absent behavior. `tests/e2e/typed-input-refusal.spec.ts`, on a real WordPress:
+  `expected_version[]=x` on save and publish, `expected_version=12abc` on publish, and a
+  malformed baseline on a publish with no composition are all refused by name, with the page
+  still a draft and its composition unchanged; and a well-formed baseline on publish still runs
+  the check (stale → `composition_conflict`, current → published).
 
 ---
 
