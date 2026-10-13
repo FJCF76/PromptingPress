@@ -5629,9 +5629,16 @@ function _pp_save_composition_response(array $post): array {
     // Optimistic-locking baseline (#13): the version the editor loaded. Threaded into the
     // action for an atomic compare-and-swap so a save that would clobber an interleaved
     // write (the AI chat, a CLI action, another tab) is rejected with composition_conflict.
-    // Absent/empty → null → the write skips the CAS (documented back-compat).
+    // Not sent → null → the write skips the CAS (documented back-compat). Sent but not a
+    // version → refused by name, never read as "not sent" (#1274).
     $params = ['post_id' => $post_id, 'composition' => $decoded];
     $expected_version = _pp_expected_version_from_request($post);
+    if (is_wp_error($expected_version)) {
+        return ['ok' => false, 'data' => _pp_editor_error_payload([
+            'error'      => $expected_version->get_error_message(),
+            'error_code' => $expected_version->get_error_code(),
+        ])];
+    }
     if ($expected_version !== null) {
         $params['expected_version'] = $expected_version;
     }
@@ -6417,13 +6424,22 @@ add_action('wp_ajax_pp_publish_page', function (): void {
     if ($raw === null) {
         wp_send_json_error('Invalid JSON.');
     }
+    // A sent-but-malformed baseline is refused by name, never read as "not sent" (#1274).
+    // Read before the save branch so the refusal holds on every publish, not only on one
+    // that carries a composition.
+    $expected_version = _pp_expected_version_from_request($_POST);
+    if (is_wp_error($expected_version)) {
+        wp_send_json_error(_pp_editor_error_payload([
+            'error'      => $expected_version->get_error_message(),
+            'error_code' => $expected_version->get_error_code(),
+        ]));
+    }
     if ($raw !== '') {
         $decoded = json_decode($raw, true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
             wp_send_json_error('Invalid JSON.');
         }
         $save_params = ['post_id' => $post_id, 'composition' => $decoded];
-        $expected_version = _pp_expected_version_from_request($_POST);
         if ($expected_version !== null) {
             $save_params['expected_version'] = $expected_version;
         }
