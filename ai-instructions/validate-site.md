@@ -137,6 +137,11 @@ This checks:
      be acknowledged. It fails this command until the check can run; the cause is in the PHP error
      log (when the site logs errors), so report it to whoever maintains the site rather than
      guessing at an edit (#1222).
+   - `findings_skipped` — the whole findings report for this page could not be built (a check
+     stopped on an internal error), so nothing was checked and this is the page's only finding.
+     Like `udc_check_not_run` it is a malfunction, not your design: it fails this command, every
+     acknowledgement on the page is held, and the cause is in the PHP error log. Report it rather
+     than editing the page (#1278).
 
    - `content_stripped_at_render` — LAYER 3 (#1242): stored content from before the content
      check that the page renders differently from how it is stored. The message names the
