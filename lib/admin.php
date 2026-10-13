@@ -6426,7 +6426,8 @@ add_action('wp_ajax_pp_publish_page', function (): void {
     }
     // A sent-but-malformed baseline is refused by name, never read as "not sent" (#1274).
     // Read before the save branch so the refusal holds on every publish, not only on one
-    // that carries a composition.
+    // that carries a composition. A WELL-FORMED baseline still rides only on the save step:
+    // an empty-pane publish runs no conflict check, as before (#1290).
     $expected_version = _pp_expected_version_from_request($_POST);
     if (is_wp_error($expected_version)) {
         wp_send_json_error(_pp_editor_error_payload([

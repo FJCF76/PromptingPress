@@ -4460,18 +4460,21 @@ function pp_action_is_composition_mutating(string $name): bool {
  *
  * The version counter is always a non-negative integer. Anything that is not a plain
  * non-negative integer (a float like 1.9, a mixed string like "12abc", an array, a bool)
- * is a malformed/hostile client value — normalized to null (ABSENT) rather than coerced
- * into a wrong baseline that would either spuriously conflict or silently match the wrong
- * version. A legitimate 0 is preserved (a legacy/never-written page reads as version 0 and
- * initializes to version 1). Backs the editor's request baseline
+ * is a malformed/hostile client value — normalized to null ("not a version") rather than
+ * coerced into a wrong baseline that would either spuriously conflict or silently match the
+ * wrong version. A legitimate 0 is preserved (a legacy/never-written page reads as version 0
+ * and initializes to version 1). Backs the editor's request baseline
  * (_pp_expected_version_from_request, used by lib/admin.php) and the chat batch baseline-map
- * parser (#404), so those two surfaces reject the same hostile shapes. Null here means "not a
- * version"; what a caller does with that is its own contract — the editor request helper
- * turns a SENT value that comes back null into a refusal, not an absent baseline (#1274).
- * The chat SINGLE-execute
- * mandate does not route through here: its baseline arrives as an action param already
- * int-coerced by pp_ai_coerce_params() and then int-type-checked by pp_validate_action(),
- * so a non-integer expected_version is rejected there instead (invalid_param_type).
+ * parser (#404), so those two surfaces reject the same hostile shapes. What a caller does
+ * with null is its own contract: the editor request helper turns a SENT value that comes
+ * back null into an invalid_param_type refusal (#1274); the batch parser drops the entry,
+ * and the #404 mandate then refuses the batch for want of a baseline.
+ *
+ * The chat SINGLE-execute mandate does not route through here: its baseline arrives as an
+ * action param run through pp_ai_coerce_params() and then int-type-checked by
+ * pp_validate_action(). A non-numeric string is refused there (invalid_param_type), but a
+ * numeric-looking one ("1.9", "-1", " 5") is `(int)`-coerced first and passes — tracked as
+ * #1289.
  *
  * @param mixed $raw  Untrusted value.
  * @return int|null
@@ -4520,7 +4523,7 @@ function _pp_expected_version_from_request(array $src) {
     return new WP_Error(
         'invalid_param_type',
         sprintf(
-            'Param "expected_version" must be a non-negative whole number, got %s. The request was refused before anything was written: a malformed version is never read as "not sent", so the conflict check is not skipped.',
+            'Param "expected_version" must be a non-negative whole number, got %s. The request was refused before anything was written: a malformed version is never read as "not sent". Send a whole number, or leave expected_version out for an unconditional save.',
             is_string($raw) ? 'a string that is not one' : gettype($raw)
         )
     );
