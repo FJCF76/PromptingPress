@@ -137,30 +137,37 @@ test.describe('editor endpoints refuse a non-string composition (#935)', () => {
     await page.goto(`/wp-admin/admin.php?page=pp-composition&post=${pageId}`);
     await page.waitForFunction(() => Boolean((window as any).ppAdminEditor && (window as any).ppAdminEditor.nonce));
 
-    const answers = await page.evaluate(async (pid: number) => {
-      const config = (window as any).ppAdminEditor;
-      const post = async (fields: Record<string, string>) => {
+    // One request per call: [fields] → the parsed envelope.
+    const send = (fields: Record<string, string>) =>
+      page.evaluate(async ({ pid, fields }: { pid: number; fields: Record<string, string> }) => {
+        const config = (window as any).ppAdminEditor;
         const data = new FormData();
         data.append('nonce', config.nonce);
         data.append('post_id', String(pid));
         for (const [k, v] of Object.entries(fields)) data.append(k, v);
         const res = await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data });
         return JSON.parse(await res.text()) as { success: boolean; data: any };
-      };
-      const composition = (title: string) => JSON.stringify([{ component: 'section', props: { title, body: '<p>Body.</p>' } }]);
-      // An unconditional save (no baseline) returns the page's current version.
-      const seeded = await post({ action: 'pp_save_composition', composition: composition('Current') });
-      const version = Number(seeded.data && seeded.data.version);
-      const stale = await post({ action: 'pp_publish_page', composition: composition('Stale'), expected_version: String(version - 1) });
-      const current = await post({ action: 'pp_publish_page', composition: composition('Published'), expected_version: String(version) });
-      return { seeded, version, stale, current };
-    }, pageId);
+      }, { pid: pageId, fields });
+    const composition = (title: string) => JSON.stringify([{ component: 'section', props: { title, body: '<p>Body.</p>' } }]);
 
-    expect(answers.seeded.success, 'the unconditional save landed').toBe(true);
-    expect(answers.version).toBeGreaterThan(0);
-    expect(answers.stale.success, 'a stale baseline is refused').toBe(false);
-    expect(answers.stale.data.code).toBe('composition_conflict');
-    expect(answers.current.success, 'a current baseline publishes').toBe(true);
+    // An unconditional save (no baseline) lands and returns the page's current version.
+    const seeded = await send({ action: 'pp_save_composition', composition: composition('Current') });
+    expect(seeded.success, 'the unconditional save landed').toBe(true);
+    const version = Number(seeded.data && seeded.data.version);
+    expect(version).toBeGreaterThan(0);
+
+    // A stale baseline is refused AND leaves the page as it was: still a draft, still 'Current'.
+    const stale = await send({ action: 'pp_publish_page', composition: composition('Stale'), expected_version: String(version - 1) });
+    expect(stale.success, 'a stale baseline is refused').toBe(false);
+    expect(stale.data.code).toBe('composition_conflict');
+    expect(wp('post', 'get', String(pageId), '--field=post_status')).toBe('draft');
+    const afterStale = wp('post', 'meta', 'get', String(pageId), '_pp_composition');
+    expect(afterStale).toContain('Current');
+    expect(afterStale).not.toContain('Stale');
+
+    // A current baseline publishes.
+    const current = await send({ action: 'pp_publish_page', composition: composition('Published'), expected_version: String(version) });
+    expect(current.success, 'a current baseline publishes').toBe(true);
     expect(wp('post', 'get', String(pageId), '--field=post_status')).toBe('publish');
     expect(wp('post', 'meta', 'get', String(pageId), '_pp_composition')).toContain('Published');
   });
