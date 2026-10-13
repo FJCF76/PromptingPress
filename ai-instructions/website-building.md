@@ -94,6 +94,14 @@ shapes earlier, and more usefully, with a message naming the band.
 If you do meet it, the composition you assembled is malformed in a way validation did not
 catch — rebuild it from the page's current composition rather than patching what you sent.
 
+`internal_error` on a batch step is a FOURTH posture (#1272): the step's code threw instead of
+refusing. Nothing you wrote was judged wrong, and the message is deliberately fixed — the
+details are in the site's error log, not in the response. The batch rolled back like any
+failed batch, so read `rollback_errors`: if it names a step that "may already have made a
+page / media attachment / redirect change that the rollback cannot see", that item may still
+be on the site. Do not re-send the same proposal; tell the operator and let them check the
+log.
+
 ## Escalation triggers
 
 Stop and ask the user before proceeding when:
@@ -101,6 +109,7 @@ Stop and ask the user before proceeding when:
 - Custom CSS conflicts are detected in the system prompt
 - A composition write is rejected with `composition_conflict` (the page changed under you — re-read and re-propose)
 - A restore is rejected with `history_target_shifted` (the history ring changed under you — re-read the RING and re-select, preferring a `history_index` from the current listing)
+- A batch step fails with `internal_error` (a site fault, not your proposal — the details are in the error log; check `rollback_errors` for anything that may have survived)
 - A styling change requires writing to a surface not listed in the mutation map above
 - The requested change would require a CSS feature not supported by the theme (`:has()`, `@container`, `backdrop-filter`, `mask-image` — note `color-mix(in srgb, ...)` IS allowed, for token-adaptive shadows and fades in components.css)
 
