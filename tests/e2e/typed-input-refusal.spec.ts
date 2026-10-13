@@ -88,33 +88,80 @@ test.describe('editor endpoints refuse a non-string composition (#935)', () => {
     await page.goto(`/wp-admin/admin.php?page=pp-composition&post=${pageId}`);
     await page.waitForFunction(() => Boolean((window as any).ppAdminEditor && (window as any).ppAdminEditor.nonce));
 
+    // Four requests: the array shape on save and publish with a composition, a scalar shape on
+    // publish, and a publish with NO composition — the case the read placed before the save
+    // branch exists for (a malformed baseline must not publish the stored composition).
     const answers = await page.evaluate(async (pid: number) => {
       const config = (window as any).ppAdminEditor;
-      const out: Record<string, { status: number; body: string }> = {};
-      for (const action of ['pp_save_composition', 'pp_publish_page']) {
+      const composition = JSON.stringify([{ component: 'section', props: { title: 'Overwritten', body: '<p>No.</p>' } }]);
+      const cases: Array<{ label: string; action: string; composition: string | null; field: string; value: string }> = [
+        { label: 'save, expected_version[]=x', action: 'pp_save_composition', composition, field: 'expected_version[]', value: 'x' },
+        { label: 'publish, expected_version[]=x', action: 'pp_publish_page', composition, field: 'expected_version[]', value: 'x' },
+        { label: 'publish, expected_version=12abc', action: 'pp_publish_page', composition, field: 'expected_version', value: '12abc' },
+        { label: 'publish, no composition, expected_version[]=x', action: 'pp_publish_page', composition: null, field: 'expected_version[]', value: 'x' },
+      ];
+      const out: Array<{ label: string; status: number; body: string }> = [];
+      for (const c of cases) {
         const data = new FormData();
-        data.append('action', action);
+        data.append('action', c.action);
         data.append('nonce', config.nonce);
         data.append('post_id', String(pid));
-        data.append('composition', JSON.stringify([{ component: 'section', props: { title: 'Overwritten', body: '<p>No.</p>' } }]));
-        data.append('expected_version[]', 'x');
+        if (c.composition !== null) data.append('composition', c.composition);
+        data.append(c.field, c.value);
         const res = await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data });
-        out[action] = { status: res.status, body: await res.text() };
+        out.push({ label: c.label, status: res.status, body: await res.text() });
       }
       return out;
     }, pageId);
 
-    for (const action of ['pp_save_composition', 'pp_publish_page']) {
-      const answer = answers[action];
-      expect(answer.status, `${action}: ${answer.body.slice(0, 200)}`).toBe(200);
+    expect(answers).toHaveLength(4);
+    for (const answer of answers) {
+      expect(answer.status, `${answer.label}: ${answer.body.slice(0, 200)}`).toBe(200);
       const parsed = JSON.parse(answer.body) as { success: boolean; data: { code?: string; message?: string } };
-      expect(parsed.success, `${action}: refused`).toBe(false);
-      expect(parsed.data.code, `${action}: refused by name`).toBe('invalid_param_type');
-      expect(parsed.data.message, `${action}: the refusal names the param`).toContain('"expected_version"');
+      expect(parsed.success, `${answer.label}: refused`).toBe(false);
+      expect(parsed.data.code, `${answer.label}: refused by name`).toBe('invalid_param_type');
+      expect(parsed.data.message, `${answer.label}: the refusal names the param`).toContain('"expected_version"');
     }
 
     // Nothing was written and nothing was published.
     expect(wp('post', 'get', String(pageId), '--field=post_status')).toBe('draft');
     expect(wp('post', 'meta', 'get', String(pageId), '_pp_composition')).toBe(storedBefore);
+  });
+
+  /**
+   * The honest publish paths still work through the reordered closure (#1274): a well-formed
+   * stale baseline is refused with composition_conflict, and a current one publishes. Kept
+   * LAST in the file because the final request publishes the page.
+   */
+  test('publish with a well-formed baseline still runs the conflict check', async ({ page }) => {
+    await page.goto(`/wp-admin/admin.php?page=pp-composition&post=${pageId}`);
+    await page.waitForFunction(() => Boolean((window as any).ppAdminEditor && (window as any).ppAdminEditor.nonce));
+
+    const answers = await page.evaluate(async (pid: number) => {
+      const config = (window as any).ppAdminEditor;
+      const post = async (fields: Record<string, string>) => {
+        const data = new FormData();
+        data.append('nonce', config.nonce);
+        data.append('post_id', String(pid));
+        for (const [k, v] of Object.entries(fields)) data.append(k, v);
+        const res = await fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: data });
+        return JSON.parse(await res.text()) as { success: boolean; data: any };
+      };
+      const composition = (title: string) => JSON.stringify([{ component: 'section', props: { title, body: '<p>Body.</p>' } }]);
+      // An unconditional save (no baseline) returns the page's current version.
+      const seeded = await post({ action: 'pp_save_composition', composition: composition('Current') });
+      const version = Number(seeded.data && seeded.data.version);
+      const stale = await post({ action: 'pp_publish_page', composition: composition('Stale'), expected_version: String(version - 1) });
+      const current = await post({ action: 'pp_publish_page', composition: composition('Published'), expected_version: String(version) });
+      return { seeded, version, stale, current };
+    }, pageId);
+
+    expect(answers.seeded.success, 'the unconditional save landed').toBe(true);
+    expect(answers.version).toBeGreaterThan(0);
+    expect(answers.stale.success, 'a stale baseline is refused').toBe(false);
+    expect(answers.stale.data.code).toBe('composition_conflict');
+    expect(answers.current.success, 'a current baseline publishes').toBe(true);
+    expect(wp('post', 'get', String(pageId), '--field=post_status')).toBe('publish');
+    expect(wp('post', 'meta', 'get', String(pageId), '_pp_composition')).toContain('Published');
   });
 });
