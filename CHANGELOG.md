@@ -25,6 +25,19 @@ before it.
 - `set_menu` validates `page_id` (int), `url` (string) and `label` (string) on every item and every
   dropdown child before any change is made, and refuses a mistyped field with
   `invalid_param_type` naming its path.
+- A batch step that crashes no longer leaves earlier steps applied (#1272). Before, an
+  unexpected error inside one step of a chat proposal escaped the batch before its rollback
+  ran, so the steps before it stayed on the site and the chat got a server error. Now the
+  crash becomes an ordinary failed step (`error_code: internal_error`) and the whole proposal
+  is undone like any refused one. The step's message is fixed text, and the error's own
+  details go only to the site's PHP error log, as one cleaned, length-capped line. The chat
+  does not offer to have the AI "repair" it, because nothing in the proposal was wrong.
+- When a page-creating, media-importing or redirect step crashes after it may already have
+  written something the rollback cannot see, the undo report now says so in one entry instead
+  of coming back empty (#1272). An empty `rollback_errors` still means nothing survived.
+- The batch's after-write page check no longer quotes an error's text when the check itself
+  crashes. It reports a fixed "the post-apply check stopped on an internal error" message,
+  and the details go to the error log (#1272).
 
 ### ⚠️ Behaviour changes
 - Item values that were converted to the right type, or silently treated as not sent, before
@@ -36,6 +49,9 @@ before it.
 ### Docs
 - The `set_menu` action semantics, `AI_CONTEXT.md` and `ai-instructions/website-building.md` state
   the item field types and the refusal.
+- `AI_CONTEXT.md`, `ai-instructions/website-building.md` and `docs/operating-loop-safety.md`
+  describe the `internal_error` failed step, the new possibly-surviving rollback entry, and what
+  the guard still does not cover (#1284, #1285).
 
 ### Tests
 - `tests/SetMenuItemTypeValidationTest.php`: a non-string label, a non-string url and a non-int
@@ -44,6 +60,16 @@ before it.
   answer first, also before any change; null fields and well-typed items still
   build; the chat transport path applies the same rule; and two batch tests show that a mistyped
   `set_menu` step rolls back the earlier steps and leaves the menu as it was.
+- `tests/BatchStepThrowableGuardTest.php` (#1272), through the real batch executor and the chat
+  handler: a step that writes and then crashes rolls back every earlier step and its own write;
+  a `TypeError` is caught like an exception; no later step runs; crashing apply steps are
+  guarded too; no envelope field or chat response carries the error's text, which lands in the
+  error log as exactly one line (CR/LF and Unicode line breaks neutralised, cut at 1000 bytes on
+  a character boundary); string-keyed step lists and leftover output buffers are handled; a
+  crashing page-creating, media-import or redirect step adds the possibly-surviving rollback
+  entry, and a refused or snapshot-covered step does not; and a crashing post-apply check
+  reports the fixed message while the step stays applied. `tests/bootstrap.php` gains an
+  `upload_dir_throws` hook for that last case.
 
 ---
 
