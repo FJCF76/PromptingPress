@@ -38,6 +38,18 @@ before it.
 - The batch's after-write page check no longer quotes an error's text when the check itself
   crashes. It reports a fixed "the post-apply check stopped on an internal error" message,
   and the details go to the error log (#1272).
+- A page's findings report that crashes no longer fails a change that already happened
+  (#1278). Before, an unexpected error while building the report that every composition write,
+  undo and rollback attaches turned an edit that had landed into a failed response (a client
+  that retries would send it again), and crashed `wp pp check page` and `wp pp validate site`.
+  Now the report becomes one `findings_skipped` warning with a fixed message, and the error's
+  details go only to the site's error log as one cleaned line. The write still answers
+  `ok: true`; `validate site` fails the page; `check page` never prints its success line; the
+  rollback command warns about posts whose report could not be built; acknowledgements on the
+  page are held, never offered for removal, and acknowledging is refused with
+  `findings_unavailable` until the report builds again. In a batch, a step whose report
+  crashes now succeeds instead of rolling back. The chat's undo card shows the row as a
+  notice, not as an issue.
 
 ### ⚠️ Behaviour changes
 - Item values that were converted to the right type, or silently treated as not sent, before
@@ -52,6 +64,10 @@ before it.
 - `AI_CONTEXT.md`, `ai-instructions/website-building.md` and `docs/operating-loop-safety.md`
   describe the `internal_error` failed step, the new possibly-surviving rollback entry, and what
   the guard still does not cover (#1284, #1285).
+- `AI_CONTEXT.md`, `ai-instructions/operating-loop.md`, `ai-instructions/validate-site.md`,
+  `docs/reference-apply-cli.md`, `docs/howto-apply-and-rollback.md` and
+  `docs/operating-loop-safety.md` describe the second source of `findings_skipped` (a report that
+  could not be built), the held acknowledgements and what the guard does not cover (#1278).
 
 ### Tests
 - `tests/SetMenuItemTypeValidationTest.php`: a non-string label, a non-string url and a non-int
@@ -70,6 +86,13 @@ before it.
   entry, and a refused or snapshot-covered step does not; and a crashing post-apply check
   reports the fixed message while the step stays applied. `tests/bootstrap.php` gains an
   `upload_dir_throws` hook for that last case.
+- `tests/FindingsReportThrowableGuardTest.php` (#1278), through the real write, batch, restore
+  preview and execute, run rollback, `check page` and `validate site` paths: a report that
+  throws outside the engine's per-check guards becomes the one fixed row while the write lands;
+  a `TypeError` is caught too; nothing reflects the error's text, which lands in the log as one
+  line; acknowledgements are held and acknowledging is refused, then both recover once the
+  report builds. `tests/bootstrap.php` gains an `attachment_url_throws_in_report` hook, and the
+  chat undo card test covers the hoisted row.
 
 ---
 

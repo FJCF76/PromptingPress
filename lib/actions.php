@@ -3569,7 +3569,7 @@ const PP_BATCH_VALIDATION_THREW_MESSAGE = 'Validation failed: the post-apply che
  */
 function _pp_batch_step_threw_envelope($i, $name, \Throwable $e): array {
     $name = is_scalar($name) ? (string) $name : get_debug_type($name);
-    _pp_batch_log_throwable('batch step ' . _pp_batch_log_text($i) . ' (' . _pp_batch_log_text($name) . ') threw', $e);
+    _pp_log_throwable('batch step ' . _pp_log_text($i) . ' (' . _pp_log_text($name) . ') threw', $e);
 
     return [
         'ok'         => false,
@@ -3585,19 +3585,20 @@ function _pp_batch_step_threw_envelope($i, $name, \Throwable $e): array {
 
 /**
  * Writes one throw to the error log as ONE line (#1272): what failed, the exception's class,
- * message and throw site.
+ * message and throw site. Shared by every guard that keeps a throw's text out of a response:
+ * the batch step guard and the page findings guard (#1278, _pp_composition_findings()).
  *
- * Every part is passed through _pp_batch_log_text(). An exception message often quotes the
+ * Every part is passed through _pp_log_text(). An exception message often quotes the
  * value that caused it, and that value can be stored or caller-supplied text; raw, a CR/LF
  * in it would let it write a second, forged log line under this one.
  *
  * @param string     $what  Fixed prose naming what threw.
  * @param \Throwable $e     The throwable.
  */
-function _pp_batch_log_throwable(string $what, \Throwable $e): void {
+function _pp_log_throwable(string $what, \Throwable $e): void {
     error_log(
-        'PromptingPress: ' . $what . ': ' . get_class($e) . ': ' . _pp_batch_log_text($e->getMessage())
-        . ' at ' . _pp_batch_log_text($e->getFile()) . ':' . $e->getLine()
+        'PromptingPress: ' . $what . ': ' . get_class($e) . ': ' . _pp_log_text($e->getMessage())
+        . ' at ' . _pp_log_text($e->getFile()) . ':' . $e->getLine()
     );
 }
 
@@ -3610,7 +3611,7 @@ function _pp_batch_log_throwable(string $what, \Throwable $e): void {
  * @param  mixed $value
  * @return string
  */
-function _pp_batch_log_text($value): string {
+function _pp_log_text($value): string {
     $text = is_scalar($value) ? (string) $value : get_debug_type($value);
     $text = mb_strcut($text, 0, 1000, 'UTF-8');
     $text = str_replace(["\xC2\x85", "\xE2\x80\xA8", "\xE2\x80\xA9"], '?', $text);
@@ -4009,7 +4010,7 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
                 // Fixed message, details to the error log only (#1272): this report rides
                 // the step's envelope into the chat card and the model's context, and an
                 // exception message can quote stored values back.
-                _pp_batch_log_throwable('batch step ' . _pp_batch_log_text($i) . ' post-apply validation threw', $e);
+                _pp_log_throwable('batch step ' . _pp_log_text($i) . ' post-apply validation threw', $e);
                 $result['validation'] = [
                     'ok'       => false,
                     'warnings' => [],
@@ -5723,6 +5724,79 @@ pp_register_action('remove_component', [
  *                       'index' => int|null]. Empty when the composition is clean.
  */
 function _pp_composition_findings(array $items, ?int $post_id = null): array {
+    try {
+        return _pp_composition_findings_unguarded($items, $post_id);
+    } catch (\Throwable $e) {
+        // REPORT-ONLY MUST NOT BE ABLE TO TAKE DOWN THE WRITE IT REPORTS ON (#1278).
+        //
+        // The chrome assembler's guard (pp_udc_site_findings(), lib/udc.php), on the page
+        // assembler. The udc engine guards each of its checks (#1222), but a throw that starts
+        // anywhere else in this join escaped all of it: in the write-rule validators, for one
+        // (pp_validate_composition_errors() resolves a background image's attachment). Every
+        // write path calls this AFTER its write has landed, so the throw turned a change that
+        // HAPPENED into a failed envelope, and a client that retries on failure re-sends it.
+        // On `wp pp check page` / `validate site` it was a crash instead of a report.
+        //
+        // ONE GUARD FOR EVERY CALLER, because they all route through here: the accepted-write
+        // report (_pp_write_findings_for()), restore preview and execute, the run rollback
+        // (lib/operate.php), the CLI diagnostics (lib/cli.php) and the acknowledgement
+        // writer. Whole-report, as chrome's is: when one engine throws, the findings the
+        // others already produced are dropped too, because a report missing an engine's
+        // findings and not saying so is the silence this exists to prevent.
+        _pp_log_throwable('findings report' . ($post_id === null ? '' : ' for page ' . $post_id) . ' threw', $e);
+        // THE REQUEST NOW CONTINUES past this throw (the rest of a batch, the next page of
+        // `validate site`), so core's `pre_kses` filter must not stay unhooked if the throw came
+        // from inside a wp_kses() call the content engines made. Same call every render catch
+        // makes (pp_content_rehook_pre_kses(), lib/content-render.php); idempotent.
+        pp_content_rehook_pre_kses();
+        return [_pp_findings_report_threw_row()];
+    }
+}
+
+/**
+ * The text of the one row a page findings report carries when it could not be built (#1278).
+ *
+ * FIXED, as PP_BATCH_STEP_THREW_MESSAGE is: the row rides write and restore envelopes into the
+ * chat and the model's context, and `wp pp check page` prints it. An exception message is
+ * written for a developer and can quote a stored value or a server path, so it goes to the
+ * error log only. SUBJECT-NEUTRAL, because the same row reaches a write, a restore preview
+ * (nothing written) and the CLI (nothing written): the envelope's own `ok` and `changes`
+ * say what landed, so this text never claims a write.
+ */
+const PP_FINDINGS_REPORT_THREW_MESSAGE = 'The findings report for this composition could not be built: '
+    . 'a check stopped on an internal error, and the details were written to the site\'s error log. '
+    . 'Nothing here says the composition is healthy.';
+
+/**
+ * The row _pp_composition_findings() returns in place of a report it could not build (#1278).
+ *
+ * `findings_skipped`, the species the accepted-write path already uses for "nothing was
+ * counted here" and the chrome guard uses for the same state, so every consumer that already
+ * reads it reads this one: pp_finding_is_about_the_composition() keeps it out of composition
+ * counts, and the CLI's fail-closed bucketing files a warning under smells, so `wp pp
+ * validate site` fails on it. A skip is not a clean bill of health. `index` is null: a
+ * throw belongs to no band.
+ *
+ * @return array{type: string, severity: string, message: string, index: null}
+ */
+function _pp_findings_report_threw_row(): array {
+    return [
+        'type'     => 'findings_skipped',
+        'severity' => 'warning',
+        'message'  => PP_FINDINGS_REPORT_THREW_MESSAGE,
+        'index'    => null,
+    ];
+}
+
+/**
+ * The body of _pp_composition_findings(), separated so its guard reads as one line (#1278).
+ * Same contract; may throw. Call _pp_composition_findings(), never this.
+ *
+ * @param  array    $items
+ * @param  int|null $post_id
+ * @return array[]
+ */
+function _pp_composition_findings_unguarded(array $items, ?int $post_id = null): array {
     $findings = [];
 
     // THE CONTENT GATE IS OFF HERE (false): this assembler reports a page, it never refuses
@@ -6113,6 +6187,12 @@ function _pp_count_info_findings(array $findings): int {
  *   stored meta ──► size gate ──┬── over ──► [ findings_skipped ]   engines NEVER run
  *                               │
  *                               └── under ─► errors + smells ──► _pp_bounded_findings()
+ *                                               │
+ *                                               └── throws ─► [ findings_skipped ]  (#1278)
+ *
+ * The throw arm is _pp_composition_findings()'s own guard, so restore and the CLI get it
+ * too; this function adds nothing for it. A write whose report threw still returns ok:true
+ * with its changes: the write landed, and only the report is missing.
  *
  * THE GATE SITS BEFORE THE ENGINES, deliberately, and that ordering is the entire point —
  * see PP_WRITE_FINDINGS_MAX_STORED_BYTES. Gating after them would measure the allocation
@@ -6688,7 +6768,9 @@ pp_register_action('restore_composition', [
         // "you are told exactly what an old snapshot brought back" to "sometimes you are
         // told nothing". That is a posture change needing its own ruling, filed as its own
         // issue — the post-write OOM it addresses is real and is NOT closed by this cap
-        // (see _pp_bounded_findings(): both engines run to completion first).
+        // (see _pp_bounded_findings(): both engines run to completion first). Separately, the
+        // one `findings_skipped` restore CAN carry is the throw guard's (#1278): the report
+        // could not be built at all, and the restore still lands.
         //
         // Findings describe $target, the array this call wrote. pp_update_composition() takes
         // it by value and injects props.id into its own copy, so $target stays id-free; no

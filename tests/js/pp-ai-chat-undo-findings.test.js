@@ -31,6 +31,7 @@ const {
     findingLocator,
     undoFindingsTail,
     undoHistoryNotice,
+    undoReportSkipped,
     undoFindingsTotal
 } = require('../../assets/js/pp-ai-chat.js');
 
@@ -858,5 +859,52 @@ describe('informational findings on the undo card (#1194)', () => {
 
         expect(card.textContent).toMatch(/more notes/);
         expect(card.textContent).not.toMatch(/more warnings/);
+    });
+});
+
+/**
+ * #1278: when the server's findings report throws, its guard returns one `findings_skipped`
+ * row in place of the report. The card hoists it like history_not_recorded: a notice under
+ * the heading, never counted as an issue with the composition, never a band row.
+ */
+describe('a findings report that could not be built (#1278)', () => {
+    const SKIPPED = {
+        type: 'findings_skipped',
+        severity: 'warning',
+        message: 'The findings report for this composition could not be built: a check stopped on an internal error, and the details were written to the site\'s error log. Nothing here says the composition is healthy.',
+        index: null
+    };
+
+    it('is recognized only by its own type, and only with a message', () => {
+        expect(undoReportSkipped([CHROME_FINDING, SKIPPED])).toBe(SKIPPED);
+        expect(undoReportSkipped([CHROME_FINDING])).toBeNull();
+        expect(undoReportSkipped([{ type: 'findings_skipped', message: '' }])).toBeNull();
+        expect(undoReportSkipped([{ type: 'findings_skipped' }])).toBeNull();
+    });
+
+    it('is not counted as an issue', () => {
+        expect(undoFindingsTotal([SKIPPED])).toEqual({ total: 0, shown: 0, truncated: false });
+        expect(undoFindingsTotal([HISTORY_NOTICE, SKIPPED])).toEqual({ total: 0, shown: 0, truncated: false });
+    });
+
+    it('renders as a warning notice under a warning heading, with no issue count', () => {
+        const card = newCard();
+        appendUndoFindings(card, [SKIPPED]);
+
+        const rows = Array.prototype.slice.call(card.firstChild.children);
+        expect(rows.length).toBe(2);
+        expect(rows[0].textContent).toBe('⚠ Restored:');
+        expect(rows[0].className).toBe('pp-ai-step-warning');
+        expect(rows[1].textContent).toBe(SKIPPED.message);
+        expect(rows[1].className).toBe('pp-ai-step-warning');
+        expect(card.textContent).not.toMatch(/\d+ issues?/);
+    });
+
+    it('sits below the no-undo-point notice, which stays first', () => {
+        const card = newCard();
+        appendUndoFindings(card, [HISTORY_NOTICE, SKIPPED]);
+
+        const rows = Array.prototype.slice.call(card.firstChild.children).map((el) => el.textContent);
+        expect(rows).toEqual(['⚠ Restored:', HISTORY_NOTICE.message, SKIPPED.message]);
     });
 });

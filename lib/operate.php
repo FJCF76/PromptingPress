@@ -2304,6 +2304,33 @@ function pp_operate_restore_run_no_undo_count( array $report ): int {
 }
 
 /**
+ * Number of reverted posts whose findings report could not be built (#1278).
+ *
+ * THE THIRD SENTENCE, for the same reason as the second (#821). The composition-findings count
+ * above leaves `findings_skipped` out, rightly: it is not a rule the restored composition broke.
+ * Without its own count the command would end in a bare success for a post nothing was checked
+ * on, with the disclosure only in the stdout JSON. The rollback never takes the write path's
+ * size gate, so on this surface the row can only be the findings guard's.
+ *
+ * @param array $report  A pp_operate_restore_run_compositions() result.
+ * @return int  Count of reverted posts carrying a `findings_skipped` entry.
+ */
+function pp_operate_restore_run_report_skipped_count( array $report ): int {
+    $reverted = isset( $report['reverted'] ) && is_array( $report['reverted'] ) ? $report['reverted'] : [];
+    $count = 0;
+    foreach ( $reverted as $entry ) {
+        $findings = is_array( $entry['findings'] ?? null ) ? $entry['findings'] : [];
+        foreach ( $findings as $finding ) {
+            if ( is_array( $finding ) && ( $finding['type'] ?? '' ) === 'findings_skipped' ) {
+                $count++;
+                break;
+            }
+        }
+    }
+    return $count;
+}
+
+/**
  * True iff the run is currently usable as a rollback source: the state is valid for
  * this install AND a frozen pre-apply snapshot exists. Used as execute()'s pre-mutation
  * gate so a change that could not be rolled back is never applied in the first place.
@@ -4276,6 +4303,12 @@ function _pp_advisory_key_head(string $key): string {
 }
 
 /**
+ * The `ack_held` value on a held acknowledgement whose whole findings report could not be built
+ * (#1278). Written by pp_partition_acknowledged_advisories(), read by the CLI's HELD line.
+ */
+const PP_ACK_HELD_REPORT_NOT_BUILT = 'report_not_built';
+
+/**
  * Splits a page's warning findings by acknowledgement (#1194 A2).
  *
  * Every acknowledgeable finding gains `ack_key`. A finding whose key is stored moves to
@@ -4283,7 +4316,9 @@ function _pp_advisory_key_head(string $key): string {
  * present finding is STALE when a finding it could have judged is present and gating: the same
  * type on the same band (on the page, for a run smell), or a keyless finding of that type there.
  * It is HELD when its check could not run on that band (a `udc_check_not_run` row names it,
- * #1222): kept, not applied, never "remove it". It is ORPHANED otherwise (the finding is gone;
+ * #1222), or when the whole report could not be built (a `findings_skipped` row, #1278; such a
+ * held row carries `ack_held: report_not_built`): kept, not applied, never "remove it". It is
+ * ORPHANED otherwise (the finding is gone;
  * inert). A stored row with no note acknowledges
  * nothing and is listed as `unnoted`. A row whose signature is missing or does not verify
  * (#1214) acknowledges nothing either, is never STALE or ORPHANED, and is listed as `unsigned`
@@ -4327,9 +4362,17 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
     // so a band past that point may have a check that did not run and no row naming it. When the
     // budget is spent (exactly that many rows), every unmatched acknowledgement of a check the
     // engine guards is held rather than orphaned: unknown is never "gone".
-    $held_open    = [];
-    $not_run_rows = 0;
+    //
+    // THE WHOLE REPORT, WHEN IT COULD NOT BE BUILT (#1278). The page assembler's guard returns one
+    // `findings_skipped` row in place of the report, so no check ran on any band: every unmatched
+    // acknowledgement is held, of every type, and says why (`ack_held`).
+    $held_open      = [];
+    $not_run_rows   = 0;
+    $report_skipped = false;
     foreach ($smells as $finding) {
+        if (is_array($finding) && ($finding['type'] ?? null) === 'findings_skipped') {
+            $report_skipped = true;
+        }
         if (!is_array($finding) || ($finding['type'] ?? null) !== 'udc_check_not_run') {
             continue;
         }
@@ -4383,6 +4426,10 @@ function pp_partition_acknowledged_advisories(int $post_id, array $composition, 
         $type = (string) strstr($key, ':', true);
         if (isset($open[_pp_advisory_key_head($key)]) || isset($open[$type])) {
             $stale[] = $row;
+        } elseif ($report_skipped) {
+            $row['ack_check'] = $type;
+            $row['ack_held']  = PP_ACK_HELD_REPORT_NOT_BUILT;
+            $held[]           = $row;
         } elseif (isset($held_open[_pp_advisory_key_head($key)])
             || ($not_run_capped && in_array($type, pp_udc_guarded_check_types(), true))) {
             $row['ack_check'] = $type;
@@ -4427,7 +4474,19 @@ function pp_acknowledge_advisory(int $post_id, string $key, string $note) {
         }
         $digest = pp_advisory_page_digest($composition);
         $bands  = [];
-        foreach (_pp_composition_findings($composition, $post_id) as $finding) {
+        $findings = _pp_composition_findings($composition, $post_id);
+        // A REPORT THAT COULD NOT BE BUILT CANNOT CONFIRM A KEY (#1278). The assembler's guard
+        // returns one `findings_skipped` row in place of the report, so no key would match and
+        // the refusal below would blame a change on the page, sending the operator to
+        // `check page`, which hits the same failure. Fails closed with the real reason.
+        foreach ($findings as $finding) {
+            if (is_array($finding) && ($finding['type'] ?? null) === 'findings_skipped') {
+                return new WP_Error('findings_unavailable', sprintf(
+                    'The findings report for page %d could not be built (the details are in the site\'s error log), '
+                    . 'so no key can be confirmed and nothing was acknowledged. Retry once the error is fixed.', $post_id));
+            }
+        }
+        foreach ($findings as $finding) {
             if (is_array($finding)
                 && _pp_advisory_key_or_reason($post_id, $composition, $finding, $context, $digest, $bands)['key'] === $key) {
                 $stored = _pp_read_acknowledged_advisories_locked($post_id);

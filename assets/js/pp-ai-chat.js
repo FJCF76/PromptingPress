@@ -2108,12 +2108,12 @@ function ppChatFindingClass(item) {
  * `total`. A malformed tail is therefore not a tail at all — it stays an ordinary
  * finding row and the count falls back to the array length, exactly as before.
  *
- * ONE SPECIES HERE, TWO HOISTED. `findings_skipped` still cannot reach this card: it comes
- * from the accepted-write path's 1 MiB availability gate, and restore deliberately does not
- * inherit that gate (#233 — you are told what an old snapshot brought back, always). That
- * routing is pinned by
- * CompositionFindingsBoundsTest::testRestoreNeverEmitsTheSkippedSpeciesTheUndoCardCannotHoist
- * rather than assumed here.
+ * ONE SPECIES HERE, THREE HOISTED. `findings_skipped` reaches this card from ONE source only:
+ * the page findings guard (#1278), when the report could not be built at all. Restore does not
+ * inherit the accepted-write path's 1 MiB availability gate (#233 — you are told what an old
+ * snapshot brought back, always), which is pinned by
+ * CompositionFindingsBoundsTest::testRestoreNeverRoutesThroughTheWritePathsSizeGate. The
+ * guard's row is hoisted by ppChatUndoReportSkipped().
  *
  * `history_not_recorded` (#821) DOES reach it, which is why it gets its own predicate
  * (ppChatUndoHistoryNotice) rather than being folded into this one. The two are different
@@ -2166,17 +2166,38 @@ function ppChatUndoHistoryNotice(findings) {
 }
 
 /**
+ * The report's "could not be built" row, or null when the report was built (#1278).
+ *
+ * A THIRD HOISTED SPECIES. When the server's findings report throws, its guard returns one
+ * `findings_skipped` row in place of the report. It is not an issue with the composition (the
+ * server's pp_finding_is_about_the_composition() says the same), so counting it would turn
+ * "nothing could be checked" into "1 issue under current rules". It renders as a notice under
+ * the heading and out of both counts, as history_not_recorded does.
+ */
+function ppChatUndoReportSkipped(findings) {
+    for (var i = 0; i < findings.length; i++) {
+        var f = findings[i];
+        if (f && f.type === 'findings_skipped' && ppChatIsNonEmptyString(f.message)) {
+            return f;
+        }
+    }
+
+    return null;
+}
+
+/**
  * The two numbers the heading needs: { total, shown, truncated }.
  *
- * `tail` and `historyNotice` are optional. Pass the entries the caller already found — the
+ * `tail`, `historyNotice` and `skipped` are optional. Pass the entries the caller already found — the
  * caller that hoists them needs them anyway — and this reads them instead of scanning for a
- * second copy of the same answer. Omit either and this finds its own. Only `undefined`
+ * second copy of the same answer. Omit any of them and this finds its own. Only `undefined`
  * means "not supplied"; `null` is the real answer "there is no such entry" and is respected.
  *
- * BOTH HOISTED SPECIES ARE SUBTRACTED, because neither is an issue with the composition and
+ * ALL THREE HOISTED SPECIES ARE SUBTRACTED, because none is an issue with the composition and
  * the heading's sentence says "issues ... under current rules". The truncated branch reads
- * the server's true total, which counts composition findings only, so the notice never has
- * to be subtracted from it — only from `shown`, which is a count of rendered rows.
+ * the server's true total, which counts composition findings only, so the history and
+ * skipped notices never have to be subtracted from it — only from `shown`, which is a count
+ * of rendered rows.
  *
  * INFORMATIONAL NOTES ARE SUBTRACTED TOO (#1194): a `severity: 'info'` finding asks for
  * nothing, so it is not an issue. From `shown` by counting the delivered notes; from the
@@ -2184,15 +2205,18 @@ function ppChatUndoHistoryNotice(findings) {
  * are past the budget. A malformed, missing or impossible (larger than `total`) `total_info`
  * counts as zero, so a bad tail can only overstate the issues, never hide them.
  */
-function ppChatUndoFindingsTotal(findings, tail, historyNotice) {
+function ppChatUndoFindingsTotal(findings, tail, historyNotice, skipped) {
     if (tail === undefined) {
         tail = ppChatUndoFindingsTail(findings);
     }
     if (historyNotice === undefined) {
         historyNotice = ppChatUndoHistoryNotice(findings);
     }
+    if (skipped === undefined) {
+        skipped = ppChatUndoReportSkipped(findings);
+    }
 
-    var hoisted = (tail !== null ? 1 : 0) + (historyNotice !== null ? 1 : 0);
+    var hoisted = (tail !== null ? 1 : 0) + (historyNotice !== null ? 1 : 0) + (skipped !== null ? 1 : 0);
 
     // AN INFORMATIONAL NOTE IS NOT AN ISSUE (#1194). It is rendered (in its own class, see
     // ppChatFindingClass) but it asks for nothing, so it never counts toward "N issues".
@@ -2264,7 +2288,8 @@ function ppChatAppendUndoFindings(card, findings) {
 
     var tail    = ppChatUndoFindingsTail(findings);
     var history = ppChatUndoHistoryNotice(findings);
-    var counted = ppChatUndoFindingsTotal(findings, tail, history);
+    var skipped = ppChatUndoReportSkipped(findings);
+    var counted = ppChatUndoFindingsTotal(findings, tail, history, skipped);
 
     // A COUNT OF ZERO IS NOT A COUNT, IT IS A CONTRADICTION (#821). Before the hoisted
     // write-scoped species existed, a non-empty findings array always held at least one
@@ -2280,7 +2305,8 @@ function ppChatAppendUndoFindings(card, findings) {
     // no warning sign, truncated or not (a report of 150 notes cut to 100 is still only
     // notes). The #821 zero-count heading keeps its warning styling, because there the card's
     // content is the no-undo-point disclosure.
-    var notesOnly = counted.total === 0 && history === null;
+    // A report that could not be built (#1278) is not "only notes" either: nothing was checked.
+    var notesOnly = counted.total === 0 && history === null && skipped === null;
     heading.className = notesOnly ? 'pp-ai-step-info' : 'pp-ai-step-warning';
     heading.textContent = notesOnly
         ? 'Restored:'
@@ -2321,6 +2347,14 @@ function ppChatAppendUndoFindings(card, findings) {
         section.appendChild(historyNotice);
     }
 
+    // THE REPORT COULD NOT BE BUILT (#1278): said under the heading, never counted as an issue.
+    if (skipped !== null) {
+        var skippedNotice = document.createElement('div');
+        skippedNotice.className = 'pp-ai-step-warning';
+        skippedNotice.textContent = skipped.message;
+        section.appendChild(skippedNotice);
+    }
+
     if (tail !== null && ppChatIsNonEmptyString(tail.message)) {
         var notice = document.createElement('div');
         notice.className = 'pp-ai-step-warning';
@@ -2328,9 +2362,9 @@ function ppChatAppendUndoFindings(card, findings) {
         section.appendChild(notice);
     }
 
-    var items = (tail === null && history === null)
+    var items = (tail === null && history === null && skipped === null)
         ? findings
-        : findings.filter(function (f) { return f !== tail && f !== history; });
+        : findings.filter(function (f) { return f !== tail && f !== history && f !== skipped; });
 
     ppChatAppendValidationItems(section, items, ppChatFindingClass);
     card.appendChild(section);
@@ -5660,6 +5694,7 @@ if (typeof module !== 'undefined' && module.exports) {
         findingLocator: ppChatFindingLocator,
         undoFindingsTail: ppChatUndoFindingsTail,
         undoHistoryNotice: ppChatUndoHistoryNotice,
+        undoReportSkipped: ppChatUndoReportSkipped,
         undoFindingsTotal: ppChatUndoFindingsTotal,
         buildCompositionSummary: ppChatBuildCompositionSummary,
         componentCount: ppChatComponentCount,
