@@ -2550,14 +2550,15 @@ class ActionsTest extends TestCase
         $this->assertSame(0, _pp_expected_version_from_request(['expected_version' => '0']));
         $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => '7']));
         $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => 7]));
-        // Malformed/hostile client values → treated as absent (null), never coerced into a
-        // wrong baseline: mixed strings, floats, negatives, arrays, bools, empty, missing.
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '12abc']));
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '1.9']));
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '-1']));
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => ['x']]));
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => true]));
-        $this->assertNull(_pp_expected_version_from_request(['expected_version' => '']));
+        // Malformed/hostile client values are never coerced into a wrong baseline, and since
+        // #1274 never read as absent either: a SENT value that is not a version is a named
+        // refusal (mixed strings, floats, negatives, arrays, bools, empty). Only a missing
+        // key means "not sent". The full table lives in TypedInputRefusalTest §5.
+        foreach (['12abc', '1.9', '-1', ['x'], true, ''] as $bad) {
+            $got = _pp_expected_version_from_request(['expected_version' => $bad]);
+            $this->assertInstanceOf(WP_Error::class, $got, var_export($bad, true));
+            $this->assertSame('invalid_param_type', $got->get_error_code());
+        }
         $this->assertNull(_pp_expected_version_from_request([]));
     }
 

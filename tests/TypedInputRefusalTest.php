@@ -24,7 +24,9 @@
  *     E_DEPRECATED notice (#914, §3) — this change is write-side only.
  *
  * Sections: §1 the param gate (#931), §2 SEO meta values (#913), §3 the #914 render pin,
- * §4 the editor endpoints (#935).
+ * §4 the editor endpoints (#935), §5 the editor's expected_version baseline (#1274) — not a
+ * fatal but the same class: a sent-but-malformed value was read as "not sent", so the save
+ * skipped the conflict check it asked for.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -424,5 +426,100 @@ class TypedInputRefusalTest extends TestCase
             $this->assertNull(_pp_editor_composition_field(['composition' => $bad], ''),
                 var_export($bad, true) . ' is malformed, not absent');
         }
+    }
+
+    // ── §5. The editor's expected_version baseline (#1274) ─────────────────
+
+    /**
+     * Every shape a request can carry under `expected_version` that is SENT but is not a
+     * non-negative whole number. `expected_version[]=x` is the issue's repro; the empty string
+     * is `expected_version=`; the rest are the strings and scalars the well-formedness rule
+     * (_pp_normalize_version_baseline) has always refused.
+     */
+    private const MALFORMED_BASELINES = [['x'], ['k' => 'v'], [], '', '1.9', '-1', '12abc', ' 7', '0x1', true, false, 1.5, -1];
+
+    /** The parser keeps NOT SENT and SENT-BUT-MALFORMED apart: null versus a named refusal. */
+    public function testTheExpectedVersionReaderSeparatesNotSentFromMalformed(): void
+    {
+        $this->assertNull(_pp_expected_version_from_request([]), 'not sent');
+        $this->assertNull(_pp_expected_version_from_request(['expected_version' => null]), 'null is not sent');
+        $this->assertSame(0, _pp_expected_version_from_request(['expected_version' => '0']));
+        $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => '7']));
+        $this->assertSame(7, _pp_expected_version_from_request(['expected_version' => 7]));
+
+        foreach (self::MALFORMED_BASELINES as $bad) {
+            $got = _pp_expected_version_from_request(['expected_version' => $bad]);
+            $this->assertInstanceOf(WP_Error::class, $got, var_export($bad, true) . ' is refused, not read as not sent');
+            $this->assertSame('invalid_param_type', $got->get_error_code());
+            $this->assertStringContainsString('"expected_version"', $got->get_error_message(), 'the refusal names the param');
+        }
+
+        // The message names a type, never the client's bytes.
+        $hostile = _pp_expected_version_from_request(['expected_version' => "12<b>\u{202E}x"]);
+        $this->assertInstanceOf(WP_Error::class, $hostile);
+        $this->assertStringNotContainsString('<b>', $hostile->get_error_message());
+        $this->assertStringNotContainsString("\u{202E}", $hostile->get_error_message());
+    }
+
+    /**
+     * The issue's repro through the REAL save handler: each malformed baseline is refused with
+     * the structured code the editor keys on, and nothing is written, the marker included.
+     * Before #1274 every one of these saved unconditionally over the stored composition.
+     */
+    public function testTheEditorSaveRefusesAMalformedBaselineWithoutWriting(): void
+    {
+        $id      = $this->page();
+        $before  = pp_get_composition($id);
+        $version = pp_get_composition_marker($id)['version'];
+        $body    = json_encode([['component' => 'section', 'props' => ['title' => 'Overwritten', 'body' => 'B']]]);
+
+        foreach (self::MALFORMED_BASELINES as $bad) {
+            $resp = _pp_save_composition_response([
+                'post_id'          => $id,
+                'nonce'            => 'x',
+                'composition'      => $body,
+                'expected_version' => $bad,
+            ]);
+            $label = var_export($bad, true);
+            $this->assertFalse($resp['ok'], "$label: refused");
+            $this->assertIsArray($resp['data'], "$label: the structured payload, not a bare string");
+            $this->assertSame('invalid_param_type', $resp['data']['code'], "$label: refused by name");
+            $this->assertStringContainsString('"expected_version"', $resp['data']['message']);
+        }
+
+        $this->assertSame($before, pp_get_composition($id), 'nothing was written');
+        $this->assertSame($version, pp_get_composition_marker($id)['version'], 'the version did not move');
+    }
+
+    /** The honest paths stay as they were: not sent → unconditional save; well-formed → the CAS runs. */
+    public function testTheEditorSaveHonestBaselinePathsAreUnchanged(): void
+    {
+        $id      = $this->page();
+        $version = pp_get_composition_marker($id)['version'];
+        $write   = static function (string $title): string {
+            return (string) json_encode([['component' => 'section', 'props' => ['title' => $title, 'body' => 'B']]]);
+        };
+
+        // Not sent: the documented back-compat unconditional write, even with no baseline at all.
+        $absent = _pp_save_composition_response(['post_id' => $id, 'nonce' => 'x', 'composition' => $write('Absent')]);
+        $this->assertTrue($absent['ok'], 'not sent → saved');
+        $this->assertSame('Absent', pp_get_composition($id)[0]['props']['title']);
+
+        // Well-formed but stale: the conflict check runs and refuses.
+        $stale = _pp_save_composition_response([
+            'post_id' => $id, 'nonce' => 'x', 'composition' => $write('Stale'), 'expected_version' => (string) $version,
+        ]);
+        $this->assertFalse($stale['ok'], 'the baseline the absent save moved past');
+        $this->assertSame('composition_conflict', $stale['data']['code']);
+        $this->assertSame('Absent', pp_get_composition($id)[0]['props']['title'], 'the stale write never landed');
+
+        // Well-formed and current: saved, and the next baseline comes back.
+        $current = pp_get_composition_marker($id)['version'];
+        $ok = _pp_save_composition_response([
+            'post_id' => $id, 'nonce' => 'x', 'composition' => $write('Current'), 'expected_version' => (string) $current,
+        ]);
+        $this->assertTrue($ok['ok'], 'a current baseline saves');
+        $this->assertSame('Current', pp_get_composition($id)[0]['props']['title']);
+        $this->assertSame($current + 1, $ok['data']['version']);
     }
 }

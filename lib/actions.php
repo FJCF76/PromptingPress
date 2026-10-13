@@ -4460,15 +4460,21 @@ function pp_action_is_composition_mutating(string $name): bool {
  *
  * The version counter is always a non-negative integer. Anything that is not a plain
  * non-negative integer (a float like 1.9, a mixed string like "12abc", an array, a bool)
- * is a malformed/hostile client value — normalized to null (ABSENT) rather than coerced
- * into a wrong baseline that would either spuriously conflict or silently match the wrong
- * version. A legitimate 0 is preserved (a legacy/never-written page reads as version 0 and
- * initializes to version 1). Backs the editor's request baseline
- * (_pp_expected_version_from_request, lib/admin.php) and the chat batch baseline-map parser
- * (#404), so those two surfaces reject the same hostile shapes. The chat SINGLE-execute
- * mandate does not route through here: its baseline arrives as an action param already
- * int-coerced by pp_ai_coerce_params() and then int-type-checked by pp_validate_action(),
- * so a non-integer expected_version is rejected there instead (invalid_param_type).
+ * is a malformed/hostile client value — normalized to null ("not a version") rather than
+ * coerced into a wrong baseline that would either spuriously conflict or silently match the
+ * wrong version. A legitimate 0 is preserved (a legacy/never-written page reads as version 0
+ * and initializes to version 1). Backs the editor's request baseline
+ * (_pp_expected_version_from_request, used by lib/admin.php) and the chat batch baseline-map
+ * parser (#404), so those two surfaces reject the same hostile shapes. What a caller does
+ * with null is its own contract: the editor request helper turns a SENT value that comes
+ * back null into an invalid_param_type refusal (#1274); the batch parser drops the entry,
+ * and the #404 mandate then refuses the batch for want of a baseline.
+ *
+ * The chat SINGLE-execute mandate does not route through here: its baseline arrives as an
+ * action param run through pp_ai_coerce_params() and then int-type-checked by
+ * pp_validate_action(). A non-numeric string is refused there (invalid_param_type), but a
+ * numeric-looking one ("1.9", "-1", " 5") is `(int)`-coerced first and passes — tracked as
+ * #1289.
  *
  * @param mixed $raw  Untrusted value.
  * @return int|null
@@ -4484,24 +4490,43 @@ function _pp_normalize_version_baseline($raw): ?int {
 }
 
 /**
- * Extracts the optimistic-locking baseline (#13) from an untrusted request array ($_POST),
- * returning a clean non-negative integer version or null.
+ * Extracts the optimistic-locking baseline (#13) from an untrusted request array ($_POST):
+ * a clean non-negative integer version, null when none was sent, or a refusal when one was
+ * sent but is not a version.
  *
- * The version counter is always a non-negative integer. Anything that is not a plain
- * non-negative integer string (a float like "1.9", a mixed value like "12abc", an array
- * from `expected_version[]=`, a bool) is a malformed/hostile client value — treated as
- * ABSENT (null) rather than `(int)`-coerced into a wrong baseline that would either
- * spuriously conflict or, worse, silently match the wrong version. Absent → the write
- * skips the CAS (documented back-compat), the same as any caller that omits it.
+ * NOT SENT and SENT BUT MALFORMED ARE DIFFERENT ANSWERS (#1274). Not sent (the key is
+ * absent, or null) → null → the write skips the CAS (documented back-compat), the same as
+ * any caller that omits it. Sent but not a plain non-negative integer (an array from
+ * `expected_version[]=`, an empty string, a float like "1.9", a signed or mixed value like
+ * "-1" or "12abc", a bool) → an `invalid_param_type` WP_Error the caller returns as its
+ * refusal, before any write. Before #1274 that second case was folded into the first, so a
+ * client that ASKED for the conflict check and sent a broken baseline got an unconditional
+ * write instead: the one outcome the check exists to prevent. Nothing is `(int)`-coerced —
+ * a coerced baseline would either spuriously conflict or silently match the wrong version.
+ *
+ * Well-formedness is _pp_normalize_version_baseline()'s rule, the same one the chat batch
+ * baseline-map parser uses; this helper only adds the sent/not-sent split. The message
+ * names the PHP type and never reflects the client's bytes.
  *
  * @param array $src  An untrusted request array (typically $_POST).
- * @return int|null
+ * @return int|null|WP_Error  The baseline, null when not sent, or the refusal.
  */
-function _pp_expected_version_from_request(array $src): ?int {
+function _pp_expected_version_from_request(array $src) {
     if (!isset($src['expected_version'])) {
         return null;
     }
-    return _pp_normalize_version_baseline($src['expected_version']);
+    $raw     = $src['expected_version'];
+    $version = _pp_normalize_version_baseline($raw);
+    if ($version !== null) {
+        return $version;
+    }
+    return new WP_Error(
+        'invalid_param_type',
+        sprintf(
+            'Param "expected_version" must be a non-negative whole number, got %s. The request was refused before anything was written: a malformed version is never read as "not sent". Send a whole number, or leave expected_version out for an unconditional save.',
+            is_string($raw) ? 'a string that is not one' : gettype($raw)
+        )
+    );
 }
 
 function _pp_action_preview(string $name, string $scope, array $target, $before, $after, array $changes): array {

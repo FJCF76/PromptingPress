@@ -50,6 +50,14 @@ before it.
   `findings_unavailable` until the report builds again. In a batch, a step whose report
   crashes now succeeds instead of rolling back. The chat's undo card shows the row as a
   notice, not as an issue.
+- A broken `expected_version` on the editor's save or publish request no longer switches off
+  the conflict check (#1274). Before, a value that was sent but was not a version (for example
+  `expected_version[]=x`, an empty string or `"12abc"`) was read as "not sent", so the save went
+  through unconditionally and could overwrite a change made in the meantime, which is exactly
+  what the check exists to stop. Now the request is refused with `invalid_param_type`, naming the
+  param, before anything is written or published. Not sending `expected_version` at all still
+  saves unconditionally, and a well-formed one still runs the check. The editor itself always
+  sends a well-formed number, so editing in the browser is unchanged.
 
 ### ⚠️ Behaviour changes
 - Item values that were converted to the right type, or silently treated as not sent, before
@@ -57,6 +65,14 @@ before it.
   `page_id` such as `"12"`, a float, a boolean, an empty string `""` or `false` as `page_id`, and a
   number or boolean as `url` or `label`. Send a JSON integer for `page_id` and strings for `url`
   and `label`. Absent fields and `null` are unaffected.
+- A request to `pp_save_composition` or `pp_publish_page` that carries an `expected_version`
+  which is not a non-negative whole number (an array, an empty string, `"1.9"`, `"-1"`,
+  `"12abc"`) is now refused with `invalid_param_type` instead of saving without the conflict
+  check (#1274). This holds on a publish with an empty composition too (such a publish still
+  runs no conflict check for a well-formed baseline, as before; #1290). An empty
+  `expected_version=` is refused too, so a script that sent an empty or null baseline to mean
+  "no check" must leave the field out instead. Send a whole number, or leave the field out for
+  an unconditional save.
 
 ### Docs
 - The `set_menu` action semantics, `AI_CONTEXT.md` and `ai-instructions/website-building.md` state
@@ -93,6 +109,16 @@ before it.
   line; acknowledgements are held and acknowledging is refused, then both recover once the
   report builds. `tests/bootstrap.php` gains an `attachment_url_throws_in_report` hook, and the
   chat undo card test covers the hoisted row.
+- `tests/TypedInputRefusalTest.php` §5 (#1274): the request reader keeps "not sent" (null)
+  apart from every malformed shape (a named refusal that never echoes the client's bytes); the
+  real save handler refuses each malformed baseline with no write and no version change; and
+  the honest paths are pinned unchanged (not sent saves unconditionally, a stale baseline
+  conflicts, a current one saves). `tests/ActionsTest.php` now pins the refusal instead of the
+  old read-as-absent behavior. `tests/e2e/typed-input-refusal.spec.ts`, on a real WordPress:
+  `expected_version[]=x` on save and publish, `expected_version=12abc` on publish, and a
+  malformed baseline on a publish with no composition are all refused by name, with the page
+  still a draft and its composition unchanged; and a well-formed baseline on publish still runs
+  the check (stale → `composition_conflict`, current → published).
 
 ---
 
