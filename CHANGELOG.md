@@ -4,22 +4,36 @@ All notable changes to PromptingPress are documented here.
 
 ---
 
-## [v2.1.2] — 2026-10-12 — menu items are validated by type before any change is made
+## [v2.1.2] — 2026-10-13 — narrow hardening: typed menu validation, batch and findings-report guards, editor baseline refusal (#1272, #1278, #1274)
 
-**`set_menu` now checks the type of every menu item field (including dropdown children) and
-refuses a mistyped one by name before it changes anything.** A link's `page_id` must be a JSON
-integer, and its `url` and `label` must be strings. Anything else, such as a list where a label
-should be or a quoted number where a page id should be, is answered with `invalid_param_type` and
-the exact field path (`Param "items[0].children[1].label" must be string, got array.`). The
-existing menu stays as it was.
+**TL;DR: a mistyped menu item is refused by name before anything changes, a batch step that
+crashes fails cleanly and the batch rolls back (a page, media or redirect write the rollback may
+have missed is flagged in `rollback_errors`; remaining gaps in #1284 and #1285), a findings report that crashes no longer fails a change that already happened,
+and a broken editor baseline is refused instead of switching off the conflict check.**
+Four narrow fixes, no render changes, no stored-data changes; rollback to 2.1.1 is clean.
 
-This continues the type-validation line of v2.1.1 (#913, #931, #935), which refused untyped input
-by name on top-level params. `set_menu` takes its items as one nested list, so that check could not
-see inside it. Each item now gets the same rule, with the types `add_menu_item` declares for the
-same three fields. As at the top-level check, an absent field or a `null` counts as not sent. The
-refusal happens at validation, so preview, execute, WP-CLI and the chat all answer the same way.
-In a batch, a refused `set_menu` step fails that step, and the existing rollback undoes the steps
-before it.
+- **Menu items are validated by type before any change is made.** `set_menu` checks every menu
+  item field, including dropdown children: a link's `page_id` must be a JSON integer, and its `url`
+  and `label` must be strings. Anything else is answered with `invalid_param_type` and the exact
+  field path (`Param "items[0].children[1].label" must be string, got array.`), and the existing
+  menu stays as it was. This continues the type-validation line of v2.1.1 (#913, #931, #935) inside
+  the nested item list, with the types `add_menu_item` declares; an absent field or a `null` counts
+  as not sent. The refusal happens at validation, so preview, execute, WP-CLI and the chat all
+  answer the same way.
+- **A batch step that crashes becomes an ordinary failed step and the batch rolls back (#1272);**
+  a page, media or redirect write the rollback may have missed is flagged in `rollback_errors`
+  instead of being silently left behind. The step answers `internal_error` with a fixed message; the
+  error's details go only to the site's PHP error log. What the guard does not cover yet is
+  tracked in #1284 and #1285.
+- **A findings report that crashes becomes one `findings_skipped` warning (#1278).** The write
+  still answers truthfully, `wp pp validate site` fails the page instead of crashing, and
+  acknowledgements are held (acknowledging answers `findings_unavailable`) until the report builds
+  again.
+- **A malformed `expected_version` on the editor's save or publish is refused (#1274)** with
+  `invalid_param_type`, including an empty string. Leaving the field out still saves
+  unconditionally. The editor sends the page's stored version, so browser editing is unchanged,
+  except on a page whose stored version is negative (corrupt or imported meta): its saves and
+  publishes are refused until the row is repaired (#1291). Related open gaps: #1289, #1290.
 
 ### Fixed
 - `set_menu` validates `page_id` (int), `url` (string) and `label` (string) on every item and every
@@ -56,8 +70,10 @@ before it.
   through unconditionally and could overwrite a change made in the meantime, which is exactly
   what the check exists to stop. Now the request is refused with `invalid_param_type`, naming the
   param, before anything is written or published. Not sending `expected_version` at all still
-  saves unconditionally, and a well-formed one still runs the check. The editor itself always
-  sends a well-formed number, so editing in the browser is unchanged.
+  saves unconditionally, and a well-formed one still runs the check. The editor sends the page's
+  stored version, so editing in the browser is unchanged, except on a page whose stored version
+  is negative (corrupt or imported meta), whose saves and publishes are refused until the row is
+  repaired (#1291).
 
 ### ⚠️ Behaviour changes
 - Item values that were converted to the right type, or silently treated as not sent, before
@@ -70,11 +86,14 @@ before it.
   `"12abc"`) is now refused with `invalid_param_type` instead of saving without the conflict
   check (#1274). This holds on a publish with an empty composition too (such a publish still
   runs no conflict check for a well-formed baseline, as before; #1290). An empty
-  `expected_version=` is refused too, so a script that sent an empty or null baseline to mean
+  `expected_version=` is refused too, so a script that sent an empty (or "null"-string) baseline to mean
   "no check" must leave the field out instead. Send a whole number, or leave the field out for
   an unconditional save.
 
 ### Docs
+- `style.css` and `readme.txt` now say "Tested up to: 7.1.3", following the CI runtime E2E leg,
+  which moved to WordPress 7.1.3, production's core (#1281). `README.md` and `readme.txt` state
+  that WordPress multisite is untested and unsupported (#1282).
 - The `set_menu` action semantics, `AI_CONTEXT.md` and `ai-instructions/website-building.md` state
   the item field types and the refusal.
 - `AI_CONTEXT.md`, `ai-instructions/website-building.md` and `docs/operating-loop-safety.md`
