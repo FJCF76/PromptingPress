@@ -663,7 +663,7 @@ final class CompositionFindingsBoundsTest extends TestCase
     }
 
     /**
-     * RESTORE NEVER EMITS `findings_skipped`, AND THE CHAT CARD DEPENDS ON IT (#655).
+     * RESTORE NEVER TAKES THE WRITE PATH'S SIZE GATE (#655, #233).
      *
      * There are two "this report is about the report" species. `findings_truncated` comes
      * from the bounder and carries a `total`; `findings_skipped` comes from the ACCEPTED
@@ -672,17 +672,13 @@ final class CompositionFindingsBoundsTest extends TestCase
      * the gate — #233's premise is that you are told exactly what an old snapshot brought
      * back, and a size gate would change that to "sometimes you are told nothing".
      *
-     * #655's undo card lifts the truncation tail out of the collapsed disclosure so the
-     * `wp pp check page` command it names stays visible. That hoist recognizes exactly one
-     * species. A `findings_skipped` entry reaching the same card would match neither the
-     * hoist predicate nor its `total` requirement, so it would render as an ordinary
-     * finding row inside the disclosure AND be counted by the heading as an issue with the
-     * composition — burying the STRONGER disclaimer of the two behind the weaker one.
-     *
-     * That cannot happen today only because of the routing this test pins. It was a PHP
-     * comment; a JS renderer now leans on it, so it is a test.
+     * SINCE #1278 restore CAN carry one `findings_skipped`: the page findings guard's, when
+     * the report throws and could not be built at all. The undo card hoists that row out of
+     * its counts (ppChatUndoReportSkipped, assets/js/pp-ai-chat.js), so this test no longer
+     * guards the card; it pins the routing, on fixtures that do not throw (the throwing case
+     * is FindingsReportThrowableGuardTest's).
      */
-    public function testRestoreNeverEmitsTheSkippedSpeciesTheUndoCardCannotHoist(): void
+    public function testRestoreNeverRoutesThroughTheWritePathsSizeGate(): void
     {
         foreach ([$this->pathologicalPage(), $this->slightlyStalePage(), $this->cleanPage()] as $id) {
             $findings = $this->restoreAfterOneWrite($id)['findings'];
@@ -690,9 +686,8 @@ final class CompositionFindingsBoundsTest extends TestCase
             $this->assertNotContains(
                 'findings_skipped',
                 array_column($findings, 'type'),
-                'restore took the write path\'s availability gate — the chat undo card hoists'
-                . ' only findings_truncated, so this entry would render as an ordinary finding'
-                . ' and be counted as a composition problem (#655)'
+                'restore took the write path\'s availability gate (#233): a size gate would turn'
+                . ' "you are told what the snapshot brought back" into "sometimes you are told nothing"'
             );
         }
 

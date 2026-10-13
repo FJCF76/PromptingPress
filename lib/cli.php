@@ -1617,6 +1617,14 @@ class PP_Apply_Command extends WP_CLI_Command {
             WP_CLI::warning($no_undo . ' reverted post(s) have NO UNDO POINT: the rollback write could not record the state it replaced, so that revert cannot itself be undone (see "findings" in the report above). Each page keeps its earlier history entries — run `wp pp operate composition-history --post_id=<id>` before editing those pages again.');
         }
 
+        // #1278: a post whose findings report could not be built is not "checked and clean". The
+        // composition count above rightly leaves that row out, so it gets its own sentence, as
+        // the no-undo-point row does.
+        $not_built = pp_operate_restore_run_report_skipped_count($report);
+        if ($not_built > 0) {
+            WP_CLI::warning($not_built . ' reverted post(s) have NO FINDINGS REPORT: it could not be built (an internal error; the details are in the site\'s error log), so nothing here says those compositions are healthy (see "findings" in the report above). The rollback itself was applied.');
+        }
+
         $reverted = count($report['reverted']);
         $changed  = count(array_filter($report['reverted'], static function ($r) { return !empty($r['changed']); }));
 
@@ -1879,6 +1887,12 @@ WP_CLI::add_command('pp apply', 'PP_Apply_Command');
  *     errors   severity 'error'    a normal write of this composition would be REJECTED
  *     smells   severity 'warning'  advisory; the write that produced it was accepted
  *     styling  ambiguous targeting (duplicate types without authored ids)
+ *
+ * A REPORT THAT COULD NOT BE BUILT FAILS, IT DOES NOT CRASH OR PASS (#1278). When the findings
+ * report throws, the assembler's guard returns one `findings_skipped` warning in its place: it
+ * lands in `smells`, so `check page` never prints its success line and `validate site` fails
+ * the page, and every stored acknowledgement is held
+ * rather than orphaned. The throw's details go to the error log, never to stdout.
  *
  * Pure: it takes a decoded composition and returns arrays. No WP_CLI, no exit — the
  * commands own presentation and exit codes.
@@ -2143,6 +2157,15 @@ function _pp_cli_print_acknowledgements(array $diagnostics, int $post_id): void 
     foreach ($diagnostics['held'] ?? [] as $row) {
         // #1222 (7A ruling Q1 = B): never "remove it". The check did not run, so nothing says
         // the judged finding is gone; deleting the row would lose a correct acknowledgement.
+        if (($row['ack_held'] ?? null) === PP_ACK_HELD_REPORT_NOT_BUILT) {
+            // #1278: no check ran at all, so the per-band wording would point at lines that are
+            // not there.
+            WP_CLI::line('  - HELD acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
+                . ': the findings report for this page could not be built (see the findings_skipped line above), '
+                . 'so this command cannot tell whether its finding is still there. It is kept, not applied, until the '
+                . 'report can be built again. Do not remove it.');
+            continue;
+        }
         WP_CLI::line('  - HELD acknowledgement ' . _pp_cli_printable((string) $row['ack_key'])
             . ': the ' . _pp_cli_printable((string) ($row['ack_check'] ?? '')) . ' check it judged could not run on '
             . 'its band (see the udc_check_not_run lines above; past their limit a band may have no line of its own), '

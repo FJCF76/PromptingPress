@@ -1869,6 +1869,19 @@ if (!function_exists('wp_get_attachment_url')) {
             && in_array('pp_udc_compile_band', array_column(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 'function'), true)) {
             throw new \RuntimeException((string) $GLOBALS['_pp_test_store']['attachment_url_throws'][$attachment_id]);
         }
+        // The same lookup throwing OUTSIDE the udc engine's per-check guards (#1278): only while
+        // the page findings assembler is on the stack and no band compile is, which is the
+        // write-rule validator arm (pp_validate_composition_errors() -> pp_udc_validate_map()).
+        // The value is the Throwable to throw, or a message for a RuntimeException. The write
+        // gate's own validator runs outside the assembler, so fixture writes still land.
+        if (isset($GLOBALS['_pp_test_store']['attachment_url_throws_in_report'][$attachment_id])) {
+            $stack = array_column(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 'function');
+            if (in_array('_pp_composition_findings_unguarded', $stack, true)
+                && !in_array('pp_udc_compile_band', $stack, true)) {
+                $throw = $GLOBALS['_pp_test_store']['attachment_url_throws_in_report'][$attachment_id];
+                throw $throw instanceof \Throwable ? $throw : new \RuntimeException((string) $throw);
+            }
+        }
         return 'https://example.com/wp-content/uploads/image-' . $attachment_id . '.jpg';
     }
 }
