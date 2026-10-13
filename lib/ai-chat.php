@@ -1242,6 +1242,14 @@ function _pp_ai_batch_rejection_note(array $batch): ?string {
         return null;
     }
 
+    // A step whose executor THREW (#1272) is a site fault in the same class: the proposal
+    // was not refused for anything the model wrote, the details are only in the error log,
+    // and a note would hand the operator the repair affordance against a fault no rewrite
+    // can fix. Asked of the constant that owns the code, not spelled as a literal.
+    if ($code === PP_BATCH_STEP_THREW_CODE) {
+        return null;
+    }
+
     // Unframed like the other two reflected spans: the action name is echoed from the step
     // the MODEL wrote, so it is caller bytes wearing a familiar shape, not a literal.
     $action = _pp_ai_unframe(_pp_clean_reflected_text((string) ($step['action'] ?? ''), PP_REFLECTED_NAME_MAX));

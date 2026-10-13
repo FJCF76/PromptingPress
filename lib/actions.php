@@ -3526,6 +3526,142 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
 }
 
 /**
+ * The failed step's message when its executor threw (#1272). Fixed text, never the
+ * exception's: see _pp_batch_step_threw_envelope().
+ */
+const PP_BATCH_STEP_THREW_MESSAGE = 'This step stopped on an internal error and was not completed. '
+    . 'The details were written to the site\'s error log.';
+
+/** The failed step's error_code when its executor threw (#1272). */
+const PP_BATCH_STEP_THREW_CODE = 'internal_error';
+
+/**
+ * The post-apply validation report's message when the validator itself threw (#1272).
+ * Same posture as PP_BATCH_STEP_THREW_MESSAGE: fixed text, details in the error log.
+ */
+const PP_BATCH_VALIDATION_THREW_MESSAGE = 'Validation failed: the post-apply check stopped on an '
+    . 'internal error. The details were written to the site\'s error log.';
+
+/**
+ * Turns a step executor's throw into an ordinary failed-step envelope (#1272), so
+ * pp_ai_execute_batch() can roll back exactly as it does for a refused step.
+ *
+ * WHY THE MESSAGE IS FIXED. This envelope is read by the chat card, by the model (through
+ * the rejection note, lib/ai-chat.php) and by the CLI. An exception message is written for
+ * a developer and can quote whatever the code was holding: a stored value, a file path, a
+ * fragment of SQL. The chat sink would clean its control characters but would still show
+ * the text. So the envelope says only that the step stopped on an internal error, and the
+ * class, message and throw site go to the error log, where the person who can act on them
+ * looks. Same split as the findings probes in lib/udc.php.
+ *
+ * The shape is the canonical rejected envelope (_pp_action_error()): `index` is null
+ * because a throw belongs to no composition band.
+ *
+ * UNTYPED ON PURPOSE. This runs inside the guard's catch, so it must not throw itself. The
+ * executor is public and a direct caller can hand it a string-keyed step list or a
+ * non-string name; a typed signature would turn exactly that input into a second, uncaught
+ * TypeError before the rollback runs.
+ *
+ * @param  int|string $i     The step's key in the batch.
+ * @param  mixed      $name  The step's action or apply name.
+ * @param  \Throwable $e     What the executor threw.
+ * @return array             A failed-step envelope.
+ */
+function _pp_batch_step_threw_envelope($i, $name, \Throwable $e): array {
+    $name = is_scalar($name) ? (string) $name : get_debug_type($name);
+    _pp_batch_log_throwable('batch step ' . _pp_batch_log_text($i) . ' (' . _pp_batch_log_text($name) . ') threw', $e);
+
+    return [
+        'ok'         => false,
+        'action'     => $name,
+        'scope'      => 'unknown',
+        'target'     => [],
+        'changes'    => [],
+        'error'      => PP_BATCH_STEP_THREW_MESSAGE,
+        'error_code' => PP_BATCH_STEP_THREW_CODE,
+        'index'      => null,
+    ];
+}
+
+/**
+ * Writes one throw to the error log as ONE line (#1272): what failed, the exception's class,
+ * message and throw site.
+ *
+ * Every part is passed through _pp_batch_log_text(). An exception message often quotes the
+ * value that caused it, and that value can be stored or caller-supplied text; raw, a CR/LF
+ * in it would let it write a second, forged log line under this one.
+ *
+ * @param string     $what  Fixed prose naming what threw.
+ * @param \Throwable $e     The throwable.
+ */
+function _pp_batch_log_throwable(string $what, \Throwable $e): void {
+    error_log(
+        'PromptingPress: ' . $what . ': ' . get_class($e) . ': ' . _pp_batch_log_text($e->getMessage())
+        . ' at ' . _pp_batch_log_text($e->getFile()) . ':' . $e->getLine()
+    );
+}
+
+/**
+ * One value made safe for a single error-log line (#1272): control bytes, and the Unicode
+ * line breaks some log viewers honour (NEL, LINE/PARAGRAPH SEPARATOR), become `?`, and the
+ * text is cut at 1000 bytes on a character boundary, so one value can neither split the
+ * line nor flood the log.
+ *
+ * @param  mixed $value
+ * @return string
+ */
+function _pp_batch_log_text($value): string {
+    $text = is_scalar($value) ? (string) $value : get_debug_type($value);
+    $text = mb_strcut($text, 0, 1000, 'UTF-8');
+    $text = str_replace(["\xC2\x85", "\xE2\x80\xA8", "\xE2\x80\xA9"], '?', $text);
+    return (string) preg_replace('/[\x00-\x1F\x7F]/', '?', $text);
+}
+
+/**
+ * The rollback entry owed when a step THREW and its class is one the rollback can only undo
+ * from the step's own result (#1272), or null when the throwing step is not such a class.
+ *
+ * WHY THIS EXISTS. Three kinds of write are undone by POSITIVE tracking, read from a
+ * succeeded step's result: a page create_page made (`created_posts`), an attachment
+ * import_media imported (`created_attachments`), a redirect row a redirect step wrote
+ * (`redirects_written`). A step that writes and then throws returns no result to read, so
+ * the rollback never learns of the write. Without this entry the batch would report
+ * `rolled_back: true` with an EMPTY rollback_errors channel, and since #854/#857 an empty
+ * channel means nothing survived. That would turn a visible 500 into a clean-looking report
+ * that may be false. The entry keeps the channel honest: it is a `failed` kind, because a
+ * removal may have been owed and was not attempted.
+ *
+ * FIXED TEXT, same rule as the step's own message: the step number and the class of thing,
+ * never a stored value or the exception's text.
+ *
+ * Every other step class is covered by the snapshot, which captures the targets the batch
+ * NAMES before step 1, so a throw after its write is restored like any refused step.
+ *
+ * @param  int    $position  1-based step number.
+ * @param  string $type      The step's type ('apply' or anything else, read as an action).
+ * @param  mixed  $name      The step's name.
+ * @return array|null        A _pp_rollback_entry(), or null.
+ */
+function _pp_batch_threw_unseen_write_entry(int $position, $type, $name): ?array {
+    $is_apply = $type === 'apply';
+    if ($is_apply && $name === 'import_media') {
+        $thing = 'a media attachment';
+    } elseif (!$is_apply && $name === 'create_page') {
+        $thing = 'a page';
+    } elseif (!$is_apply && ($name === 'create_redirect' || $name === 'remove_redirect')) {
+        $thing = 'a redirect change';
+    } else {
+        return null;
+    }
+    return _pp_rollback_entry(PP_ROLLBACK_ERROR_FAILED, sprintf(
+        'Step %d stopped on an internal error and may already have made %s that the rollback '
+        . 'cannot see, so it may still be on the site. Check for it before retrying.',
+        $position,
+        $thing
+    ));
+}
+
+/**
  * Executes a batch of proposal steps atomically (issue 137): snapshots
  * every post/option any step could touch, runs each step in order via the
  * existing pp_execute_action()/pp_execute_apply(), and rolls every
@@ -3596,6 +3732,16 @@ function _pp_restore_batch_snapshot(array $snapshot): array {
  * See _pp_batch_forget_discarded_locator() for why null and not a re-anchored offset,
  * and for what deliberately stays mid-batch (the message text; the succeeded steps'
  * reports).
+ *
+ * A STEP WHOSE EXECUTOR THROWS IS A FAILED STEP (#1272), not an escaped exception: it
+ * carries error_code PP_BATCH_STEP_THREW_CODE and the fixed PP_BATCH_STEP_THREW_MESSAGE,
+ * and the batch rolls back as for any refused step. The exception's own text goes to the
+ * error log only. One limit is inherited rather than added: a create_page, import_media or
+ * redirect step that writes its page, attachment or redirect row and THEN throws reported
+ * nothing, so the rollback has no record of the write to undo (the positive tracking below
+ * reads the step's result). It is not hidden: such a throw adds one `failed` entry to
+ * rollback_errors (_pp_batch_threw_unseen_write_entry()), so the channel is never empty
+ * when an orphan may have survived.
  *
  * @param  array $steps      Each: ['type' => 'action'|'apply', 'name' => string, 'params' => array]
  * @param  array $baselines  {post_id => version} CAS baselines per page (#404); [] = none.
@@ -3704,10 +3850,14 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
     // Consumed only by _pp_batch_forget_discarded_locator() at the failure return.
     $composition_written = [];
 
+    $position = 0; // 1-based step number for operator-facing text; $i may be a string key.
+
     foreach ($steps as $i => $step) {
+        $position++;
         $type   = $step['type']   ?? '';
         $name   = $step['name']   ?? '';
         $params = $step['params'] ?? [];
+        $threw  = false;
 
         // Thread the CAS baseline into a composition-mutating step (#404). Use the chained
         // post-write version if this batch already wrote the page, else the browser
@@ -3726,9 +3876,44 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
             }
         }
 
-        $result = ($type === 'apply')
-            ? pp_execute_apply($name, $params)
-            : pp_execute_action($name, $params);
+        // THE LAST-RESORT GUARD AROUND STEP DISPATCH (#1272). The executors refuse
+        // bad input by returning an envelope; an executor that THROWS instead used to escape
+        // this function before the rollback below could run, so the steps before it stayed
+        // applied and the chat request died as a 500. Caught here, the throw becomes an
+        // ordinary failed step and takes the same exit every refused step takes: the
+        // snapshot is restored and the batch reports where it stopped.
+        //
+        // \Throwable, not \Exception: a TypeError from a mistyped value is the likeliest
+        // thing to arrive here, and it is an Error.
+        //
+        // THE MESSAGE IS FIXED and the exception text goes to the error log only. An
+        // exception message can quote stored values, paths or SQL back, and this envelope
+        // reaches the chat card, the model's context and the CLI; see
+        // _pp_batch_step_threw_envelope().
+        //
+        // An output buffer the step opened and never closed is discarded first: left open,
+        // it would swallow the JSON response the chat is about to send.
+        //
+        // WHAT STILL ESCAPES, stated: a throw from the rollback itself
+        // (_pp_restore_batch_snapshot_report() below) and from the bookkeeping after this
+        // dispatch is not caught here. Only the executor call is guarded.
+        $ob_level = ob_get_level();
+        try {
+            $result = ($type === 'apply')
+                ? pp_execute_apply($name, $params)
+                : pp_execute_action($name, $params);
+        } catch (\Throwable $e) {
+            // Stops at the first buffer that refuses to go (one opened without
+            // PHP_OUTPUT_HANDLER_REMOVABLE never drops a level): unchecked, this loop would
+            // spin forever, and a guard that can hang is worse than the 500 it replaces.
+            while (ob_get_level() > $ob_level) {
+                if (!@ob_end_clean()) {
+                    break;
+                }
+            }
+            $result = _pp_batch_step_threw_envelope($i, $name, $e);
+            $threw  = true;
+        }
 
         if (is_wp_error($result)) {
             $result = [
@@ -3821,12 +4006,16 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
             try {
                 $result['validation'] = pp_post_apply_validate((int) $params['post_id']);
             } catch (\Throwable $e) {
+                // Fixed message, details to the error log only (#1272): this report rides
+                // the step's envelope into the chat card and the model's context, and an
+                // exception message can quote stored values back.
+                _pp_batch_log_throwable('batch step ' . _pp_batch_log_text($i) . ' post-apply validation threw', $e);
                 $result['validation'] = [
                     'ok'       => false,
                     'warnings' => [],
                     'errors'   => [[
                         'check'   => 'validation_error',
-                        'message' => 'Validation failed: ' . $e->getMessage(),
+                        'message' => PP_BATCH_VALIDATION_THREW_MESSAGE,
                     ]],
                 ];
             }
@@ -3874,6 +4063,15 @@ function pp_ai_execute_batch(array $steps, array $baselines = []): array {
             // twice, so `rollback_error_kinds[i]` describes `rollback_errors[i]` by
             // construction rather than by two consumers agreeing to be careful.
             $rollback_report = _pp_restore_batch_snapshot_report($snapshot);
+            // A THROW CAN HIDE A WRITE THE ROLLBACK CANNOT SEE (#1272). See
+            // _pp_batch_threw_unseen_write_entry(): the clean report would otherwise claim
+            // nothing survived when an orphan may have.
+            if ($threw) {
+                $unseen = _pp_batch_threw_unseen_write_entry($position, $type, $name);
+                if ($unseen !== null) {
+                    $rollback_report[] = $unseen;
+                }
+            }
             return [
                 'ok'                   => false,
                 'steps'                => $results,

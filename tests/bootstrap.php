@@ -1726,6 +1726,14 @@ if (!function_exists('wp_get_upload_dir')) {
     function wp_get_upload_dir(): array {
         // Overridable so tests can exercise a misconfigured/empty baseurl
         // (#153 fail-open fix). Defaults to the standard test uploads dir.
+        //
+        // ['upload_dir_throws'] — a string here makes this call throw a RuntimeException
+        // carrying it, modelling a filtered upload_dir that fails. The post-apply validator
+        // reads it outside its per-component try, so this is how a test reaches the batch's
+        // "validation threw" arm (#1272).
+        if (isset($GLOBALS['_pp_test_store']['upload_dir_throws'])) {
+            throw new \RuntimeException((string) $GLOBALS['_pp_test_store']['upload_dir_throws']);
+        }
         if (isset($GLOBALS['_pp_test_store']['upload_dir']) && is_array($GLOBALS['_pp_test_store']['upload_dir'])) {
             return $GLOBALS['_pp_test_store']['upload_dir'];
         }
