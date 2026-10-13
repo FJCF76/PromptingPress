@@ -237,7 +237,10 @@ report, `operate inspect` and the chat still list an acknowledged advisory as a 
   covers it, #1222), so nothing says whether its finding is still there. `check page` and `validate site` list
   it as HELD: kept,
   not applied, and the page fails on the not-run line. Do NOT remove it; once the check runs again
-  it applies again (or reads stale or orphaned as above).
+  it applies again (or reads stale or orphaned as above). The same holds for EVERY acknowledgement
+  on the page when the whole findings report could not be built (one `findings_skipped` line saying
+  a check stopped on an internal error, #1278): nothing was checked, so nothing is gone. Acknowledging
+  is refused (`findings_unavailable`) until the report can be built again.
 - Restoring the exact content you acknowledged revives the acknowledgement: it is the same judged
   state.
 
