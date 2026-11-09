@@ -9,7 +9,10 @@ permissions:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest, for the same reason as e2e.yml (#1294): GitHub
+    # moved ubuntu-latest to ubuntu-26.04 on 2026-11-08. Keep the release job on
+    # the image it was last proven on, so a release day never meets a new image.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout tagged commit
         uses: actions/checkout@v4
